@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-de3b99bc.js";
+            window.path_to_searchindex_js = "searchindex-dedac353.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-b344b546.js"></script>
+        <script src="toc-17165dda.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -4215,33 +4215,101 @@ Layer 3: features = ["rmw-xrce", "platform-bare-metal", "ros-humble"]
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="porting-to-a-new-platform"><a class="header" href="#porting-to-a-new-platform">Porting to a New Platform</a></h1>
 <p>This guide explains how to add a new platform to nano-ros. A “platform” means
-an RTOS or bare-metal environment that provides the low-level primitives
-zenoh-pico (or XRCE-DDS) needs at link time: clock, memory, sleep, threading,
-sockets, and random number generation.</p>
-<h2 id="architecture-two-crate-pattern"><a class="header" href="#architecture-two-crate-pattern">Architecture: Two-Crate Pattern</a></h2>
-<p>Every platform is split into two crates:</p>
+an RTOS or bare-metal environment that nano-ros runs on.</p>
+<h2 id="how-nano-ros-accesses-the-system"><a class="header" href="#how-nano-ros-accesses-the-system">How nano-ros accesses the system</a></h2>
+<p>nano-ros core (<code>nros-node</code>, <code>nros-core</code>, <code>nros-serdes</code>, etc.) is <code>#![no_std]</code>
+and <strong>has zero platform calls</strong>. All OS/hardware access is delegated to the
+RMW transport backend:</p>
+<pre><code>Application
+  └── nros-node            (pure no_std Rust — Executor, Node, pub/sub, actions)
+       └── nros-rmw        (trait layer — abstracts transport)
+            ├── nros-rmw-zenoh   → zpico-platform-*   (clock, memory, threading, sockets, ...)
+            └── nros-rmw-xrce    → xrce-platform-*    (clock, transport callbacks)
+</code></pre>
+<p>When you “port nano-ros to a new platform”, you are really porting the
+<strong>transport middleware’s platform layer</strong>. The set of required symbols depends
+entirely on which RMW backend you use.</p>
+<h2 id="comparison-of-rmw-platform-requirements"><a class="header" href="#comparison-of-rmw-platform-requirements">Comparison of RMW platform requirements</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Capability</th><th>Zenoh-pico (rmw-zenoh)</th><th>XRCE-DDS (rmw-xrce)</th></tr>
+</thead>
+<tbody>
+<tr><td>Clock</td><td>7 symbols (<code>z_clock_*</code>)</td><td>2 symbols (<code>uxr_millis</code>, <code>uxr_nanos</code>)</td></tr>
+<tr><td>Memory</td><td>3 symbols (<code>z_malloc</code>, <code>z_realloc</code>, <code>z_free</code>)</td><td>None (heap-less)</td></tr>
+<tr><td>Sleep</td><td>3 symbols (<code>z_sleep_*</code>)</td><td>None</td></tr>
+<tr><td>Random</td><td>5 symbols (<code>z_random_*</code>)</td><td>None</td></tr>
+<tr><td>Time (wall clock)</td><td>5 symbols (<code>z_time_*</code>)</td><td>None</td></tr>
+<tr><td>Threading</td><td>19 symbols (tasks, mutexes, condvars)</td><td>None</td></tr>
+<tr><td>Sockets</td><td>4 symbols (if using smoltcp)</td><td>Custom transport callbacks</td></tr>
+<tr><td>libc stubs</td><td>~14 (bare-metal only)</td><td>None</td></tr>
+<tr><td><strong>Total (bare-metal)</strong></td><td><strong>~55 symbols</strong></td><td><strong>2-3 symbols</strong></td></tr>
+</tbody>
+</table>
+</div>
+<p>XRCE-DDS is dramatically simpler to port because it is single-threaded, uses
+no heap, and delegates networking to user-provided transport callbacks rather
+than a BSD socket API.</p>
+<h2 id="two-crate-pattern"><a class="header" href="#two-crate-pattern">Two-crate pattern</a></h2>
+<p>Both backends use the same crate split:</p>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Crate</th><th>Purpose</th><th>Dependencies</th></tr>
 </thead>
 <tbody>
-<tr><td><code>zpico-platform-&lt;name&gt;</code></td><td>Provides <code>#[unsafe(no_mangle)] extern "C"</code> FFI symbols</td><td><strong>Zero</strong> nros dependencies. Only hardware/RTOS + <code>zpico-smoltcp</code></td></tr>
-<tr><td><code>nros-&lt;name&gt;</code></td><td>User-facing board crate with <code>Config</code>, <code>run()</code>, re-exports</td><td>Depends on <code>zpico-platform-&lt;name&gt;</code> + <code>nros-node</code></td></tr>
+<tr><td><code>&lt;rmw&gt;-platform-&lt;name&gt;</code></td><td><code>#[unsafe(no_mangle)] extern "C"</code> FFI symbols</td><td>Zero nros dependencies</td></tr>
+<tr><td><code>nros-&lt;name&gt;</code></td><td>User-facing board crate (<code>Config</code>, <code>run()</code>, re-exports)</td><td>Platform crate + <code>nros-node</code></td></tr>
 </tbody>
 </table>
 </div>
-<p>This split keeps the FFI layer reusable (it can serve XRCE-DDS too) and
-prevents circular dependencies.</p>
-<pre><code>Application
-    └── nros-&lt;board&gt;          (Config, run(), convenience API)
-         ├── zpico-platform-&lt;board&gt;  (extern "C" symbols for zenoh-pico)
-         │    └── zpico-smoltcp      (smoltcp TCP bridge, if using ethernet)
-         └── nros-node               (Executor, Node, pub/sub)
+<p>This keeps the FFI layer reusable across RMW backends and prevents circular
+dependencies.</p>
+<h2 id="shared-steps-both-backends"><a class="header" href="#shared-steps-both-backends">Shared steps (both backends)</a></h2>
+<p>After implementing the RMW-specific platform crate, the remaining steps are
+the same regardless of backend:</p>
+<ol>
+<li><strong>Create the board crate</strong> — see <a href="#board-crate-implementation-guide">Board Crate Implementation</a></li>
+<li><strong>Add the platform feature</strong> — add <code>platform-&lt;name&gt;</code> to the <code>nros</code> facade
+crate with mutual exclusivity enforcement</li>
+<li><strong>Write an example</strong> — see <a href="#creating-examples">Creating Examples</a></li>
+<li><strong>Add test infrastructure</strong> — add <code>just test-&lt;name&gt;</code> recipe and nextest
+group; see <a href="#platform-porting-pitfalls">Platform Porting Pitfalls</a>
+for QEMU-specific rules</li>
+</ol>
+<h2 id="backend-specific-guides"><a class="header" href="#backend-specific-guides">Backend-specific guides</a></h2>
+<ul>
+<li><a href="#porting-zenoh-pico-rmw-zenoh">Zenoh-pico (rmw-zenoh)</a> — full platform abstraction layer (~55 symbols)</li>
+<li><a href="#porting-xrce-dds-rmw-xrce">XRCE-DDS (rmw-xrce)</a> — minimal clock + transport callbacks (2-3 symbols)</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="porting-zenoh-pico-rmw-zenoh"><a class="header" href="#porting-zenoh-pico-rmw-zenoh">Porting Zenoh-pico (rmw-zenoh)</a></h1>
+<p>Zenoh-pico requires a comprehensive platform abstraction layer. Your
+<code>zpico-platform-&lt;name&gt;</code> crate must provide ~55 <code>#[unsafe(no_mangle)] extern "C"</code>
+symbols covering clock, memory, sleep, random, time, threading, and sockets.</p>
+<h2 id="crate-structure"><a class="header" href="#crate-structure">Crate structure</a></h2>
+<pre><code>packages/zpico/zpico-platform-&lt;name&gt;/
+├── Cargo.toml
+└── src/
+    ├── lib.rs
+    ├── clock.rs
+    ├── memory.rs
+    ├── sleep.rs
+    ├── random.rs
+    ├── time.rs
+    ├── threading.rs          # no-op stubs or real RTOS impl
+    ├── socket_stubs.rs       # if using smoltcp
+    └── network.rs            # if using smoltcp
 </code></pre>
-<h2 id="required-ffi-symbols"><a class="header" href="#required-ffi-symbols">Required FFI Symbols</a></h2>
-<p>zenoh-pico calls these symbols at link time. Your <code>zpico-platform-*</code> crate
-must provide all of them via <code>#[unsafe(no_mangle)] pub unsafe extern "C" fn</code>.</p>
+<p><code>Cargo.toml</code> must have <strong>zero</strong> <code>nros-*</code> dependencies. It may depend on:</p>
+<ul>
+<li>Hardware HAL crate (e.g., <code>stm32f4xx-hal</code>, <code>esp-hal</code>)</li>
+<li><code>zpico-smoltcp</code> (if using smoltcp networking)</li>
+<li><code>embedded-alloc</code> (for heap on bare-metal)</li>
+<li>RTOS bindings crate</li>
+</ul>
+<h2 id="required-ffi-symbols"><a class="header" href="#required-ffi-symbols">Required FFI symbols</a></h2>
 <h3 id="clock-critical"><a class="header" href="#clock-critical">Clock (critical)</a></h3>
 <p>The clock is the most important primitive. zenoh-pico uses it for session
 keep-alive, query timeouts, and transport timeouts. It <strong>must</strong> be backed
@@ -4392,7 +4460,7 @@ i8   _z_socket_wait_event(void *peers, ZMutexRecRef *mutex);  // Return 0
 </code></pre>
 <p>If using OS sockets (POSIX, NuttX, Zephyr), zenoh-pico’s built-in socket
 layer handles everything — no socket stubs needed.</p>
-<h3 id="libc-stubs-bare-metal-only"><a class="header" href="#libc-stubs-bare-metal-only">libc Stubs (bare-metal only)</a></h3>
+<h3 id="libc-stubs-bare-metal-only"><a class="header" href="#libc-stubs-bare-metal-only">libc stubs (bare-metal only)</a></h3>
 <p>Bare-metal targets without a C runtime need standard C library functions:</p>
 <pre><code class="language-c">usize  strlen(const char *s);
 int    strcmp(const char *s1, const char *s2);
@@ -4409,7 +4477,7 @@ int   *__errno(void);
 </code></pre>
 <p>RTOS platforms (FreeRTOS, NuttX, ThreadX, Zephyr) ship their own libc —
 you do not need these stubs.</p>
-<h3 id="network-poll-callback-smoltcp-only"><a class="header" href="#network-poll-callback-smoltcp-only">Network Poll Callback (smoltcp only)</a></h3>
+<h3 id="network-poll-callback-smoltcp-only"><a class="header" href="#network-poll-callback-smoltcp-only">Network poll callback (smoltcp only)</a></h3>
 <p>If using smoltcp for networking, provide a poll callback that
 <code>zpico-smoltcp</code> calls to process network events:</p>
 <pre><code class="language-c">void smoltcp_network_poll(void);
@@ -4425,72 +4493,19 @@ you do not need these stubs.</p>
 
 pub unsafe fn clear_network_state();
 <span class="boring">}</span></code></pre>
-<h2 id="step-by-step-porting-procedure"><a class="header" href="#step-by-step-porting-procedure">Step-by-Step Porting Procedure</a></h2>
-<h3 id="1-create-the-platform-crate"><a class="header" href="#1-create-the-platform-crate">1. Create the platform crate</a></h3>
-<pre><code>packages/zpico/zpico-platform-&lt;name&gt;/
-├── Cargo.toml
-└── src/
-    ├── lib.rs
-    ├── clock.rs
-    ├── memory.rs
-    ├── sleep.rs
-    ├── random.rs
-    ├── time.rs
-    ├── threading.rs          # no-op stubs or real RTOS impl
-    ├── socket_stubs.rs       # if using smoltcp
-    └── network.rs            # if using smoltcp
-</code></pre>
-<p><code>Cargo.toml</code> must have <strong>zero</strong> <code>nros-*</code> dependencies. It may depend on:</p>
-<ul>
-<li>Hardware HAL crate (e.g., <code>stm32f4xx-hal</code>, <code>esp-hal</code>)</li>
-<li><code>zpico-smoltcp</code> (if using smoltcp networking)</li>
-<li><code>embedded-alloc</code> (for heap on bare-metal)</li>
-<li>RTOS bindings crate</li>
-</ul>
-<h3 id="2-implement-and-verify-the-clock"><a class="header" href="#2-implement-and-verify-the-clock">2. Implement and verify the clock</a></h3>
-<p>The clock is the #1 cause of porting failures. Verify it works before
-anything else:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub fn init_hardware_timer() {
-    // Configure your hardware timer here
-}
-
-pub fn clock_ms() -&gt; u64 {
-    // Read hardware timer, convert to milliseconds
-}
-<span class="boring">}</span></code></pre>
-<p>Test: print <code>clock_ms()</code> in a loop and verify it advances monotonically,
-including across timer wraps.</p>
-<h3 id="3-implement-remaining-ffi-symbols"><a class="header" href="#3-implement-remaining-ffi-symbols">3. Implement remaining FFI symbols</a></h3>
-<p>Work through memory → random → sleep → time → threading → sockets.
-Each module is independent — implement and test incrementally.</p>
-<h3 id="4-create-the-board-crate"><a class="header" href="#4-create-the-board-crate">4. Create the board crate</a></h3>
-<pre><code>packages/boards/nros-&lt;name&gt;/
-├── Cargo.toml
-└── src/
-    ├── lib.rs
-    ├── config.rs
-    ├── node.rs
-    └── error.rs
-</code></pre>
-<p>See <a href="#board-crate-implementation-guide">Board Crate Implementation</a> for details.</p>
-<h3 id="5-add-the-platform-feature"><a class="header" href="#5-add-the-platform-feature">5. Add the platform feature</a></h3>
-<p>Add a <code>platform-&lt;name&gt;</code> feature to <code>nros</code> (facade crate) and wire it
-through the dependency graph. Add mutual exclusivity enforcement:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>#[cfg(all(feature = "platform-&lt;name&gt;", feature = "platform-posix"))]
-compile_error!("Only one platform can be enabled");
-<span class="boring">}</span></code></pre>
-<h3 id="6-write-an-example"><a class="header" href="#6-write-an-example">6. Write an example</a></h3>
-<p>Create a minimal pub/sub example under <code>examples/</code> using the new platform.
-Follow the <a href="#creating-examples">Creating Examples</a> guide.</p>
-<h3 id="7-add-test-infrastructure"><a class="header" href="#7-add-test-infrastructure">7. Add test infrastructure</a></h3>
-<p>Add a test in <code>packages/testing/nros-tests/tests/</code> and a <code>just test-&lt;name&gt;</code>
-recipe. Follow the <a href="#platform-porting-pitfalls">QEMU Networked Test Rules</a>
-if the platform runs under QEMU.</p>
-<h2 id="platform-feature-summary"><a class="header" href="#platform-feature-summary">Platform Feature Summary</a></h2>
+<h2 id="step-by-step-procedure"><a class="header" href="#step-by-step-procedure">Step-by-step procedure</a></h2>
+<ol>
+<li><strong>Create the platform crate</strong> with the structure above</li>
+<li><strong>Implement and verify the clock</strong> — this is the #1 cause of porting
+failures. Print <code>clock_ms()</code> in a loop and verify monotonic advance</li>
+<li><strong>Implement remaining symbols</strong> — memory, random, sleep, time,
+threading, sockets. Each module is independent</li>
+<li><strong>Create the board crate</strong> — see <a href="#board-crate-implementation-guide">Board Crate Implementation</a></li>
+<li><strong>Add the platform feature</strong> to <code>nros</code> with mutual exclusivity checks</li>
+<li><strong>Write an example</strong> — see <a href="#creating-examples">Creating Examples</a></li>
+<li><strong>Add test infrastructure</strong> — <code>just test-&lt;name&gt;</code> recipe + nextest group</li>
+</ol>
+<h2 id="platform-capability-summary"><a class="header" href="#platform-capability-summary">Platform capability summary</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -4508,16 +4523,155 @@ if the platform runs under QEMU.</p>
 </tbody>
 </table>
 </div>
-<h2 id="common-pitfalls"><a class="header" href="#common-pitfalls">Common Pitfalls</a></h2>
+<h2 id="common-pitfalls"><a class="header" href="#common-pitfalls">Common pitfalls</a></h2>
 <p>See <a href="#platform-porting-pitfalls">Platform Porting Pitfalls</a> for
-detailed failure modes including:</p>
+detailed failure modes including poll-driven clocks, DMA buffer placement,
+QEMU I/O starvation, recursive mutexes, stack sizing, and heap sizing.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="porting-xrce-dds-rmw-xrce"><a class="header" href="#porting-xrce-dds-rmw-xrce">Porting XRCE-DDS (rmw-xrce)</a></h1>
+<p>XRCE-DDS has a minimal platform abstraction layer. It is single-threaded,
+heap-less, and delegates networking to user-provided transport callbacks.
+A bare-metal port requires only 2-3 FFI symbols plus transport callbacks.</p>
+<h2 id="crate-structure-1"><a class="header" href="#crate-structure-1">Crate structure</a></h2>
+<pre><code>packages/xrce/xrce-platform-&lt;name&gt;/
+├── Cargo.toml
+└── src/
+    └── lib.rs          # clock symbols + optional transport
+</code></pre>
+<p><code>Cargo.toml</code> must have <strong>zero</strong> <code>nros-*</code> dependencies. It may depend on:</p>
 <ul>
-<li><strong>Poll-driven clocks</strong> — cause timeout storms and infinite waits</li>
-<li><strong>DMA buffer placement</strong> — CCM RAM is not DMA-accessible on STM32</li>
-<li><strong>QEMU I/O starvation</strong> — must yield (WFI) between spins</li>
-<li><strong>Recursive mutexes</strong> — required by zenoh-pico on RTOS platforms</li>
-<li><strong>Stack sizing</strong> — 8 KB minimum bare-metal, 2 KB per RTOS task</li>
-<li><strong>Heap sizing</strong> — 64 KB minimum for zenoh-pico session</li>
+<li>Hardware HAL crate (e.g., <code>stm32f4xx-hal</code>, <code>esp-hal</code>)</li>
+<li><code>xrce-smoltcp</code> (if using smoltcp networking)</li>
+</ul>
+<h2 id="required-ffi-symbols-1"><a class="header" href="#required-ffi-symbols-1">Required FFI symbols</a></h2>
+<h3 id="clock-2-symbols"><a class="header" href="#clock-2-symbols">Clock (2 symbols)</a></h3>
+<p>XRCE-DDS uses the clock for session timeouts and time synchronization.</p>
+<pre><code class="language-c">// Monotonic millisecond clock
+i64 uxr_millis(void);
+
+// Monotonic nanosecond clock
+i64 uxr_nanos(void);
+</code></pre>
+<p>These must be backed by a hardware timer or OS tick — same rules as the
+zenoh-pico clock.</p>
+<p><strong>Reference implementations:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Platform</th><th>Clock source</th><th>File</th></tr>
+</thead>
+<tbody>
+<tr><td>MPS2-AN385</td><td>CMSDK APB Timer0 (25 MHz)</td><td><code>xrce-platform-mps2-an385/src/lib.rs</code></td></tr>
+<tr><td>Zephyr</td><td><code>k_uptime_get()</code></td><td><code>xrce-zephyr/src/xrce_zephyr.c</code></td></tr>
+<tr><td>POSIX</td><td><code>clock_gettime(CLOCK_MONOTONIC)</code></td><td>Built-in <code>time.c</code> from XRCE library</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="smoltcp-clock-1-symbol-if-using-smoltcp"><a class="header" href="#smoltcp-clock-1-symbol-if-using-smoltcp">smoltcp clock (1 symbol, if using smoltcp)</a></h3>
+<p>If using <code>xrce-smoltcp</code> for bare-metal networking:</p>
+<pre><code class="language-c">u64 smoltcp_clock_now_ms(void);
+</code></pre>
+<p>This is the same symbol used by <code>zpico-smoltcp</code> — shared clock
+implementations work for both RMW backends.</p>
+<h2 id="transport-callbacks"><a class="header" href="#transport-callbacks">Transport callbacks</a></h2>
+<p>Instead of requiring socket FFI symbols, XRCE-DDS uses a custom transport
+abstraction. You register four callbacks via
+<code>uxr_set_custom_transport_callbacks()</code>:</p>
+<pre><code class="language-c">bool   open(uxrCustomTransport *transport);
+bool   close(uxrCustomTransport *transport);
+size_t write(uxrCustomTransport *transport, const uint8_t *buf, size_t len, uint8_t *errcode);
+size_t read(uxrCustomTransport *transport, uint8_t *buf, size_t len, int timeout_ms, uint8_t *errcode);
+</code></pre>
+<p>These are typically provided by a transport crate, not the platform crate:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Transport</th><th>Crate</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>smoltcp UDP</td><td><code>xrce-smoltcp</code></td><td>Bare-metal networking via smoltcp</td></tr>
+<tr><td>Zephyr UDP</td><td><code>xrce-zephyr</code></td><td>Zephyr BSD sockets</td></tr>
+<tr><td>POSIX UDP</td><td>Built-in</td><td>Uses XRCE library’s POSIX transport</td></tr>
+</tbody>
+</table>
+</div>
+<p>The transport crate registers its callbacks during initialization. Your
+platform crate does not need to implement sockets.</p>
+<h2 id="what-you-do-not-need"><a class="header" href="#what-you-do-not-need">What you do NOT need</a></h2>
+<p>Unlike zenoh-pico, XRCE-DDS does <strong>not</strong> require:</p>
+<ul>
+<li><strong>Memory symbols</strong> — XRCE-DDS is heap-less; all buffers are statically sized</li>
+<li><strong>Sleep symbols</strong> — polling is driven by <code>uxr_run_session_time()</code></li>
+<li><strong>Random symbols</strong> — no session ID randomization needed</li>
+<li><strong>Threading symbols</strong> — single-threaded by design</li>
+<li><strong>libc stubs</strong> — Micro-XRCE-DDS has minimal C dependencies</li>
+</ul>
+<p>This makes XRCE-DDS the easiest RMW backend to port to new platforms.</p>
+<h2 id="platform-conditional-compilation-in-xrce-sys"><a class="header" href="#platform-conditional-compilation-in-xrce-sys">Platform-conditional compilation in xrce-sys</a></h2>
+<p>The <code>xrce-sys</code> crate uses Cargo features to select platform behavior:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Feature</th><th>Effect</th></tr>
+</thead>
+<tbody>
+<tr><td><code>posix</code></td><td>Compiles built-in <code>time.c</code> (uses <code>clock_gettime</code>, BSD sockets)</td></tr>
+<tr><td><code>bare-metal</code></td><td>Skips <code>time.c</code>; expects <code>uxr_millis()</code>/<code>uxr_nanos()</code> from platform crate</td></tr>
+<tr><td><code>zephyr</code></td><td>Compiles <code>xrce_zephyr.c</code> (Zephyr kernel APIs)</td></tr>
+<tr><td><code>freertos</code></td><td>RTOS-specific; skips <code>time.c</code></td></tr>
+<tr><td><code>nuttx</code></td><td>RTOS-specific; skips <code>time.c</code></td></tr>
+<tr><td><code>threadx</code></td><td>RTOS-specific; skips <code>time.c</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>When adding a new platform, you may need to add a feature to <code>xrce-sys</code> that
+skips the default <code>time.c</code> compilation and lets your platform crate provide
+the clock symbols.</p>
+<h2 id="step-by-step-procedure-1"><a class="header" href="#step-by-step-procedure-1">Step-by-step procedure</a></h2>
+<ol>
+<li><strong>Create the platform crate</strong> — <code>xrce-platform-&lt;name&gt;/</code></li>
+<li><strong>Implement <code>uxr_millis()</code> and <code>uxr_nanos()</code></strong> — verify monotonic advance</li>
+<li><strong>Implement <code>smoltcp_clock_now_ms()</code></strong> if using smoltcp transport</li>
+<li><strong>Add a feature to <code>xrce-sys</code></strong> for the new platform if needed</li>
+<li><strong>Choose or implement a transport crate</strong> — reuse <code>xrce-smoltcp</code> for
+bare-metal, or implement a new transport if the platform has its own
+networking stack</li>
+<li><strong>Create the board crate</strong> — see <a href="#board-crate-implementation-guide">Board Crate Implementation</a></li>
+<li><strong>Add the platform feature</strong> to <code>nros</code> with mutual exclusivity checks</li>
+<li><strong>Write an example and tests</strong></li>
+</ol>
+<h2 id="example-bare-metal-mps2-an385"><a class="header" href="#example-bare-metal-mps2-an385">Example: bare-metal MPS2-AN385</a></h2>
+<p>The simplest reference is <code>xrce-platform-mps2-an385</code>, which provides just
+three symbols:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[unsafe(no_mangle)]
+pub extern "C" fn uxr_millis() -&gt; i64 {
+    clock_ms() as i64
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn uxr_nanos() -&gt; i64 {
+    clock_ms() as i64 * 1_000_000
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn smoltcp_clock_now_ms() -&gt; u64 {
+    clock_ms()
+}
+<span class="boring">}</span></code></pre>
+<p>Where <code>clock_ms()</code> reads from a hardware timer with wrap detection.</p>
+<h2 id="common-pitfalls-1"><a class="header" href="#common-pitfalls-1">Common pitfalls</a></h2>
+<ul>
+<li><strong>Agent connectivity</strong> — XRCE-DDS requires a Micro-XRCE-DDS Agent running
+on the host. Ensure the agent is reachable from the target before debugging
+the platform layer.</li>
+<li><strong>Reliable stream history</strong> — <code>STREAM_HISTORY</code> must be &gt;= 2 (recommend 4).
+History=1 fails to recycle slots between separate
+<code>uxr_run_session_until_all_status</code> calls.</li>
+<li><strong>Flush after <code>request_data</code></strong> — <code>uxr_buffer_request_data</code> must be flushed
+with <code>uxr_run_session_time</code> immediately after being called. Unflushed
+requests in the reliable output stream cause intermittent timeouts.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="adding-a-new-rmw-backend"><a class="header" href="#adding-a-new-rmw-backend">Adding a New RMW Backend</a></h1>
@@ -4905,7 +5059,7 @@ board that only had Ethernet)</li>
 </ul>
 <p>You do <strong>not</strong> need a board crate for POSIX (Linux/macOS) — the <code>platform-posix</code>
 feature uses OS sockets directly with no board-specific setup.</p>
-<h2 id="crate-structure"><a class="header" href="#crate-structure">Crate Structure</a></h2>
+<h2 id="crate-structure-2"><a class="header" href="#crate-structure-2">Crate Structure</a></h2>
 <pre><code>packages/boards/nros-&lt;board&gt;/
 ├── Cargo.toml
 ├── .gitignore          # /target/
@@ -6318,7 +6472,7 @@ keep-alives to be missed and zenoh sessions to expire.</p>
 <li>RX FIFO must have space</li>
 <li>MAC address filter: calls <code>lan9118_filter()</code> which checks unicast/multicast/broadcast against configured MAC address, or accepts everything if <code>MAC_CR_PRMS</code> (promiscuous, bit 18) is set</li>
 </ol>
-<h3 id="common-pitfalls-1"><a class="header" href="#common-pitfalls-1">Common Pitfalls</a></h3>
+<h3 id="common-pitfalls-2"><a class="header" href="#common-pitfalls-2">Common Pitfalls</a></h3>
 <h4 id="diagnostic-timing-false-0-rx-readings"><a class="header" href="#diagnostic-timing-false-0-rx-readings">Diagnostic timing: false “0 RX” readings</a></h4>
 <p><strong>Problem</strong>: Checking RX FIFO status after <code>vTaskDelay()</code> shows zero entries even though frames arrived.</p>
 <p><strong>Cause</strong>: The poll task runs during the delay and consumes frames from the RX FIFO before the diagnostic code reads the register.</p>
