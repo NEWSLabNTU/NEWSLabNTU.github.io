@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>no_std Support - nano-ros Book</title>
+        <title>Platform API - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,217 +177,350 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="std-and-alloc-requirements"><a class="header" href="#std-and-alloc-requirements">std and alloc Requirements</a></h1>
-<p>This document maps which parts of the nano-ros API require the <code>std</code> or <code>alloc</code>
-Cargo features. All core crates are <code>#![no_std]</code> by default and gate
-std/alloc-dependent code behind feature flags.</p>
-<h2 id="feature-hierarchy"><a class="header" href="#feature-hierarchy">Feature Hierarchy</a></h2>
-<pre><code>std  (default)
- └─ alloc
-     └─ (base no_std)
-</code></pre>
-<p>Enabling <code>std</code> automatically enables <code>alloc</code>. Enabling <code>alloc</code> does not enable
-<code>std</code>. With <code>--no-default-features</code>, the entire library compiles without
-std or alloc.</p>
-<h2 id="summary-by-crate"><a class="header" href="#summary-by-crate">Summary by Crate</a></h2>
+                        <h1 id="platform-api-reference"><a class="header" href="#platform-api-reference">Platform API Reference</a></h1>
+<p>nano-ros abstracts hardware and OS differences through the <strong>nros-platform</strong> trait system. Each platform (POSIX, FreeRTOS, NuttX, ThreadX, bare-metal) implements these traits once, and both RMW backends (zenoh-pico and XRCE-DDS) consume them through thin shim crates.</p>
+<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
+<pre class="mermaid">graph TD
+    ZP["zenoh-pico (C)"] --&gt; ZPSHIM["zpico-platform-shim&lt;br/&gt;(53 extern C symbols)"]
+    XRCE["XRCE-DDS (C)"] --&gt; XSHIM["xrce-platform-shim&lt;br/&gt;(3 extern C symbols)"]
+    ZPSHIM --&gt; NP["nros-platform::ConcretePlatform"]
+    XSHIM --&gt; NP
+    NP --&gt; POSIX["nros-platform-posix"]
+    NP --&gt; FREERTOS["nros-platform-freertos"]
+    NP --&gt; NUTTX["nros-platform-nuttx"]
+    NP --&gt; THREADX["nros-platform-threadx"]
+    NP --&gt; BM["nros-platform-mps2-an385&lt;br/&gt;nros-platform-stm32f4&lt;br/&gt;nros-platform-esp32"]
+</pre>
+
+<h2 id="platform-traits-nros-platform"><a class="header" href="#platform-traits-nros-platform">Platform Traits (<code>nros-platform</code>)</a></h2>
+<p>Platform implementations provide capabilities through independent sub-traits. Not all traits are required — each RMW backend declares what it needs.</p>
+<h3 id="platformclock-required-by-all-backends"><a class="header" href="#platformclock-required-by-all-backends"><code>PlatformClock</code> (required by all backends)</a></h3>
+<p>Monotonic clock. Must be backed by a hardware timer or OS tick.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Crate</th><th>no_std base</th><th>alloc additions</th><th>std additions</th></tr>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td>nros-serdes</td><td>CDR ser/de for primitives, <code>heapless</code> types, <code>&amp;str</code>, <code>[T; N]</code></td><td><code>String</code> and <code>Vec&lt;T&gt;</code> ser/de</td><td>(none)</td></tr>
-<tr><td>nros-core</td><td>Time, Duration, Clock (atomic fallback), lifecycle, logger, error types, action types</td><td>(none)</td><td><code>Clock::now()</code> via <code>SystemTime</code>, <code>std::error::Error</code> impls</td></tr>
-<tr><td>nros-rmw</td><td>All traits, QoS, sync primitives, safety/E2E protocol</td><td><code>handle_request_boxed()</code> (Box&lt;Reply&gt;)</td><td>(none)</td></tr>
-<tr><td>nros-params</td><td><code>ParameterServer</code>, <code>ParameterValue</code>, all parameter types (heapless)</td><td>(none)</td><td><code>ParameterVariant</code> impls for <code>std::string::String</code>, <code>std::vec::Vec</code></td></tr>
-<tr><td>nros-node</td><td><code>Executor::open()</code>, <code>create_node()</code>, <code>spin_once()</code>, <code>spin_async()</code>, <code>Promise</code>, pub/sub/service/action, timers (fn pointer callbacks)</td><td>Boxed timer callbacks, <code>handle_request_boxed()</code>, parameter services</td><td><code>spin_blocking()</code>, <code>spin_period()</code>, <code>ExecutorConfig::from_env()</code>, halt flag</td></tr>
-<tr><td>nros</td><td>Re-exports from above</td><td>(same as above)</td><td><code>SpinPeriodResult</code> re-export</td></tr>
+<tr><td><code>clock_ms</code></td><td><code>fn clock_ms() -&gt; u64</code></td><td>Monotonic time in milliseconds</td></tr>
+<tr><td><code>clock_us</code></td><td><code>fn clock_us() -&gt; u64</code></td><td>Monotonic time in microseconds</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="rmw-backend-crates"><a class="header" href="#rmw-backend-crates">RMW Backend Crates</a></h3>
+<h3 id="platformalloc-zenoh-pico-only"><a class="header" href="#platformalloc-zenoh-pico-only"><code>PlatformAlloc</code> (zenoh-pico only)</a></h3>
+<p>Heap memory allocation. zenoh-pico requires ~64 KB heap for transport buffers.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Crate</th><th>no_std base</th><th>alloc additions</th><th>std additions</th></tr>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td>nros-rmw-zenoh</td><td>Zenoh-pico RMW implementation, all pub/sub/service/action ops</td><td>(none)</td><td>(none)</td></tr>
-<tr><td>zpico-sys</td><td>FFI bindings to zenoh-pico C library</td><td>(none)</td><td>(none)</td></tr>
-<tr><td>nros-rmw-xrce</td><td>XRCE-DDS RMW implementation, all pub/sub/service/action ops</td><td>(none)</td><td>(none)</td></tr>
-<tr><td>xrce-sys</td><td>FFI bindings to Micro-XRCE-DDS-Client C library</td><td>(none)</td><td>(none)</td></tr>
+<tr><td><code>alloc</code></td><td><code>fn alloc(size: usize) -&gt; *mut c_void</code></td><td>Allocate <code>size</code> bytes; null on failure</td></tr>
+<tr><td><code>realloc</code></td><td><code>fn realloc(ptr: *mut c_void, size: usize) -&gt; *mut c_void</code></td><td>Reallocate block</td></tr>
+<tr><td><code>dealloc</code></td><td><code>fn dealloc(ptr: *mut c_void)</code></td><td>Free block</td></tr>
 </tbody>
 </table>
 </div>
-<p>All four backend crates are unconditionally <code>#![no_std]</code> and do not use <code>alloc</code>. The <code>std</code>
-feature gates only <code>extern crate std</code> (for macro availability in transport modules) and
-is propagated through the feature chain but does not add any API surface.</p>
-<h2 id="detailed-api-availability"><a class="header" href="#detailed-api-availability">Detailed API Availability</a></h2>
-<h3 id="always-available-no_std-no-alloc"><a class="header" href="#always-available-no_std-no-alloc">Always Available (no_std, no alloc)</a></h3>
-<p><strong>Executor and Node:</strong></p>
-<ul>
-<li><code>Executor::open(&amp;config)</code> – open RMW session</li>
-<li><code>ExecutorConfig::new(locator)</code> – manual configuration</li>
-<li><code>executor.create_node(name)</code> – create a node</li>
-<li><code>executor.spin_once(timeout_ms)</code> – single spin iteration</li>
-<li><code>executor.spin_period_polling(period_ms)</code> – periodic spin without <code>std::thread::sleep</code></li>
-<li><code>executor.add_subscription()</code>, <code>add_service()</code>, <code>add_timer()</code>, <code>add_action_server()</code>, <code>add_action_client()</code> – arena-based callbacks</li>
-</ul>
-<p><strong>Publish/Subscribe:</strong></p>
-<ul>
-<li><code>node.create_publisher::&lt;M&gt;(topic)</code> – typed publisher</li>
-<li><code>node.create_subscription::&lt;M&gt;(topic)</code> – typed subscription (poll with <code>try_recv()</code>)</li>
-<li><code>publisher.publish(&amp;msg)</code> / <code>publish_raw(&amp;bytes)</code> – publish messages</li>
-</ul>
-<p><strong>Services:</strong></p>
-<ul>
-<li><code>node.create_service::&lt;S&gt;(name)</code> – service server (poll with <code>handle_request()</code>)</li>
-<li><code>node.create_client::&lt;S&gt;(name)</code> – service client</li>
-<li><code>client.call(&amp;request)</code> – non-blocking, returns <code>Promise&lt;Reply&gt;</code></li>
-<li><code>promise.try_recv()</code> – poll for reply (returns <code>Ok(Some(reply))</code> or <code>Ok(None)</code>)</li>
-<li><code>promise.await</code> – async poll (implements <code>core::future::Future</code>)</li>
-</ul>
-<p><strong>Actions:</strong></p>
-<ul>
-<li><code>node.create_action_server::&lt;A&gt;(name)</code> / <code>node.create_action_client::&lt;A&gt;(name)</code></li>
-<li><code>action_client.send_goal(&amp;goal)</code> – returns <code>Promise&lt;GoalId&gt;</code></li>
-<li><code>action_client.cancel_goal(&amp;goal_id)</code> – returns <code>Promise&lt;CancelResponse&gt;</code></li>
-<li><code>action_client.get_result(&amp;goal_id)</code> – returns <code>Promise&lt;(GoalStatus, Result)&gt;</code></li>
-<li>Full goal lifecycle: send, cancel, get result, feedback, status</li>
-</ul>
-<p><strong>Async:</strong></p>
-<ul>
-<li><code>executor.spin_async()</code> – async spin loop (drives I/O, dispatches callbacks, yields between iterations)</li>
-<li><code>Promise&lt;'a, T, Cli&gt;</code> – allocation-free promise, borrows client’s reply slot</li>
-<li><code>Promise::try_recv()</code> – non-blocking poll for reply</li>
-<li><code>Promise: Future</code> – implements <code>core::future::Future</code> for <code>.await</code></li>
-<li>Uses only <code>core::future</code> and <code>core::task</code> – no external async runtime dependency</li>
-</ul>
-<p><strong>Timers:</strong></p>
-<ul>
-<li><code>TimerHandle</code> with function pointer callbacks (<code>fn()</code>)</li>
-<li><code>TimerDuration</code>, <code>TimerMode</code>, <code>TimerState</code></li>
-</ul>
-<p><strong>Serialization:</strong></p>
-<ul>
-<li><code>CdrWriter</code> / <code>CdrReader</code> – CDR serialization to/from byte buffers</li>
-<li><code>Serialize</code> / <code>Deserialize</code> traits</li>
-<li>Implementations for: <code>bool</code>, <code>u8</code>-<code>u64</code>, <code>i8</code>-<code>i64</code>, <code>f32</code>, <code>f64</code>, <code>char</code>, <code>&amp;str</code>, <code>[T; N]</code>, <code>heapless::String&lt;N&gt;</code>, <code>heapless::Vec&lt;T, N&gt;</code></li>
-</ul>
-<p><strong>Time:</strong></p>
-<ul>
-<li><code>Time::new()</code>, <code>Time::from_nanos()</code>, <code>Time::to_nanos()</code></li>
-<li><code>Time::from_secs_f64()</code>, <code>Time::to_secs_f64()</code></li>
-<li><code>Duration::new()</code>, <code>Duration::from_nanos()</code>, <code>Duration::to_nanos()</code></li>
-<li><code>Duration::from_secs_f64()</code>, <code>Duration::to_secs_f64()</code></li>
-<li><code>Clock</code> with atomic counter fallback (no wall-clock time)</li>
-</ul>
-<p><strong>Parameters (local only):</strong></p>
-<ul>
-<li><code>ParameterServer</code> – store and retrieve parameters</li>
-<li><code>ParameterValue</code> enum with heapless collections</li>
-<li><code>ParameterDescriptor</code>, <code>ParameterType</code>, <code>Parameter</code></li>
-<li><code>ParameterBuilder</code> for declaring parameters with constraints</li>
-</ul>
-<p><strong>Other:</strong></p>
-<ul>
-<li><code>LifecycleState</code>, <code>LifecycleTransition</code>, <code>LifecyclePollingNode</code></li>
-<li><code>Logger</code> (uses <code>core::sync::atomic</code>)</li>
-<li><code>GoalId</code>, <code>GoalStatus</code>, <code>GoalResponse</code>, <code>CancelResponse</code></li>
-<li><code>QosSettings</code>, <code>TopicInfo</code>, <code>ServiceInfo</code></li>
-<li><code>SafetyValidator</code>, <code>IntegrityStatus</code> (with <code>safety-e2e</code> feature)</li>
-<li>Sync primitives: <code>spin::Mutex</code> or <code>critical-section</code> (feature-selected)</li>
-</ul>
-<h3 id="requires-alloc"><a class="header" href="#requires-alloc">Requires <code>alloc</code></a></h3>
+<h3 id="platformsleep-zenoh-pico-only"><a class="header" href="#platformsleep-zenoh-pico-only"><code>PlatformSleep</code> (zenoh-pico only)</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>API</th><th>Location</th><th>Why</th></tr>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><code>Serialize</code>/<code>Deserialize</code> for <code>String</code>, <code>Vec&lt;T&gt;</code></td><td>nros-serdes</td><td>Heap-allocated containers</td></tr>
-<tr><td><code>TimerCallback</code> (<code>Box&lt;dyn FnMut() + Send&gt;</code>)</td><td>nros-node/timer.rs</td><td>Boxed closure for timer callbacks</td></tr>
-<tr><td><code>Timer::new_with_box()</code>, <code>set_callback_box()</code></td><td>nros-node/timer.rs</td><td>Construct/update boxed timer callbacks</td></tr>
-<tr><td><code>ServiceServerHandle::handle_request_boxed()</code></td><td>nros-node/handles.rs</td><td>Returns <code>Box&lt;Reply&gt;</code> for large response types</td></tr>
-<tr><td><code>param-services</code> feature (all of it)</td><td>nros-node/parameter_services.rs</td><td>Service response types (~1MB) require heap allocation</td></tr>
+<tr><td><code>sleep_us</code></td><td><code>fn sleep_us(us: usize)</code></td><td>Sleep for microseconds</td></tr>
+<tr><td><code>sleep_ms</code></td><td><code>fn sleep_ms(ms: usize)</code></td><td>Sleep for milliseconds</td></tr>
+<tr><td><code>sleep_s</code></td><td><code>fn sleep_s(s: usize)</code></td><td>Sleep for seconds</td></tr>
 </tbody>
 </table>
 </div>
-<p><strong>Parameter services detail:</strong> The <code>param-services</code> feature (which implies <code>alloc</code>)
-provides ROS 2 parameter service handlers for <code>~/get_parameters</code>,
-<code>~/set_parameters</code>, etc. Response types like <code>GetParametersResponse</code> contain
-<code>heapless::Vec&lt;ParameterValue, 64&gt;</code> – each <code>ParameterValue</code> is large, making the
-total response ~1MB. <code>Box&lt;Response&gt;</code> is required to avoid stack overflow.
-The core <code>ParameterServer</code> API works without alloc; only the ROS 2 service
-protocol layer requires it.</p>
-<h3 id="requires-std"><a class="header" href="#requires-std">Requires <code>std</code></a></h3>
+<blockquote>
+<p><strong>Bare-metal note:</strong> Implementations should poll the network stack (smoltcp) during busy-wait sleep to avoid missing packets.</p>
+</blockquote>
+<h3 id="platformrandom-zenoh-pico-only"><a class="header" href="#platformrandom-zenoh-pico-only"><code>PlatformRandom</code> (zenoh-pico only)</a></h3>
+<p>A simple xorshift32 PRNG is sufficient. Seed with hardware entropy during platform init.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>API</th><th>Location</th><th>Why</th></tr>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><code>Clock::now()</code> (system/steady clock)</td><td>nros-core/clock.rs</td><td>Uses <code>std::time::SystemTime</code> / <code>UNIX_EPOCH</code></td></tr>
-<tr><td><code>std::error::Error</code> for <code>NanoRosError</code>, <code>RclReturnCode</code></td><td>nros-core/error.rs</td><td>Trait requires std</td></tr>
-<tr><td><code>ExecutorConfig::from_env()</code></td><td>nros-node/types.rs</td><td>Uses <code>std::env::var()</code> + <code>Box::leak()</code></td></tr>
-<tr><td><code>Executor::spin_blocking(options)</code></td><td>nros-node/spin.rs</td><td>Uses <code>std::thread::sleep()</code>, <code>Arc&lt;AtomicBool&gt;</code></td></tr>
-<tr><td><code>Executor::spin_period(duration)</code></td><td>nros-node/spin.rs</td><td>Uses <code>std::time::Instant</code>, <code>std::thread::sleep()</code></td></tr>
-<tr><td><code>Executor::halt_flag()</code></td><td>nros-node/spin.rs</td><td>Returns <code>Arc&lt;AtomicBool&gt;</code> for cross-thread cancellation</td></tr>
-<tr><td><code>SpinPeriodResult</code></td><td>nros-node/types.rs</td><td>Contains <code>std::time::Duration</code></td></tr>
-<tr><td><code>ParameterVariant</code> for <code>std::string::String</code>, <code>std::vec::Vec</code></td><td>nros-params/types.rs</td><td>Convenience conversions for std types</td></tr>
+<tr><td><code>random_u8</code></td><td><code>fn random_u8() -&gt; u8</code></td><td>Random byte</td></tr>
+<tr><td><code>random_u16</code></td><td><code>fn random_u16() -&gt; u16</code></td><td>Random 16-bit</td></tr>
+<tr><td><code>random_u32</code></td><td><code>fn random_u32() -&gt; u32</code></td><td>Random 32-bit</td></tr>
+<tr><td><code>random_u64</code></td><td><code>fn random_u64() -&gt; u64</code></td><td>Random 64-bit</td></tr>
+<tr><td><code>random_fill</code></td><td><code>fn random_fill(buf: *mut c_void, len: usize)</code></td><td>Fill buffer with random bytes</td></tr>
 </tbody>
 </table>
 </div>
-<h2 id="typical-configurations"><a class="header" href="#typical-configurations">Typical Configurations</a></h2>
-<p><strong>Bare-metal / RTOS (no allocator):</strong></p>
-<pre><code class="language-toml">nros = { version = "*", default-features = false, features = ["rmw-zenoh", "platform-bare-metal"] }
-</code></pre>
-<p>Full pub/sub, services, actions, timers (fn pointers), parameters (local).
-Async: <code>spin_async()</code>, <code>Promise</code>, <code>try_recv()</code>, <code>.await</code> – all available without std or alloc.
-Use <code>spin_once()</code> or <code>spin_period_polling()</code> in your main loop, or <code>spin_async()</code> with an async runtime (Embassy, RTIC v2).</p>
-<p><strong>Embedded with allocator (e.g., Zephyr with heap):</strong></p>
-<pre><code class="language-toml">nros = { version = "*", default-features = false, features = ["alloc", "rmw-zenoh", "platform-zephyr"] }
-</code></pre>
-<p>Adds boxed timer callbacks and <code>handle_request_boxed()</code> for large service replies.</p>
-<p><strong>Desktop / Linux:</strong></p>
-<pre><code class="language-toml">nros = { version = "*", features = ["rmw-zenoh", "platform-posix"] }
-</code></pre>
-<p>Full API including <code>spin_blocking()</code>, <code>spin_period()</code>, <code>from_env()</code>, system clock.
-For async, use an external runtime (tokio <code>current_thread</code> + <code>spawn_local</code> for background spin).</p>
-<p><strong>Desktop with parameter services:</strong></p>
-<pre><code class="language-toml">nros = { version = "*", features = ["rmw-zenoh", "platform-posix", "param-services"] }
-</code></pre>
-<p>Adds <code>~/get_parameters</code>, <code>~/set_parameters</code>, etc. for <code>ros2 param</code> CLI interop.</p>
-<h2 id="c-level-allocation"><a class="header" href="#c-level-allocation">C-Level Allocation</a></h2>
-<p>Both RMW backends compile and link C libraries that perform heap allocation
-independently of Rust’s <code>alloc</code> feature. Disabling the Rust <code>alloc</code> feature
-eliminates Rust-side heap usage (<code>Box</code>, <code>Vec</code>, <code>String</code>) but does <strong>not</strong>
-eliminate allocation in the C transport layer.</p>
+<h3 id="platformtime-zenoh-pico-only"><a class="header" href="#platformtime-zenoh-pico-only"><code>PlatformTime</code> (zenoh-pico only)</a></h3>
+<p>Wall-clock time for logging. On bare-metal without an RTC, return monotonic time.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Backend</th><th>C Library</th><th>Allocator by Platform</th></tr>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td>rmw-zenoh</td><td>zenoh-pico 1.7.2</td><td>POSIX: <code>malloc</code>; Zephyr: <code>k_malloc</code>; FreeRTOS: <code>pvPortMalloc</code>; bare-metal: custom bump allocator</td></tr>
-<tr><td>rmw-xrce</td><td>Micro-XRCE-DDS 3.0.1</td><td>POSIX: <code>malloc</code>; Zephyr: <code>k_malloc</code>; FreeRTOS: <code>pvPortMalloc</code>; NuttX: <code>malloc</code></td></tr>
+<tr><td><code>time_now_ms</code></td><td><code>fn time_now_ms() -&gt; u64</code></td><td>System time in ms</td></tr>
+<tr><td><code>time_since_epoch</code></td><td><code>fn time_since_epoch() -&gt; TimeSinceEpoch</code></td><td>Seconds + nanoseconds since epoch</td></tr>
 </tbody>
 </table>
 </div>
-<p>This is by design: the C libraries manage their own session state, stream
-buffers, and protocol metadata using platform-provided allocators. The Rust
-<code>alloc</code> feature controls only the Rust API surface (boxed callbacks, heap
-containers, etc.) and is orthogonal to C-level memory management.</p>
+<h3 id="platformthreading-multi-threaded-platforms"><a class="header" href="#platformthreading-multi-threaded-platforms"><code>PlatformThreading</code> (multi-threaded platforms)</a></h3>
+<p>Tasks, mutexes, and condition variables. Single-threaded platforms return no-ops (0) except <code>task_init</code> which returns -1.</p>
+<p><strong>Tasks:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>task_init</code></td><td><code>fn task_init(task, attr, entry, arg) -&gt; i8</code></td><td>Spawn a new task; 0 = success</td></tr>
+<tr><td><code>task_join</code></td><td><code>fn task_join(task) -&gt; i8</code></td><td>Wait for task to complete</td></tr>
+<tr><td><code>task_detach</code></td><td><code>fn task_detach(task) -&gt; i8</code></td><td>Detach task</td></tr>
+<tr><td><code>task_cancel</code></td><td><code>fn task_cancel(task) -&gt; i8</code></td><td>Cancel task</td></tr>
+<tr><td><code>task_exit</code></td><td><code>fn task_exit()</code></td><td>Exit current task</td></tr>
+<tr><td><code>task_free</code></td><td><code>fn task_free(task: *mut *mut TaskHandle)</code></td><td>Free task resources</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Mutexes:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>mutex_init</code></td><td><code>fn mutex_init(m) -&gt; i8</code></td><td>Create mutex</td></tr>
+<tr><td><code>mutex_drop</code></td><td><code>fn mutex_drop(m) -&gt; i8</code></td><td>Destroy mutex</td></tr>
+<tr><td><code>mutex_lock</code></td><td><code>fn mutex_lock(m) -&gt; i8</code></td><td>Lock (blocking)</td></tr>
+<tr><td><code>mutex_try_lock</code></td><td><code>fn mutex_try_lock(m) -&gt; i8</code></td><td>Try lock (non-blocking)</td></tr>
+<tr><td><code>mutex_unlock</code></td><td><code>fn mutex_unlock(m) -&gt; i8</code></td><td>Unlock</td></tr>
+</tbody>
+</table>
+</div>
+<p>Recursive mutex variants (<code>mutex_rec_*</code>) have the same signatures.</p>
+<p><strong>Condition Variables:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>condvar_init</code></td><td><code>fn condvar_init(cv) -&gt; i8</code></td><td>Create condvar</td></tr>
+<tr><td><code>condvar_drop</code></td><td><code>fn condvar_drop(cv) -&gt; i8</code></td><td>Destroy condvar</td></tr>
+<tr><td><code>condvar_signal</code></td><td><code>fn condvar_signal(cv) -&gt; i8</code></td><td>Wake one waiter</td></tr>
+<tr><td><code>condvar_signal_all</code></td><td><code>fn condvar_signal_all(cv) -&gt; i8</code></td><td>Wake all waiters</td></tr>
+<tr><td><code>condvar_wait</code></td><td><code>fn condvar_wait(cv, m) -&gt; i8</code></td><td>Wait (unlocks mutex, re-locks on wake)</td></tr>
+<tr><td><code>condvar_wait_until</code></td><td><code>fn condvar_wait_until(cv, m, abstime) -&gt; i8</code></td><td>Wait with timeout (ms since boot)</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformnetworkpoll-bare-metal-only"><a class="header" href="#platformnetworkpoll-bare-metal-only"><code>PlatformNetworkPoll</code> (bare-metal only)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>network_poll</code></td><td><code>fn network_poll()</code></td><td>Poll smoltcp network stack for pending I/O</td></tr>
+</tbody>
+</table>
+</div>
+<p>Not required for platforms with OS-level networking (POSIX, Zephyr, NuttX, FreeRTOS, ThreadX).</p>
+<h3 id="platformlibc-bare-metal-only"><a class="header" href="#platformlibc-bare-metal-only"><code>PlatformLibc</code> (bare-metal only)</a></h3>
+<p>Standard C library functions needed by zenoh-pico on targets without a C runtime. Provides <code>strlen</code>, <code>strcmp</code>, <code>strncmp</code>, <code>strchr</code>, <code>strncpy</code>, <code>memcpy</code>, <code>memmove</code>, <code>memset</code>, <code>memcmp</code>, <code>memchr</code>, <code>strtoul</code>, <code>errno_ptr</code>.</p>
+<h2 id="zenoh-pico-shim-symbols-zpico-platform-shim"><a class="header" href="#zenoh-pico-shim-symbols-zpico-platform-shim">Zenoh-pico Shim Symbols (<code>zpico-platform-shim</code>)</a></h2>
+<p>The shim translates 53 <code>extern "C"</code> symbols expected by zenoh-pico into calls on <code>ConcretePlatform</code>. These symbols are resolved at link time.</p>
+<h3 id="clock-7-symbols"><a class="header" href="#clock-7-symbols">Clock (7 symbols)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>z_clock_now</code></td><td><code>PlatformClock::clock_ms</code></td></tr>
+<tr><td><code>z_clock_elapsed_us</code></td><td><code>PlatformClock::clock_us</code></td></tr>
+<tr><td><code>z_clock_elapsed_ms</code></td><td><code>PlatformClock::clock_ms</code></td></tr>
+<tr><td><code>z_clock_elapsed_s</code></td><td><code>PlatformClock::clock_ms</code> / 1000</td></tr>
+<tr><td><code>z_clock_advance_us</code></td><td>pointer arithmetic</td></tr>
+<tr><td><code>z_clock_advance_ms</code></td><td>pointer arithmetic</td></tr>
+<tr><td><code>z_clock_advance_s</code></td><td>pointer arithmetic</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="memory-3-symbols"><a class="header" href="#memory-3-symbols">Memory (3 symbols)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>z_malloc</code></td><td><code>PlatformAlloc::alloc</code></td></tr>
+<tr><td><code>z_realloc</code></td><td><code>PlatformAlloc::realloc</code></td></tr>
+<tr><td><code>z_free</code></td><td><code>PlatformAlloc::dealloc</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="sleep-3-symbols"><a class="header" href="#sleep-3-symbols">Sleep (3 symbols)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>z_sleep_us</code></td><td><code>PlatformSleep::sleep_us</code></td></tr>
+<tr><td><code>z_sleep_ms</code></td><td><code>PlatformSleep::sleep_ms</code></td></tr>
+<tr><td><code>z_sleep_s</code></td><td><code>PlatformSleep::sleep_s</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="random-5-symbols"><a class="header" href="#random-5-symbols">Random (5 symbols)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>z_random_u8</code></td><td><code>PlatformRandom::random_u8</code></td></tr>
+<tr><td><code>z_random_u16</code></td><td><code>PlatformRandom::random_u16</code></td></tr>
+<tr><td><code>z_random_u32</code></td><td><code>PlatformRandom::random_u32</code></td></tr>
+<tr><td><code>z_random_u64</code></td><td><code>PlatformRandom::random_u64</code></td></tr>
+<tr><td><code>z_random_fill</code></td><td><code>PlatformRandom::random_fill</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="time-6-symbols"><a class="header" href="#time-6-symbols">Time (6 symbols)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>z_time_now</code></td><td><code>PlatformTime::time_now_ms</code></td></tr>
+<tr><td><code>z_time_now_as_str</code></td><td>formatted string from <code>time_since_epoch</code></td></tr>
+<tr><td><code>z_time_elapsed_us</code></td><td><code>PlatformTime::time_now_ms</code> delta</td></tr>
+<tr><td><code>z_time_elapsed_ms</code></td><td><code>PlatformTime::time_now_ms</code> delta</td></tr>
+<tr><td><code>z_time_elapsed_s</code></td><td><code>PlatformTime::time_now_ms</code> delta</td></tr>
+<tr><td><code>_z_get_time_since_epoch</code></td><td><code>PlatformTime::time_since_epoch</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="threading-22-symbols"><a class="header" href="#threading-22-symbols">Threading (22 symbols)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>_z_task_init</code></td><td><code>PlatformThreading::task_init</code></td></tr>
+<tr><td><code>_z_task_join</code></td><td><code>PlatformThreading::task_join</code></td></tr>
+<tr><td><code>_z_task_detach</code></td><td><code>PlatformThreading::task_detach</code></td></tr>
+<tr><td><code>_z_task_cancel</code></td><td><code>PlatformThreading::task_cancel</code></td></tr>
+<tr><td><code>_z_task_exit</code></td><td><code>PlatformThreading::task_exit</code></td></tr>
+<tr><td><code>_z_task_free</code></td><td><code>PlatformThreading::task_free</code></td></tr>
+<tr><td><code>_z_mutex_init</code></td><td><code>PlatformThreading::mutex_init</code></td></tr>
+<tr><td><code>_z_mutex_drop</code></td><td><code>PlatformThreading::mutex_drop</code></td></tr>
+<tr><td><code>_z_mutex_lock</code></td><td><code>PlatformThreading::mutex_lock</code></td></tr>
+<tr><td><code>_z_mutex_try_lock</code></td><td><code>PlatformThreading::mutex_try_lock</code></td></tr>
+<tr><td><code>_z_mutex_unlock</code></td><td><code>PlatformThreading::mutex_unlock</code></td></tr>
+<tr><td><code>_z_mutex_rec_init</code></td><td><code>PlatformThreading::mutex_rec_init</code></td></tr>
+<tr><td><code>_z_mutex_rec_drop</code></td><td><code>PlatformThreading::mutex_rec_drop</code></td></tr>
+<tr><td><code>_z_mutex_rec_lock</code></td><td><code>PlatformThreading::mutex_rec_lock</code></td></tr>
+<tr><td><code>_z_mutex_rec_try_lock</code></td><td><code>PlatformThreading::mutex_rec_try_lock</code></td></tr>
+<tr><td><code>_z_mutex_rec_unlock</code></td><td><code>PlatformThreading::mutex_rec_unlock</code></td></tr>
+<tr><td><code>_z_condvar_init</code></td><td><code>PlatformThreading::condvar_init</code></td></tr>
+<tr><td><code>_z_condvar_drop</code></td><td><code>PlatformThreading::condvar_drop</code></td></tr>
+<tr><td><code>_z_condvar_signal</code></td><td><code>PlatformThreading::condvar_signal</code></td></tr>
+<tr><td><code>_z_condvar_signal_all</code></td><td><code>PlatformThreading::condvar_signal_all</code></td></tr>
+<tr><td><code>_z_condvar_wait</code></td><td><code>PlatformThreading::condvar_wait</code></td></tr>
+<tr><td><code>_z_condvar_wait_until</code></td><td><code>PlatformThreading::condvar_wait_until</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="socket-stubs-7-symbols-bare-metalsmoltcp-only"><a class="header" href="#socket-stubs-7-symbols-bare-metalsmoltcp-only">Socket stubs (7 symbols, bare-metal/smoltcp only)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>_z_socket_set_non_blocking</code></td><td>No-op (smoltcp handles non-blocking internally)</td></tr>
+<tr><td><code>_z_socket_accept</code></td><td>Not supported on bare-metal</td></tr>
+<tr><td><code>_z_socket_close</code></td><td>Close smoltcp socket</td></tr>
+<tr><td><code>_z_socket_wait_event</code></td><td>Network poll + sleep</td></tr>
+<tr><td><code>smoltcp_clock_now_ms</code></td><td><code>PlatformClock::clock_ms</code> (for smoltcp driver)</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="xrce-dds-shim-symbols-xrce-platform-shim"><a class="header" href="#xrce-dds-shim-symbols-xrce-platform-shim">XRCE-DDS Shim Symbols (<code>xrce-platform-shim</code>)</a></h2>
+<p>The XRCE-DDS shim is minimal — only 3 symbols:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>uxr_millis</code></td><td><code>PlatformClock::clock_ms</code></td></tr>
+<tr><td><code>uxr_nanos</code></td><td><code>PlatformClock::clock_us</code> * 1000</td></tr>
+<tr><td><code>smoltcp_clock_now_ms</code></td><td><code>PlatformClock::clock_ms</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="platform-implementations"><a class="header" href="#platform-implementations">Platform Implementations</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Crate</th><th>Target</th><th>Clock Source</th><th>Allocator</th><th>Threading</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros-platform-posix</code></td><td>Linux/macOS</td><td><code>clock_gettime</code></td><td>libc <code>malloc</code></td><td>pthreads</td></tr>
+<tr><td><code>nros-platform-nuttx</code></td><td>NuttX QEMU</td><td>POSIX (alias)</td><td>libc <code>malloc</code></td><td>pthreads</td></tr>
+<tr><td><code>nros-platform-freertos</code></td><td>FreeRTOS</td><td><code>xTaskGetTickCount</code></td><td><code>pvPortMalloc</code></td><td>FreeRTOS tasks</td></tr>
+<tr><td><code>nros-platform-threadx</code></td><td>ThreadX</td><td><code>tx_time_get</code></td><td><code>tx_byte_allocate</code></td><td>ThreadX threads</td></tr>
+<tr><td><code>nros-platform-mps2-an385</code></td><td>Cortex-M3</td><td>CMSDK Timer0</td><td>bump allocator</td><td>single-threaded</td></tr>
+<tr><td><code>nros-platform-stm32f4</code></td><td>STM32F4</td><td>DWT cycle counter</td><td>bump allocator</td><td>single-threaded</td></tr>
+<tr><td><code>nros-platform-esp32</code></td><td>ESP32</td><td><code>esp_timer_get_time</code></td><td>bump allocator</td><td>single-threaded</td></tr>
+<tr><td><code>nros-platform-esp32-qemu</code></td><td>ESP32 QEMU</td><td><code>esp_timer_get_time</code></td><td>bump allocator</td><td>single-threaded</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="compile-time-resolution"><a class="header" href="#compile-time-resolution">Compile-Time Resolution</a></h2>
+<p>Exactly one platform feature must be enabled. The <code>ConcretePlatform</code> type alias resolves to the active backend:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// In nros-platform/src/resolve.rs:
+#[cfg(feature = "platform-posix")]
+pub type ConcretePlatform = nros_platform_posix::PosixPlatform;
+
+#[cfg(feature = "platform-freertos")]
+pub type ConcretePlatform = nros_platform_freertos::FreeRtosPlatform;
+
+#[cfg(feature = "platform-threadx")]
+pub type ConcretePlatform = nros_platform_threadx::ThreadxPlatform;
+// ... etc.
+<span class="boring">}</span></code></pre>
+<p>The shim crates use <code>ConcretePlatform</code> directly — no dynamic dispatch, no generics propagation:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// In zpico-platform-shim/src/shim.rs:
+use nros_platform::ConcretePlatform;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn z_clock_now() -&gt; usize {
+    ConcretePlatform::clock_ms() as usize
+}
+<span class="boring">}</span></code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../concepts/architecture.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../reference/c-api.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../concepts/rmw-backends.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../reference/environment-variables.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -397,11 +530,11 @@ containers, etc.) and is orthogonal to C-level memory management.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../concepts/architecture.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../reference/c-api.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../concepts/rmw-backends.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../reference/environment-variables.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

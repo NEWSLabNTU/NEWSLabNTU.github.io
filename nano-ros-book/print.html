@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-1155cbd8.js";
+            window.path_to_searchindex_js = "searchindex-d2fe0eda.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-0dee1cde.js"></script>
+        <script src="toc-4a11f129.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -7434,6 +7434,341 @@ CONFIG_NROS_C_API=y            # C API -- links libnros_c.a, uses nros_generate_
 </code></pre>
 <p>Zenoh requires <code>CONFIG_POSIX_API=y</code> and elevated mutex counts. XRCE requires <code>CONFIG_NET_SOCKETS=y</code>. See existing examples in <code>examples/zephyr/</code> for complete <code>prj.conf</code> templates.</p>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="platform-api-reference"><a class="header" href="#platform-api-reference">Platform API Reference</a></h1>
+<p>nano-ros abstracts hardware and OS differences through the <strong>nros-platform</strong> trait system. Each platform (POSIX, FreeRTOS, NuttX, ThreadX, bare-metal) implements these traits once, and both RMW backends (zenoh-pico and XRCE-DDS) consume them through thin shim crates.</p>
+<h2 id="architecture-5"><a class="header" href="#architecture-5">Architecture</a></h2>
+<pre class="mermaid">graph TD
+    ZP["zenoh-pico (C)"] --&gt; ZPSHIM["zpico-platform-shim&lt;br/&gt;(53 extern C symbols)"]
+    XRCE["XRCE-DDS (C)"] --&gt; XSHIM["xrce-platform-shim&lt;br/&gt;(3 extern C symbols)"]
+    ZPSHIM --&gt; NP["nros-platform::ConcretePlatform"]
+    XSHIM --&gt; NP
+    NP --&gt; POSIX["nros-platform-posix"]
+    NP --&gt; FREERTOS["nros-platform-freertos"]
+    NP --&gt; NUTTX["nros-platform-nuttx"]
+    NP --&gt; THREADX["nros-platform-threadx"]
+    NP --&gt; BM["nros-platform-mps2-an385&lt;br/&gt;nros-platform-stm32f4&lt;br/&gt;nros-platform-esp32"]
+</pre>
+
+<h2 id="platform-traits-nros-platform"><a class="header" href="#platform-traits-nros-platform">Platform Traits (<code>nros-platform</code>)</a></h2>
+<p>Platform implementations provide capabilities through independent sub-traits. Not all traits are required — each RMW backend declares what it needs.</p>
+<h3 id="platformclock-required-by-all-backends"><a class="header" href="#platformclock-required-by-all-backends"><code>PlatformClock</code> (required by all backends)</a></h3>
+<p>Monotonic clock. Must be backed by a hardware timer or OS tick.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>clock_ms</code></td><td><code>fn clock_ms() -&gt; u64</code></td><td>Monotonic time in milliseconds</td></tr>
+<tr><td><code>clock_us</code></td><td><code>fn clock_us() -&gt; u64</code></td><td>Monotonic time in microseconds</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformalloc-zenoh-pico-only"><a class="header" href="#platformalloc-zenoh-pico-only"><code>PlatformAlloc</code> (zenoh-pico only)</a></h3>
+<p>Heap memory allocation. zenoh-pico requires ~64 KB heap for transport buffers.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>alloc</code></td><td><code>fn alloc(size: usize) -&gt; *mut c_void</code></td><td>Allocate <code>size</code> bytes; null on failure</td></tr>
+<tr><td><code>realloc</code></td><td><code>fn realloc(ptr: *mut c_void, size: usize) -&gt; *mut c_void</code></td><td>Reallocate block</td></tr>
+<tr><td><code>dealloc</code></td><td><code>fn dealloc(ptr: *mut c_void)</code></td><td>Free block</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformsleep-zenoh-pico-only"><a class="header" href="#platformsleep-zenoh-pico-only"><code>PlatformSleep</code> (zenoh-pico only)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>sleep_us</code></td><td><code>fn sleep_us(us: usize)</code></td><td>Sleep for microseconds</td></tr>
+<tr><td><code>sleep_ms</code></td><td><code>fn sleep_ms(ms: usize)</code></td><td>Sleep for milliseconds</td></tr>
+<tr><td><code>sleep_s</code></td><td><code>fn sleep_s(s: usize)</code></td><td>Sleep for seconds</td></tr>
+</tbody>
+</table>
+</div>
+<blockquote>
+<p><strong>Bare-metal note:</strong> Implementations should poll the network stack (smoltcp) during busy-wait sleep to avoid missing packets.</p>
+</blockquote>
+<h3 id="platformrandom-zenoh-pico-only"><a class="header" href="#platformrandom-zenoh-pico-only"><code>PlatformRandom</code> (zenoh-pico only)</a></h3>
+<p>A simple xorshift32 PRNG is sufficient. Seed with hardware entropy during platform init.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>random_u8</code></td><td><code>fn random_u8() -&gt; u8</code></td><td>Random byte</td></tr>
+<tr><td><code>random_u16</code></td><td><code>fn random_u16() -&gt; u16</code></td><td>Random 16-bit</td></tr>
+<tr><td><code>random_u32</code></td><td><code>fn random_u32() -&gt; u32</code></td><td>Random 32-bit</td></tr>
+<tr><td><code>random_u64</code></td><td><code>fn random_u64() -&gt; u64</code></td><td>Random 64-bit</td></tr>
+<tr><td><code>random_fill</code></td><td><code>fn random_fill(buf: *mut c_void, len: usize)</code></td><td>Fill buffer with random bytes</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformtime-zenoh-pico-only"><a class="header" href="#platformtime-zenoh-pico-only"><code>PlatformTime</code> (zenoh-pico only)</a></h3>
+<p>Wall-clock time for logging. On bare-metal without an RTC, return monotonic time.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>time_now_ms</code></td><td><code>fn time_now_ms() -&gt; u64</code></td><td>System time in ms</td></tr>
+<tr><td><code>time_since_epoch</code></td><td><code>fn time_since_epoch() -&gt; TimeSinceEpoch</code></td><td>Seconds + nanoseconds since epoch</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformthreading-multi-threaded-platforms"><a class="header" href="#platformthreading-multi-threaded-platforms"><code>PlatformThreading</code> (multi-threaded platforms)</a></h3>
+<p>Tasks, mutexes, and condition variables. Single-threaded platforms return no-ops (0) except <code>task_init</code> which returns -1.</p>
+<p><strong>Tasks:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>task_init</code></td><td><code>fn task_init(task, attr, entry, arg) -&gt; i8</code></td><td>Spawn a new task; 0 = success</td></tr>
+<tr><td><code>task_join</code></td><td><code>fn task_join(task) -&gt; i8</code></td><td>Wait for task to complete</td></tr>
+<tr><td><code>task_detach</code></td><td><code>fn task_detach(task) -&gt; i8</code></td><td>Detach task</td></tr>
+<tr><td><code>task_cancel</code></td><td><code>fn task_cancel(task) -&gt; i8</code></td><td>Cancel task</td></tr>
+<tr><td><code>task_exit</code></td><td><code>fn task_exit()</code></td><td>Exit current task</td></tr>
+<tr><td><code>task_free</code></td><td><code>fn task_free(task: *mut *mut TaskHandle)</code></td><td>Free task resources</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Mutexes:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>mutex_init</code></td><td><code>fn mutex_init(m) -&gt; i8</code></td><td>Create mutex</td></tr>
+<tr><td><code>mutex_drop</code></td><td><code>fn mutex_drop(m) -&gt; i8</code></td><td>Destroy mutex</td></tr>
+<tr><td><code>mutex_lock</code></td><td><code>fn mutex_lock(m) -&gt; i8</code></td><td>Lock (blocking)</td></tr>
+<tr><td><code>mutex_try_lock</code></td><td><code>fn mutex_try_lock(m) -&gt; i8</code></td><td>Try lock (non-blocking)</td></tr>
+<tr><td><code>mutex_unlock</code></td><td><code>fn mutex_unlock(m) -&gt; i8</code></td><td>Unlock</td></tr>
+</tbody>
+</table>
+</div>
+<p>Recursive mutex variants (<code>mutex_rec_*</code>) have the same signatures.</p>
+<p><strong>Condition Variables:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>condvar_init</code></td><td><code>fn condvar_init(cv) -&gt; i8</code></td><td>Create condvar</td></tr>
+<tr><td><code>condvar_drop</code></td><td><code>fn condvar_drop(cv) -&gt; i8</code></td><td>Destroy condvar</td></tr>
+<tr><td><code>condvar_signal</code></td><td><code>fn condvar_signal(cv) -&gt; i8</code></td><td>Wake one waiter</td></tr>
+<tr><td><code>condvar_signal_all</code></td><td><code>fn condvar_signal_all(cv) -&gt; i8</code></td><td>Wake all waiters</td></tr>
+<tr><td><code>condvar_wait</code></td><td><code>fn condvar_wait(cv, m) -&gt; i8</code></td><td>Wait (unlocks mutex, re-locks on wake)</td></tr>
+<tr><td><code>condvar_wait_until</code></td><td><code>fn condvar_wait_until(cv, m, abstime) -&gt; i8</code></td><td>Wait with timeout (ms since boot)</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformnetworkpoll-bare-metal-only"><a class="header" href="#platformnetworkpoll-bare-metal-only"><code>PlatformNetworkPoll</code> (bare-metal only)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>network_poll</code></td><td><code>fn network_poll()</code></td><td>Poll smoltcp network stack for pending I/O</td></tr>
+</tbody>
+</table>
+</div>
+<p>Not required for platforms with OS-level networking (POSIX, Zephyr, NuttX, FreeRTOS, ThreadX).</p>
+<h3 id="platformlibc-bare-metal-only"><a class="header" href="#platformlibc-bare-metal-only"><code>PlatformLibc</code> (bare-metal only)</a></h3>
+<p>Standard C library functions needed by zenoh-pico on targets without a C runtime. Provides <code>strlen</code>, <code>strcmp</code>, <code>strncmp</code>, <code>strchr</code>, <code>strncpy</code>, <code>memcpy</code>, <code>memmove</code>, <code>memset</code>, <code>memcmp</code>, <code>memchr</code>, <code>strtoul</code>, <code>errno_ptr</code>.</p>
+<h2 id="zenoh-pico-shim-symbols-zpico-platform-shim"><a class="header" href="#zenoh-pico-shim-symbols-zpico-platform-shim">Zenoh-pico Shim Symbols (<code>zpico-platform-shim</code>)</a></h2>
+<p>The shim translates 53 <code>extern "C"</code> symbols expected by zenoh-pico into calls on <code>ConcretePlatform</code>. These symbols are resolved at link time.</p>
+<h3 id="clock-7-symbols"><a class="header" href="#clock-7-symbols">Clock (7 symbols)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>z_clock_now</code></td><td><code>PlatformClock::clock_ms</code></td></tr>
+<tr><td><code>z_clock_elapsed_us</code></td><td><code>PlatformClock::clock_us</code></td></tr>
+<tr><td><code>z_clock_elapsed_ms</code></td><td><code>PlatformClock::clock_ms</code></td></tr>
+<tr><td><code>z_clock_elapsed_s</code></td><td><code>PlatformClock::clock_ms</code> / 1000</td></tr>
+<tr><td><code>z_clock_advance_us</code></td><td>pointer arithmetic</td></tr>
+<tr><td><code>z_clock_advance_ms</code></td><td>pointer arithmetic</td></tr>
+<tr><td><code>z_clock_advance_s</code></td><td>pointer arithmetic</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="memory-3-symbols"><a class="header" href="#memory-3-symbols">Memory (3 symbols)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>z_malloc</code></td><td><code>PlatformAlloc::alloc</code></td></tr>
+<tr><td><code>z_realloc</code></td><td><code>PlatformAlloc::realloc</code></td></tr>
+<tr><td><code>z_free</code></td><td><code>PlatformAlloc::dealloc</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="sleep-3-symbols"><a class="header" href="#sleep-3-symbols">Sleep (3 symbols)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>z_sleep_us</code></td><td><code>PlatformSleep::sleep_us</code></td></tr>
+<tr><td><code>z_sleep_ms</code></td><td><code>PlatformSleep::sleep_ms</code></td></tr>
+<tr><td><code>z_sleep_s</code></td><td><code>PlatformSleep::sleep_s</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="random-5-symbols"><a class="header" href="#random-5-symbols">Random (5 symbols)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>z_random_u8</code></td><td><code>PlatformRandom::random_u8</code></td></tr>
+<tr><td><code>z_random_u16</code></td><td><code>PlatformRandom::random_u16</code></td></tr>
+<tr><td><code>z_random_u32</code></td><td><code>PlatformRandom::random_u32</code></td></tr>
+<tr><td><code>z_random_u64</code></td><td><code>PlatformRandom::random_u64</code></td></tr>
+<tr><td><code>z_random_fill</code></td><td><code>PlatformRandom::random_fill</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="time-6-symbols"><a class="header" href="#time-6-symbols">Time (6 symbols)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>z_time_now</code></td><td><code>PlatformTime::time_now_ms</code></td></tr>
+<tr><td><code>z_time_now_as_str</code></td><td>formatted string from <code>time_since_epoch</code></td></tr>
+<tr><td><code>z_time_elapsed_us</code></td><td><code>PlatformTime::time_now_ms</code> delta</td></tr>
+<tr><td><code>z_time_elapsed_ms</code></td><td><code>PlatformTime::time_now_ms</code> delta</td></tr>
+<tr><td><code>z_time_elapsed_s</code></td><td><code>PlatformTime::time_now_ms</code> delta</td></tr>
+<tr><td><code>_z_get_time_since_epoch</code></td><td><code>PlatformTime::time_since_epoch</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="threading-22-symbols"><a class="header" href="#threading-22-symbols">Threading (22 symbols)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>_z_task_init</code></td><td><code>PlatformThreading::task_init</code></td></tr>
+<tr><td><code>_z_task_join</code></td><td><code>PlatformThreading::task_join</code></td></tr>
+<tr><td><code>_z_task_detach</code></td><td><code>PlatformThreading::task_detach</code></td></tr>
+<tr><td><code>_z_task_cancel</code></td><td><code>PlatformThreading::task_cancel</code></td></tr>
+<tr><td><code>_z_task_exit</code></td><td><code>PlatformThreading::task_exit</code></td></tr>
+<tr><td><code>_z_task_free</code></td><td><code>PlatformThreading::task_free</code></td></tr>
+<tr><td><code>_z_mutex_init</code></td><td><code>PlatformThreading::mutex_init</code></td></tr>
+<tr><td><code>_z_mutex_drop</code></td><td><code>PlatformThreading::mutex_drop</code></td></tr>
+<tr><td><code>_z_mutex_lock</code></td><td><code>PlatformThreading::mutex_lock</code></td></tr>
+<tr><td><code>_z_mutex_try_lock</code></td><td><code>PlatformThreading::mutex_try_lock</code></td></tr>
+<tr><td><code>_z_mutex_unlock</code></td><td><code>PlatformThreading::mutex_unlock</code></td></tr>
+<tr><td><code>_z_mutex_rec_init</code></td><td><code>PlatformThreading::mutex_rec_init</code></td></tr>
+<tr><td><code>_z_mutex_rec_drop</code></td><td><code>PlatformThreading::mutex_rec_drop</code></td></tr>
+<tr><td><code>_z_mutex_rec_lock</code></td><td><code>PlatformThreading::mutex_rec_lock</code></td></tr>
+<tr><td><code>_z_mutex_rec_try_lock</code></td><td><code>PlatformThreading::mutex_rec_try_lock</code></td></tr>
+<tr><td><code>_z_mutex_rec_unlock</code></td><td><code>PlatformThreading::mutex_rec_unlock</code></td></tr>
+<tr><td><code>_z_condvar_init</code></td><td><code>PlatformThreading::condvar_init</code></td></tr>
+<tr><td><code>_z_condvar_drop</code></td><td><code>PlatformThreading::condvar_drop</code></td></tr>
+<tr><td><code>_z_condvar_signal</code></td><td><code>PlatformThreading::condvar_signal</code></td></tr>
+<tr><td><code>_z_condvar_signal_all</code></td><td><code>PlatformThreading::condvar_signal_all</code></td></tr>
+<tr><td><code>_z_condvar_wait</code></td><td><code>PlatformThreading::condvar_wait</code></td></tr>
+<tr><td><code>_z_condvar_wait_until</code></td><td><code>PlatformThreading::condvar_wait_until</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="socket-stubs-7-symbols-bare-metalsmoltcp-only"><a class="header" href="#socket-stubs-7-symbols-bare-metalsmoltcp-only">Socket stubs (7 symbols, bare-metal/smoltcp only)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>_z_socket_set_non_blocking</code></td><td>No-op (smoltcp handles non-blocking internally)</td></tr>
+<tr><td><code>_z_socket_accept</code></td><td>Not supported on bare-metal</td></tr>
+<tr><td><code>_z_socket_close</code></td><td>Close smoltcp socket</td></tr>
+<tr><td><code>_z_socket_wait_event</code></td><td>Network poll + sleep</td></tr>
+<tr><td><code>smoltcp_clock_now_ms</code></td><td><code>PlatformClock::clock_ms</code> (for smoltcp driver)</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="xrce-dds-shim-symbols-xrce-platform-shim"><a class="header" href="#xrce-dds-shim-symbols-xrce-platform-shim">XRCE-DDS Shim Symbols (<code>xrce-platform-shim</code>)</a></h2>
+<p>The XRCE-DDS shim is minimal — only 3 symbols:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>C Symbol</th><th>Platform Method</th></tr>
+</thead>
+<tbody>
+<tr><td><code>uxr_millis</code></td><td><code>PlatformClock::clock_ms</code></td></tr>
+<tr><td><code>uxr_nanos</code></td><td><code>PlatformClock::clock_us</code> * 1000</td></tr>
+<tr><td><code>smoltcp_clock_now_ms</code></td><td><code>PlatformClock::clock_ms</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="platform-implementations"><a class="header" href="#platform-implementations">Platform Implementations</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Crate</th><th>Target</th><th>Clock Source</th><th>Allocator</th><th>Threading</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros-platform-posix</code></td><td>Linux/macOS</td><td><code>clock_gettime</code></td><td>libc <code>malloc</code></td><td>pthreads</td></tr>
+<tr><td><code>nros-platform-nuttx</code></td><td>NuttX QEMU</td><td>POSIX (alias)</td><td>libc <code>malloc</code></td><td>pthreads</td></tr>
+<tr><td><code>nros-platform-freertos</code></td><td>FreeRTOS</td><td><code>xTaskGetTickCount</code></td><td><code>pvPortMalloc</code></td><td>FreeRTOS tasks</td></tr>
+<tr><td><code>nros-platform-threadx</code></td><td>ThreadX</td><td><code>tx_time_get</code></td><td><code>tx_byte_allocate</code></td><td>ThreadX threads</td></tr>
+<tr><td><code>nros-platform-mps2-an385</code></td><td>Cortex-M3</td><td>CMSDK Timer0</td><td>bump allocator</td><td>single-threaded</td></tr>
+<tr><td><code>nros-platform-stm32f4</code></td><td>STM32F4</td><td>DWT cycle counter</td><td>bump allocator</td><td>single-threaded</td></tr>
+<tr><td><code>nros-platform-esp32</code></td><td>ESP32</td><td><code>esp_timer_get_time</code></td><td>bump allocator</td><td>single-threaded</td></tr>
+<tr><td><code>nros-platform-esp32-qemu</code></td><td>ESP32 QEMU</td><td><code>esp_timer_get_time</code></td><td>bump allocator</td><td>single-threaded</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="compile-time-resolution"><a class="header" href="#compile-time-resolution">Compile-Time Resolution</a></h2>
+<p>Exactly one platform feature must be enabled. The <code>ConcretePlatform</code> type alias resolves to the active backend:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// In nros-platform/src/resolve.rs:
+#[cfg(feature = "platform-posix")]
+pub type ConcretePlatform = nros_platform_posix::PosixPlatform;
+
+#[cfg(feature = "platform-freertos")]
+pub type ConcretePlatform = nros_platform_freertos::FreeRtosPlatform;
+
+#[cfg(feature = "platform-threadx")]
+pub type ConcretePlatform = nros_platform_threadx::ThreadxPlatform;
+// ... etc.
+<span class="boring">}</span></code></pre>
+<p>The shim crates use <code>ConcretePlatform</code> directly — no dynamic dispatch, no generics propagation:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// In zpico-platform-shim/src/shim.rs:
+use nros_platform::ConcretePlatform;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn z_clock_now() -&gt; usize {
+    ConcretePlatform::clock_ms() as usize
+}
+<span class="boring">}</span></code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="environment-variables-reference"><a class="header" href="#environment-variables-reference">Environment Variables Reference</a></h1>
 <h2 id="configuration-file"><a class="header" href="#configuration-file">Configuration File</a></h2>
 <p>All environment variables can be set in a <code>.env</code> file at the project root:</p>
@@ -8269,7 +8604,7 @@ just test-zephyr-xrce                  # Run XRCE tests
 <p>This document describes how nros communicates with standard ROS 2 nodes using <code>rmw_zenoh_cpp</code>.</p>
 <h2 id="status-working"><a class="header" href="#status-working">Status: WORKING</a></h2>
 <p>nros &lt;-&gt; ROS 2 rmw_zenoh communication is fully operational as of January 2025.</p>
-<h2 id="architecture-5"><a class="header" href="#architecture-5">Architecture</a></h2>
+<h2 id="architecture-6"><a class="header" href="#architecture-6">Architecture</a></h2>
 <pre><code>┌─────────────────────────┐          ┌─────────────────────────┐
 │   ROS 2 Node            │          │   nros Node             │
 │   (rmw_zenoh_cpp)       │&lt;--------&gt;│   (zenoh-pico)          │
