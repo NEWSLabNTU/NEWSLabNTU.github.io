@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-dedac353.js";
+            window.path_to_searchindex_js = "searchindex-d504c9f6.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-17165dda.js"></script>
+        <script src="toc-0dee1cde.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -1008,13 +1008,19 @@ format reference</li>
         RMW_Z["nros-rmw-zenoh&lt;br/&gt;&lt;i&gt;ZenohSession, keyexpr, liveliness&lt;/i&gt;"]
         ZPICO["zpico-sys&lt;br/&gt;&lt;i&gt;C shim + zenoh-pico&lt;/i&gt;"]
         ZSMOL["zpico-smoltcp&lt;br/&gt;&lt;i&gt;TCP/UDP via smoltcp&lt;/i&gt;"]
-        ZPLAT["zpico-platform-*&lt;br/&gt;&lt;i&gt;clock, malloc, libc stubs&lt;/i&gt;"]
+        ZPSHIM["zpico-platform-shim&lt;br/&gt;&lt;i&gt;z_* → ConcretePlatform&lt;/i&gt;"]
     end
 
     subgraph "XRCE-DDS Backend"
         RMW_X["nros-rmw-xrce&lt;br/&gt;&lt;i&gt;XrceSession, entity mgmt&lt;/i&gt;"]
         XSYS["xrce-sys&lt;br/&gt;&lt;i&gt;Micro-XRCE-DDS FFI&lt;/i&gt;"]
         XSMOL["xrce-smoltcp&lt;br/&gt;&lt;i&gt;UDP via smoltcp&lt;/i&gt;"]
+        XPSHIM["xrce-platform-shim&lt;br/&gt;&lt;i&gt;uxr_* → ConcretePlatform&lt;/i&gt;"]
+    end
+
+    subgraph "Platform Layer"
+        NPLAT["nros-platform&lt;br/&gt;&lt;i&gt;PlatformOps trait + ConcretePlatform alias&lt;/i&gt;"]
+        NPLATIMPL["nros-platform-*&lt;br/&gt;&lt;i&gt;clock, memory, sleep, random, threading&lt;/i&gt;"]
     end
 
     subgraph "Board Crates"
@@ -1053,14 +1059,19 @@ format reference</li>
     RMW_Z --&gt; RMW
     RMW_Z --&gt; ZPICO
     ZPICO --&gt; ZSMOL
-    ZPICO --&gt; ZPLAT
+    ZPICO --&gt; ZPSHIM
+    ZPSHIM --&gt; NPLAT
 
     RMW_X --&gt; RMW
     RMW_X --&gt; XSYS
     XSYS --&gt; XSMOL
+    XSYS --&gt; XPSHIM
+    XPSHIM --&gt; NPLAT
+
+    NPLAT --&gt; NPLATIMPL
 
     BOARD --&gt; NROS
-    BOARD --&gt; ZPLAT
+    BOARD --&gt; NPLATIMPL
     BOARD --&gt; ZSMOL
     BOARD --&gt; DRV
 
@@ -1283,7 +1294,7 @@ nros = { features = ["rmw-zenoh", "platform-posix", "ros-humble", "std"] }
         RUN["run(config, |config| { ... })"]
         HW["Hardware Init&lt;br/&gt;&lt;i&gt;Ethernet driver, clocks&lt;/i&gt;"]
         NET["Network Stack&lt;br/&gt;&lt;i&gt;smoltcp / lwIP / NetX / NuttX sockets&lt;/i&gt;"]
-        PLAT["Platform Primitives&lt;br/&gt;&lt;i&gt;zpico-platform-* symbols&lt;/i&gt;"]
+        PLAT["Platform Primitives&lt;br/&gt;&lt;i&gt;nros-platform-* (clock, memory, sleep, random, threading)&lt;/i&gt;"]
         SEED["RNG Seed&lt;br/&gt;&lt;i&gt;IP-based for unique Zenoh session IDs&lt;/i&gt;"]
     end
 
@@ -1827,7 +1838,7 @@ containers, etc.) and is orthogonal to C-level memory management.</p>
 <tr><td><strong>Entity creation</strong></td><td>Client creates directly</td><td>Client requests, agent creates</td></tr>
 <tr><td><strong>Transport options</strong></td><td>TCP, UDP, TLS</td><td>UDP, serial, CAN FD</td></tr>
 <tr><td><strong>Heap allocation</strong></td><td>Required (C-level)</td><td>None</td></tr>
-<tr><td><strong>Platform symbols</strong></td><td>~55 (clock, malloc, sockets, RNG, …)</td><td>~1 (<code>clock_gettime</code>)</td></tr>
+<tr><td><strong>Platform symbols</strong></td><td>~55 (clock, malloc, sockets, RNG, …) via <code>zpico-platform-shim</code></td><td>~1 (<code>clock_gettime</code>) via <code>xrce-platform-shim</code></td></tr>
 <tr><td><strong>ROS 2 interop</strong></td><td>Via <code>rmw_zenoh_cpp</code> + <code>zenohd</code></td><td>Via Agent + any DDS RMW</td></tr>
 <tr><td><strong>Failure mode</strong></td><td>Router crash = lose routing</td><td>Agent crash = lose connectivity</td></tr>
 <tr><td><strong>C source files</strong></td><td>~100+</td><td>28</td></tr>
@@ -2013,7 +2024,7 @@ nros = { default-features = false, features = [
 <li><code>nros-rmw-zenoh</code> – the Zenoh RMW implementation crate</li>
 <li><code>zpico-sys</code> – zenoh-pico C bindings</li>
 </ul>
-<p>Platform features propagate similarly, activating the appropriate <code>zpico-platform-*</code> or <code>xrce-platform-*</code> crate that provides OS-level symbols.</p>
+<p>Platform features propagate similarly, activating the appropriate <code>nros-platform-*</code> crate that provides OS-level primitives (clock, memory, sleep, random, threading). The RMW transport libraries access these primitives through thin shim layers – <code>zpico-platform-shim</code> (inside <code>zpico-sys</code>) and <code>xrce-platform-shim</code> (inside <code>xrce-sys</code>) – which forward <code>z_*</code> and <code>uxr_*</code> FFI symbols to the unified <code>ConcretePlatform</code> type alias from <code>nros-platform</code>.</p>
 <p>The default feature set is <code>std</code> only. No RMW backend or platform is selected by default – users must explicitly choose their configuration.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="scheduling-models"><a class="header" href="#scheduling-models">Scheduling Models</a></h1>
@@ -3507,9 +3518,9 @@ cargo +nightly run --release
 packages/drivers/
 └── openeth-smoltcp/       # OpenCores Ethernet MAC driver for smoltcp
 
-packages/zpico/
-├── zpico-platform-esp32/      # WiFi FFI symbols (z_random, z_clock, etc.)
-└── zpico-platform-esp32-qemu/ # QEMU FFI symbols
+packages/core/
+├── nros-platform-esp32/       # WiFi platform primitives (clock, memory, sleep, random)
+└── nros-platform-esp32-qemu/  # QEMU platform primitives
 
 examples/esp32/rust/
 ├── zenoh/
@@ -4218,17 +4229,20 @@ Layer 3: features = ["rmw-xrce", "platform-bare-metal", "ros-humble"]
 an RTOS or bare-metal environment that nano-ros runs on.</p>
 <h2 id="how-nano-ros-accesses-the-system"><a class="header" href="#how-nano-ros-accesses-the-system">How nano-ros accesses the system</a></h2>
 <p>nano-ros core (<code>nros-node</code>, <code>nros-core</code>, <code>nros-serdes</code>, etc.) is <code>#![no_std]</code>
-and <strong>has zero platform calls</strong>. All OS/hardware access is delegated to the
-RMW transport backend:</p>
+and <strong>has zero platform calls</strong>. All OS/hardware access is delegated to a
+unified platform layer:</p>
 <pre><code>Application
   └── nros-node            (pure no_std Rust — Executor, Node, pub/sub, actions)
        └── nros-rmw        (trait layer — abstracts transport)
-            ├── nros-rmw-zenoh   → zpico-platform-*   (clock, memory, threading, sockets, ...)
-            └── nros-rmw-xrce    → xrce-platform-*    (clock, transport callbacks)
+            ├── nros-rmw-zenoh   → zpico-sys → zpico-platform-shim → nros-platform → nros-platform-&lt;name&gt;
+            └── nros-rmw-xrce    → xrce-sys  → xrce-platform-shim  → nros-platform → nros-platform-&lt;name&gt;
 </code></pre>
-<p>When you “port nano-ros to a new platform”, you are really porting the
-<strong>transport middleware’s platform layer</strong>. The set of required symbols depends
-entirely on which RMW backend you use.</p>
+<p>When you “port nano-ros to a new platform”, you create an
+<strong><code>nros-platform-&lt;name&gt;</code> crate</strong> that implements the platform primitives
+(clock, memory, sleep, random, threading). The RMW transport libraries access
+these primitives through thin shim layers inside <code>zpico-sys</code> and <code>xrce-sys</code>
+that forward FFI symbols (<code>z_*</code>, <code>uxr_*</code>) to the <code>ConcretePlatform</code> type
+alias from <code>nros-platform</code>.</p>
 <h2 id="comparison-of-rmw-platform-requirements"><a class="header" href="#comparison-of-rmw-platform-requirements">Comparison of RMW platform requirements</a></h2>
 <div class="table-wrapper">
 <table>
@@ -4251,21 +4265,24 @@ entirely on which RMW backend you use.</p>
 <p>XRCE-DDS is dramatically simpler to port because it is single-threaded, uses
 no heap, and delegates networking to user-provided transport callbacks rather
 than a BSD socket API.</p>
-<h2 id="two-crate-pattern"><a class="header" href="#two-crate-pattern">Two-crate pattern</a></h2>
-<p>Both backends use the same crate split:</p>
+<h2 id="three-crate-pattern"><a class="header" href="#three-crate-pattern">Three-crate pattern</a></h2>
+<p>Every embedded platform uses a three-layer split:</p>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Crate</th><th>Purpose</th><th>Dependencies</th></tr>
 </thead>
 <tbody>
-<tr><td><code>&lt;rmw&gt;-platform-&lt;name&gt;</code></td><td><code>#[unsafe(no_mangle)] extern "C"</code> FFI symbols</td><td>Zero nros dependencies</td></tr>
-<tr><td><code>nros-&lt;name&gt;</code></td><td>User-facing board crate (<code>Config</code>, <code>run()</code>, re-exports)</td><td>Platform crate + <code>nros-node</code></td></tr>
+<tr><td><code>nros-platform-&lt;name&gt;</code></td><td>Platform primitives (clock, memory, sleep, random, threading)</td><td>Zero nros dependencies</td></tr>
+<tr><td><code>zpico-platform-shim</code> / <code>xrce-platform-shim</code></td><td>FFI symbol mapping (<code>z_*</code> / <code>uxr_*</code> to <code>ConcretePlatform</code>)</td><td>Inside <code>zpico-sys</code> / <code>xrce-sys</code></td></tr>
+<tr><td><code>nros-&lt;name&gt;</code></td><td>User-facing board crate (<code>Config</code>, <code>run()</code>, re-exports)</td><td><code>nros-platform-&lt;name&gt;</code> + <code>nros-node</code></td></tr>
 </tbody>
 </table>
 </div>
-<p>This keeps the FFI layer reusable across RMW backends and prevents circular
-dependencies.</p>
+<p>The platform crate is RMW-agnostic – it knows nothing about zenoh-pico or
+XRCE-DDS. The shim layers inside the RMW sys crates map transport-specific
+FFI symbols to the unified <code>ConcretePlatform</code> trait. Board crates depend on
+the platform crate for force-linking the symbols into the final binary.</p>
 <h2 id="shared-steps-both-backends"><a class="header" href="#shared-steps-both-backends">Shared steps (both backends)</a></h2>
 <p>After implementing the RMW-specific platform crate, the remaining steps are
 the same regardless of backend:</p>
@@ -4278,18 +4295,26 @@ crate with mutual exclusivity enforcement</li>
 group; see <a href="#platform-porting-pitfalls">Platform Porting Pitfalls</a>
 for QEMU-specific rules</li>
 </ol>
-<h2 id="backend-specific-guides"><a class="header" href="#backend-specific-guides">Backend-specific guides</a></h2>
+<h2 id="guides"><a class="header" href="#guides">Guides</a></h2>
 <ul>
-<li><a href="#porting-zenoh-pico-rmw-zenoh">Zenoh-pico (rmw-zenoh)</a> — full platform abstraction layer (~55 symbols)</li>
-<li><a href="#porting-xrce-dds-rmw-xrce">XRCE-DDS (rmw-xrce)</a> — minimal clock + transport callbacks (2-3 symbols)</li>
+<li><a href="#implementing-a-platform">Implementing a Platform</a> — how to create an <code>nros-platform-&lt;name&gt;</code> crate (start here)</li>
+<li><a href="#zenoh-pico-symbol-reference">Zenoh-pico Symbol Reference</a> — the ~55 FFI symbols mapped by <code>zpico-platform-shim</code></li>
+<li><a href="#xrce-dds-symbol-reference">XRCE-DDS Symbol Reference</a> — the 2-3 FFI symbols mapped by <code>xrce-platform-shim</code></li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="porting-zenoh-pico-rmw-zenoh"><a class="header" href="#porting-zenoh-pico-rmw-zenoh">Porting Zenoh-pico (rmw-zenoh)</a></h1>
-<p>Zenoh-pico requires a comprehensive platform abstraction layer. Your
-<code>zpico-platform-&lt;name&gt;</code> crate must provide ~55 <code>#[unsafe(no_mangle)] extern "C"</code>
-symbols covering clock, memory, sleep, random, time, threading, and sockets.</p>
-<h2 id="crate-structure"><a class="header" href="#crate-structure">Crate structure</a></h2>
-<pre><code>packages/zpico/zpico-platform-&lt;name&gt;/
+<h1 id="implementing-a-platform"><a class="header" href="#implementing-a-platform">Implementing a Platform</a></h1>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="zenoh-pico-symbol-reference"><a class="header" href="#zenoh-pico-symbol-reference">Zenoh-pico Symbol Reference</a></h1>
+<p>This page documents the ~55 FFI symbols that zenoh-pico requires at link time.
+These symbols are provided by <code>zpico-platform-shim</code> (inside <code>zpico-sys</code>), which
+forwards each <code>z_*</code> / <code>_z_*</code> call to the <code>ConcretePlatform</code> type alias from
+<code>nros-platform</code>. When porting to a new platform, you implement an
+<code>nros-platform-&lt;name&gt;</code> crate (see <a href="#implementing-a-platform">Implementing a Platform</a>)
+rather than providing these symbols directly.</p>
+<p>This page serves as a reference for understanding what the shim layer maps
+and what capabilities your <code>nros-platform-&lt;name&gt;</code> crate must provide.</p>
+<h2 id="platform-crate-structure"><a class="header" href="#platform-crate-structure">Platform crate structure</a></h2>
+<pre><code>packages/core/nros-platform-&lt;name&gt;/
 ├── Cargo.toml
 └── src/
     ├── lib.rs
@@ -4350,9 +4375,9 @@ time with wall-clock time</li>
 <tr><th>Platform</th><th>Clock source</th><th>File</th></tr>
 </thead>
 <tbody>
-<tr><td>MPS2-AN385</td><td>CMSDK APB Timer0 (25 MHz)</td><td><code>zpico-platform-mps2-an385/src/clock.rs</code></td></tr>
-<tr><td>STM32F4</td><td>ARM DWT cycle counter</td><td><code>zpico-platform-stm32f4/src/clock.rs</code></td></tr>
-<tr><td>ESP32-C3</td><td><code>esp_hal::time::Instant</code></td><td><code>zpico-platform-esp32/src/clock.rs</code></td></tr>
+<tr><td>MPS2-AN385</td><td>CMSDK APB Timer0 (25 MHz)</td><td><code>nros-platform-mps2-an385/src/clock.rs</code></td></tr>
+<tr><td>STM32F4</td><td>ARM DWT cycle counter</td><td><code>nros-platform-stm32f4/src/clock.rs</code></td></tr>
+<tr><td>ESP32-C3</td><td><code>esp_hal::time::Instant</code></td><td><code>nros-platform-esp32/src/clock.rs</code></td></tr>
 <tr><td>FreeRTOS</td><td><code>xTaskGetTickCount()</code></td><td>Use OS tick directly</td></tr>
 <tr><td>NuttX</td><td><code>clock_gettime(CLOCK_MONOTONIC)</code></td><td>POSIX API</td></tr>
 </tbody>
@@ -4495,11 +4520,13 @@ pub unsafe fn clear_network_state();
 <span class="boring">}</span></code></pre>
 <h2 id="step-by-step-procedure"><a class="header" href="#step-by-step-procedure">Step-by-step procedure</a></h2>
 <ol>
-<li><strong>Create the platform crate</strong> with the structure above</li>
+<li><strong>Create the platform crate</strong> (<code>nros-platform-&lt;name&gt;</code>) – see
+<a href="#implementing-a-platform">Implementing a Platform</a> for the full guide</li>
 <li><strong>Implement and verify the clock</strong> — this is the #1 cause of porting
 failures. Print <code>clock_ms()</code> in a loop and verify monotonic advance</li>
-<li><strong>Implement remaining symbols</strong> — memory, random, sleep, time,
+<li><strong>Implement remaining primitives</strong> — memory, random, sleep, time,
 threading, sockets. Each module is independent</li>
+<li><strong>Wire into <code>nros-platform</code></strong> — add a feature and <code>ConcretePlatform</code> alias</li>
 <li><strong>Create the board crate</strong> — see <a href="#board-crate-implementation-guide">Board Crate Implementation</a></li>
 <li><strong>Add the platform feature</strong> to <code>nros</code> with mutual exclusivity checks</li>
 <li><strong>Write an example</strong> — see <a href="#creating-examples">Creating Examples</a></li>
@@ -4528,15 +4555,22 @@ threading, sockets. Each module is independent</li>
 detailed failure modes including poll-driven clocks, DMA buffer placement,
 QEMU I/O starvation, recursive mutexes, stack sizing, and heap sizing.</p>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="porting-xrce-dds-rmw-xrce"><a class="header" href="#porting-xrce-dds-rmw-xrce">Porting XRCE-DDS (rmw-xrce)</a></h1>
+<h1 id="xrce-dds-symbol-reference"><a class="header" href="#xrce-dds-symbol-reference">XRCE-DDS Symbol Reference</a></h1>
 <p>XRCE-DDS has a minimal platform abstraction layer. It is single-threaded,
 heap-less, and delegates networking to user-provided transport callbacks.
-A bare-metal port requires only 2-3 FFI symbols plus transport callbacks.</p>
-<h2 id="crate-structure-1"><a class="header" href="#crate-structure-1">Crate structure</a></h2>
-<pre><code>packages/xrce/xrce-platform-&lt;name&gt;/
+The 2-3 required FFI symbols are provided by <code>xrce-platform-shim</code> (inside
+<code>xrce-sys</code>), which forwards <code>uxr_*</code> calls to the <code>ConcretePlatform</code> type
+alias from <code>nros-platform</code>. When porting to a new platform, you implement an
+<code>nros-platform-&lt;name&gt;</code> crate (see <a href="#implementing-a-platform">Implementing a Platform</a>)
+rather than providing these symbols directly.</p>
+<h2 id="platform-crate-structure-1"><a class="header" href="#platform-crate-structure-1">Platform crate structure</a></h2>
+<p>The XRCE-DDS clock symbols are a subset of what the platform crate provides.
+Your <code>nros-platform-&lt;name&gt;</code> crate provides the clock primitives and
+<code>xrce-platform-shim</code> maps them to the <code>uxr_*</code> symbols XRCE-DDS expects.</p>
+<pre><code>packages/core/nros-platform-&lt;name&gt;/
 ├── Cargo.toml
 └── src/
-    └── lib.rs          # clock symbols + optional transport
+    └── lib.rs          # clock + other primitives
 </code></pre>
 <p><code>Cargo.toml</code> must have <strong>zero</strong> <code>nros-*</code> dependencies. It may depend on:</p>
 <ul>
@@ -4561,7 +4595,7 @@ zenoh-pico clock.</p>
 <tr><th>Platform</th><th>Clock source</th><th>File</th></tr>
 </thead>
 <tbody>
-<tr><td>MPS2-AN385</td><td>CMSDK APB Timer0 (25 MHz)</td><td><code>xrce-platform-mps2-an385/src/lib.rs</code></td></tr>
+<tr><td>MPS2-AN385</td><td>CMSDK APB Timer0 (25 MHz)</td><td><code>nros-platform-mps2-an385/src/clock.rs</code></td></tr>
 <tr><td>Zephyr</td><td><code>k_uptime_get()</code></td><td><code>xrce-zephyr/src/xrce_zephyr.c</code></td></tr>
 <tr><td>POSIX</td><td><code>clock_gettime(CLOCK_MONOTONIC)</code></td><td>Built-in <code>time.c</code> from XRCE library</td></tr>
 </tbody>
@@ -4629,8 +4663,10 @@ skips the default <code>time.c</code> compilation and lets your platform crate p
 the clock symbols.</p>
 <h2 id="step-by-step-procedure-1"><a class="header" href="#step-by-step-procedure-1">Step-by-step procedure</a></h2>
 <ol>
-<li><strong>Create the platform crate</strong> — <code>xrce-platform-&lt;name&gt;/</code></li>
-<li><strong>Implement <code>uxr_millis()</code> and <code>uxr_nanos()</code></strong> — verify monotonic advance</li>
+<li><strong>Create the platform crate</strong> — <code>nros-platform-&lt;name&gt;/</code> (see
+<a href="#implementing-a-platform">Implementing a Platform</a>)</li>
+<li><strong>Implement the clock primitives</strong> — <code>clock_ms()</code> and friends; the
+<code>xrce-platform-shim</code> maps these to <code>uxr_millis()</code> and <code>uxr_nanos()</code></li>
 <li><strong>Implement <code>smoltcp_clock_now_ms()</code></strong> if using smoltcp transport</li>
 <li><strong>Add a feature to <code>xrce-sys</code></strong> for the new platform if needed</li>
 <li><strong>Choose or implement a transport crate</strong> — reuse <code>xrce-smoltcp</code> for
@@ -4641,8 +4677,8 @@ networking stack</li>
 <li><strong>Write an example and tests</strong></li>
 </ol>
 <h2 id="example-bare-metal-mps2-an385"><a class="header" href="#example-bare-metal-mps2-an385">Example: bare-metal MPS2-AN385</a></h2>
-<p>The simplest reference is <code>xrce-platform-mps2-an385</code>, which provides just
-three symbols:</p>
+<p>The simplest reference is <code>nros-platform-mps2-an385</code>, which provides clock
+primitives that <code>xrce-platform-shim</code> maps to three symbols:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>#[unsafe(no_mangle)]
@@ -5046,7 +5082,7 @@ node running the equivalent RMW</li>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="board-crate-implementation-guide"><a class="header" href="#board-crate-implementation-guide">Board Crate Implementation Guide</a></h1>
 <p>A board crate is the user-facing entry point for a specific hardware target.
-It wraps the low-level platform crate (<code>zpico-platform-*</code>) with a convenient
+It wraps the low-level platform crate (<code>nros-platform-*</code>) with a convenient
 API: a <code>Config</code> struct, a <code>run()</code> function, and hardware initialization logic
 for networking (Ethernet, WiFi, serial).</p>
 <h2 id="when-you-need-a-board-crate"><a class="header" href="#when-you-need-a-board-crate">When You Need a Board Crate</a></h2>
@@ -5059,7 +5095,7 @@ board that only had Ethernet)</li>
 </ul>
 <p>You do <strong>not</strong> need a board crate for POSIX (Linux/macOS) — the <code>platform-posix</code>
 feature uses OS sockets directly with no board-specific setup.</p>
-<h2 id="crate-structure-2"><a class="header" href="#crate-structure-2">Crate Structure</a></h2>
+<h2 id="crate-structure"><a class="header" href="#crate-structure">Crate Structure</a></h2>
 <pre><code>packages/boards/nros-&lt;board&gt;/
 ├── Cargo.toml
 ├── .gitignore          # /target/
@@ -5175,7 +5211,7 @@ fn init_ethernet(config: &amp;Config) {
 
     // 6. Register network poll callback
     unsafe {
-        zpico_platform::network::set_network_state(
+        nros_platform::network::set_network_state(
             &amp;mut iface as *mut _,
             &amp;mut sockets as *mut _,
             &amp;mut eth as *mut _ as *mut (),
@@ -5362,14 +5398,14 @@ where
 pub use cortex_m_rt::entry;           // or esp_hal::entry, etc.
 
 // Platform access (for advanced users)
-pub use zpico_platform_&lt;board&gt;;
+pub use nros_platform_&lt;board&gt;;
 
 // Board API
 pub use config::Config;
 pub use node::{init_hardware, run};
 
 // Cycle counter (for profiling)
-pub use zpico_platform_&lt;board&gt;::timing::CycleCounter;
+pub use nros_platform_&lt;board&gt;::timing::CycleCounter;
 
 // Convenience macros
 #[macro_export]
@@ -5755,12 +5791,17 @@ real-time kernels, and bare-metal environments. Each platform provides the OS
 primitives that nano-ros needs – clocks, memory allocation, networking, and
 random number generation – while the application code remains the same.</p>
 <h2 id="platform-architecture"><a class="header" href="#platform-architecture">Platform Architecture</a></h2>
-<p>Every embedded platform follows a two-crate pattern:</p>
+<p>Every embedded platform follows a three-crate pattern:</p>
 <ul>
-<li><strong><code>zpico-platform-*</code></strong> – low-level crate that supplies FFI symbols for
-clocks, memory, networking, and randomness. Has zero nros dependencies.</li>
-<li><strong><code>nros-*</code></strong> (board crate) – user-facing crate that re-exports the platform
-primitives and provides a convenience <code>run()</code> API for application startup.</li>
+<li><strong><code>nros-platform-*</code></strong> – platform primitives crate that provides clock,
+memory, sleep, random, and threading. Has zero nros dependencies.</li>
+<li><strong><code>zpico-platform-shim</code> / <code>xrce-platform-shim</code></strong> – thin FFI shim layers
+inside <code>zpico-sys</code> / <code>xrce-sys</code> that map transport-specific symbols
+(<code>z_*</code>, <code>uxr_*</code>) to the unified <code>ConcretePlatform</code> type alias from
+<code>nros-platform</code>.</li>
+<li><strong><code>nros-*</code></strong> (board crate) – user-facing crate that depends on the
+platform crate, initializes hardware, sets up the network stack, and
+provides a convenience <code>run()</code> API for application startup.</li>
 </ul>
 <p>POSIX is the exception: it uses the host OS directly and needs no board crate.</p>
 <h2 id="platform-selection"><a class="header" href="#platform-selection">Platform Selection</a></h2>
