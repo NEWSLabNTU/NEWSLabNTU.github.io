@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Example Configuration (config.toml) - nano-ros Book</title>
+        <title>RMW API Design - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,181 +177,165 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="example-configuration-configtoml"><a class="header" href="#example-configuration-configtoml">Example Configuration (config.toml)</a></h1>
-<p>Each embedded example includes a <code>config.toml</code> file that defines network
-settings and zenoh middleware parameters. The configuration is baked into
-the binary at compile time — no filesystem or runtime parsing is required.</p>
-<h2 id="format"><a class="header" href="#format">Format</a></h2>
-<pre><code class="language-toml"># Network stack configuration
-[network]
-ip = "192.0.3.10"           # IPv4 address
-mac = "02:00:00:00:00:00"   # MAC address (colon-separated hex)
-gateway = "192.0.3.1"       # Default gateway
-prefix = 24                 # Subnet prefix length (CIDR)
-netmask = "255.255.255.0"   # Alternative to prefix (FreeRTOS only)
-
-# WiFi configuration (ESP32 only)
-[wifi]
-ssid = "MyNetwork"          # WiFi network name
-password = "secret"          # WiFi password
-
-# Serial transport configuration
-[serial]
-baudrate = 115200            # UART baud rate
-
-# Zenoh middleware configuration
-[zenoh]
-locator = "tcp/192.0.3.1:7447"  # Router address
-domain_id = 0                     # ROS 2 domain ID (0–232)
-</code></pre>
-<h2 id="scheduling"><a class="header" href="#scheduling">Scheduling</a></h2>
-<p>The <code>[scheduling]</code> section configures RTOS task priorities and stack sizes.
-All fields are optional — omit the entire section to use board defaults.</p>
-<pre><code class="language-toml">[scheduling]
-# Normalized 0–31 priority scale (higher = more important).
-# Board crate maps to platform-native range:
-#   FreeRTOS: 0–7, ThreadX: 31–0 (inverted), NuttX: POSIX nice
-app_priority = 12              # Application task (executor + callbacks)
-zenoh_read_priority = 16       # Zenoh-pico socket read task
-zenoh_lease_priority = 16      # Zenoh-pico session keep-alive task
-poll_priority = 16             # Network poll task (FreeRTOS only)
-
-# Stack sizes in bytes
-app_stack_bytes = 65536        # 64 KB (must fit executor arena)
-zenoh_read_stack_bytes = 5120
-zenoh_lease_stack_bytes = 5120
-
-# Platform-specific
-poll_interval_ms = 5           # Network poll interval (FreeRTOS only)
-</code></pre>
-<h3 id="priority-scale"><a class="header" href="#priority-scale">Priority Scale</a></h3>
+                        <h1 id="rmw-api-design-nros-rmw-vs-ros2rmw"><a class="header" href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design: nros-rmw vs ros2/rmw</a></h1>
+<p>nano-ros defines its own RMW (ROS Middleware) abstraction in the <code>nros-rmw</code> crate. While it serves the same purpose as the official <a href="https://github.com/ros2/rmw">ros2/rmw</a> interface – decoupling the client library from the transport backend – it is designed for <code>no_std</code> embedded systems and uses a fundamentally different approach.</p>
+<p>This page documents the architectural differences and trade-offs.</p>
+<h2 id="architectural-pattern"><a class="header" href="#architectural-pattern">Architectural Pattern</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Normalized</th><th>Meaning</th><th>FreeRTOS (0–7)</th><th>ThreadX (0–31)</th></tr>
+<tr><th>Aspect</th><th>ROS 2 <code>rmw</code></th><th><code>nros-rmw</code></th></tr>
 </thead>
 <tbody>
-<tr><td>0</td><td>Idle</td><td>0</td><td>31</td></tr>
-<tr><td>8</td><td>Below normal</td><td>2</td><td>20</td></tr>
-<tr><td>12</td><td><strong>Normal (default app)</strong></td><td>3</td><td>16</td></tr>
-<tr><td>16</td><td><strong>Above normal (default zenoh)</strong></td><td>4</td><td>12</td></tr>
-<tr><td>24</td><td>Very high</td><td>6</td><td>4</td></tr>
-<tr><td>31</td><td>Critical</td><td>7</td><td>0</td></tr>
+<tr><td>Language</td><td>C API (<code>rmw/rmw.h</code>)</td><td>Rust traits</td></tr>
+<tr><td>Dispatch</td><td>Runtime plugin loading (shared library via <code>rmw_implementation</code>)</td><td>Compile-time monomorphization (Rust generics)</td></tr>
+<tr><td><code>no_std</code></td><td>No (requires libc, heap, POSIX)</td><td>Yes (zero heap in core path)</td></tr>
+<tr><td>Error model</td><td><code>rmw_ret_t</code> integer codes</td><td><code>TransportError</code> enum + associated <code>type Error</code> per trait</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="scheduling-constraints"><a class="header" href="#scheduling-constraints">Scheduling Constraints</a></h3>
-<p>These should hold for correct operation:</p>
-<ol>
-<li><strong>poll ≥ zenoh read</strong> (FreeRTOS): poll task must feed the RX FIFO</li>
-<li><strong>zenoh read ≥ app</strong>: prevents lease timeouts from delayed message processing</li>
-<li><strong>app stack ≥ 16 KB</strong>: executor arena + zenoh-pico call depth; 64 KB for actions</li>
-</ol>
-<p>All sections and fields are optional — missing values use board-specific
-defaults.</p>
-<h2 id="per-platform-fields"><a class="header" href="#per-platform-fields">Per-Platform Fields</a></h2>
-<p>Not all platforms use every field:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Field</th><th>Bare-metal</th><th>FreeRTOS</th><th>NuttX</th><th>ESP32 QEMU</th><th>ESP32</th></tr>
-</thead>
-<tbody>
-<tr><td><code>ip</code></td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Static IP only</td></tr>
-<tr><td><code>mac</code></td><td>Yes</td><td>Yes</td><td>—</td><td>Yes</td><td>—</td></tr>
-<tr><td><code>gateway</code></td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Static IP only</td></tr>
-<tr><td><code>prefix</code></td><td>Yes</td><td>—</td><td>Yes</td><td>Yes</td><td>Static IP only</td></tr>
-<tr><td><code>netmask</code></td><td>—</td><td>Yes</td><td>—</td><td>—</td><td>—</td></tr>
-<tr><td><code>ssid</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>Yes</td></tr>
-<tr><td><code>password</code></td><td>—</td><td>—</td><td>—</td><td>—</td><td>Yes</td></tr>
-<tr><td><code>baudrate</code></td><td>Serial only</td><td>—</td><td>—</td><td>Serial only</td><td>Serial only</td></tr>
-<tr><td><code>locator</code></td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
-<tr><td><code>domain_id</code></td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
-</tbody>
-</table>
-</div>
-<p>NuttX doesn’t need <code>mac</code> because the kernel configures networking.
-FreeRTOS uses <code>netmask</code> (dotted quad) instead of <code>prefix</code> (integer).
-ESP32 uses DHCP by default; <code>[network]</code> fields enable static IP mode.</p>
-<p><code>[scheduling]</code> fields are parsed on all platforms but only FreeRTOS
-currently uses them to configure task creation. Other platforms ignore
-the values (zenoh-pico read/lease tasks use platform defaults).</p>
-<h2 id="how-it-works"><a class="header" href="#how-it-works">How It Works</a></h2>
-<h3 id="rust-examples"><a class="header" href="#rust-examples">Rust examples</a></h3>
-<p>The config file is embedded at compile time via <code>include_str!</code> and parsed
-at startup by the board crate’s <code>Config::from_toml()</code> method:</p>
-<pre class="playground"><code class="language-rust">use nros_mps2_an385::{Config, run};
+<p>ROS 2 selects the RMW backend at runtime by loading a shared library (e.g., <code>rmw_fastrtps_cpp.so</code>). This enables switching backends without recompilation but requires dynamic linking and heap allocation.</p>
+<p>nros-rmw selects the backend at compile time via Cargo feature flags. The <code>Session</code> trait uses associated types, so the compiler monomorphizes all transport calls – no vtables, no dynamic dispatch, no heap. This is critical for MCUs with 16–256 KB of RAM.</p>
+<h2 id="object-model"><a class="header" href="#object-model">Object Model</a></h2>
+<h3 id="ros-2"><a class="header" href="#ros-2">ROS 2</a></h3>
+<p>ROS 2 rmw has a deep initialization hierarchy:</p>
+<pre><code>rmw_init() → rmw_context_t
+  → rmw_create_node() → rmw_node_t
+    → rmw_create_publisher() → rmw_publisher_t*
+    → rmw_create_subscription() → rmw_subscription_t*
+    → rmw_create_service() → rmw_service_t*
+    → rmw_create_client() → rmw_client_t*
+</code></pre>
+<p>Nodes are first-class RMW objects. Each <code>rmw_node_t</code> carries its own context, name, namespace, and security credentials. The RMW layer is responsible for node lifecycle and graph participation.</p>
+<h3 id="nros-rmw"><a class="header" href="#nros-rmw">nros-rmw</a></h3>
+<p>nros-rmw is flatter – there is no node at the RMW level:</p>
+<pre><code>Rmw::open(&amp;RmwConfig) → Session
+  → session.create_publisher(&amp;TopicInfo, QosSettings) → Self::PublisherHandle
+  → session.create_subscriber(&amp;TopicInfo, QosSettings) → Self::SubscriberHandle
+  → session.create_service_server(&amp;ServiceInfo) → Self::ServiceServerHandle
+  → session.create_service_client(&amp;ServiceInfo) → Self::ServiceClientHandle
+</code></pre>
+<p><code>Node</code> lives one layer up in <code>nros-node</code>. It is purely a namespace and liveliness concern – it borrows the session from the executor and creates typed communication handles. The RMW layer only knows about sessions and communication endpoints.</p>
+<h2 id="serialization-boundary"><a class="header" href="#serialization-boundary">Serialization Boundary</a></h2>
+<p>This is the most significant design difference.</p>
+<p><strong>ROS 2:</strong> The rmw layer operates on pre-serialized data. <code>rcl</code> and <code>rosidl</code> handle CDR serialization before calling <code>rmw_publish()</code> with an <code>rmw_serialized_message_t</code>. The rmw layer never sees typed messages – it only moves byte buffers. Type metadata is passed separately via <code>rosidl_message_type_support_t</code> structs.</p>
+<p><strong>nros-rmw:</strong> The traits include both raw and typed methods:</p>
+<pre><code class="language-rust ignore">pub trait Publisher {
+    // Raw: caller handles serialization
+    fn publish_raw(&amp;self, data: &amp;[u8]) -&gt; Result&lt;(), Self::Error&gt;;
 
-fn main() -&gt; ! {
-    run(Config::from_toml(include_str!("../config.toml")), |config| {
-        let exec = ExecutorConfig::new(config.zenoh_locator)
-            .domain_id(config.domain_id)
-            .node_name("talker");
-        // ...
-    })
+    // Typed: serialize + publish in one call
+    fn publish&lt;M: RosMessage&gt;(&amp;self, msg: &amp;M, buf: &amp;mut [u8]) -&gt; Result&lt;(), Self::Error&gt;;
+}
+
+pub trait Subscriber {
+    fn try_recv_raw(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
+    fn try_recv&lt;M: RosMessage&gt;(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;M&gt;, Self::Error&gt;;
 }</code></pre>
-<h3 id="cc-examples-cmake"><a class="header" href="#cc-examples-cmake">C/C++ examples (CMake)</a></h3>
-<p>The <code>nano_ros_read_config()</code> CMake function parses config.toml at
-configure time and sets compile definitions:</p>
-<pre><code class="language-cmake">include("${PROJECT_ROOT}/cmake/NanoRosConfig.cmake")
+<p>The typed methods have default implementations that call the raw methods with CDR serialization/deserialization from <code>nros-serdes</code>. This keeps the RMW layer self-contained – no separate serialization layer is needed.</p>
+<p>Type metadata uses simple structs (<code>TopicInfo { name, type_name, type_hash }</code>) instead of C type support function tables.</p>
+<h2 id="io-and-readiness-model"><a class="header" href="#io-and-readiness-model">I/O and Readiness Model</a></h2>
+<p><strong>ROS 2:</strong> Uses <code>rmw_wait()</code> with a wait set (<code>rmw_wait_set_t</code>) containing subscriptions, services, clients, guard conditions, and events. The caller constructs a wait set, adds handles, and blocks until any handle is ready. This is similar to <code>select()</code>/<code>epoll()</code>.</p>
+<p><strong>nros-rmw:</strong> Uses a single <code>drive_io(timeout_ms)</code> method on the <code>Session</code> trait:</p>
+<pre><code class="language-rust ignore">pub trait Session {
+    fn drive_io(&amp;mut self, timeout_ms: i32) -&gt; Result&lt;(), Self::Error&gt; {
+        let _ = timeout_ms;
+        Ok(())
+    }
+}</code></pre>
+<p>This is a pull-based model: the executor calls <code>drive_io()</code> to poll the network and dispatch incoming data to internal subscriber buffers, then checks each entity with <code>has_data()</code>. There is no wait set – the executor iterates its dispatch table directly.</p>
+<p>For async integration, subscribers and service clients expose <code>register_waker(&amp;Waker)</code> instead of guard conditions. The transport backend calls <code>waker.wake()</code> from its C receive callback, bridging to Rust <code>Future</code> waking without the wait set abstraction.</p>
+<h2 id="memory-model"><a class="header" href="#memory-model">Memory Model</a></h2>
+<p><strong>ROS 2:</strong> Heap-allocates handles, messages, and serialization buffers. <code>rmw_serialized_message_t</code> wraps a dynamically-sized <code>rcutils_uint8_array_t</code>. Loaned message APIs (<code>rmw_borrow_loaned_message</code>, <code>rmw_take_loaned_message</code>) provide optional zero-copy for transports that support shared memory.</p>
+<p><strong>nros-rmw:</strong> Uses caller-provided <code>&amp;mut [u8]</code> buffers everywhere. All receive and serialize operations write into stack-allocated or statically-allocated buffers:</p>
+<pre><code class="language-rust ignore">// Caller provides the buffer
+let mut buf = [0u8; 512];
+let msg: Option&lt;MyMsg&gt; = subscriber.try_recv(&amp;mut buf)?;</code></pre>
+<p>Zero-copy receive is supported via <code>process_raw_in_place()</code>, which invokes a closure with a reference to the subscriber’s internal receive buffer, avoiding the copy into a caller-provided buffer. This is gated behind the <code>unstable-zenoh-api</code> feature.</p>
+<h2 id="qos-settings"><a class="header" href="#qos-settings">QoS Settings</a></h2>
+<p>ROS 2 <code>rmw_qos_profile_t</code> includes:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>ROS 2</th><th>nros-rmw</th></tr>
+</thead>
+<tbody>
+<tr><td>History (keep last/all)</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Depth</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Reliability (reliable/best-effort)</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Durability (volatile/transient local)</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Deadline</td><td>Yes</td><td>No</td></tr>
+<tr><td>Lifespan</td><td>Yes</td><td>No</td></tr>
+<tr><td>Liveliness (automatic/manual)</td><td>Yes</td><td>No</td></tr>
+<tr><td><code>avoid_ros_namespace_conventions</code></td><td>Yes</td><td>No</td></tr>
+</tbody>
+</table>
+</div>
+<p>nros-rmw provides the four QoS policies that zenoh-pico and XRCE-DDS can actually enforce. The time-based policies (deadline, lifespan, liveliness) are omitted because the supported transports do not implement them.</p>
+<p>Standard QoS profiles (<code>QOS_PROFILE_DEFAULT</code>, <code>QOS_PROFILE_SENSOR_DATA</code>, <code>QOS_PROFILE_SERVICES_DEFAULT</code>, etc.) match their ROS 2 equivalents for interoperability.</p>
+<h2 id="service-client-model"><a class="header" href="#service-client-model">Service Client Model</a></h2>
+<p><strong>ROS 2:</strong> Service clients are always asynchronous at the rmw level. <code>rmw_send_request()</code> sends a request and returns a sequence number. The reply is retrieved later via <code>rmw_take_response()</code>, typically driven by <code>rmw_wait()</code>.</p>
+<p><strong>nros-rmw:</strong> Provides both models:</p>
+<pre><code class="language-rust ignore">pub trait ServiceClientTrait {
+    // Blocking: send request and wait for reply
+    fn call_raw(&amp;mut self, request: &amp;[u8], reply_buf: &amp;mut [u8]) -&gt; Result&lt;usize, Self::Error&gt;;
 
-nano_ros_read_config("${CMAKE_CURRENT_SOURCE_DIR}/config.toml")
-
-target_compile_definitions(my_example PRIVATE
-    "APP_IP={${NROS_CONFIG_IP}}"
-    "APP_MAC={${NROS_CONFIG_MAC}}"
-    "APP_GATEWAY={${NROS_CONFIG_GATEWAY}}"
-    "APP_NETMASK={${NROS_CONFIG_NETMASK}}"
-    "APP_ZENOH_LOCATOR=\"${NROS_CONFIG_ZENOH_LOCATOR}\""
-    "APP_DOMAIN_ID=${NROS_CONFIG_DOMAIN_ID}"
-)
-</code></pre>
-<p>C source code uses the macros:</p>
-<pre><code class="language-c">nros_support_init(&amp;support, APP_ZENOH_LOCATOR, APP_DOMAIN_ID);
-</code></pre>
-<h3 id="cc-examples-nuttx-makefile"><a class="header" href="#cc-examples-nuttx-makefile">C/C++ examples (NuttX Makefile)</a></h3>
-<p>NuttX C examples that don’t use CMake define macros with <code>#ifndef</code> guards
-and defaults. Override via <code>-D</code> flags in the Makefile if needed:</p>
-<pre><code class="language-c">#ifndef APP_ZENOH_LOCATOR
-#define APP_ZENOH_LOCATOR "tcp/192.0.3.1:7447"
-#endif
-#ifndef APP_DOMAIN_ID
-#define APP_DOMAIN_ID 0
-#endif
-</code></pre>
-<h2 id="network-topology-qemu"><a class="header" href="#network-topology-qemu">Network Topology (QEMU)</a></h2>
-<p>The default config.toml values match the QEMU TAP bridge test topology:</p>
-<pre><code>talker (192.0.3.10, tap-qemu0) ──┐
-                                  ├── qemu-br (192.0.3.1) ── zenohd :7447
-listener (192.0.3.11, tap-qemu1) ┘
-</code></pre>
-<ul>
-<li><strong>Talker/server role</strong>: IP <code>.10</code>, MAC <code>:00</code></li>
-<li><strong>Listener/client role</strong>: IP <code>.11</code>, MAC <code>:01</code></li>
-<li><strong>Bridge/gateway</strong>: <code>192.0.3.1</code> (zenohd listens here)</li>
-<li><strong>Subnet</strong>: <code>192.0.3.0/24</code> (RFC 5737 TEST-NET-3)</li>
-</ul>
-<p>Set up the bridge with: <code>sudo ./scripts/qemu/setup-network.sh</code></p>
-<h2 id="customization"><a class="header" href="#customization">Customization</a></h2>
-<p>To customize for your hardware:</p>
-<ol>
-<li>Edit the example’s <code>config.toml</code> with your network settings</li>
-<li>Rebuild: <code>cargo build --release</code> (Rust) or <code>cmake --build build</code> (C/C++)</li>
-</ol>
-<p>The binary will contain the new values — no runtime configuration needed.</p>
-<p>For local overrides that shouldn’t be committed to git, create a
-<code>config.local.toml</code> (gitignored) and update your <code>include_str!</code> or
-CMake path to point to it.</p>
+    // Async: send request, poll for reply separately
+    fn send_request_raw(&amp;mut self, request: &amp;[u8]) -&gt; Result&lt;(), Self::Error&gt;;
+    fn try_recv_reply_raw(&amp;mut self, reply_buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
+}</code></pre>
+<p>The blocking <code>call_raw()</code> is convenient for simple embedded applications. The async split (<code>send_request_raw</code> + <code>try_recv_reply_raw</code>) is used by the executor for non-blocking dispatch.</p>
+<h2 id="apis-present-in-ros-2-rmw-but-absent-in-nros-rmw"><a class="header" href="#apis-present-in-ros-2-rmw-but-absent-in-nros-rmw">APIs Present in ROS 2 rmw but Absent in nros-rmw</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>ROS 2 rmw API</th><th>Purpose</th><th>Why absent</th></tr>
+</thead>
+<tbody>
+<tr><td><code>rmw_node_t</code> / <code>rmw_create_node()</code></td><td>Node lifecycle at RMW level</td><td>Node is above the RMW layer in <code>nros-node</code></td></tr>
+<tr><td><code>rmw_wait_set_t</code> / <code>rmw_wait()</code></td><td>Multiplexed readiness waiting</td><td>Replaced by <code>drive_io()</code> + per-entity <code>has_data()</code></td></tr>
+<tr><td><code>rmw_guard_condition_t</code></td><td>Wake wait set from application code</td><td>Replaced by <code>register_waker(&amp;Waker)</code></td></tr>
+<tr><td><code>rmw_event_t</code></td><td>QoS event callbacks (deadline missed, etc.)</td><td>QoS events not supported</td></tr>
+<tr><td><code>rmw_get_topic_names_and_types()</code></td><td>Graph introspection</td><td>Discovery via zenoh liveliness, not exposed at trait level</td></tr>
+<tr><td><code>rmw_get_node_names()</code></td><td>Node discovery</td><td>Same as above</td></tr>
+<tr><td><code>rmw_count_publishers()</code> / <code>rmw_count_subscribers()</code></td><td>Graph statistics</td><td>Not exposed</td></tr>
+<tr><td><code>rosidl_message_type_support_t</code></td><td>C type support tables for serialization</td><td>Replaced by <code>TopicInfo</code> string metadata</td></tr>
+<tr><td><code>rmw_serialize()</code> / <code>rmw_deserialize()</code></td><td>Standalone serialization</td><td>CDR handled by <code>nros-serdes</code></td></tr>
+<tr><td><code>rmw_borrow_loaned_message()</code></td><td>Zero-copy shared memory publish</td><td>Not supported (smoltcp/zenoh-pico don’t use shared memory)</td></tr>
+<tr><td>Content-filtered topics</td><td>Server-side topic filtering</td><td>Not supported</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="apis-present-in-nros-rmw-but-absent-in-ros-2-rmw"><a class="header" href="#apis-present-in-nros-rmw-but-absent-in-ros-2-rmw">APIs Present in nros-rmw but Absent in ROS 2 rmw</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>nros-rmw API</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Publisher::publish&lt;M&gt;(msg, buf)</code></td><td>Typed publish with built-in CDR serialization</td></tr>
+<tr><td><code>Subscriber::try_recv&lt;M&gt;(buf)</code></td><td>Typed receive with built-in CDR deserialization</td></tr>
+<tr><td><code>Subscriber::process_raw_in_place(f)</code></td><td>Zero-copy in-place processing via closure</td></tr>
+<tr><td><code>Subscriber::try_recv_validated()</code></td><td>E2E safety validation (CRC-32 + sequence tracking)</td></tr>
+<tr><td><code>ServiceClientTrait::call_raw()</code></td><td>Blocking request/reply (ROS 2 rmw is async-only)</td></tr>
+<tr><td><code>ServiceServerTrait::handle_request&lt;S&gt;()</code></td><td>Typed request handling with automatic CDR roundtrip</td></tr>
+<tr><td><code>Session::drive_io(timeout_ms)</code></td><td>Explicit network polling (ROS 2 rmw relies on middleware threads)</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="summary"><a class="header" href="#summary">Summary</a></h2>
+<p>The core difference is that ROS 2 rmw is a <strong>C plugin interface</strong> designed for desktop systems with dynamic linking, heap allocation, and OS threading. nros-rmw is a <strong>Rust trait hierarchy</strong> designed for MCUs with static dispatch, stack allocation, and cooperative scheduling. The trade-off is flexibility (ROS 2 can swap backends at runtime) vs efficiency (nros eliminates all abstraction overhead at compile time).</p>
+<p>Despite these differences, the two are <strong>wire-compatible</strong> when using the same transport. An nros node using <code>rmw-zenoh</code> communicates with a ROS 2 node using <code>rmw_zenoh_cpp</code> through the same <code>zenohd</code> router, with matching QoS profiles and CDR encoding.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../reference/environment-variables.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../concepts/rmw-backends.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../reference/embedded-tuning.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../concepts/platform-model.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -361,11 +345,11 @@ CMake path to point to it.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../reference/environment-variables.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../concepts/rmw-backends.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../reference/embedded-tuning.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../concepts/platform-model.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
