@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Adding an RMW Backend - nano-ros Book</title>
+        <title>Custom Board Package - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f04cda77.js";
+            window.path_to_searchindex_js = "../searchindex-262b728a.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-dd670bc3.js"></script>
+        <script src="../toc-1b4d4b9e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,385 +177,251 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="adding-a-new-rmw-backend"><a class="header" href="#adding-a-new-rmw-backend">Adding a New RMW Backend</a></h1>
-<p>This guide explains how to implement a new RMW (ROS Middleware) backend for
-nano-ros. An RMW backend is a crate that implements the transport traits
-defined in <code>nros-rmw</code>, enabling nano-ros to send and receive ROS 2 messages
-over a new middleware protocol.</p>
-<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
-<p>nano-ros uses a trait-based abstraction layer (<code>nros-rmw</code>) that decouples
-application code from the underlying transport. Two backends ship today:</p>
-<ul>
-<li><strong><code>nros-rmw-zenoh</code></strong> — zenoh-pico (peer-to-peer, TCP/UDP/TLS)</li>
-<li><strong><code>nros-rmw-xrce</code></strong> — Micro-XRCE-DDS-Client (agent-based, UDP/serial)</li>
-</ul>
-<p>Adding a third backend (e.g., DDS, MQTT, custom protocol) means implementing
-the same trait hierarchy and wiring it into the feature flag system.</p>
-<h2 id="trait-hierarchy"><a class="header" href="#trait-hierarchy">Trait Hierarchy</a></h2>
-<p>All traits are defined in <code>packages/core/nros-rmw/src/traits.rs</code>. Your
-backend must implement:</p>
-<pre><code>Rmw              — Factory: creates Sessions from RmwConfig
-└─ Session       — Connection lifecycle, creates handles
-   ├─ Publisher   — Send serialized messages
-   ├─ Subscriber  — Receive messages (non-blocking poll)
-   ├─ ServiceServerTrait — Request/reply (server side)
-   └─ ServiceClientTrait — Request/reply (client side)
-</code></pre>
-<h3 id="rmw-factory"><a class="header" href="#rmw-factory">Rmw (factory)</a></h3>
-<p>The entry point. Creates a session from middleware-agnostic configuration.</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub trait Rmw {
-    type Session: Session;
-    type Error;
-
-    fn open(config: &amp;RmwConfig) -&gt; Result&lt;Self::Session, Self::Error&gt;;
-}
-<span class="boring">}</span></code></pre>
-<p><code>RmwConfig</code> provides:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Field</th><th>Type</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>locator</code></td><td><code>&amp;str</code></td><td>Connection string (e.g., <code>tcp/127.0.0.1:7447</code>)</td></tr>
-<tr><td><code>mode</code></td><td><code>SessionMode</code></td><td><code>Client</code> or <code>Peer</code></td></tr>
-<tr><td><code>domain_id</code></td><td><code>u32</code></td><td>ROS 2 domain ID</td></tr>
-<tr><td><code>node_name</code></td><td><code>&amp;str</code></td><td>Node name for discovery</td></tr>
-<tr><td><code>namespace</code></td><td><code>&amp;str</code></td><td>Node namespace</td></tr>
-</tbody>
-</table>
-</div>
-<p>Your <code>open()</code> maps these to backend-specific connection parameters and
-establishes the transport session.</p>
-<h3 id="session"><a class="header" href="#session">Session</a></h3>
-<p>Manages the connection lifecycle and creates communication handles.</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub trait Session {
-    type Error;
-    type PublisherHandle;
-    type SubscriberHandle;
-    type ServiceServerHandle;
-    type ServiceClientHandle;
-
-    fn create_publisher(
-        &amp;mut self, topic: &amp;TopicInfo, qos: QosSettings,
-    ) -&gt; Result&lt;Self::PublisherHandle, Self::Error&gt;;
-
-    fn create_subscriber(
-        &amp;mut self, topic: &amp;TopicInfo, qos: QosSettings,
-    ) -&gt; Result&lt;Self::SubscriberHandle, Self::Error&gt;;
-
-    fn create_service_server(
-        &amp;mut self, service: &amp;ServiceInfo,
-    ) -&gt; Result&lt;Self::ServiceServerHandle, Self::Error&gt;;
-
-    fn create_service_client(
-        &amp;mut self, service: &amp;ServiceInfo,
-    ) -&gt; Result&lt;Self::ServiceClientHandle, Self::Error&gt;;
-
-    fn close(&amp;mut self) -&gt; Result&lt;(), Self::Error&gt;;
-
-    // Poll-based I/O — call periodically to process incoming data
-    fn drive_io(&amp;mut self, timeout_ms: i32) -&gt; Result&lt;(), Self::Error&gt; {
-        let _ = timeout_ms;
-        Ok(())
-    }
-}
-<span class="boring">}</span></code></pre>
-<p><strong>Key types passed to handle creation:</strong></p>
-<ul>
-<li><code>TopicInfo</code> — topic name, ROS type name, type hash, domain ID, node
-name/namespace (for liveliness)</li>
-<li><code>ServiceInfo</code> — same fields for services</li>
-<li><code>QosSettings</code> — history, reliability, durability, depth</li>
-</ul>
-<h3 id="publisher"><a class="header" href="#publisher">Publisher</a></h3>
-<p>Send CDR-encoded messages. Only <code>publish_raw</code> and the two error helpers
-need implementation — <code>publish</code> has a default that serializes and delegates.</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub trait Publisher {
-    type Error;
-
-    fn publish_raw(&amp;self, data: &amp;[u8]) -&gt; Result&lt;(), Self::Error&gt;;
-
-    // Default provided — serializes M then calls publish_raw
-    fn publish&lt;M: RosMessage&gt;(&amp;self, msg: &amp;M, buf: &amp;mut [u8]) -&gt; Result&lt;(), Self::Error&gt;;
-
-    fn buffer_error(&amp;self) -&gt; Self::Error;
-    fn serialization_error(&amp;self) -&gt; Self::Error;
-}
-<span class="boring">}</span></code></pre>
-<h3 id="subscriber"><a class="header" href="#subscriber">Subscriber</a></h3>
-<p>Non-blocking message receive. Only <code>try_recv_raw</code> and <code>deserialization_error</code>
-are required — all other methods have defaults.</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub trait Subscriber {
-    type Error;
-
-    // Required
-    fn try_recv_raw(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
-    fn deserialization_error(&amp;self) -&gt; Self::Error;
-
-    // Optional overrides
-    fn has_data(&amp;self) -&gt; bool { true }
-    fn try_recv&lt;M: RosMessage&gt;(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;M&gt;, Self::Error&gt;;
-    fn process_raw_in_place(&amp;mut self, f: impl FnOnce(&amp;[u8])) -&gt; Result&lt;bool, Self::Error&gt;;
-    fn try_recv_raw_with_info(&amp;mut self, buf: &amp;mut [u8])
-        -&gt; Result&lt;Option&lt;(usize, Option&lt;MessageInfo&gt;)&gt;, Self::Error&gt;;
-    fn register_waker(&amp;self, waker: &amp;core::task::Waker) {}
-
-    // Only when safety-e2e feature is enabled
-    #[cfg(feature = "safety-e2e")]
-    fn try_recv_validated(&amp;mut self, buf: &amp;mut [u8])
-        -&gt; Result&lt;Option&lt;(usize, IntegrityStatus)&gt;, Self::Error&gt;;
-}
-<span class="boring">}</span></code></pre>
-<p><strong><code>has_data()</code></strong> is used by the executor to skip subscribers with no
-pending data. Override it if your backend can report availability cheaply.</p>
-<p><strong><code>process_raw_in_place()</code></strong> enables zero-copy receive. Override if your
-backend stores received data in a static buffer that can be borrowed
-directly.</p>
-<h3 id="serviceservertrait"><a class="header" href="#serviceservertrait">ServiceServerTrait</a></h3>
-<p>Handle incoming service requests.</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub trait ServiceServerTrait {
-    type Error;
-
-    fn has_request(&amp;self) -&gt; bool { true }
-
-    fn try_recv_request&lt;'a&gt;(
-        &amp;mut self, buf: &amp;'a mut [u8],
-    ) -&gt; Result&lt;Option&lt;ServiceRequest&lt;'a&gt;&gt;, Self::Error&gt;;
-
-    fn send_reply(
-        &amp;mut self, sequence_number: i64, data: &amp;[u8],
-    ) -&gt; Result&lt;(), Self::Error&gt;;
-
-    // Default provided — deserializes request, calls handler, serializes reply
-    fn handle_request&lt;S: RosService&gt;(
-        &amp;mut self, req_buf: &amp;mut [u8], reply_buf: &amp;mut [u8],
-        handler: impl FnOnce(&amp;S::Request) -&gt; S::Reply,
-    ) -&gt; Result&lt;bool, Self::Error&gt;;
-}
-<span class="boring">}</span></code></pre>
-<p><code>ServiceRequest</code> carries raw CDR bytes and a sequence number for
-request/response matching.</p>
-<h3 id="serviceclienttrait"><a class="header" href="#serviceclienttrait">ServiceClientTrait</a></h3>
-<p>Send requests and receive replies.</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub trait ServiceClientTrait {
-    type Error;
-
-    // Blocking call
-    fn call_raw(&amp;mut self, request: &amp;[u8], reply_buf: &amp;mut [u8])
-        -&gt; Result&lt;usize, Self::Error&gt;;
-
-    // Non-blocking: send then poll
-    fn send_request_raw(&amp;mut self, request: &amp;[u8]) -&gt; Result&lt;(), Self::Error&gt;;
-    fn try_recv_reply_raw(&amp;mut self, reply_buf: &amp;mut [u8])
-        -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
-
-    fn register_waker(&amp;self, waker: &amp;core::task::Waker) {}
-
-    // Defaults provided for typed wrappers
-    fn call&lt;S: RosService&gt;(...) -&gt; Result&lt;S::Reply, Self::Error&gt;;
-    fn send_request&lt;S: RosService&gt;(...) -&gt; Result&lt;(), Self::Error&gt;;
-    fn try_recv_reply&lt;S: RosService&gt;(...) -&gt; Result&lt;Option&lt;S::Reply&gt;, Self::Error&gt;;
-}
-<span class="boring">}</span></code></pre>
-<h2 id="step-by-step-implementation"><a class="header" href="#step-by-step-implementation">Step-by-Step Implementation</a></h2>
-<h3 id="1-create-the-backend-crate"><a class="header" href="#1-create-the-backend-crate">1. Create the backend crate</a></h3>
-<pre><code>packages/&lt;backend&gt;/nros-rmw-&lt;name&gt;/
-├── Cargo.toml
-└── src/
-    ├── lib.rs
-    ├── session.rs       # Rmw + Session impl
-    ├── publisher.rs     # Publisher impl
-    ├── subscriber.rs    # Subscriber impl
-    └── service.rs       # ServiceServer + ServiceClient impl
-</code></pre>
-<p><code>Cargo.toml</code> dependencies:</p>
-<pre><code class="language-toml">[dependencies]
-nros-rmw = { path = "../../core/nros-rmw", default-features = false }
-nros-core = { path = "../../core/nros-core", default-features = false }
-</code></pre>
-<h3 id="2-define-your-session-type"><a class="header" href="#2-define-your-session-type">2. Define your session type</a></h3>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct MySession {
-    // Backend-specific connection state
-}
-
-pub struct MyRmw;
-
-impl Rmw for MyRmw {
-    type Session = MySession;
-    type Error = TransportError;
-
-    fn open(config: &amp;RmwConfig) -&gt; Result&lt;MySession, TransportError&gt; {
-        // Parse config.locator, establish connection
-        // Map config.domain_id to backend-specific namespace
-        todo!()
-    }
-}
-<span class="boring">}</span></code></pre>
-<h3 id="3-implement-handle-types"><a class="header" href="#3-implement-handle-types">3. Implement handle types</a></h3>
-<p>Each <code>Session::create_*</code> method returns a handle. Handles are typically
-indices into a static array (for <code>no_std</code>) or heap-allocated state:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct MyPublisher {
-    // Backend-specific publisher state
-}
-
-impl Publisher for MyPublisher {
-    type Error = TransportError;
-
-    fn publish_raw(&amp;self, data: &amp;[u8]) -&gt; Result&lt;(), TransportError&gt; {
-        // Send data over the transport
-        todo!()
-    }
-
-    fn buffer_error(&amp;self) -&gt; TransportError {
-        TransportError::BufferTooSmall
-    }
-
-    fn serialization_error(&amp;self) -&gt; TransportError {
-        TransportError::SerializationError
-    }
-}
-<span class="boring">}</span></code></pre>
-<h3 id="4-wire-message-buffering"><a class="header" href="#4-wire-message-buffering">4. Wire message buffering</a></h3>
-<p>Subscribers need to store incoming messages until the application polls
-them. Two patterns exist:</p>
-<p><strong>Static buffers</strong> (preferred for <code>no_std</code>): Pre-allocate a fixed array
-of per-subscriber buffers. Each subscriber gets an index at creation time.
-See <code>nros-rmw-zenoh/src/shim/subscriber.rs</code> for the pattern.</p>
-<p><strong>Heap queues</strong> (when <code>alloc</code> is available): Use <code>VecDeque&lt;Vec&lt;u8&gt;&gt;</code> or
-similar. Simpler but requires heap.</p>
-<h3 id="5-implement-drive_io"><a class="header" href="#5-implement-drive_io">5. Implement <code>drive_io</code></a></h3>
-<p>Most embedded transports are pull-based — the application must call
-<code>drive_io()</code> periodically to read from the network and dispatch messages
-to subscriber buffers.</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>impl Session for MySession {
-    fn drive_io(&amp;mut self, timeout_ms: i32) -&gt; Result&lt;(), TransportError&gt; {
-        // 1. Read from network socket (non-blocking if timeout_ms == 0)
-        // 2. Parse incoming frames
-        // 3. Route messages to subscriber/service buffers
-        // 4. Send keepalive if needed
-        Ok(())
-    }
-}
-<span class="boring">}</span></code></pre>
-<p>The executor calls <code>drive_io(0)</code> on every spin iteration.</p>
-<h3 id="6-add-the-feature-flag"><a class="header" href="#6-add-the-feature-flag">6. Add the feature flag</a></h3>
-<p>In the <code>nros</code> facade crate:</p>
-<pre><code class="language-toml"># Cargo.toml
-[features]
-rmw-&lt;name&gt; = ["nros-node/rmw-&lt;name&gt;"]
-</code></pre>
-<p>In <code>nros-node</code>:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>#[cfg(feature = "rmw-&lt;name&gt;")]
-pub type DefaultSession = nros_rmw_&lt;name&gt;::MySession;
-<span class="boring">}</span></code></pre>
-<p>Add mutual exclusivity enforcement:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>#[cfg(all(feature = "rmw-&lt;name&gt;", feature = "rmw-zenoh"))]
-compile_error!("Only one RMW backend can be enabled");
-<span class="boring">}</span></code></pre>
-<h3 id="7-map-qos-settings"><a class="header" href="#7-map-qos-settings">7. Map QoS settings</a></h3>
-<p>ROS 2 QoS profiles must be mapped to your transport’s equivalent:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>QoS Field</th><th>ROS 2 Meaning</th><th>Example Mapping</th></tr>
-</thead>
-<tbody>
-<tr><td><code>reliability: Reliable</code></td><td>Retransmit on loss</td><td>TCP or reliable stream</td></tr>
-<tr><td><code>reliability: BestEffort</code></td><td>No retransmit</td><td>UDP or unreliable channel</td></tr>
-<tr><td><code>durability: TransientLocal</code></td><td>Late-joining subscribers get last value</td><td>Retain last N messages</td></tr>
-<tr><td><code>durability: Volatile</code></td><td>No history for late joiners</td><td>Don’t retain</td></tr>
-<tr><td><code>history: KeepLast(N)</code></td><td>Buffer last N messages</td><td>Ring buffer of depth N</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="8-implement-ros-2-discovery-optional"><a class="header" href="#8-implement-ros-2-discovery-optional">8. Implement ROS 2 discovery (optional)</a></h3>
-<p>For ROS 2 interop, your backend should participate in graph discovery.
-The zenoh backend uses liveliness tokens; DDS uses participant discovery.
-If your transport doesn’t support discovery, nodes will still work for
-pub/sub but won’t appear in <code>ros2 node list</code>.</p>
-<h2 id="key-expression-format"><a class="header" href="#key-expression-format">Key Expression Format</a></h2>
-<p>If your backend needs ROS 2 wire compatibility, messages must use the
-standard key expression format:</p>
-<pre><code>&lt;domain_id&gt;/&lt;topic_name&gt;/&lt;type_name&gt;/&lt;type_hash&gt;
-</code></pre>
-<p>For example:</p>
-<pre><code>0/chatter/std_msgs::msg::dds_::String_/RIHS01_...
-</code></pre>
-<p>See <a href="rmw-zenoh-protocol.html">RMW Zenoh Protocol</a> for the full
-format specification.</p>
-<h2 id="testing"><a class="header" href="#testing">Testing</a></h2>
+                        <h1 id="custom-board-package"><a class="header" href="#custom-board-package">Custom Board Package</a></h1>
+<p>A board crate is the top-level, batteries-included package that application code depends on. It provides three things:</p>
 <ol>
-<li><strong>Unit tests</strong> — test serialization/deserialization round-trips</li>
-<li><strong>Integration tests</strong> — pub/sub and service call between two nodes
-using your backend</li>
-<li><strong>ROS 2 interop</strong> — if applicable, test communication with a ROS 2
-node running the equivalent RMW</li>
+<li><strong><code>Config</code> struct</strong> – network settings (IP, MAC, gateway), transport selection (Ethernet, serial, or WiFi via Cargo features), and a zenoh locator string.</li>
+<li><strong><code>run()</code> entry point</strong> – initializes hardware, starts the network stack, and calls a user-provided closure with <code>&amp;Config</code>.</li>
+<li><strong>Hardware initialization</strong> – PHY/MAC driver setup, interrupt configuration, clock init, and force-linking of platform shim crates.</li>
 </ol>
-<p>Add a <code>just test-&lt;backend&gt;</code> recipe and place tests in
-<code>packages/testing/nros-tests/tests/</code>.</p>
-<h2 id="error-mapping"><a class="header" href="#error-mapping">Error Mapping</a></h2>
-<p>Map your backend’s native errors to <code>TransportError</code> variants:</p>
+<p>Users never interact with platform crates or driver crates directly. They depend on a single board crate, call <code>run()</code>, and get a working environment for creating an <code>Executor</code>.</p>
+<pre><code class="language-rust ignore">use nros_my_board::{Config, run};
+use nros::prelude::*;
+
+run(Config::default(), |config| {
+    let exec_config = ExecutorConfig::new(config.zenoh_locator)
+        .domain_id(config.domain_id);
+    let mut executor = Executor::open(&amp;exec_config)?;
+    let mut node = executor.create_node("my_node")?;
+    // publishers, subscriptions, services, actions, timers...
+    Ok(())
+})</code></pre>
+<h2 id="board--platform--hardware"><a class="header" href="#board--platform--hardware">Board = platform + hardware</a></h2>
+<p>A board crate combines two layers:</p>
+<ul>
+<li><strong>Platform crate</strong> (<code>nros-platform-&lt;os&gt;</code>) – generic RTOS or bare-metal primitives: clock, sleep, threading, memory, random number generation. Implements the traits defined in <code>nros-platform</code>. See <a href="custom-platform.html">Custom Platform</a> for how to write one.</li>
+<li><strong>Hardware drivers</strong> – board-specific peripherals: Ethernet controller, WiFi radio, serial UART. Driver crates in <code>packages/drivers/</code> (e.g., <code>lan9118-smoltcp</code>, <code>openeth-smoltcp</code>) implement the smoltcp <code>Device</code> trait for a specific Ethernet MAC/PHY.</li>
+</ul>
+<p>The board crate glues these together: it depends on the platform crate for OS primitives, on driver crates for peripheral access, and on transport crates (<code>nros-smoltcp</code>, <code>zpico-serial</code>) for bridging the network stack to zenoh-pico. The result is a single dependency that gives application code everything it needs.</p>
+<pre><code class="language-text">Application
+    |
+    v
+Board crate (nros-my-board)
+    |
+    +-- Platform crate (nros-platform-freertos)
+    +-- Driver crate (lan9118-smoltcp)
+    +-- Transport bridge (nros-smoltcp or zpico-serial)
+    +-- Shim crate (zpico-platform-shim)
+</code></pre>
+<h2 id="crate-structure"><a class="header" href="#crate-structure">Crate structure</a></h2>
+<p>A minimal board crate looks like this:</p>
+<pre><code class="language-text">nros-my-board/
+  Cargo.toml
+  .gitignore        # /target/
+  src/
+    lib.rs          # extern crate force-links, pub use Config, pub fn run()
+    config.rs       # Config struct with network fields
+    node.rs         # Hardware init sequence + run() implementation
+</code></pre>
+<h3 id="cargotoml"><a class="header" href="#cargotoml">Cargo.toml</a></h3>
+<pre><code class="language-toml">[package]
+name = "nros-my-board"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "nros_my_board"
+
+[dependencies]
+# Platform primitives (pick one)
+nros-platform = { path = "../../core/nros-platform", features = ["platform-freertos"] }
+nros-platform-freertos = { path = "../../core/nros-platform-freertos" }
+
+# Force-link shim crate (provides zenoh-pico C symbols)
+zpico-platform-shim = { path = "../../zpico/zpico-platform-shim", features = ["active"] }
+zpico-sys = { path = "../../zpico/zpico-sys", default-features = false }
+
+# Ethernet transport (optional, gated by feature)
+nros-smoltcp = { path = "../../drivers/nros-smoltcp", optional = true }
+lan9118-smoltcp = { path = "../../drivers/lan9118-smoltcp", optional = true }
+smoltcp = { version = "0.12", default-features = false, optional = true, features = [
+    "medium-ethernet", "proto-ipv4", "socket-tcp", "socket-udp",
+] }
+
+# Serial transport (optional, gated by feature)
+zpico-serial = { path = "../../zpico/zpico-serial", optional = true }
+my-uart-driver = { path = "../../drivers/my-uart", optional = true }
+
+# Board-specific dependencies
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+cortex-m-semihosting = "0.5"
+panic-semihosting = "0.6"
+
+[features]
+default = ["ethernet"]
+ethernet = ["dep:nros-smoltcp", "dep:lan9118-smoltcp", "dep:smoltcp"]
+serial = ["dep:zpico-serial", "dep:my-uart-driver"]
+</code></pre>
+<h3 id="librs"><a class="header" href="#librs">lib.rs</a></h3>
+<p>The lib module force-links shim crates and re-exports the public API.</p>
+<pre><code class="language-rust ignore">#![no_std]
+
+// Force-link: ensures the platform shim's C symbols (zpico FFI) are
+// included in the final binary even though Rust code never calls them
+// directly. Without this, the linker drops them and zenoh-pico fails.
+extern crate zpico_platform_shim;
+
+mod config;
+mod node;
+
+pub use config::Config;
+pub use node::{init_hardware, run};
+
+// Re-export entry macro so examples can use #[entry]
+pub use cortex_m_rt::entry;
+
+// Convenience println! that routes to semihosting (QEMU) or UART
+pub use cortex_m_semihosting;
+#[macro_export]
+macro_rules! println {
+    ($($arg:tt)*) =&gt; { $crate::cortex_m_semihosting::hprintln!($($arg)*) };
+}
+
+pub fn exit_success() -&gt; ! {
+    cortex_m_semihosting::debug::exit(cortex_m_semihosting::debug::EXIT_SUCCESS);
+    loop {}
+}
+
+pub fn exit_failure() -&gt; ! {
+    cortex_m_semihosting::debug::exit(cortex_m_semihosting::debug::EXIT_FAILURE);
+    loop {}
+}</code></pre>
+<h3 id="configrs"><a class="header" href="#configrs">config.rs</a></h3>
+<p>The <code>Config</code> struct holds all network and transport settings. Fields are
+gated by Cargo features so only relevant fields exist for a given build.</p>
+<pre><code class="language-rust ignore">#[derive(Clone)]
+pub struct Config {
+    #[cfg(feature = "ethernet")]
+    pub mac: [u8; 6],
+    #[cfg(feature = "ethernet")]
+    pub ip: [u8; 4],
+    #[cfg(feature = "ethernet")]
+    pub prefix: u8,
+    #[cfg(feature = "ethernet")]
+    pub gateway: [u8; 4],
+
+    #[cfg(feature = "serial")]
+    pub uart_base: usize,
+    #[cfg(feature = "serial")]
+    pub baudrate: u32,
+
+    pub zenoh_locator: &amp;'static str,
+    pub domain_id: u32,
+}
+
+#[cfg(feature = "ethernet")]
+impl Default for Config {
+    fn default() -&gt; Self {
+        Self {
+            mac: [0x02, 0x00, 0x00, 0x00, 0x00, 0x00],
+            ip: [192, 0, 3, 10],
+            prefix: 24,
+            gateway: [192, 0, 3, 1],
+            #[cfg(feature = "serial")]
+            uart_base: 0x4000_4000,
+            #[cfg(feature = "serial")]
+            baudrate: 115200,
+            zenoh_locator: "tcp/192.0.3.1:7447",
+            domain_id: 0,
+        }
+    }
+}</code></pre>
+<p>Provide builder methods (<code>with_ip</code>, <code>with_mac</code>, <code>with_gateway</code>, etc.) and factory presets (<code>listener()</code>, <code>talker()</code>) for common test topologies. See <code>nros-mps2-an385/src/config.rs</code> for a complete example including <code>from_toml()</code> parsing.</p>
+<h3 id="noders"><a class="header" href="#noders">node.rs</a></h3>
+<p>The <code>run()</code> function is the entry point. For bare-metal targets it calls the user closure directly. For RTOS targets it creates a task, starts the scheduler, and runs the closure inside that task.</p>
+<p><strong>Bare-metal pattern:</strong></p>
+<pre><code class="language-rust ignore">pub fn run&lt;F, E: core::fmt::Debug&gt;(config: Config, f: F) -&gt; !
+where
+    F: FnOnce(&amp;Config) -&gt; Result&lt;(), E&gt;,
+{
+    init_hardware(&amp;config);
+    match f(&amp;config) {
+        Ok(()) =&gt; exit_success(),
+        Err(e) =&gt; {
+            hprintln!("Error: {:?}", e);
+            exit_failure()
+        }
+    }
+}</code></pre>
+<p><strong>RTOS pattern (FreeRTOS example):</strong></p>
+<pre><code class="language-rust ignore">pub fn run&lt;F, E: core::fmt::Debug&gt;(config: Config, f: F) -&gt; !
+where
+    F: FnOnce(&amp;Config) -&gt; Result&lt;(), E&gt;,
+{
+    init_hardware(&amp;config);
+    // Create FreeRTOS task with the user closure
+    create_app_task(f, config);
+    // Start the scheduler -- never returns
+    start_scheduler()
+}</code></pre>
+<p>The <code>init_hardware()</code> function must follow this order:</p>
+<ol>
+<li><strong>Clock</strong> – initialize the hardware timer (must happen before any clock reads)</li>
+<li><strong>Cycle counter</strong> – enable DWT or equivalent for timing measurements</li>
+<li><strong>RNG seed</strong> – seed PRNG with entropy (IP-based hash, semihosting time, etc.)</li>
+<li><strong>Transport</strong> – Ethernet driver + smoltcp, or UART + zpico-serial</li>
+<li><strong>Application</strong> – call the user closure</li>
+</ol>
+<p>Ethernet peripherals and smoltcp state must live in <code>static mut</code> storage (they are referenced by FFI poll callbacks):</p>
+<pre><code class="language-rust ignore">static mut ETH_DEVICE: MaybeUninit&lt;Lan9118&gt; = MaybeUninit::uninit();
+static mut NET_IFACE: MaybeUninit&lt;Interface&gt; = MaybeUninit::uninit();
+static mut NET_SOCKETS: MaybeUninit&lt;SocketSet&lt;'static&gt;&gt; = MaybeUninit::uninit();</code></pre>
+<h2 id="transport-features"><a class="header" href="#transport-features">Transport features</a></h2>
+<p>Board crates use Cargo features to select the communication transport:</p>
+<ul>
+<li><strong><code>ethernet</code></strong> (typically the default) – TCP/UDP via smoltcp or lwIP. Requires an Ethernet driver crate and <code>nros-smoltcp</code>.</li>
+<li><strong><code>serial</code></strong> – UART link via <code>zpico-serial</code>. Requires a UART driver crate.</li>
+<li><strong><code>wifi</code></strong> – WiFi via the platform’s native stack (ESP32). The zenoh-pico layer uses OS sockets directly.</li>
+</ul>
+<p>At least one transport must be enabled. Enforce this at compile time:</p>
+<pre><code class="language-rust ignore">#[cfg(not(any(feature = "ethernet", feature = "serial")))]
+compile_error!("Enable at least one transport: `ethernet` or `serial`");</code></pre>
+<p><code>Config</code> fields are <code>#[cfg(feature = "...")]</code>-gated per transport, so the struct only contains fields relevant to the enabled transport. Both <code>ethernet</code> and <code>serial</code> can be enabled simultaneously – the zenoh locator string determines which transport is used at runtime (<code>tcp/...</code> for Ethernet, <code>serial/...</code> for UART).</p>
+<h2 id="reference-implementations"><a class="header" href="#reference-implementations">Reference implementations</a></h2>
+<p>Start from the crate closest to your target:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Scenario</th><th>TransportError variant</th></tr>
+<tr><th>Board crate</th><th>Transport</th><th>Platform</th><th>Location</th></tr>
 </thead>
 <tbody>
-<tr><td>Connection refused / timeout</td><td><code>ConnectionFailed</code></td></tr>
-<tr><td>Session closed unexpectedly</td><td><code>Disconnected</code></td></tr>
-<tr><td>Entity creation fails</td><td><code>PublisherCreationFailed</code>, etc.</td></tr>
-<tr><td>Send fails</td><td><code>PublishFailed</code> / <code>ServiceRequestFailed</code></td></tr>
-<tr><td>Buffer too small for message</td><td><code>BufferTooSmall</code></td></tr>
-<tr><td>Message exceeds static capacity</td><td><code>MessageTooLarge</code></td></tr>
-<tr><td>Serialization failure</td><td><code>SerializationError</code></td></tr>
-<tr><td>Deserialization failure</td><td><code>DeserializationError</code></td></tr>
-<tr><td>Keepalive / lease timeout</td><td><code>KeepaliveFailed</code></td></tr>
+<tr><td><code>nros-mps2-an385</code></td><td>Ethernet + Serial</td><td>Bare-metal</td><td><code>packages/boards/nros-mps2-an385/</code></td></tr>
+<tr><td><code>nros-mps2-an385-freertos</code></td><td>Ethernet (lwIP)</td><td>FreeRTOS</td><td><code>packages/boards/nros-mps2-an385-freertos/</code></td></tr>
+<tr><td><code>nros-esp32</code></td><td>WiFi</td><td>Bare-metal (ESP-IDF)</td><td><code>packages/boards/nros-esp32/</code></td></tr>
+<tr><td><code>nros-stm32f4</code></td><td>Ethernet + Serial</td><td>Bare-metal</td><td><code>packages/boards/nros-stm32f4/</code></td></tr>
+<tr><td><code>nros-nuttx-qemu-arm</code></td><td>BSD sockets</td><td>NuttX</td><td><code>packages/boards/nros-nuttx-qemu-arm/</code></td></tr>
+<tr><td><code>nros-threadx-qemu-riscv64</code></td><td>NetX Duo</td><td>ThreadX</td><td><code>packages/boards/nros-threadx-qemu-riscv64/</code></td></tr>
 </tbody>
 </table>
 </div>
-<h2 id="no_std-compatibility"><a class="header" href="#no_std-compatibility"><code>no_std</code> Compatibility</a></h2>
-<p>All traits in <code>nros-rmw</code> are <code>#![no_std]</code>. Your backend should also be
-<code>no_std</code>-compatible:</p>
+<p>The bare-metal <code>nros-mps2-an385</code> is the simplest starting point. The FreeRTOS variant shows how to add RTOS task creation and lwIP networking.</p>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
 <ul>
-<li>Use <code>heapless</code> collections instead of <code>Vec</code>/<code>String</code></li>
-<li>Gate heap-dependent code behind <code>#[cfg(feature = "alloc")]</code></li>
-<li>Use static buffers with compile-time sizing via environment variables
-(see <a href="../reference/environment-variables.html">Environment Variables</a>)</li>
-<li>Avoid <code>std::io</code>, <code>std::net</code>, etc. — use raw FFI or embedded network stacks</li>
+<li><a href="custom-platform.html">Custom Platform</a> – writing the platform crate that sits underneath a board crate</li>
+<li><a href="overview.html">Porting Overview</a> – the three customization axes (RMW, platform, board)</li>
+<li><a href="../internals/board-crate.html">Board Crate Implementation</a> – detailed internal reference with driver implementation, lwIP/NetX Duo setup, and a full checklist</li>
 </ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../internals/porting-platform/xrce-dds.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../porting/custom-platform.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../internals/board-crate.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../reference/rust-api.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -565,11 +431,11 @@ node running the equivalent RMW</li>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../internals/porting-platform/xrce-dds.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../porting/custom-platform.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../internals/board-crate.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../reference/rust-api.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
