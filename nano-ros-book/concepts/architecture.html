@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-a14b6c41.js";
+            window.path_to_searchindex_js = "../searchindex-106dddbe.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-2cbf73c5.js"></script>
@@ -181,71 +181,47 @@
 <p>nano-ros is a lightweight ROS 2 client library for embedded real-time systems. It runs on bare-metal, FreeRTOS, NuttX, ThreadX, and Zephyr — as well as Linux/POSIX — with full <code>no_std</code> support throughout the core stack.</p>
 <p>This document presents the overall nano-ros architecture: the layered crate structure, RMW abstraction, executor model, board crates, and how everything composes at compile time.</p>
 <h2 id="high-level-layer-diagram"><a class="header" href="#high-level-layer-diagram">High-Level Layer Diagram</a></h2>
-<pre class="mermaid">block-beta
-  columns 3
-
-  block:app:3
-    A["Application Code"]
-  end
-
-  space:3
-
-  block:facade:3
-    B["nano-ros facade (nros crate)"]
-  end
-
-  space:3
-
-  block:core:3
-    C["nros-node"]
-    D["nros-params"]
-    E["nros-core"]
-  end
-
-  space:3
-
-  block:rmw:3
-    H["nros-rmw (traits)"]
-  end
-
-  space:3
-
-  block:backends:3
-    I["nros-rmw-zenoh"]
-    J["nros-rmw-xrce"]
-    K["nros-rmw-cffi"]
-  end
-
-  space:3
-
-  block:transport:3
-    L["zpico-sys"]
-    M["xrce-sys"]
-    N["C vtable"]
-  end
-
-  space:3
-
-  block:platform:3
-    O["nros-platform (traits + shims)"]
-  end
-
-  space:3
-
-  block:hw:3
-    P["nros-platform-posix / freertos / zephyr / ..."]
-  end
-
-  app --&gt; facade
-  facade --&gt; core
-  core --&gt; rmw
-  rmw --&gt; backends
-  backends --&gt; transport
-  transport --&gt; platform
-  platform --&gt; hw
-</pre>
-
-<p>Applications depend on the nano-ros facade crate (<code>nros</code>), which re-exports everything and enforces compile-time mutual exclusivity of feature axes. The core library stack is middleware-agnostic. Only the RMW backend crates know about specific transport protocols. The <strong>platform layer</strong> (<code>nros-platform</code>) provides a unified trait interface for clock, memory, threading, and networking — the transport layer calls platform functions through thin shim crates (<code>zpico-platform-shim</code>, <code>xrce-platform-shim</code>) that forward to the active platform implementation. See the <a href="../reference/platform-api.html">Platform API Reference</a> for trait details and the <a href="../guides/platform-customization.html">Platform Customization Guide</a> for which crates to modify.</p>
+<pre><code>┌─────────────────────────────────────────────────────────┐
+│  Application                                            │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  User code (Rust / C / C++)                        │  │
+│  └────────────────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────────────┤
+│  Core                                                   │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  nros  (facade — re-exports + feature gates)       │  │
+│  │  ┌──────────┐ ┌───────────┐ ┌────────────��─────┐  │  │
+│  │  │ nros-node│ │nros-params│ │    nros-core      │  │  │
+│  │  │ Executor │ │ Parameter │ │ RosMessage traits  │  │  │
+│  │  │ Node     │ │ Server    │ │ CdrWriter/Reader   │  │  │
+│  │  └──────────┘ └───────────┘ └──────────────────┘  │  │
+│  └────────────────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────────────┤
+│  RMW (middleware abstraction)                           │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  nros-rmw  (Session, Publisher, Subscriber traits) │  │
+│  ├────────────────┬───────────────┬───────────────────┤  │
+│  │ nros-rmw-zenoh │ nros-rmw-xrce │  nros-rmw-cffi   │  │
+│  │ (zenoh-pico)   │ (XRCE-DDS)    │  (C vtable)      │  │
+│  └────────────────┴───────────────┴───────────────────┘  │
+├─────────────────────────────────────────────────────────┤
+│  Platform (hardware + OS abstraction)                   │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  nros-platform  (Clock, Alloc, Threading, TCP, ... │  │
+│  │                   traits + ConcretePlatform alias) │  │
+│  ├──────────┬──────────┬────────┬─────────┬──────────┤  │
+│  │  posix   │ freertos │ zephyr │ threadx │ bare-    │  │
+│  │          │          │        │         │ metal    │  │
+│  └──────────┴──────────┴────────┴─────────┴──────────┘  │
+└─────────────────────────────────────────────────────────┘
+</code></pre>
+<p>Four conceptual layers, each with a clear boundary:</p>
+<ul>
+<li><strong>Application</strong> — user code in Rust, C, or C++. Depends only on <code>nros</code> (Rust) or <code>nros-c</code>/<code>nros-cpp</code> (C/C++).</li>
+<li><strong>Core</strong> — the <code>nros</code> facade re-exports <code>nros-node</code> (executor, node, handles), <code>nros-params</code> (parameter server), and <code>nros-core</code> (message traits, CDR serialization). Middleware-agnostic — knows nothing about zenoh or XRCE.</li>
+<li><strong>RMW</strong> — <code>nros-rmw</code> defines the <code>Session</code>/<code>Publisher</code>/<code>Subscriber</code> trait interface. Backend crates (<code>nros-rmw-zenoh</code>, <code>nros-rmw-xrce</code>, <code>nros-rmw-cffi</code>) implement these traits using specific transport protocols. Selected at compile time via Cargo feature flags.</li>
+<li><strong>Platform</strong> — <code>nros-platform</code> defines traits for clock, memory, sleep, random, threading, and networking. Platform crates (<code>nros-platform-posix</code>, <code>nros-platform-freertos</code>, <code>nros-platform-zephyr</code>, etc.) implement these for each OS/RTOS. Board crates add hardware-specific init on top. See the <a href="../reference/platform-api.html">Platform API Reference</a> for trait details and the <a href="../guides/platform-customization.html">Platform Customization Guide</a> for which crates to modify.</li>
+</ul>
 <h2 id="crate-dependency-graph"><a class="header" href="#crate-dependency-graph">Crate Dependency Graph</a></h2>
 <pre class="mermaid">graph TD
     subgraph "User Code"

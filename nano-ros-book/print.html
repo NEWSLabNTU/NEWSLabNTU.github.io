@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-a14b6c41.js";
+            window.path_to_searchindex_js = "searchindex-106dddbe.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-2cbf73c5.js"></script>
@@ -940,71 +940,47 @@ format reference</li>
 <p>nano-ros is a lightweight ROS 2 client library for embedded real-time systems. It runs on bare-metal, FreeRTOS, NuttX, ThreadX, and Zephyr — as well as Linux/POSIX — with full <code>no_std</code> support throughout the core stack.</p>
 <p>This document presents the overall nano-ros architecture: the layered crate structure, RMW abstraction, executor model, board crates, and how everything composes at compile time.</p>
 <h2 id="high-level-layer-diagram"><a class="header" href="#high-level-layer-diagram">High-Level Layer Diagram</a></h2>
-<pre class="mermaid">block-beta
-  columns 3
-
-  block:app:3
-    A["Application Code"]
-  end
-
-  space:3
-
-  block:facade:3
-    B["nano-ros facade (nros crate)"]
-  end
-
-  space:3
-
-  block:core:3
-    C["nros-node"]
-    D["nros-params"]
-    E["nros-core"]
-  end
-
-  space:3
-
-  block:rmw:3
-    H["nros-rmw (traits)"]
-  end
-
-  space:3
-
-  block:backends:3
-    I["nros-rmw-zenoh"]
-    J["nros-rmw-xrce"]
-    K["nros-rmw-cffi"]
-  end
-
-  space:3
-
-  block:transport:3
-    L["zpico-sys"]
-    M["xrce-sys"]
-    N["C vtable"]
-  end
-
-  space:3
-
-  block:platform:3
-    O["nros-platform (traits + shims)"]
-  end
-
-  space:3
-
-  block:hw:3
-    P["nros-platform-posix / freertos / zephyr / ..."]
-  end
-
-  app --&gt; facade
-  facade --&gt; core
-  core --&gt; rmw
-  rmw --&gt; backends
-  backends --&gt; transport
-  transport --&gt; platform
-  platform --&gt; hw
-</pre>
-
-<p>Applications depend on the nano-ros facade crate (<code>nros</code>), which re-exports everything and enforces compile-time mutual exclusivity of feature axes. The core library stack is middleware-agnostic. Only the RMW backend crates know about specific transport protocols. The <strong>platform layer</strong> (<code>nros-platform</code>) provides a unified trait interface for clock, memory, threading, and networking — the transport layer calls platform functions through thin shim crates (<code>zpico-platform-shim</code>, <code>xrce-platform-shim</code>) that forward to the active platform implementation. See the <a href="#platform-api-reference">Platform API Reference</a> for trait details and the <a href="#platform-customization-guide">Platform Customization Guide</a> for which crates to modify.</p>
+<pre><code>┌─────────────────────────────────────────────────────────┐
+│  Application                                            │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  User code (Rust / C / C++)                        │  │
+│  └────────────────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────────────┤
+│  Core                                                   │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  nros  (facade — re-exports + feature gates)       │  │
+│  │  ┌──────────┐ ┌───────────┐ ┌────────────��─────┐  │  │
+│  │  │ nros-node│ │nros-params│ │    nros-core      │  │  │
+│  │  │ Executor │ │ Parameter │ │ RosMessage traits  │  │  │
+│  │  │ Node     │ │ Server    │ │ CdrWriter/Reader   │  │  │
+│  │  └──────────┘ └───────────┘ └──────────────────┘  │  │
+│  └────────────────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────────────┤
+│  RMW (middleware abstraction)                           │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  nros-rmw  (Session, Publisher, Subscriber traits) │  │
+│  ├────────────────┬───────────────┬───────────────────┤  │
+│  │ nros-rmw-zenoh │ nros-rmw-xrce │  nros-rmw-cffi   │  │
+│  │ (zenoh-pico)   │ (XRCE-DDS)    │  (C vtable)      │  │
+│  └────────────────┴───────────────┴───────────────────┘  │
+├─────────────────────────────────────────────────────────┤
+│  Platform (hardware + OS abstraction)                   │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  nros-platform  (Clock, Alloc, Threading, TCP, ... │  │
+│  │                   traits + ConcretePlatform alias) │  │
+│  ├──────────┬──────────┬────────┬─────────┬──────────┤  │
+│  │  posix   │ freertos │ zephyr │ threadx │ bare-    │  │
+│  │          │          │        │         │ metal    │  │
+│  └──────────┴──────────┴────────┴─────────┴──────────┘  │
+└─────────────────────────────────────────────────────────┘
+</code></pre>
+<p>Four conceptual layers, each with a clear boundary:</p>
+<ul>
+<li><strong>Application</strong> — user code in Rust, C, or C++. Depends only on <code>nros</code> (Rust) or <code>nros-c</code>/<code>nros-cpp</code> (C/C++).</li>
+<li><strong>Core</strong> — the <code>nros</code> facade re-exports <code>nros-node</code> (executor, node, handles), <code>nros-params</code> (parameter server), and <code>nros-core</code> (message traits, CDR serialization). Middleware-agnostic — knows nothing about zenoh or XRCE.</li>
+<li><strong>RMW</strong> — <code>nros-rmw</code> defines the <code>Session</code>/<code>Publisher</code>/<code>Subscriber</code> trait interface. Backend crates (<code>nros-rmw-zenoh</code>, <code>nros-rmw-xrce</code>, <code>nros-rmw-cffi</code>) implement these traits using specific transport protocols. Selected at compile time via Cargo feature flags.</li>
+<li><strong>Platform</strong> — <code>nros-platform</code> defines traits for clock, memory, sleep, random, threading, and networking. Platform crates (<code>nros-platform-posix</code>, <code>nros-platform-freertos</code>, <code>nros-platform-zephyr</code>, etc.) implement these for each OS/RTOS. Board crates add hardware-specific init on top. See the <a href="#platform-api-reference">Platform API Reference</a> for trait details and the <a href="#platform-customization-guide">Platform Customization Guide</a> for which crates to modify.</li>
+</ul>
 <h2 id="crate-dependency-graph"><a class="header" href="#crate-dependency-graph">Crate Dependency Graph</a></h2>
 <pre class="mermaid">graph TD
     subgraph "User Code"
@@ -8836,8 +8812,8 @@ RTOS tasks. Without the feature, the guard is a zero-cost passthrough.</p>
 <p>nano-ros abstracts hardware and OS differences through the <strong>nros-platform</strong> trait system. Each platform (POSIX, FreeRTOS, NuttX, ThreadX, Zephyr, bare-metal) implements these traits once, and both RMW backends (zenoh-pico and XRCE-DDS) consume them through thin shim crates.</p>
 <h2 id="architecture-6"><a class="header" href="#architecture-6">Architecture</a></h2>
 <pre class="mermaid">graph TD
-    ZP["zenoh-pico (C)"] --&gt; ZPSHIM["zpico-platform-shim&lt;br/&gt;(~80 extern C symbols)"]
-    XRCE["XRCE-DDS (C)"] --&gt; XSHIM["xrce-platform-shim&lt;br/&gt;(3 extern C symbols)"]
+    ZP["zenoh-pico (C)"] --&gt; ZPSHIM["zpico-platform-shim"]
+    XRCE["XRCE-DDS (C)"] --&gt; XSHIM["xrce-platform-shim"]
     ZPSHIM --&gt; NP["nros-platform::ConcretePlatform"]
     XSHIM --&gt; NP
     NP --&gt; POSIX["nros-platform-posix"]
@@ -9083,208 +9059,8 @@ RTOS tasks. Without the feature, the guard is a zero-cost passthrough.</p>
 <p>Not required for platforms with OS-level networking (POSIX, Zephyr, NuttX, FreeRTOS, ThreadX).</p>
 <h3 id="platformlibc-bare-metal-only"><a class="header" href="#platformlibc-bare-metal-only"><code>PlatformLibc</code> (bare-metal only)</a></h3>
 <p>Standard C library functions needed by zenoh-pico on targets without a C runtime. Provides <code>strlen</code>, <code>strcmp</code>, <code>strncmp</code>, <code>strchr</code>, <code>strncpy</code>, <code>memcpy</code>, <code>memmove</code>, <code>memset</code>, <code>memcmp</code>, <code>memchr</code>, <code>strtoul</code>, <code>errno_ptr</code>.</p>
-<h2 id="zenoh-pico-shim-symbols-zpico-platform-shim"><a class="header" href="#zenoh-pico-shim-symbols-zpico-platform-shim">Zenoh-pico Shim Symbols (<code>zpico-platform-shim</code>)</a></h2>
-<p>The shim translates ~80 <code>extern "C"</code> symbols expected by zenoh-pico into calls on <code>ConcretePlatform</code>. These symbols are resolved at link time. The count breaks down as: 46 system symbols (always active) + ~25 networking symbols (active when the <code>network</code> feature is enabled) + 7–12 libc stubs (bare-metal only).</p>
-<h3 id="clock-7-symbols"><a class="header" href="#clock-7-symbols">Clock (7 symbols)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>C Symbol</th><th>Platform Method</th></tr>
-</thead>
-<tbody>
-<tr><td><code>z_clock_now</code></td><td><code>PlatformClock::clock_ms</code></td></tr>
-<tr><td><code>z_clock_elapsed_us</code></td><td><code>PlatformClock::clock_us</code></td></tr>
-<tr><td><code>z_clock_elapsed_ms</code></td><td><code>PlatformClock::clock_ms</code></td></tr>
-<tr><td><code>z_clock_elapsed_s</code></td><td><code>PlatformClock::clock_ms</code> / 1000</td></tr>
-<tr><td><code>z_clock_advance_us</code></td><td>pointer arithmetic</td></tr>
-<tr><td><code>z_clock_advance_ms</code></td><td>pointer arithmetic</td></tr>
-<tr><td><code>z_clock_advance_s</code></td><td>pointer arithmetic</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="memory-3-symbols"><a class="header" href="#memory-3-symbols">Memory (3 symbols)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>C Symbol</th><th>Platform Method</th></tr>
-</thead>
-<tbody>
-<tr><td><code>z_malloc</code></td><td><code>PlatformAlloc::alloc</code></td></tr>
-<tr><td><code>z_realloc</code></td><td><code>PlatformAlloc::realloc</code></td></tr>
-<tr><td><code>z_free</code></td><td><code>PlatformAlloc::dealloc</code></td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="sleep-3-symbols"><a class="header" href="#sleep-3-symbols">Sleep (3 symbols)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>C Symbol</th><th>Platform Method</th></tr>
-</thead>
-<tbody>
-<tr><td><code>z_sleep_us</code></td><td><code>PlatformSleep::sleep_us</code></td></tr>
-<tr><td><code>z_sleep_ms</code></td><td><code>PlatformSleep::sleep_ms</code></td></tr>
-<tr><td><code>z_sleep_s</code></td><td><code>PlatformSleep::sleep_s</code></td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="random-5-symbols"><a class="header" href="#random-5-symbols">Random (5 symbols)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>C Symbol</th><th>Platform Method</th></tr>
-</thead>
-<tbody>
-<tr><td><code>z_random_u8</code></td><td><code>PlatformRandom::random_u8</code></td></tr>
-<tr><td><code>z_random_u16</code></td><td><code>PlatformRandom::random_u16</code></td></tr>
-<tr><td><code>z_random_u32</code></td><td><code>PlatformRandom::random_u32</code></td></tr>
-<tr><td><code>z_random_u64</code></td><td><code>PlatformRandom::random_u64</code></td></tr>
-<tr><td><code>z_random_fill</code></td><td><code>PlatformRandom::random_fill</code></td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="time-6-symbols"><a class="header" href="#time-6-symbols">Time (6 symbols)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>C Symbol</th><th>Platform Method</th></tr>
-</thead>
-<tbody>
-<tr><td><code>z_time_now</code></td><td><code>PlatformTime::time_now_ms</code></td></tr>
-<tr><td><code>z_time_now_as_str</code></td><td>formatted string from <code>time_since_epoch</code></td></tr>
-<tr><td><code>z_time_elapsed_us</code></td><td><code>PlatformTime::time_now_ms</code> delta</td></tr>
-<tr><td><code>z_time_elapsed_ms</code></td><td><code>PlatformTime::time_now_ms</code> delta</td></tr>
-<tr><td><code>z_time_elapsed_s</code></td><td><code>PlatformTime::time_now_ms</code> delta</td></tr>
-<tr><td><code>_z_get_time_since_epoch</code></td><td><code>PlatformTime::time_since_epoch</code></td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="threading-22-symbols"><a class="header" href="#threading-22-symbols">Threading (22 symbols)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>C Symbol</th><th>Platform Method</th></tr>
-</thead>
-<tbody>
-<tr><td><code>_z_task_init</code></td><td><code>PlatformThreading::task_init</code></td></tr>
-<tr><td><code>_z_task_join</code></td><td><code>PlatformThreading::task_join</code></td></tr>
-<tr><td><code>_z_task_detach</code></td><td><code>PlatformThreading::task_detach</code></td></tr>
-<tr><td><code>_z_task_cancel</code></td><td><code>PlatformThreading::task_cancel</code></td></tr>
-<tr><td><code>_z_task_exit</code></td><td><code>PlatformThreading::task_exit</code></td></tr>
-<tr><td><code>_z_task_free</code></td><td><code>PlatformThreading::task_free</code></td></tr>
-<tr><td><code>_z_mutex_init</code></td><td><code>PlatformThreading::mutex_init</code></td></tr>
-<tr><td><code>_z_mutex_drop</code></td><td><code>PlatformThreading::mutex_drop</code></td></tr>
-<tr><td><code>_z_mutex_lock</code></td><td><code>PlatformThreading::mutex_lock</code></td></tr>
-<tr><td><code>_z_mutex_try_lock</code></td><td><code>PlatformThreading::mutex_try_lock</code></td></tr>
-<tr><td><code>_z_mutex_unlock</code></td><td><code>PlatformThreading::mutex_unlock</code></td></tr>
-<tr><td><code>_z_mutex_rec_init</code></td><td><code>PlatformThreading::mutex_rec_init</code></td></tr>
-<tr><td><code>_z_mutex_rec_drop</code></td><td><code>PlatformThreading::mutex_rec_drop</code></td></tr>
-<tr><td><code>_z_mutex_rec_lock</code></td><td><code>PlatformThreading::mutex_rec_lock</code></td></tr>
-<tr><td><code>_z_mutex_rec_try_lock</code></td><td><code>PlatformThreading::mutex_rec_try_lock</code></td></tr>
-<tr><td><code>_z_mutex_rec_unlock</code></td><td><code>PlatformThreading::mutex_rec_unlock</code></td></tr>
-<tr><td><code>_z_condvar_init</code></td><td><code>PlatformThreading::condvar_init</code></td></tr>
-<tr><td><code>_z_condvar_drop</code></td><td><code>PlatformThreading::condvar_drop</code></td></tr>
-<tr><td><code>_z_condvar_signal</code></td><td><code>PlatformThreading::condvar_signal</code></td></tr>
-<tr><td><code>_z_condvar_signal_all</code></td><td><code>PlatformThreading::condvar_signal_all</code></td></tr>
-<tr><td><code>_z_condvar_wait</code></td><td><code>PlatformThreading::condvar_wait</code></td></tr>
-<tr><td><code>_z_condvar_wait_until</code></td><td><code>PlatformThreading::condvar_wait_until</code></td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="networking--tcp-8-symbols-network-feature"><a class="header" href="#networking--tcp-8-symbols-network-feature">Networking — TCP (8 symbols, <code>network</code> feature)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>C Symbol</th><th>Platform Method</th></tr>
-</thead>
-<tbody>
-<tr><td><code>_z_create_endpoint_tcp</code></td><td><code>PlatformTcp::create_endpoint</code></td></tr>
-<tr><td><code>_z_free_endpoint_tcp</code></td><td><code>PlatformTcp::free_endpoint</code></td></tr>
-<tr><td><code>_z_open_tcp</code></td><td><code>PlatformTcp::open</code></td></tr>
-<tr><td><code>_z_listen_tcp</code></td><td><code>PlatformTcp::listen</code></td></tr>
-<tr><td><code>_z_close_tcp</code></td><td><code>PlatformTcp::close</code></td></tr>
-<tr><td><code>_z_read_tcp</code></td><td><code>PlatformTcp::read</code></td></tr>
-<tr><td><code>_z_read_exact_tcp</code></td><td><code>PlatformTcp::read_exact</code></td></tr>
-<tr><td><code>_z_send_tcp</code></td><td><code>PlatformTcp::send</code></td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="networking--udp-unicast-8-symbols-network-feature"><a class="header" href="#networking--udp-unicast-8-symbols-network-feature">Networking — UDP unicast (8 symbols, <code>network</code> feature)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>C Symbol</th><th>Platform Method</th></tr>
-</thead>
-<tbody>
-<tr><td><code>_z_create_endpoint_udp</code></td><td><code>PlatformUdp::create_endpoint</code></td></tr>
-<tr><td><code>_z_free_endpoint_udp</code></td><td><code>PlatformUdp::free_endpoint</code></td></tr>
-<tr><td><code>_z_open_udp_unicast</code></td><td><code>PlatformUdp::open</code></td></tr>
-<tr><td><code>_z_listen_udp_unicast</code></td><td>stub (returns -1)</td></tr>
-<tr><td><code>_z_close_udp_unicast</code></td><td><code>PlatformUdp::close</code></td></tr>
-<tr><td><code>_z_read_udp_unicast</code></td><td><code>PlatformUdp::read</code></td></tr>
-<tr><td><code>_z_read_exact_udp_unicast</code></td><td><code>PlatformUdp::read_exact</code></td></tr>
-<tr><td><code>_z_send_udp_unicast</code></td><td><code>PlatformUdp::send</code></td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="networking--udp-multicast-6-symbols-network-feature"><a class="header" href="#networking--udp-multicast-6-symbols-network-feature">Networking — UDP multicast (6 symbols, <code>network</code> feature)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>C Symbol</th><th>Platform Method</th></tr>
-</thead>
-<tbody>
-<tr><td><code>_z_open_udp_multicast</code></td><td><code>PlatformUdpMulticast::mcast_open</code></td></tr>
-<tr><td><code>_z_listen_udp_multicast</code></td><td><code>PlatformUdpMulticast::mcast_listen</code></td></tr>
-<tr><td><code>_z_close_udp_multicast</code></td><td><code>PlatformUdpMulticast::mcast_close</code></td></tr>
-<tr><td><code>_z_read_udp_multicast</code></td><td><code>PlatformUdpMulticast::mcast_read</code></td></tr>
-<tr><td><code>_z_read_exact_udp_multicast</code></td><td><code>PlatformUdpMulticast::mcast_read_exact</code></td></tr>
-<tr><td><code>_z_send_udp_multicast</code></td><td><code>PlatformUdpMulticast::mcast_send</code></td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="networking--socket-helpers-4-symbols-network-feature"><a class="header" href="#networking--socket-helpers-4-symbols-network-feature">Networking — Socket helpers (4 symbols, <code>network</code> feature)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>C Symbol</th><th>Platform Method</th></tr>
-</thead>
-<tbody>
-<tr><td><code>_z_socket_set_non_blocking</code></td><td><code>PlatformSocketHelpers::set_non_blocking</code></td></tr>
-<tr><td><code>_z_socket_accept</code></td><td><code>PlatformSocketHelpers::accept</code></td></tr>
-<tr><td><code>_z_socket_close</code></td><td><code>PlatformSocketHelpers::close</code></td></tr>
-<tr><td><code>_z_socket_wait_event</code></td><td><code>PlatformSocketHelpers::wait_event</code></td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="smoltcp-bridge-bare-metal-only-network-smoltcp-bridge-feature"><a class="header" href="#smoltcp-bridge-bare-metal-only-network-smoltcp-bridge-feature">smoltcp bridge (bare-metal only, <code>network-smoltcp-bridge</code> feature)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>C Symbol</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>smoltcp_init</code></td><td>Initialize smoltcp bridge (called from board crate <code>init_hardware()</code>)</td></tr>
-<tr><td><code>smoltcp_cleanup</code></td><td>Clean up smoltcp state</td></tr>
-<tr><td><code>smoltcp_poll</code></td><td>Poll network stack + advance sockets</td></tr>
-<tr><td><code>smoltcp_clock_now_ms</code></td><td><code>PlatformClock::clock_ms</code> (for smoltcp driver timestamping)</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="xrce-dds-shim-symbols-xrce-platform-shim"><a class="header" href="#xrce-dds-shim-symbols-xrce-platform-shim">XRCE-DDS Shim Symbols (<code>xrce-platform-shim</code>)</a></h2>
-<p>The XRCE-DDS shim is minimal — only 3 symbols:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>C Symbol</th><th>Platform Method</th></tr>
-</thead>
-<tbody>
-<tr><td><code>uxr_millis</code></td><td><code>PlatformClock::clock_ms</code></td></tr>
-<tr><td><code>uxr_nanos</code></td><td><code>PlatformClock::clock_us</code> * 1000</td></tr>
-<tr><td><code>smoltcp_clock_now_ms</code></td><td><code>PlatformClock::clock_ms</code></td></tr>
-</tbody>
-</table>
-</div>
+<h2 id="how-it-works-1"><a class="header" href="#how-it-works-1">How It Works</a></h2>
+<p>Platform crates implement the traits above as inherent methods on a zero-sized type (e.g., <code>PosixPlatform</code>, <code>FreeRtosPlatform</code>). Thin shim crates (<code>zpico-platform-shim</code>, <code>xrce-platform-shim</code>) automatically forward RMW-layer C symbols to the active platform — this mapping is internal to nano-ros and transparent to platform implementors. You never implement or call shim symbols directly; you only implement traits.</p>
 <h2 id="platform-implementations"><a class="header" href="#platform-implementations">Platform Implementations</a></h2>
 <div class="table-wrapper">
 <table>
@@ -9319,17 +9095,7 @@ pub type ConcretePlatform = nros_platform_freertos::FreeRtosPlatform;
 pub type ConcretePlatform = nros_platform_threadx::ThreadxPlatform;
 // ... etc.
 <span class="boring">}</span></code></pre>
-<p>The shim crates use <code>ConcretePlatform</code> directly — no dynamic dispatch, no generics propagation:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// In zpico-platform-shim/src/shim.rs:
-use nros_platform::ConcretePlatform;
-
-#[unsafe(no_mangle)]
-pub extern "C" fn z_clock_now() -&gt; usize {
-    ConcretePlatform::clock_ms() as usize
-}
-<span class="boring">}</span></code></pre>
+<p>RMW shim crates use <code>ConcretePlatform</code> directly — no dynamic dispatch, no generics propagation. The forwarding from RMW-layer C symbols to platform trait methods is handled internally by nano-ros and is transparent to platform implementors.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="environment-variables-reference"><a class="header" href="#environment-variables-reference">Environment Variables Reference</a></h1>
 <h2 id="configuration-file"><a class="header" href="#configuration-file">Configuration File</a></h2>
@@ -9577,7 +9343,7 @@ ESP32 uses DHCP by default; <code>[network]</code> fields enable static IP mode.
 <p><code>[scheduling]</code> fields are parsed on all platforms but only FreeRTOS
 currently uses them to configure task creation. Other platforms ignore
 the values (zenoh-pico read/lease tasks use platform defaults).</p>
-<h2 id="how-it-works-1"><a class="header" href="#how-it-works-1">How It Works</a></h2>
+<h2 id="how-it-works-2"><a class="header" href="#how-it-works-2">How It Works</a></h2>
 <h3 id="rust-examples"><a class="header" href="#rust-examples">Rust examples</a></h3>
 <p>The config file is embedded at compile time via <code>include_str!</code> and parsed
 at startup by the board crate’s <code>Config::from_toml()</code> method:</p>
