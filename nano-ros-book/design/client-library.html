@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>RMW API Design - nano-ros Book</title>
+        <title>Client Library Model - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-07119114.js";
+            window.path_to_searchindex_js = "../searchindex-0a6fc5f7.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-1b4d4b9e.js"></script>
+        <script src="../toc-c8624503.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,165 +177,108 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="rmw-api-design-nros-rmw-vs-ros2rmw"><a class="header" href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design: nros-rmw vs ros2/rmw</a></h1>
-<p>nano-ros defines its own RMW (ROS Middleware) abstraction in the <code>nros-rmw</code> crate. While it serves the same purpose as the official <a href="https://github.com/ros2/rmw">ros2/rmw</a> interface – decoupling the client library from the transport backend – it is designed for <code>no_std</code> embedded systems and uses a fundamentally different approach.</p>
-<p>This page documents the architectural differences and trade-offs.</p>
-<h2 id="architectural-pattern"><a class="header" href="#architectural-pattern">Architectural Pattern</a></h2>
+                        <h1 id="client-library-model-nros-vs-rclc--rclcpp--rclrs"><a class="header" href="#client-library-model-nros-vs-rclc--rclcpp--rclrs">Client Library Model: nros vs rclc / rclcpp / rclrs</a></h1>
+<p>The RMW layer decouples the transport from the client library. The <em>client library</em> is the user-facing API on top of RMW: nodes, executors, publishers, subscribers, services, clients, callbacks, futures. ROS 2 ships three: <strong>rclc</strong> (C, MCU-focused), <strong>rclcpp</strong> (C++, desktop), and <strong>rclrs</strong> (Rust, experimental). nano-ros adds a fourth – the <code>nros-node</code> crate plus its <code>nros-c</code> / <code>nros-cpp</code> wrappers.</p>
+<p>This page explains the shape of nros-node and how it differs from the three official client libraries. For trait signatures see <a href="../reference/rust-api.html">Rust API</a> / <a href="../reference/c-api.html">C API</a> / <a href="../reference/cpp-api.html">C++ API</a>.</p>
+<h2 id="side-by-side"><a class="header" href="#side-by-side">Side-by-side</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Aspect</th><th>ROS 2 <code>rmw</code></th><th><code>nros-rmw</code></th></tr>
+<tr><th>Concern</th><th>rclc</th><th>rclcpp</th><th>rclrs</th><th>nros</th></tr>
 </thead>
 <tbody>
-<tr><td>Language</td><td>C API (<code>rmw/rmw.h</code>)</td><td>Rust traits</td></tr>
-<tr><td>Dispatch</td><td>Runtime plugin loading (shared library via <code>rmw_implementation</code>)</td><td>Compile-time monomorphization (Rust generics)</td></tr>
-<tr><td><code>no_std</code></td><td>No (requires libc, heap, POSIX)</td><td>Yes (zero heap in core path)</td></tr>
-<tr><td>Error model</td><td><code>rmw_ret_t</code> integer codes</td><td><code>TransportError</code> enum + associated <code>type Error</code> per trait</td></tr>
+<tr><td>Target</td><td>MCU (Micro-XRCE-DDS)</td><td>Desktop / robot</td><td>Desktop (alpha)</td><td>MCU + RTOS + desktop</td></tr>
+<tr><td>Language</td><td>C99</td><td>C++17</td><td>Rust (std)</td><td>Rust (<code>no_std</code>) + C + C++14</td></tr>
+<tr><td>Node ownership</td><td>App owns node + executor</td><td><code>shared_ptr&lt;Node&gt;</code> + <code>Executor</code></td><td><code>Arc&lt;Node&gt;</code> + executor</td><td>Executor owns the session; node borrows from it</td></tr>
+<tr><td>Executor model</td><td>Single-threaded, polled</td><td>Single-/multi-threaded, owned thread</td><td>Single-threaded, polled</td><td>Single-threaded, polled</td></tr>
+<tr><td>Spin entry point</td><td><code>rclc_executor_spin_some(&amp;exec, timeout)</code></td><td><code>rclcpp::spin(node)</code> (blocks, owns thread)</td><td><code>executor.spin()</code> (blocks current thread)</td><td><code>executor.spin_once(timeout_ms)</code></td></tr>
+<tr><td>Blocking primitive</td><td>None (callback-only)</td><td><code>std::shared_future::wait_for(timeout)</code></td><td><code>Promise::wait(timeout)</code> (Tokio-style)</td><td><code>Promise::wait(&amp;mut executor, timeout_ms)</code></td></tr>
+<tr><td>Async primitive</td><td>None</td><td><code>std::shared_future</code> + <code>spin_until_future_complete</code></td><td><code>impl Future</code></td><td><code>Promise&lt;T&gt;</code> (impls <code>Future</code> + manual poll + executor-driven blocking wait)</td></tr>
+<tr><td>Heap requirement</td><td>Optional (static allocator)</td><td>Required</td><td>Required</td><td>Optional (caller buffers; only zenoh-pico transport heap)</td></tr>
+<tr><td>Threading requirement</td><td>None</td><td>Required (<code>std::thread</code>)</td><td>Required (<code>std::thread</code>)</td><td>None (single-threaded valid)</td></tr>
 </tbody>
 </table>
 </div>
-<p>ROS 2 selects the RMW backend at runtime by loading a shared library (e.g., <code>rmw_fastrtps_cpp.so</code>). This enables switching backends without recompilation but requires dynamic linking and heap allocation.</p>
-<p>nros-rmw selects the backend at compile time via Cargo feature flags. The <code>Session</code> trait uses associated types, so the compiler monomorphizes all transport calls – no vtables, no dynamic dispatch, no heap. This is critical for MCUs with 16–256 KB of RAM.</p>
-<h2 id="object-model"><a class="header" href="#object-model">Object Model</a></h2>
-<h3 id="ros-2"><a class="header" href="#ros-2">ROS 2</a></h3>
-<p>ROS 2 rmw has a deep initialization hierarchy:</p>
-<pre><code>rmw_init() → rmw_context_t
-  → rmw_create_node() → rmw_node_t
-    → rmw_create_publisher() → rmw_publisher_t*
-    → rmw_create_subscription() → rmw_subscription_t*
-    → rmw_create_service() → rmw_service_t*
-    → rmw_create_client() → rmw_client_t*
+<h2 id="future--promise-as-the-unifying-primitive"><a class="header" href="#future--promise-as-the-unifying-primitive">Future / Promise as the unifying primitive</a></h2>
+<p>The same <code>Promise&lt;T&gt;</code> value serves three usage patterns. None of the other client libraries achieves this with a single type.</p>
+<p><strong>Pattern 1 – callback-driven (no blocking call):</strong></p>
+<pre><code class="language-rust ignore">let promise = client.call(&amp;request)?;
+// ... continue running other work ...
+executor.spin_once(10);
+if let Some(reply) = promise.try_recv()? {
+    handle(reply);
+}</code></pre>
+<p><strong>Pattern 2 – blocking with timeout:</strong></p>
+<pre><code class="language-rust ignore">let mut promise = client.call(&amp;request)?;
+let reply = promise.wait(&amp;mut executor, 5000)?;  // blocks up to 5s, drives I/O</code></pre>
+<p><strong>Pattern 3 – async runtime (Tokio, Embassy, smol):</strong></p>
+<pre><code class="language-rust ignore">let reply = client.call(&amp;request)?.await;  // Promise: Future&lt;Output = T&gt;</code></pre>
+<p>Contrast this with the alternatives:</p>
+<ul>
+<li><strong>rclcpp</strong> uses <code>std::shared_future&lt;Response&gt;</code>, which is bound to <code>std::thread</code> and <code>std::condition_variable</code>. There is no way to drive it on a cooperative single-threaded MCU. The blocking helper <code>rclcpp::spin_until_future_complete()</code> <em>requires</em> an owned thread.</li>
+<li><strong>rclc</strong> has no future or promise concept. The only way to receive a service reply is to register a callback that fires from <code>rclc_executor_spin_some()</code>. Building request/response chains becomes an explicit state machine.</li>
+<li><strong>rclrs</strong> has <code>impl Future</code> but no callback-poll path; you must <code>.await</code> from a Tokio task. No blocking-with-timeout helper that drives I/O internally.</li>
+</ul>
+<p>In nano-ros, the same <code>Promise</code> carries a borrow of the standalone service client and a sequence number; <code>try_recv()</code> polls it, <code>wait()</code> polls it in a loop while spinning the executor, and the <code>Future</code> impl integrates with any executor that calls <code>register_waker(&amp;Waker)</code> underneath.</p>
+<h2 id="no-internal-spin"><a class="header" href="#no-internal-spin">No internal spin</a></h2>
+<p><code>rclcpp::spin(node)</code> blocks the calling thread inside the library and owns the dispatch loop. This works on Linux but cannot work on bare-metal: there is no thread to give up, and the application loop must remain in user code (for power management, interrupt servicing, smoltcp polling, RTIC integration).</p>
+<p>nano-ros never owns the spin loop. The user <em>always</em> writes the loop:</p>
+<pre><code class="language-rust ignore">loop {
+    executor.spin_once(10);
+    // user can also: poll smoltcp, service interrupts, run other tasks, sleep
+}</code></pre>
+<p>Convenience wrappers (<code>spin(count)</code>, <code>spin_blocking(opts)</code>, <code>spin_period(duration)</code>) exist for desktop-style use cases, but each is implemented as a <code>spin_once()</code> loop that the user could write by hand. On <code>no_std</code> targets they aren’t available – the user writes the loop.</p>
+<p>This is the reason every blocking API in nros takes <code>&amp;mut Executor</code>. <code>Promise::wait</code>, <code>Stream::wait_next</code>, <code>Client::call_blocking</code>, the C++ <code>Future::wait(executor.handle(), ...)</code>, and the C <code>nros_call_service(..., timeout_ms)</code> all internally call <code>spin_once()</code> to keep I/O moving while waiting. They cannot rely on a background thread doing it for them, because there is none.</p>
+<h2 id="executor-is-the-session-owner-not-a-singleton"><a class="header" href="#executor-is-the-session-owner-not-a-singleton">Executor is the session owner, not a singleton</a></h2>
+<p>In rclcpp, the <code>Executor</code> is a <em>separate</em> object that you attach nodes to (<code>exec.add_node(node)</code>). The node owns its own RMW context. Multiple executor classes (<code>SingleThreadedExecutor</code>, <code>MultiThreadedExecutor</code>, <code>StaticSingleThreadedExecutor</code>) exist as parallel implementations.</p>
+<p>In nano-ros, the <code>Executor</code> <em>is</em> the RMW session owner. Calling <code>Executor::open(&amp;config)</code> opens the transport; nodes are derived from the executor:</p>
+<pre><code class="language-rust ignore">let mut executor = Executor::open(&amp;config)?;
+let mut node = executor.create_node("my_node")?;
+let pub_ = node.create_publisher::&lt;Int32&gt;("/topic")?;</code></pre>
+<p>There is exactly one executor type. There is no separate “context” object, no add/remove-node lifecycle, no executor selection at runtime. The single-threaded model is baked in – adding a multi-threaded variant would require redesigning the callback dispatch, which we deliberately avoid to keep the bare-metal path viable.</p>
+<p>The trade-off: you cannot share one transport session between two executors. In practice no embedded application wants this, and on desktop you can run multiple processes if you need it.</p>
+<h2 id="explicit-spin-in-blocking-ops--why-pass-the-executor"><a class="header" href="#explicit-spin-in-blocking-ops--why-pass-the-executor">Explicit spin in blocking ops – why pass the executor?</a></h2>
+<p>Every blocking operation takes <code>&amp;mut Executor</code> (Rust) or an executor handle (C/C++). This looks redundant when the executor is also the entity that created the operation. The reason is borrow-checker hygiene plus single-threaded I/O.</p>
+<p>The standalone communication handles (<code>StandaloneClient</code>, <code>StandaloneSubscription</code>, the <code>Promise</code> returned from <code>call</code>) borrow from the session. They cannot also borrow the executor at the same time, because the executor <em>owns</em> the session. Passing <code>&amp;mut executor</code> at the wait call – after the promise has been created and the borrow released – is the only way to get a mutable executor reference while a promise is in flight.</p>
+<p>The deeper reason: there is no other thread that can drive I/O. If <code>Promise::wait()</code> did not have the executor, it could not call <code>spin_once()</code> – the network would freeze and the wait would always time out. By forcing the executor parameter, the API makes the I/O dependency explicit and impossible to forget.</p>
+<h2 id="language-parity"><a class="header" href="#language-parity">Language parity</a></h2>
+<p>The same Future/Promise + explicit-executor model is preserved in C and C++ wrappers.</p>
+<p><strong>Rust</strong> uses <code>Promise&lt;'_, T&gt;</code> directly. It implements <code>core::future::Future</code> and exposes <code>try_recv()</code> + <code>wait(&amp;mut executor, ms)</code>.</p>
+<p><strong>C++</strong> wraps the promise as <code>nros::Future&lt;T&gt;</code>:</p>
+<pre><code class="language-cpp">auto fut = client.send_request(req);
+ResponseType resp;
+NROS_TRY(fut.wait(executor.handle(), 5000, resp));
 </code></pre>
-<p>Nodes are first-class RMW objects. Each <code>rmw_node_t</code> carries its own context, name, namespace, and security credentials. The RMW layer is responsible for node lifecycle and graph participation.</p>
-<h3 id="nros-rmw"><a class="header" href="#nros-rmw">nros-rmw</a></h3>
-<p>nros-rmw is flatter – there is no node at the RMW level:</p>
-<pre><code>Rmw::open(&amp;RmwConfig) → Session
-  → session.create_publisher(&amp;TopicInfo, QosSettings) → Self::PublisherHandle
-  → session.create_subscriber(&amp;TopicInfo, QosSettings) → Self::SubscriberHandle
-  → session.create_service_server(&amp;ServiceInfo) → Self::ServiceServerHandle
-  → session.create_service_client(&amp;ServiceInfo) → Self::ServiceClientHandle
+<p><code>Future::wait()</code> takes <code>void* executor_handle</code> (from <code>executor.handle()</code> or <code>nros::global_handle()</code>) for the same reason the Rust API takes <code>&amp;mut executor</code>. There is no global executor singleton; the handle is explicit.</p>
+<p><strong>C</strong> uses paired <code>_async</code> and blocking entry points:</p>
+<pre><code class="language-c">// Blocking: drives the executor internally, returns reply or timeout.
+nros_call_service(client, &amp;req, sizeof(req), &amp;reply, sizeof(reply), 5000);
+
+// Async: returns immediately, result via callback registered ahead of time.
+nros_action_send_goal_async(client, &amp;goal, sizeof(goal));
+nros_action_client_set_result_callback(client, on_result);
+// User keeps calling nros_spin_once() to drive callbacks.
 </code></pre>
-<p><code>Node</code> lives one layer up in <code>nros-node</code>. It is purely a namespace and liveliness concern – it borrows the session from the executor and creates typed communication handles. The RMW layer only knows about sessions and communication endpoints.</p>
-<h2 id="serialization-boundary"><a class="header" href="#serialization-boundary">Serialization Boundary</a></h2>
-<p>This is the most significant design difference.</p>
-<p><strong>ROS 2:</strong> The rmw layer operates on pre-serialized data. <code>rcl</code> and <code>rosidl</code> handle CDR serialization before calling <code>rmw_publish()</code> with an <code>rmw_serialized_message_t</code>. The rmw layer never sees typed messages – it only moves byte buffers. Type metadata is passed separately via <code>rosidl_message_type_support_t</code> structs.</p>
-<p><strong>nros-rmw:</strong> The traits include both raw and typed methods:</p>
-<pre><code class="language-rust ignore">pub trait Publisher {
-    // Raw: caller handles serialization
-    fn publish_raw(&amp;self, data: &amp;[u8]) -&gt; Result&lt;(), Self::Error&gt;;
-
-    // Typed: serialize + publish in one call
-    fn publish&lt;M: RosMessage&gt;(&amp;self, msg: &amp;M, buf: &amp;mut [u8]) -&gt; Result&lt;(), Self::Error&gt;;
-}
-
-pub trait Subscriber {
-    fn try_recv_raw(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
-    fn try_recv&lt;M: RosMessage&gt;(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;M&gt;, Self::Error&gt;;
-}</code></pre>
-<p>The typed methods have default implementations that call the raw methods with CDR serialization/deserialization from <code>nros-serdes</code>. This keeps the RMW layer self-contained – no separate serialization layer is needed.</p>
-<p>Type metadata uses simple structs (<code>TopicInfo { name, type_name, type_hash }</code>) instead of C type support function tables.</p>
-<h2 id="io-and-readiness-model"><a class="header" href="#io-and-readiness-model">I/O and Readiness Model</a></h2>
-<p><strong>ROS 2:</strong> Uses <code>rmw_wait()</code> with a wait set (<code>rmw_wait_set_t</code>) containing subscriptions, services, clients, guard conditions, and events. The caller constructs a wait set, adds handles, and blocks until any handle is ready. This is similar to <code>select()</code>/<code>epoll()</code>.</p>
-<p><strong>nros-rmw:</strong> Uses a single <code>drive_io(timeout_ms)</code> method on the <code>Session</code> trait:</p>
-<pre><code class="language-rust ignore">pub trait Session {
-    fn drive_io(&amp;mut self, timeout_ms: i32) -&gt; Result&lt;(), Self::Error&gt; {
-        let _ = timeout_ms;
-        Ok(())
-    }
-}</code></pre>
-<p>This is a pull-based model: the executor calls <code>drive_io()</code> to poll the network and dispatch incoming data to internal subscriber buffers, then checks each entity with <code>has_data()</code>. There is no wait set – the executor iterates its dispatch table directly.</p>
-<p>For async integration, subscribers and service clients expose <code>register_waker(&amp;Waker)</code> instead of guard conditions. The transport backend calls <code>waker.wake()</code> from its C receive callback, bridging to Rust <code>Future</code> waking without the wait set abstraction.</p>
-<h2 id="memory-model"><a class="header" href="#memory-model">Memory Model</a></h2>
-<p><strong>ROS 2:</strong> Heap-allocates handles, messages, and serialization buffers. <code>rmw_serialized_message_t</code> wraps a dynamically-sized <code>rcutils_uint8_array_t</code>. Loaned message APIs (<code>rmw_borrow_loaned_message</code>, <code>rmw_take_loaned_message</code>) provide optional zero-copy for transports that support shared memory.</p>
-<p><strong>nros-rmw:</strong> Uses caller-provided <code>&amp;mut [u8]</code> buffers everywhere. All receive and serialize operations write into stack-allocated or statically-allocated buffers:</p>
-<pre><code class="language-rust ignore">// Caller provides the buffer
-let mut buf = [0u8; 512];
-let msg: Option&lt;MyMsg&gt; = subscriber.try_recv(&amp;mut buf)?;</code></pre>
-<p>Zero-copy receive is supported via <code>process_raw_in_place()</code>, which invokes a closure with a reference to the subscriber’s internal receive buffer, avoiding the copy into a caller-provided buffer. This is gated behind the <code>unstable-zenoh-api</code> feature.</p>
-<h2 id="qos-settings"><a class="header" href="#qos-settings">QoS Settings</a></h2>
-<p>ROS 2 <code>rmw_qos_profile_t</code> includes:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Field</th><th>ROS 2</th><th>nros-rmw</th></tr>
-</thead>
-<tbody>
-<tr><td>History (keep last/all)</td><td>Yes</td><td>Yes</td></tr>
-<tr><td>Depth</td><td>Yes</td><td>Yes</td></tr>
-<tr><td>Reliability (reliable/best-effort)</td><td>Yes</td><td>Yes</td></tr>
-<tr><td>Durability (volatile/transient local)</td><td>Yes</td><td>Yes</td></tr>
-<tr><td>Deadline</td><td>Yes</td><td>No</td></tr>
-<tr><td>Lifespan</td><td>Yes</td><td>No</td></tr>
-<tr><td>Liveliness (automatic/manual)</td><td>Yes</td><td>No</td></tr>
-<tr><td><code>avoid_ros_namespace_conventions</code></td><td>Yes</td><td>No</td></tr>
-</tbody>
-</table>
-</div>
-<p>nros-rmw provides the four QoS policies that zenoh-pico and XRCE-DDS can actually enforce. The time-based policies (deadline, lifespan, liveliness) are omitted because the supported transports do not implement them.</p>
-<p>Standard QoS profiles (<code>QOS_PROFILE_DEFAULT</code>, <code>QOS_PROFILE_SENSOR_DATA</code>, <code>QOS_PROFILE_SERVICES_DEFAULT</code>, etc.) match their ROS 2 equivalents for interoperability.</p>
-<h2 id="service-client-model"><a class="header" href="#service-client-model">Service Client Model</a></h2>
-<p><strong>ROS 2:</strong> Service clients are always asynchronous at the rmw level. <code>rmw_send_request()</code> sends a request and returns a sequence number. The reply is retrieved later via <code>rmw_take_response()</code>, typically driven by <code>rmw_wait()</code>.</p>
-<p><strong>nros-rmw:</strong> Provides both models:</p>
-<pre><code class="language-rust ignore">pub trait ServiceClientTrait {
-    // Blocking: send request and wait for reply
-    fn call_raw(&amp;mut self, request: &amp;[u8], reply_buf: &amp;mut [u8]) -&gt; Result&lt;usize, Self::Error&gt;;
-
-    // Async: send request, poll for reply separately
-    fn send_request_raw(&amp;mut self, request: &amp;[u8]) -&gt; Result&lt;(), Self::Error&gt;;
-    fn try_recv_reply_raw(&amp;mut self, reply_buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
-}</code></pre>
-<p>The blocking <code>call_raw()</code> is convenient for simple embedded applications. The async split (<code>send_request_raw</code> + <code>try_recv_reply_raw</code>) is used by the executor for non-blocking dispatch.</p>
-<h2 id="apis-present-in-ros-2-rmw-but-absent-in-nros-rmw"><a class="header" href="#apis-present-in-ros-2-rmw-but-absent-in-nros-rmw">APIs Present in ROS 2 rmw but Absent in nros-rmw</a></h2>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>ROS 2 rmw API</th><th>Purpose</th><th>Why absent</th></tr>
-</thead>
-<tbody>
-<tr><td><code>rmw_node_t</code> / <code>rmw_create_node()</code></td><td>Node lifecycle at RMW level</td><td>Node is above the RMW layer in <code>nros-node</code></td></tr>
-<tr><td><code>rmw_wait_set_t</code> / <code>rmw_wait()</code></td><td>Multiplexed readiness waiting</td><td>Replaced by <code>drive_io()</code> + per-entity <code>has_data()</code></td></tr>
-<tr><td><code>rmw_guard_condition_t</code></td><td>Wake wait set from application code</td><td>Replaced by <code>register_waker(&amp;Waker)</code></td></tr>
-<tr><td><code>rmw_event_t</code></td><td>QoS event callbacks (deadline missed, etc.)</td><td>QoS events not supported</td></tr>
-<tr><td><code>rmw_get_topic_names_and_types()</code></td><td>Graph introspection</td><td>Discovery via zenoh liveliness, not exposed at trait level</td></tr>
-<tr><td><code>rmw_get_node_names()</code></td><td>Node discovery</td><td>Same as above</td></tr>
-<tr><td><code>rmw_count_publishers()</code> / <code>rmw_count_subscribers()</code></td><td>Graph statistics</td><td>Not exposed</td></tr>
-<tr><td><code>rosidl_message_type_support_t</code></td><td>C type support tables for serialization</td><td>Replaced by <code>TopicInfo</code> string metadata</td></tr>
-<tr><td><code>rmw_serialize()</code> / <code>rmw_deserialize()</code></td><td>Standalone serialization</td><td>CDR handled by <code>nros-serdes</code></td></tr>
-<tr><td><code>rmw_borrow_loaned_message()</code></td><td>Zero-copy shared memory publish</td><td>Not supported (smoltcp/zenoh-pico don’t use shared memory)</td></tr>
-<tr><td>Content-filtered topics</td><td>Server-side topic filtering</td><td>Not supported</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="apis-present-in-nros-rmw-but-absent-in-ros-2-rmw"><a class="header" href="#apis-present-in-nros-rmw-but-absent-in-ros-2-rmw">APIs Present in nros-rmw but Absent in ROS 2 rmw</a></h2>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>nros-rmw API</th><th>Purpose</th></tr>
-</thead>
-<tbody>
-<tr><td><code>Publisher::publish&lt;M&gt;(msg, buf)</code></td><td>Typed publish with built-in CDR serialization</td></tr>
-<tr><td><code>Subscriber::try_recv&lt;M&gt;(buf)</code></td><td>Typed receive with built-in CDR deserialization</td></tr>
-<tr><td><code>Subscriber::process_raw_in_place(f)</code></td><td>Zero-copy in-place processing via closure</td></tr>
-<tr><td><code>Subscriber::try_recv_validated()</code></td><td>E2E safety validation (CRC-32 + sequence tracking)</td></tr>
-<tr><td><code>ServiceClientTrait::call_raw()</code></td><td>Blocking request/reply (ROS 2 rmw is async-only)</td></tr>
-<tr><td><code>ServiceServerTrait::handle_request&lt;S&gt;()</code></td><td>Typed request handling with automatic CDR roundtrip</td></tr>
-<tr><td><code>Session::drive_io(timeout_ms)</code></td><td>Explicit network polling (ROS 2 rmw relies on middleware threads)</td></tr>
-</tbody>
-</table>
-</div>
+<p>The C API has no Future/Promise type because C lacks generics, but the <em>pattern</em> is the same: an <code>_async</code> send-without-wait paired with a callback (or polled status), and a blocking call that drives the executor for you.</p>
 <h2 id="summary"><a class="header" href="#summary">Summary</a></h2>
-<p>The core difference is that ROS 2 rmw is a <strong>C plugin interface</strong> designed for desktop systems with dynamic linking, heap allocation, and OS threading. nros-rmw is a <strong>Rust trait hierarchy</strong> designed for MCUs with static dispatch, stack allocation, and cooperative scheduling. The trade-off is flexibility (ROS 2 can swap backends at runtime) vs efficiency (nros eliminates all abstraction overhead at compile time).</p>
-<p>Despite these differences, the two are <strong>wire-compatible</strong> when using the same transport. An nros node using <code>rmw-zenoh</code> communicates with a ROS 2 node using <code>rmw_zenoh_cpp</code> through the same <code>zenohd</code> router, with matching QoS profiles and CDR encoding.</p>
+<p>The four design choices that shape nano-ros’s client library:</p>
+<ol>
+<li><strong>Single executor type</strong> that owns the session – no separate context object, no executor variants.</li>
+<li><strong>No internal spin</strong> – the user always owns the spin loop; blocking helpers exist but are wrappers.</li>
+<li><strong>Explicit <code>&amp;mut Executor</code> on every blocking op</strong> – the API enforces the I/O dependency at the call site.</li>
+<li><strong>Future/Promise as the unifying primitive</strong> – one type for callback-drive, blocking-with-timeout, and <code>.await</code>.</li>
+</ol>
+<p>These choices are what make the same client library viable on a Cortex-M3 and a Linux workstation without a separate “MCU client library” like rclc.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../concepts/platform-model.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../design/rmw.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../internals/rmw-zenoh-protocol.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../design/platform-api.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -345,11 +288,11 @@ let msg: Option&lt;MyMsg&gt; = subscriber.try_recv(&amp;mut buf)?;</code></pre>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../concepts/platform-model.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../design/rmw.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../internals/rmw-zenoh-protocol.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../design/platform-api.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

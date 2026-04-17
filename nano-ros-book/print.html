@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-07119114.js";
+            window.path_to_searchindex_js = "searchindex-0a6fc5f7.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-1b4d4b9e.js"></script>
+        <script src="toc-c8624503.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -3271,841 +3271,6 @@ fn my_callback(data: *const u8, len: usize, ctx: *mut c_void) {
 </div>
 <p>For the complete list, see <code>zenoh-pico/include/zenoh-pico/utils/result.h</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="porting-overview"><a class="header" href="#porting-overview">Porting Overview</a></h1>
-<p>nano-ros is designed for customization at three independent levels: <strong>RMW</strong> (transport protocol), <strong>Platform</strong> (OS or RTOS), and <strong>Board</strong> (hardware). The core crates define stable interfaces through Rust traits. You extend nano-ros by implementing those traits for your target – you never modify the core.</p>
-<h2 id="which-chapter-do-i-need"><a class="header" href="#which-chapter-do-i-need">Which chapter do I need?</a></h2>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>I want to…</th><th>Chapter</th></tr>
-</thead>
-<tbody>
-<tr><td>Add a new transport protocol (MQTT, DDS, custom)</td><td><a href="#porting-a-custom-rmw-backend">Custom RMW Backend</a></td></tr>
-<tr><td>Port to a new RTOS or bare-metal target</td><td><a href="#custom-platform">Custom Platform</a></td></tr>
-<tr><td>Bring up nano-ros on a new MCU board</td><td><a href="#custom-board-package">Custom Board Package</a></td></tr>
-</tbody>
-</table>
-</div>
-<p>Most porting work falls into the second or third category. Adding a new RMW backend is rare and substantially more involved.</p>
-<h2 id="what-stays-untouched"><a class="header" href="#what-stays-untouched">What stays untouched</a></h2>
-<p>The following core packages define the interfaces you implement. They compile and work without modification for any new target.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Package</th><th>Role</th></tr>
-</thead>
-<tbody>
-<tr><td><code>nros</code></td><td>Facade crate: re-exports and feature-axis enforcement</td></tr>
-<tr><td><code>nros-core</code></td><td>Message, service, and action type traits</td></tr>
-<tr><td><code>nros-serdes</code></td><td>CDR serialization</td></tr>
-<tr><td><code>nros-node</code></td><td>Executor, Node, pub/sub/service/action handles</td></tr>
-<tr><td><code>nros-rmw</code></td><td>RMW trait definitions (Session, Publisher, Subscriber, etc.)</td></tr>
-<tr><td><code>nros-platform</code></td><td>Platform trait definitions and <code>ConcretePlatform</code> type alias</td></tr>
-<tr><td><code>zpico-platform-shim</code></td><td>Maps zenoh-pico C symbols to <code>ConcretePlatform</code></td></tr>
-<tr><td><code>xrce-platform-shim</code></td><td>Maps XRCE-DDS C symbols to <code>ConcretePlatform</code></td></tr>
-<tr><td><code>nros-c</code>, <code>nros-cpp</code></td><td>C and C++ API wrappers</td></tr>
-</tbody>
-</table>
-</div>
-<p>These define the interfaces. You implement them; you do not modify them.</p>
-<h2 id="the-customization-boundary"><a class="header" href="#the-customization-boundary">The customization boundary</a></h2>
-<p>Everything in nano-ros sits on one side of a trait boundary defined in <code>nros-platform/src/traits.rs</code>.</p>
-<p><strong>Above the boundary</strong> (yours to write): board crates, platform crates, peripheral drivers, and application code.</p>
-<p><strong>Below the boundary</strong> (fixed): RMW backends, shim crates, core library, executor, and serialization.</p>
-<p>Your platform crate implements traits as inherent methods on a zero-sized type. The shim crates automatically forward RMW-layer C symbols to your implementation through the <code>ConcretePlatform</code> type alias – no dynamic dispatch, no generics propagation.</p>
-<h2 id="platform-trait-requirements-by-rmw-backend"><a class="header" href="#platform-trait-requirements-by-rmw-backend">Platform trait requirements by RMW backend</a></h2>
-<p>Not every trait is required. The set depends on which RMW backend the application uses.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Trait</th><th>zenoh-pico</th><th>XRCE-DDS</th></tr>
-</thead>
-<tbody>
-<tr><td><code>PlatformClock</code></td><td>Required</td><td>Required</td></tr>
-<tr><td><code>PlatformAlloc</code></td><td>Required (~64 KB heap)</td><td>Not needed</td></tr>
-<tr><td><code>PlatformSleep</code></td><td>Required</td><td>Not needed</td></tr>
-<tr><td><code>PlatformRandom</code></td><td>Required</td><td>Not needed</td></tr>
-<tr><td><code>PlatformTime</code></td><td>Required</td><td>Not needed</td></tr>
-<tr><td><code>PlatformThreading</code></td><td>Required (multi-threaded platforms)</td><td>Not needed</td></tr>
-<tr><td><code>PlatformTcp</code></td><td>Required</td><td>Not needed</td></tr>
-<tr><td><code>PlatformUdp</code></td><td>Required</td><td>Not needed</td></tr>
-<tr><td><code>PlatformSocketHelpers</code></td><td>Required</td><td>Not needed</td></tr>
-<tr><td><code>PlatformNetworkPoll</code></td><td>Bare-metal only</td><td>Not needed</td></tr>
-<tr><td><code>PlatformUdpMulticast</code></td><td>Desktop platforms only</td><td>Not needed</td></tr>
-<tr><td><code>PlatformLibc</code></td><td>Bare-metal only</td><td>Not needed</td></tr>
-</tbody>
-</table>
-</div>
-<p>XRCE-DDS is significantly simpler to port: it is single-threaded, heap-free, and uses user-provided transport callbacks rather than a full socket API. A minimal XRCE-DDS port requires only <code>PlatformClock</code> and four C function pointers (open, close, read, write).</p>
-<p>zenoh-pico requires a complete platform implementation but provides richer functionality (peer-to-peer, scouting, zero-copy receive, actions).</p>
-<h2 id="registration"><a class="header" href="#registration">Registration</a></h2>
-<p>After implementing the required traits, you register your platform with two changes:</p>
-<ol>
-<li>Add a <code>platform-&lt;name&gt;</code> feature to <code>nros-platform/Cargo.toml</code> that pulls in your crate as an optional dependency.</li>
-<li>Add a <code>ConcretePlatform</code> type alias in <code>nros-platform/src/resolve.rs</code> gated by that feature.</li>
-</ol>
-<p>The shim crates pick up the new platform automatically. No changes to RMW backends or core crates are needed.</p>
-<h2 id="existing-platform-implementations"><a class="header" href="#existing-platform-implementations">Existing platform implementations</a></h2>
-<p>These serve as reference when writing a new port.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Platform crate</th><th>Target</th><th>Threading</th><th>Networking</th></tr>
-</thead>
-<tbody>
-<tr><td><code>nros-platform-posix</code></td><td>Linux, macOS</td><td>pthreads</td><td>libc BSD sockets</td></tr>
-<tr><td><code>nros-platform-freertos</code></td><td>FreeRTOS</td><td>FreeRTOS tasks</td><td>lwIP</td></tr>
-<tr><td><code>nros-platform-nuttx</code></td><td>NuttX</td><td>pthreads</td><td>POSIX sockets</td></tr>
-<tr><td><code>nros-platform-threadx</code></td><td>ThreadX</td><td>ThreadX threads</td><td>NetX Duo</td></tr>
-<tr><td><code>nros-platform-zephyr</code></td><td>Zephyr</td><td>Zephyr POSIX</td><td>Zephyr sockets</td></tr>
-<tr><td><code>nros-platform-mps2-an385</code></td><td>Cortex-M3 bare-metal</td><td>Single-threaded</td><td>smoltcp</td></tr>
-<tr><td><code>nros-platform-stm32f4</code></td><td>STM32F4 bare-metal</td><td>Single-threaded</td><td>smoltcp</td></tr>
-<tr><td><code>nros-platform-esp32</code></td><td>ESP32 bare-metal</td><td>Single-threaded</td><td>smoltcp + WiFi</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="further-reading"><a class="header" href="#further-reading">Further reading</a></h2>
-<ul>
-<li><a href="#porting-a-custom-rmw-backend">Custom RMW Backend</a> – implementing a new transport protocol</li>
-<li><a href="#custom-platform">Custom Platform</a> – porting to a new RTOS or bare-metal target</li>
-<li><a href="#custom-board-package">Custom Board Package</a> – bringing up a new MCU board</li>
-<li><a href="#platform-api-reference">Platform API Reference</a> – complete trait signatures and method documentation</li>
-<li><a href="internals/rmw-api.html">RMW API Reference</a> – RMW trait hierarchy and backend details</li>
-<li><a href="#nano-ros-architecture-overview">Architecture Overview</a> – full crate dependency graph</li>
-<li><a href="#platform-model">Platform Model</a> – conceptual overview of the three feature axes</li>
-</ul>
-<div style="break-before: page; page-break-before: always;"></div>
-<h1 id="porting-a-custom-rmw-backend"><a class="header" href="#porting-a-custom-rmw-backend">Porting a Custom RMW Backend</a></h1>
-<p>nano-ros ships with two RMW backends – zenoh-pico and Micro-XRCE-DDS. To
-add your own transport (DDS, MQTT, a proprietary bus, etc.), implement a
-small set of traits or fill in a C function table.</p>
-<p>Two paths are available:</p>
-<ul>
-<li><strong>Rust path</strong> – implement the <code>nros-rmw</code> traits directly.</li>
-<li><strong>C/C++ path</strong> – fill in <code>nros_rmw_vtable_t</code> and register it at
-startup via <code>nros-rmw-cffi</code>.</li>
-</ul>
-<h2 id="what-you-implement"><a class="header" href="#what-you-implement">What you implement</a></h2>
-<p>Your backend provides concrete types for six traits:</p>
-<pre><code class="language-text">Rmw                    -- factory: opens a Session from RmwConfig
-  Session              -- connection lifecycle, creates handles
-    Publisher          -- send CDR-encoded messages
-    Subscriber         -- non-blocking receive (poll-based)
-    ServiceServerTrait -- receive requests, send replies
-    ServiceClientTrait -- send requests, poll for replies
-</code></pre>
-<p>Most methods have default implementations. The required methods per trait are:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Trait</th><th>Required methods</th></tr>
-</thead>
-<tbody>
-<tr><td><code>Rmw</code></td><td><code>open()</code></td></tr>
-<tr><td><code>Session</code></td><td><code>create_publisher()</code>, <code>create_subscriber()</code>, <code>create_service_server()</code>, <code>create_service_client()</code>, <code>close()</code></td></tr>
-<tr><td><code>Publisher</code></td><td><code>publish_raw()</code>, <code>buffer_error()</code>, <code>serialization_error()</code></td></tr>
-<tr><td><code>Subscriber</code></td><td><code>try_recv_raw()</code>, <code>deserialization_error()</code></td></tr>
-<tr><td><code>ServiceServerTrait</code></td><td><code>try_recv_request()</code>, <code>send_reply()</code></td></tr>
-<tr><td><code>ServiceClientTrait</code></td><td><code>send_request_raw()</code>, <code>try_recv_reply_raw()</code></td></tr>
-</tbody>
-</table>
-</div>
-<p>For full trait signatures and associated types, see
-<a href="#rmw-api">RMW API Reference</a>.</p>
-<h2 id="use-nros-platform-for-networking"><a class="header" href="#use-nros-platform-for-networking">Use nros-platform for networking</a></h2>
-<p>Call <code>ConcretePlatform::tcp_open()</code> / <code>udp_bind()</code> from <code>nros-platform</code>
-rather than OS sockets directly. This makes your backend portable across
-every platform (POSIX, Zephyr, FreeRTOS, NuttX, ThreadX, bare-metal). If
-your transport library already abstracts networking (like zenoh-pico does),
-you can use its own I/O layer instead.</p>
-<hr>
-<h2 id="rust-path"><a class="header" href="#rust-path">Rust path</a></h2>
-<h3 id="1-create-the-crate"><a class="header" href="#1-create-the-crate">1. Create the crate</a></h3>
-<p>Create <code>packages/myproto/nros-rmw-myproto/</code> with <code>nros-rmw</code> and
-<code>nros-core</code> as dependencies (both <code>default-features = false</code> for
-<code>no_std</code> support). Follow the <code>std</code>/<code>alloc</code> feature forwarding pattern
-used by the existing backends.</p>
-<h3 id="2-implement-the-traits"><a class="header" href="#2-implement-the-traits">2. Implement the traits</a></h3>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span>#![no_std]
-<span class="boring">fn main() {
-</span>use nros_rmw::*;
-
-pub struct MyProtoRmw;
-impl Rmw for MyProtoRmw {
-    type Session = MyProtoSession;
-    type Error = TransportError;
-    fn open(config: &amp;RmwConfig) -&gt; Result&lt;MyProtoSession, TransportError&gt; {
-        todo!() // Parse config.locator, connect, map config.domain_id
-    }
-}
-
-pub struct MyProtoSession { /* connection state */ }
-impl Session for MyProtoSession {
-    type Error = TransportError;
-    type PublisherHandle = MyProtoPub;
-    type SubscriberHandle = MyProtoSub;
-    type ServiceServerHandle = MyProtoServer;
-    type ServiceClientHandle = MyProtoClient;
-
-    fn create_publisher(&amp;mut self, t: &amp;TopicInfo, q: QosSettings)
-        -&gt; Result&lt;MyProtoPub, TransportError&gt; { todo!() }
-    fn create_subscriber(&amp;mut self, t: &amp;TopicInfo, q: QosSettings)
-        -&gt; Result&lt;MyProtoSub, TransportError&gt; { todo!() }
-    fn create_service_server(&amp;mut self, s: &amp;ServiceInfo)
-        -&gt; Result&lt;MyProtoServer, TransportError&gt; { todo!() }
-    fn create_service_client(&amp;mut self, s: &amp;ServiceInfo)
-        -&gt; Result&lt;MyProtoClient, TransportError&gt; { todo!() }
-    fn close(&amp;mut self) -&gt; Result&lt;(), TransportError&gt; { todo!() }
-    fn drive_io(&amp;mut self, timeout_ms: i32) -&gt; Result&lt;(), TransportError&gt; {
-        let _ = timeout_ms; Ok(()) // poll network, dispatch to buffers
-    }
-}
-
-pub struct MyProtoPub;
-impl Publisher for MyProtoPub {
-    type Error = TransportError;
-    fn publish_raw(&amp;self, data: &amp;[u8]) -&gt; Result&lt;(), TransportError&gt; { todo!() }
-    fn buffer_error(&amp;self) -&gt; TransportError { TransportError::BufferTooSmall }
-    fn serialization_error(&amp;self) -&gt; TransportError { TransportError::SerializationError }
-}
-
-pub struct MyProtoSub;
-impl Subscriber for MyProtoSub {
-    type Error = TransportError;
-    fn try_recv_raw(&amp;mut self, buf: &amp;mut [u8])
-        -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; { todo!() }
-    fn deserialization_error(&amp;self) -&gt; TransportError { TransportError::DeserializationError }
-}
-
-pub struct MyProtoServer;
-impl ServiceServerTrait for MyProtoServer {
-    type Error = TransportError;
-    fn try_recv_request&lt;'a&gt;(&amp;mut self, buf: &amp;'a mut [u8])
-        -&gt; Result&lt;Option&lt;ServiceRequest&lt;'a&gt;&gt;, TransportError&gt; { todo!() }
-    fn send_reply(&amp;mut self, seq: i64, data: &amp;[u8])
-        -&gt; Result&lt;(), TransportError&gt; { todo!() }
-}
-
-pub struct MyProtoClient;
-impl ServiceClientTrait for MyProtoClient {
-    type Error = TransportError;
-    fn send_request_raw(&amp;mut self, req: &amp;[u8])
-        -&gt; Result&lt;(), TransportError&gt; { todo!() }
-    fn try_recv_reply_raw(&amp;mut self, buf: &amp;mut [u8])
-        -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; { todo!() }
-}
-<span class="boring">}</span></code></pre>
-<h3 id="3-wire-into-nros"><a class="header" href="#3-wire-into-nros">3. Wire into nros</a></h3>
-<p>Three changes are needed to integrate the new backend:</p>
-<p><strong>a)</strong> In <code>nros/Cargo.toml</code>, add a feature and optional dependency:</p>
-<pre><code class="language-toml">rmw-myproto = ["dep:nros-rmw-myproto", "nros-node/rmw-myproto"]
-</code></pre>
-<p><strong>b)</strong> In <code>nros-node</code>, add the concrete session type alias:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>#[cfg(feature = "rmw-myproto")]
-pub type ConcreteSession = nros_rmw_myproto::MyProtoSession;
-<span class="boring">}</span></code></pre>
-<p><strong>c)</strong> Add <code>compile_error!</code> guards to enforce mutual exclusivity with the
-other backends (see existing guards in <code>nros-node/src/session.rs</code>).</p>
-<p>Applications then select your backend with
-<code>nros = { features = ["rmw-myproto", "platform-posix"] }</code>.</p>
-<hr>
-<h2 id="cc-path"><a class="header" href="#cc-path">C/C++ path</a></h2>
-<p>If your transport library is C or C++, use <code>nros-rmw-cffi</code> – a vtable of
-C function pointers that map one-to-one onto the Rust trait methods.</p>
-<h3 id="1-fill-in-the-vtable"><a class="header" href="#1-fill-in-the-vtable">1. Fill in the vtable</a></h3>
-<p>The vtable has 18 function pointers. Key signatures:</p>
-<pre><code class="language-c">#include &lt;nros/rmw_vtable.h&gt;
-
-static void *my_open(const char *locator, uint8_t mode,
-                     uint32_t domain_id, const char *node_name);
-static int   my_close(void *session);
-static int   my_drive_io(void *session, int timeout_ms);
-static void *my_create_publisher(void *session, const char *topic,
-    const char *type_name, const char *type_hash,
-    uint32_t domain_id, const nros_cffi_qos_t *qos);
-static void  my_destroy_publisher(void *pub_handle);
-static int   my_publish_raw(void *pub_handle, const uint8_t *data, size_t len);
-// ... subscriber, service server, service client follow the same pattern.
-
-static nros_rmw_vtable_t my_vtable = {
-    .open = my_open, .close = my_close, .drive_io = my_drive_io,
-    .create_publisher = my_create_publisher,
-    .destroy_publisher = my_destroy_publisher,
-    .publish_raw = my_publish_raw,
-    /* ... fill all 18 fields (see nros/rmw_vtable.h) ... */
-};
-</code></pre>
-<h3 id="2-register-before-opening-a-session"><a class="header" href="#2-register-before-opening-a-session">2. Register before opening a session</a></h3>
-<pre><code class="language-c">nros_rmw_cffi_register(&amp;my_vtable);  // before any nros API call
-</code></pre>
-<p>Build with <code>cargo build -p nros-c --features "rmw-cffi,platform-posix,ros-humble"</code>.</p>
-<p>All strings are null-terminated. Handles are opaque <code>void *</code>. Return
-convention: 0 = success/no data, positive = byte count, negative = error.</p>
-<hr>
-<h2 id="example-local-echo-rmw"><a class="header" href="#example-local-echo-rmw">Example: local echo RMW</a></h2>
-<p>Loops published messages back to subscribers – no real transport. Only
-pub/sub shown; service types are no-op stubs.</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>static mut ECHO_BUF: [u8; 1024] = [0; 1024];
-static mut ECHO_LEN: usize = 0;
-
-pub struct EchoPub;
-impl Publisher for EchoPub {
-    type Error = TransportError;
-    fn publish_raw(&amp;self, data: &amp;[u8]) -&gt; Result&lt;(), TransportError&gt; {
-        unsafe {
-            let len = data.len().min(ECHO_BUF.len());
-            ECHO_BUF[..len].copy_from_slice(&amp;data[..len]);
-            ECHO_LEN = len;
-        }
-        Ok(())
-    }
-    fn buffer_error(&amp;self) -&gt; TransportError { TransportError::BufferTooSmall }
-    fn serialization_error(&amp;self) -&gt; TransportError { TransportError::SerializationError }
-}
-
-pub struct EchoSub;
-impl Subscriber for EchoSub {
-    type Error = TransportError;
-    fn try_recv_raw(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; {
-        unsafe {
-            if ECHO_LEN == 0 { return Ok(None); }
-            let len = ECHO_LEN;
-            buf[..len].copy_from_slice(&amp;ECHO_BUF[..len]);
-            ECHO_LEN = 0;
-            Ok(Some(len))
-        }
-    }
-    fn deserialization_error(&amp;self) -&gt; TransportError { TransportError::DeserializationError }
-}
-<span class="boring">}</span></code></pre>
-<p>Wire <code>EchoPub</code>/<code>EchoSub</code> into an <code>EchoSession</code> the same way as the
-skeleton above – <code>create_publisher</code> returns <code>Ok(EchoPub)</code>, etc. The
-<code>Rmw::open()</code> impl just returns <code>Ok(EchoSession)</code> unconditionally.</p>
-<hr>
-<h2 id="further-reading-1"><a class="header" href="#further-reading-1">Further reading</a></h2>
-<ul>
-<li><a href="#rmw-api">RMW API Reference</a> – full trait signatures,
-QoS profiles, error types, configuration structs.</li>
-<li><a href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design</a> – architectural
-motivation and comparison with the ROS 2 rmw interface.</li>
-<li><a href="#zenoh-pico-symbol-reference">Zenoh-pico Symbol Reference</a>
-– FFI symbol mapping for the zenoh-pico backend (useful as a reference
-for how an existing backend is structured).</li>
-</ul>
-<div style="break-before: page; page-break-before: always;"></div>
-<h1 id="custom-platform"><a class="header" href="#custom-platform">Custom Platform</a></h1>
-<p>This guide walks through porting nano-ros to a new RTOS or bare-metal environment. A “platform” provides the OS-level primitives that nano-ros needs at runtime: clock, memory, sleep, threading, and networking. The core library is <code>#![no_std]</code> and makes zero platform calls directly – everything flows through your platform crate.</p>
-<h2 id="what-you-implement-1"><a class="header" href="#what-you-implement-1">What you implement</a></h2>
-<p>All platform traits are defined in <code>nros-platform/src/traits.rs</code>. Your platform crate implements some or all of them as inherent methods on a zero-sized type (ZST). The set you need depends on your RMW backend.</p>
-<h3 id="required-for-all-backends"><a class="header" href="#required-for-all-backends">Required for all backends</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Trait</th><th>Methods</th><th>Purpose</th></tr>
-</thead>
-<tbody>
-<tr><td><code>PlatformClock</code></td><td><code>clock_ms()</code>, <code>clock_us()</code></td><td>Monotonic time. Must use a hardware timer or OS tick – never a software counter that only advances when polled.</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="required-for-zenoh-pico-rmw-zenoh"><a class="header" href="#required-for-zenoh-pico-rmw-zenoh">Required for zenoh-pico (rmw-zenoh)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Trait</th><th>Methods</th><th>Purpose</th></tr>
-</thead>
-<tbody>
-<tr><td><code>PlatformAlloc</code></td><td><code>alloc()</code>, <code>realloc()</code>, <code>dealloc()</code></td><td>Heap allocation. zenoh-pico needs ~64 KB.</td></tr>
-<tr><td><code>PlatformSleep</code></td><td><code>sleep_us()</code>, <code>sleep_ms()</code>, <code>sleep_s()</code></td><td>Delay. On bare-metal with smoltcp, poll the network during busy-wait.</td></tr>
-<tr><td><code>PlatformRandom</code></td><td><code>random_u8()</code> through <code>random_u64()</code>, <code>random_fill()</code></td><td>PRNG for session IDs and protocol nonces.</td></tr>
-<tr><td><code>PlatformTime</code></td><td><code>time_now_ms()</code>, <code>time_since_epoch()</code></td><td>Wall-clock time for logging. Return monotonic time if no RTC.</td></tr>
-<tr><td><code>PlatformThreading</code></td><td>Tasks, mutexes, recursive mutexes, condvars (19 methods)</td><td>OS threading primitives. Single-threaded platforms provide no-op stubs.</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="networking"><a class="header" href="#networking">Networking</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Trait</th><th>Methods</th><th>Purpose</th></tr>
-</thead>
-<tbody>
-<tr><td><code>PlatformTcp</code></td><td><code>open()</code>, <code>read()</code>, <code>send()</code>, <code>close()</code>, …</td><td>TCP client and server sockets.</td></tr>
-<tr><td><code>PlatformUdp</code></td><td><code>open()</code>, <code>read()</code>, <code>send()</code>, <code>close()</code>, …</td><td>UDP unicast sockets.</td></tr>
-<tr><td><code>PlatformSocketHelpers</code></td><td><code>set_non_blocking()</code>, <code>accept()</code>, <code>close()</code>, <code>wait_event()</code></td><td>Socket utility operations.</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="optional"><a class="header" href="#optional">Optional</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Trait</th><th>When needed</th></tr>
-</thead>
-<tbody>
-<tr><td><code>PlatformUdpMulticast</code></td><td>Desktop platforms using zenoh scouting. Not needed for embedded client mode.</td></tr>
-<tr><td><code>PlatformNetworkPoll</code></td><td>Bare-metal platforms using smoltcp. Called during sleep to process packets.</td></tr>
-<tr><td><code>PlatformLibc</code></td><td>Bare-metal targets without a C runtime. Provides <code>strlen</code>, <code>memcpy</code>, etc.</td></tr>
-</tbody>
-</table>
-</div>
-<p>For full method signatures, see the <a href="#platform-api-reference">Platform API Reference</a>.</p>
-<h2 id="wiring-into-nros"><a class="header" href="#wiring-into-nros">Wiring into nros</a></h2>
-<p>Five files need changes to register a new platform. This example adds a fictional “MyOS” platform.</p>
-<h3 id="1-create-the-platform-crate"><a class="header" href="#1-create-the-platform-crate">1. Create the platform crate</a></h3>
-<pre><code>packages/core/nros-platform-myos/
-  Cargo.toml
-  src/
-    lib.rs
-</code></pre>
-<p>The crate must have <strong>zero</strong> <code>nros-*</code> dependencies. It may depend on your RTOS bindings, HAL crates, or <code>embedded-alloc</code>.</p>
-<h3 id="2-add-the-feature-to-nros-platform"><a class="header" href="#2-add-the-feature-to-nros-platform">2. Add the feature to nros-platform</a></h3>
-<p>In <code>packages/core/nros-platform/Cargo.toml</code>:</p>
-<pre><code class="language-toml">[features]
-platform-myos = ["dep:nros-platform-myos"]
-
-[dependencies]
-nros-platform-myos = { version = "0.1.0", path = "../nros-platform-myos", optional = true }
-</code></pre>
-<h3 id="3-add-the-concreteplatform-alias"><a class="header" href="#3-add-the-concreteplatform-alias">3. Add the ConcretePlatform alias</a></h3>
-<p>In <code>packages/core/nros-platform/src/resolve.rs</code>:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>#[cfg(feature = "platform-myos")]
-pub type ConcretePlatform = nros_platform_myos::MyOsPlatform;
-<span class="boring">}</span></code></pre>
-<h3 id="4-propagate-through-the-nros-facade"><a class="header" href="#4-propagate-through-the-nros-facade">4. Propagate through the nros facade</a></h3>
-<p>In <code>packages/core/nros/Cargo.toml</code>, add <code>platform-myos</code> to the feature list so users can write <code>nros = { features = ["rmw-zenoh", "platform-myos"] }</code>.</p>
-<h3 id="5-activate-the-shim-in-zpico-sys"><a class="header" href="#5-activate-the-shim-in-zpico-sys">5. Activate the shim in zpico-sys</a></h3>
-<p>In <code>packages/zpico/zpico-sys/Cargo.toml</code>, add a feature that activates the platform shim:</p>
-<pre><code class="language-toml">[features]
-myos = ["dep:zpico-platform-shim", "zpico-platform-shim?/active", "zpico-platform-shim?/network"]
-</code></pre>
-<p>The shim crate picks up <code>ConcretePlatform</code> automatically through Cargo feature unification – no changes inside the shim itself.</p>
-<h2 id="rust-path-1"><a class="header" href="#rust-path-1">Rust path</a></h2>
-<p>This is the recommended approach. Create a ZST and implement each capability as inherent methods (not trait impls). The shim calls these methods directly through the <code>ConcretePlatform</code> type alias.</p>
-<h3 id="skeleton"><a class="header" href="#skeleton">Skeleton</a></h3>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// packages/core/nros-platform-myos/src/lib.rs
-#![no_std]
-use core::ffi::c_void;
-
-/// Zero-sized type implementing platform methods for MyOS.
-pub struct MyOsPlatform;
-
-// -- Clock --
-impl MyOsPlatform {
-    pub fn clock_ms() -&gt; u64 {
-        // Call your RTOS tick API, e.g.:
-        // unsafe { myos_get_tick_count() as u64 }
-        todo!()
-    }
-
-    pub fn clock_us() -&gt; u64 { Self::clock_ms() * 1000 }
-}
-
-// -- Alloc --
-impl MyOsPlatform {
-    pub fn alloc(size: usize) -&gt; *mut c_void {
-        // unsafe { myos_malloc(size) }
-        todo!()
-    }
-
-    pub fn realloc(ptr: *mut c_void, size: usize) -&gt; *mut c_void {
-        // If your RTOS lacks realloc: alloc new, copy, free old
-        todo!()
-    }
-
-    pub fn dealloc(ptr: *mut c_void) {
-        // unsafe { myos_free(ptr) }
-        todo!()
-    }
-}
-
-// -- Sleep --
-impl MyOsPlatform {
-    pub fn sleep_us(us: usize) { Self::sleep_ms(us.div_ceil(1000)); }
-    pub fn sleep_ms(ms: usize) {
-        // unsafe { myos_thread_sleep(ms as u32) }
-        todo!()
-    }
-    pub fn sleep_s(s: usize) { Self::sleep_ms(s * 1000); }
-}
-
-// -- Threading (stubs for single-threaded, real impls for RTOS) --
-impl MyOsPlatform {
-    pub fn mutex_init(m: *mut c_void) -&gt; i8 {
-        // Create a mutex via your RTOS API. Store the handle in `m`.
-        // Return 0 on success, -1 on failure.
-        todo!()
-    }
-    pub fn mutex_lock(m: *mut c_void) -&gt; i8 { todo!() }
-    pub fn mutex_unlock(m: *mut c_void) -&gt; i8 { todo!() }
-    // ... remaining threading methods (see traits.rs for the full list)
-}
-<span class="boring">}</span></code></pre>
-<h3 id="key-points"><a class="header" href="#key-points">Key points</a></h3>
-<ul>
-<li><strong>Inherent methods, not trait impls.</strong> The shim calls <code>ConcretePlatform::clock_ms()</code> directly. The traits in <code>traits.rs</code> document the contract, but the ZST uses inherent <code>impl</code> blocks.</li>
-<li><strong><code>c_void</code> pointers for handles.</strong> Mutex, condvar, and task handles are opaque <code>#[repr(C)]</code> structs sized to hold your RTOS handle. Cast the <code>*mut c_void</code> to your internal type.</li>
-<li><strong>Recursive mutexes are required.</strong> zenoh-pico locks the same mutex recursively. On FreeRTOS this maps to <code>xSemaphoreCreateRecursiveMutex</code>; on pthreads, <code>PTHREAD_MUTEX_RECURSIVE</code>.</li>
-<li><strong>Seed the PRNG.</strong> A deterministic seed (like FreeRTOS <code>rand()</code> starting from 1) causes duplicate zenoh session IDs across QEMU instances. Seed from hardware entropy, IP address, or semihosting wall-clock.</li>
-</ul>
-<h3 id="reference-implementation"><a class="header" href="#reference-implementation">Reference implementation</a></h3>
-<p><code>packages/core/nros-platform-freertos/src/lib.rs</code> is a complete real-world example covering all categories: clock via <code>xTaskGetTickCount</code>, heap via <code>pvPortMalloc</code>/<code>vPortFree</code>, sleep via <code>vTaskDelay</code>, xorshift32 PRNG, and full threading with tasks, recursive mutexes, and condvars built on counting semaphores.</p>
-<h2 id="cc-path-1"><a class="header" href="#cc-path-1">C/C++ path</a></h2>
-<p>If your platform is easier to implement in C, use the <code>nros-platform-cffi</code> adapter. It provides a vtable-based bridge so you never write Rust.</p>
-<h3 id="1-fill-in-the-vtable-1"><a class="header" href="#1-fill-in-the-vtable-1">1. Fill in the vtable</a></h3>
-<pre><code class="language-c">#include &lt;nros/platform_vtable.h&gt;
-
-static uint64_t my_clock_ms(void) {
-    return myos_get_ticks();  // your RTOS tick API
-}
-
-static void *my_alloc(size_t size) {
-    return myos_malloc(size);
-}
-
-static void my_dealloc(void *ptr) {
-    myos_free(ptr);
-}
-
-static void *my_realloc(void *ptr, size_t size) {
-    return myos_realloc(ptr, size);
-}
-
-static int8_t my_mutex_init(void *m) {
-    myos_mutex_t *mx = (myos_mutex_t *)m;
-    *mx = myos_mutex_create();
-    return (*mx != NULL) ? 0 : -1;
-}
-
-// ... fill in remaining function pointers
-
-static const nros_platform_vtable_t my_vtable = {
-    .clock_ms           = my_clock_ms,
-    .clock_us           = my_clock_us,
-    .alloc              = my_alloc,
-    .realloc            = my_realloc,
-    .dealloc            = my_dealloc,
-    .sleep_us           = my_sleep_us,
-    .sleep_ms           = my_sleep_ms,
-    .sleep_s            = my_sleep_s,
-    .random_u32         = my_random_u32,
-    // ... all random, time, task, mutex, condvar fields (see platform_vtable.h)
-    .mutex_init         = my_mutex_init,
-    .mutex_lock         = my_mutex_lock,
-    .mutex_unlock       = my_mutex_unlock,
-    // ... remaining fields
-};
-</code></pre>
-<h3 id="2-register-at-boot"><a class="header" href="#2-register-at-boot">2. Register at boot</a></h3>
-<p>Call <code>nros_platform_cffi_register()</code> before opening an executor session:</p>
-<pre><code class="language-c">int main(void) {
-    myos_init();
-    nros_platform_cffi_register(&amp;my_vtable);
-
-    // Now use the nano-ros C or C++ API normally
-    nros_executor_t exec;
-    nros_executor_open(&amp;exec, &amp;config);
-    // ...
-}
-</code></pre>
-<h3 id="3-build-configuration"><a class="header" href="#3-build-configuration">3. Build configuration</a></h3>
-<p>Enable the <code>platform-cffi</code> feature instead of a platform-specific feature:</p>
-<pre><code class="language-toml">nros = { features = ["rmw-zenoh", "platform-cffi"] }
-</code></pre>
-<p>All function pointers in the vtable are required. For capabilities your platform does not support (e.g., threading on single-threaded bare-metal), provide stubs that return 0 for mutex/condvar operations and -1 for <code>task_init</code>.</p>
-<h2 id="networking-1"><a class="header" href="#networking-1">Networking</a></h2>
-<p>There are two paths for providing TCP/UDP sockets to zenoh-pico.</p>
-<h3 id="option-a-rust-networking-preferred"><a class="header" href="#option-a-rust-networking-preferred">Option A: Rust networking (preferred)</a></h3>
-<p>Implement <code>PlatformTcp</code>, <code>PlatformUdp</code>, and <code>PlatformSocketHelpers</code> on your ZST. These methods map to your OS socket API (BSD sockets, lwIP, NetX Duo, etc.).</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>impl MyOsPlatform {
-    pub fn tcp_open(sock: *mut c_void, endpoint: *const c_void, timeout_ms: u32) -&gt; i8 {
-        // Parse endpoint, call connect(), store fd in sock
-        todo!()
-    }
-
-    pub fn tcp_read(sock: *const c_void, buf: *mut u8, len: usize) -&gt; usize {
-        // Call recv() on the socket fd
-        todo!()
-    }
-
-    pub fn tcp_send(sock: *const c_void, buf: *const u8, len: usize) -&gt; usize {
-        // Call send() on the socket fd
-        todo!()
-    }
-
-    pub fn tcp_close(sock: *mut c_void) {
-        // Close the socket fd
-    }
-}
-<span class="boring">}</span></code></pre>
-<p>Activate the <code>network</code> shim feature in <code>zpico-sys</code> so the shim provides the <code>_z_open_tcp</code>, <code>_z_read_tcp</code>, etc. C symbols by forwarding to your Rust methods.</p>
-<p>For bare-metal with smoltcp, use <code>zpico-smoltcp</code> as the networking driver. It provides <code>PlatformTcp</code> and <code>PlatformUdp</code> implementations using smoltcp’s TCP/UDP sockets. Your platform crate implements <code>PlatformNetworkPoll</code> so the sleep loop can process packets.</p>
-<h3 id="option-b-keep-zenoh-picos-c-networkc"><a class="header" href="#option-b-keep-zenoh-picos-c-networkc">Option B: Keep zenoh-pico’s C network.c</a></h3>
-<p>If your platform already has a working zenoh-pico <code>network.c</code> (e.g., <code>freertos/lwip/network.c</code> or <code>unix/network.c</code>), you can compile it directly instead of implementing the Rust networking traits.</p>
-<p>In this case, do <strong>not</strong> activate the <code>network</code> shim feature in zpico-sys. Instead, link the appropriate <code>network.c</code> through your build system. The C file provides the <code>_z_open_tcp</code>, <code>_z_read_tcp</code>, etc. symbols directly, bypassing the Rust shim.</p>
-<p>This is the approach used by platforms with mature C networking stacks (lwIP on FreeRTOS, BSD sockets on NuttX, NetX Duo on ThreadX).</p>
-<h2 id="common-pitfalls-1"><a class="header" href="#common-pitfalls-1">Common pitfalls</a></h2>
-<ul>
-<li><strong>Poll-driven clocks.</strong> If the clock only advances when you call a function, timeouts and keep-alives break silently. Use a free-running hardware timer.</li>
-<li><strong>Stack overflow on RTOS.</strong> The <code>Executor</code> has an inline arena on the task stack. Use at least 16384 words (64 KB) for the application task on action examples.</li>
-<li><strong>Deterministic PRNG seeds.</strong> Duplicate zenoh session IDs cause silent connection failures. Seed from a source that varies across instances.</li>
-<li><strong>Missing recursive mutexes.</strong> zenoh-pico re-enters the same mutex. Non-recursive mutexes deadlock.</li>
-<li><strong>QEMU clock drift.</strong> Use <code>-icount shift=auto</code> for QEMU targets so the virtual clock tracks wall time during WFI.</li>
-</ul>
-<h2 id="next-steps-3"><a class="header" href="#next-steps-3">Next steps</a></h2>
-<ul>
-<li><a href="#custom-board-package">Custom Board Package</a> – create a board crate that ties your platform to specific hardware</li>
-<li><a href="#platform-api-reference">Platform API Reference</a> – complete method signatures for all traits</li>
-<li><a href="#platform-porting-pitfalls">Platform Porting Pitfalls</a> – QEMU networking and timing issues</li>
-</ul>
-<div style="break-before: page; page-break-before: always;"></div>
-<h1 id="custom-board-package"><a class="header" href="#custom-board-package">Custom Board Package</a></h1>
-<p>A board crate is the top-level, batteries-included package that application code depends on. It provides three things:</p>
-<ol>
-<li><strong><code>Config</code> struct</strong> – network settings (IP, MAC, gateway), transport selection (Ethernet, serial, or WiFi via Cargo features), and a zenoh locator string.</li>
-<li><strong><code>run()</code> entry point</strong> – initializes hardware, starts the network stack, and calls a user-provided closure with <code>&amp;Config</code>.</li>
-<li><strong>Hardware initialization</strong> – PHY/MAC driver setup, interrupt configuration, clock init, and force-linking of platform shim crates.</li>
-</ol>
-<p>Users never interact with platform crates or driver crates directly. They depend on a single board crate, call <code>run()</code>, and get a working environment for creating an <code>Executor</code>.</p>
-<pre><code class="language-rust ignore">use nros_my_board::{Config, run};
-use nros::prelude::*;
-
-run(Config::default(), |config| {
-    let exec_config = ExecutorConfig::new(config.zenoh_locator)
-        .domain_id(config.domain_id);
-    let mut executor = Executor::open(&amp;exec_config)?;
-    let mut node = executor.create_node("my_node")?;
-    // publishers, subscriptions, services, actions, timers...
-    Ok(())
-})</code></pre>
-<h2 id="board--platform--hardware"><a class="header" href="#board--platform--hardware">Board = platform + hardware</a></h2>
-<p>A board crate combines two layers:</p>
-<ul>
-<li><strong>Platform crate</strong> (<code>nros-platform-&lt;os&gt;</code>) – generic RTOS or bare-metal primitives: clock, sleep, threading, memory, random number generation. Implements the traits defined in <code>nros-platform</code>. See <a href="#custom-platform">Custom Platform</a> for how to write one.</li>
-<li><strong>Hardware drivers</strong> – board-specific peripherals: Ethernet controller, WiFi radio, serial UART. Driver crates in <code>packages/drivers/</code> (e.g., <code>lan9118-smoltcp</code>, <code>openeth-smoltcp</code>) implement the smoltcp <code>Device</code> trait for a specific Ethernet MAC/PHY.</li>
-</ul>
-<p>The board crate glues these together: it depends on the platform crate for OS primitives, on driver crates for peripheral access, and on transport crates (<code>nros-smoltcp</code>, <code>zpico-serial</code>) for bridging the network stack to zenoh-pico. The result is a single dependency that gives application code everything it needs.</p>
-<pre><code class="language-text">Application
-    |
-    v
-Board crate (nros-my-board)
-    |
-    +-- Platform crate (nros-platform-freertos)
-    +-- Driver crate (lan9118-smoltcp)
-    +-- Transport bridge (nros-smoltcp or zpico-serial)
-    +-- Shim crate (zpico-platform-shim)
-</code></pre>
-<h2 id="crate-structure"><a class="header" href="#crate-structure">Crate structure</a></h2>
-<p>A minimal board crate looks like this:</p>
-<pre><code class="language-text">nros-my-board/
-  Cargo.toml
-  .gitignore        # /target/
-  src/
-    lib.rs          # extern crate force-links, pub use Config, pub fn run()
-    config.rs       # Config struct with network fields
-    node.rs         # Hardware init sequence + run() implementation
-</code></pre>
-<h3 id="cargotoml"><a class="header" href="#cargotoml">Cargo.toml</a></h3>
-<pre><code class="language-toml">[package]
-name = "nros-my-board"
-version = "0.1.0"
-edition = "2024"
-
-[lib]
-name = "nros_my_board"
-
-[dependencies]
-# Platform primitives (pick one)
-nros-platform = { path = "../../core/nros-platform", features = ["platform-freertos"] }
-nros-platform-freertos = { path = "../../core/nros-platform-freertos" }
-
-# Force-link shim crate (provides zenoh-pico C symbols)
-zpico-platform-shim = { path = "../../zpico/zpico-platform-shim", features = ["active"] }
-zpico-sys = { path = "../../zpico/zpico-sys", default-features = false }
-
-# Ethernet transport (optional, gated by feature)
-nros-smoltcp = { path = "../../drivers/nros-smoltcp", optional = true }
-lan9118-smoltcp = { path = "../../drivers/lan9118-smoltcp", optional = true }
-smoltcp = { version = "0.12", default-features = false, optional = true, features = [
-    "medium-ethernet", "proto-ipv4", "socket-tcp", "socket-udp",
-] }
-
-# Serial transport (optional, gated by feature)
-zpico-serial = { path = "../../zpico/zpico-serial", optional = true }
-my-uart-driver = { path = "../../drivers/my-uart", optional = true }
-
-# Board-specific dependencies
-cortex-m = "0.7"
-cortex-m-rt = "0.7"
-cortex-m-semihosting = "0.5"
-panic-semihosting = "0.6"
-
-[features]
-default = ["ethernet"]
-ethernet = ["dep:nros-smoltcp", "dep:lan9118-smoltcp", "dep:smoltcp"]
-serial = ["dep:zpico-serial", "dep:my-uart-driver"]
-</code></pre>
-<h3 id="librs"><a class="header" href="#librs">lib.rs</a></h3>
-<p>The lib module force-links shim crates and re-exports the public API.</p>
-<pre><code class="language-rust ignore">#![no_std]
-
-// Force-link: ensures the platform shim's C symbols (zpico FFI) are
-// included in the final binary even though Rust code never calls them
-// directly. Without this, the linker drops them and zenoh-pico fails.
-extern crate zpico_platform_shim;
-
-mod config;
-mod node;
-
-pub use config::Config;
-pub use node::{init_hardware, run};
-
-// Re-export entry macro so examples can use #[entry]
-pub use cortex_m_rt::entry;
-
-// Convenience println! that routes to semihosting (QEMU) or UART
-pub use cortex_m_semihosting;
-#[macro_export]
-macro_rules! println {
-    ($($arg:tt)*) =&gt; { $crate::cortex_m_semihosting::hprintln!($($arg)*) };
-}
-
-pub fn exit_success() -&gt; ! {
-    cortex_m_semihosting::debug::exit(cortex_m_semihosting::debug::EXIT_SUCCESS);
-    loop {}
-}
-
-pub fn exit_failure() -&gt; ! {
-    cortex_m_semihosting::debug::exit(cortex_m_semihosting::debug::EXIT_FAILURE);
-    loop {}
-}</code></pre>
-<h3 id="configrs"><a class="header" href="#configrs">config.rs</a></h3>
-<p>The <code>Config</code> struct holds all network and transport settings. Fields are
-gated by Cargo features so only relevant fields exist for a given build.</p>
-<pre><code class="language-rust ignore">#[derive(Clone)]
-pub struct Config {
-    #[cfg(feature = "ethernet")]
-    pub mac: [u8; 6],
-    #[cfg(feature = "ethernet")]
-    pub ip: [u8; 4],
-    #[cfg(feature = "ethernet")]
-    pub prefix: u8,
-    #[cfg(feature = "ethernet")]
-    pub gateway: [u8; 4],
-
-    #[cfg(feature = "serial")]
-    pub uart_base: usize,
-    #[cfg(feature = "serial")]
-    pub baudrate: u32,
-
-    pub zenoh_locator: &amp;'static str,
-    pub domain_id: u32,
-}
-
-#[cfg(feature = "ethernet")]
-impl Default for Config {
-    fn default() -&gt; Self {
-        Self {
-            mac: [0x02, 0x00, 0x00, 0x00, 0x00, 0x00],
-            ip: [192, 0, 3, 10],
-            prefix: 24,
-            gateway: [192, 0, 3, 1],
-            #[cfg(feature = "serial")]
-            uart_base: 0x4000_4000,
-            #[cfg(feature = "serial")]
-            baudrate: 115200,
-            zenoh_locator: "tcp/192.0.3.1:7447",
-            domain_id: 0,
-        }
-    }
-}</code></pre>
-<p>Provide builder methods (<code>with_ip</code>, <code>with_mac</code>, <code>with_gateway</code>, etc.) and factory presets (<code>listener()</code>, <code>talker()</code>) for common test topologies. See <code>nros-mps2-an385/src/config.rs</code> for a complete example including <code>from_toml()</code> parsing.</p>
-<h3 id="noders"><a class="header" href="#noders">node.rs</a></h3>
-<p>The <code>run()</code> function is the entry point. For bare-metal targets it calls the user closure directly. For RTOS targets it creates a task, starts the scheduler, and runs the closure inside that task.</p>
-<p><strong>Bare-metal pattern:</strong></p>
-<pre><code class="language-rust ignore">pub fn run&lt;F, E: core::fmt::Debug&gt;(config: Config, f: F) -&gt; !
-where
-    F: FnOnce(&amp;Config) -&gt; Result&lt;(), E&gt;,
-{
-    init_hardware(&amp;config);
-    match f(&amp;config) {
-        Ok(()) =&gt; exit_success(),
-        Err(e) =&gt; {
-            hprintln!("Error: {:?}", e);
-            exit_failure()
-        }
-    }
-}</code></pre>
-<p><strong>RTOS pattern (FreeRTOS example):</strong></p>
-<pre><code class="language-rust ignore">pub fn run&lt;F, E: core::fmt::Debug&gt;(config: Config, f: F) -&gt; !
-where
-    F: FnOnce(&amp;Config) -&gt; Result&lt;(), E&gt;,
-{
-    init_hardware(&amp;config);
-    // Create FreeRTOS task with the user closure
-    create_app_task(f, config);
-    // Start the scheduler -- never returns
-    start_scheduler()
-}</code></pre>
-<p>The <code>init_hardware()</code> function must follow this order:</p>
-<ol>
-<li><strong>Clock</strong> – initialize the hardware timer (must happen before any clock reads)</li>
-<li><strong>Cycle counter</strong> – enable DWT or equivalent for timing measurements</li>
-<li><strong>RNG seed</strong> – seed PRNG with entropy (IP-based hash, semihosting time, etc.)</li>
-<li><strong>Transport</strong> – Ethernet driver + smoltcp, or UART + zpico-serial</li>
-<li><strong>Application</strong> – call the user closure</li>
-</ol>
-<p>Ethernet peripherals and smoltcp state must live in <code>static mut</code> storage (they are referenced by FFI poll callbacks):</p>
-<pre><code class="language-rust ignore">static mut ETH_DEVICE: MaybeUninit&lt;Lan9118&gt; = MaybeUninit::uninit();
-static mut NET_IFACE: MaybeUninit&lt;Interface&gt; = MaybeUninit::uninit();
-static mut NET_SOCKETS: MaybeUninit&lt;SocketSet&lt;'static&gt;&gt; = MaybeUninit::uninit();</code></pre>
-<h2 id="transport-features"><a class="header" href="#transport-features">Transport features</a></h2>
-<p>Board crates use Cargo features to select the communication transport:</p>
-<ul>
-<li><strong><code>ethernet</code></strong> (typically the default) – TCP/UDP via smoltcp or lwIP. Requires an Ethernet driver crate and <code>nros-smoltcp</code>.</li>
-<li><strong><code>serial</code></strong> – UART link via <code>zpico-serial</code>. Requires a UART driver crate.</li>
-<li><strong><code>wifi</code></strong> – WiFi via the platform’s native stack (ESP32). The zenoh-pico layer uses OS sockets directly.</li>
-</ul>
-<p>At least one transport must be enabled. Enforce this at compile time:</p>
-<pre><code class="language-rust ignore">#[cfg(not(any(feature = "ethernet", feature = "serial")))]
-compile_error!("Enable at least one transport: `ethernet` or `serial`");</code></pre>
-<p><code>Config</code> fields are <code>#[cfg(feature = "...")]</code>-gated per transport, so the struct only contains fields relevant to the enabled transport. Both <code>ethernet</code> and <code>serial</code> can be enabled simultaneously – the zenoh locator string determines which transport is used at runtime (<code>tcp/...</code> for Ethernet, <code>serial/...</code> for UART).</p>
-<h2 id="reference-implementations-1"><a class="header" href="#reference-implementations-1">Reference implementations</a></h2>
-<p>Start from the crate closest to your target:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Board crate</th><th>Transport</th><th>Platform</th><th>Location</th></tr>
-</thead>
-<tbody>
-<tr><td><code>nros-mps2-an385</code></td><td>Ethernet + Serial</td><td>Bare-metal</td><td><code>packages/boards/nros-mps2-an385/</code></td></tr>
-<tr><td><code>nros-mps2-an385-freertos</code></td><td>Ethernet (lwIP)</td><td>FreeRTOS</td><td><code>packages/boards/nros-mps2-an385-freertos/</code></td></tr>
-<tr><td><code>nros-esp32</code></td><td>WiFi</td><td>Bare-metal (ESP-IDF)</td><td><code>packages/boards/nros-esp32/</code></td></tr>
-<tr><td><code>nros-stm32f4</code></td><td>Ethernet + Serial</td><td>Bare-metal</td><td><code>packages/boards/nros-stm32f4/</code></td></tr>
-<tr><td><code>nros-nuttx-qemu-arm</code></td><td>BSD sockets</td><td>NuttX</td><td><code>packages/boards/nros-nuttx-qemu-arm/</code></td></tr>
-<tr><td><code>nros-threadx-qemu-riscv64</code></td><td>NetX Duo</td><td>ThreadX</td><td><code>packages/boards/nros-threadx-qemu-riscv64/</code></td></tr>
-</tbody>
-</table>
-</div>
-<p>The bare-metal <code>nros-mps2-an385</code> is the simplest starting point. The FreeRTOS variant shows how to add RTOS task creation and lwIP networking.</p>
-<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
-<ul>
-<li><a href="#custom-platform">Custom Platform</a> – writing the platform crate that sits underneath a board crate</li>
-<li><a href="#porting-overview">Porting Overview</a> – the three customization axes (RMW, platform, board)</li>
-<li><a href="internals/board-crate.html">Board Crate Implementation</a> – detailed internal reference with driver implementation, lwIP/NetX Duo setup, and a full checklist</li>
-</ul>
-<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="rust-api"><a class="header" href="#rust-api">Rust API</a></h1>
 <p>This chapter provides a concise overview of the nano-ros Rust API. For full
 details, see the <a href="https://docs.rs/nros/">rustdoc documentation</a> or generate
@@ -5532,6 +4697,9 @@ RTOS tasks. Without the feature, the guard is a zero-cost passthrough.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="platform-api-reference"><a class="header" href="#platform-api-reference">Platform API Reference</a></h1>
 <p>nano-ros abstracts hardware and OS differences through the <strong>nros-platform</strong> trait system. Each platform (POSIX, FreeRTOS, NuttX, ThreadX, Zephyr, bare-metal) implements these traits once, and both RMW backends (zenoh-pico and XRCE-DDS) consume them through thin shim crates.</p>
+<blockquote>
+<p>For the design rationale – why these traits are grouped this way, why we expose both <code>clock_ms</code> and <code>clock_us</code>, and the per-method behavior contracts (blocking, may-fail, unsupported-fallback) – see <a href="#platform-api-design">Platform API Design</a>. For implementing a new platform, see <a href="#custom-platform">Custom Platform</a>.</p>
+</blockquote>
 <h2 id="architecture-6"><a class="header" href="#architecture-6">Architecture</a></h2>
 <pre class="mermaid">graph TD
     ZP["zenoh-pico (C)"] --&gt; ZPSHIM["zpico-platform-shim"]
@@ -5588,11 +4756,7 @@ RTOS tasks. Without the feature, the guard is a zero-cost passthrough.</p>
 </tbody>
 </table>
 </div>
-<blockquote>
-<p><strong>Bare-metal note:</strong> Implementations should poll the network stack (smoltcp) during busy-wait sleep to avoid missing packets.</p>
-</blockquote>
 <h3 id="platformrandom-zenoh-pico-only"><a class="header" href="#platformrandom-zenoh-pico-only"><code>PlatformRandom</code> (zenoh-pico only)</a></h3>
-<p>A simple xorshift32 PRNG is sufficient. Seed with hardware entropy during platform init.</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -5781,8 +4945,6 @@ RTOS tasks. Without the feature, the guard is a zero-cost passthrough.</p>
 <p>Not required for platforms with OS-level networking (POSIX, Zephyr, NuttX, FreeRTOS, ThreadX).</p>
 <h3 id="platformlibc-bare-metal-only"><a class="header" href="#platformlibc-bare-metal-only"><code>PlatformLibc</code> (bare-metal only)</a></h3>
 <p>Standard C library functions needed by zenoh-pico on targets without a C runtime. Provides <code>strlen</code>, <code>strcmp</code>, <code>strncmp</code>, <code>strchr</code>, <code>strncpy</code>, <code>memcpy</code>, <code>memmove</code>, <code>memset</code>, <code>memcmp</code>, <code>memchr</code>, <code>strtoul</code>, <code>errno_ptr</code>.</p>
-<h2 id="how-it-works-1"><a class="header" href="#how-it-works-1">How It Works</a></h2>
-<p>Platform crates implement the traits above as inherent methods on a zero-sized type (e.g., <code>PosixPlatform</code>, <code>FreeRtosPlatform</code>). Thin shim crates (<code>zpico-platform-shim</code>, <code>xrce-platform-shim</code>) automatically forward RMW-layer C symbols to the active platform — this mapping is internal to nano-ros and transparent to platform implementors. You never implement or call shim symbols directly; you only implement traits.</p>
 <h2 id="platform-implementations"><a class="header" href="#platform-implementations">Platform Implementations</a></h2>
 <div class="table-wrapper">
 <table>
@@ -7121,9 +6283,877 @@ nros = { default-features = false, features = [
 <p>The default feature set is <code>std</code> only. No RMW backend or platform is selected by default – users must explicitly choose their configuration.</p>
 <p>For implementation details on how to add a new platform, see the <a href="internals/porting-platform/README.html">Porting Guide</a> and <a href="#platform-api-reference">Platform API Reference</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="porting-overview"><a class="header" href="#porting-overview">Porting Overview</a></h1>
+<p>nano-ros is designed for customization at three independent levels: <strong>RMW</strong> (transport protocol), <strong>Platform</strong> (OS or RTOS), and <strong>Board</strong> (hardware). The core crates define stable interfaces through Rust traits. You extend nano-ros by implementing those traits for your target – you never modify the core.</p>
+<h2 id="which-chapter-do-i-need"><a class="header" href="#which-chapter-do-i-need">Which chapter do I need?</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>I want to…</th><th>Chapter</th></tr>
+</thead>
+<tbody>
+<tr><td>Add a new transport protocol (MQTT, DDS, custom)</td><td><a href="#porting-a-custom-rmw-backend">Custom RMW Backend</a></td></tr>
+<tr><td>Port to a new RTOS or bare-metal target</td><td><a href="#custom-platform">Custom Platform</a></td></tr>
+<tr><td>Bring up nano-ros on a new MCU board</td><td><a href="#custom-board-package">Custom Board Package</a></td></tr>
+</tbody>
+</table>
+</div>
+<p>Most porting work falls into the second or third category. Adding a new RMW backend is rare and substantially more involved.</p>
+<h2 id="what-stays-untouched"><a class="header" href="#what-stays-untouched">What stays untouched</a></h2>
+<p>The following core packages define the interfaces you implement. They compile and work without modification for any new target.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Package</th><th>Role</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros</code></td><td>Facade crate: re-exports and feature-axis enforcement</td></tr>
+<tr><td><code>nros-core</code></td><td>Message, service, and action type traits</td></tr>
+<tr><td><code>nros-serdes</code></td><td>CDR serialization</td></tr>
+<tr><td><code>nros-node</code></td><td>Executor, Node, pub/sub/service/action handles</td></tr>
+<tr><td><code>nros-rmw</code></td><td>RMW trait definitions (Session, Publisher, Subscriber, etc.)</td></tr>
+<tr><td><code>nros-platform</code></td><td>Platform trait definitions and <code>ConcretePlatform</code> type alias</td></tr>
+<tr><td><code>zpico-platform-shim</code></td><td>Maps zenoh-pico C symbols to <code>ConcretePlatform</code></td></tr>
+<tr><td><code>xrce-platform-shim</code></td><td>Maps XRCE-DDS C symbols to <code>ConcretePlatform</code></td></tr>
+<tr><td><code>nros-c</code>, <code>nros-cpp</code></td><td>C and C++ API wrappers</td></tr>
+</tbody>
+</table>
+</div>
+<p>These define the interfaces. You implement them; you do not modify them.</p>
+<h2 id="the-customization-boundary"><a class="header" href="#the-customization-boundary">The customization boundary</a></h2>
+<p>Everything in nano-ros sits on one side of a trait boundary defined in <code>nros-platform/src/traits.rs</code>.</p>
+<p><strong>Above the boundary</strong> (yours to write): board crates, platform crates, peripheral drivers, and application code.</p>
+<p><strong>Below the boundary</strong> (fixed): RMW backends, shim crates, core library, executor, and serialization.</p>
+<p>Your platform crate implements traits as inherent methods on a zero-sized type. The shim crates automatically forward RMW-layer C symbols to your implementation through the <code>ConcretePlatform</code> type alias – no dynamic dispatch, no generics propagation.</p>
+<h2 id="platform-trait-requirements-by-rmw-backend"><a class="header" href="#platform-trait-requirements-by-rmw-backend">Platform trait requirements by RMW backend</a></h2>
+<p>Not every trait is required. The set depends on which RMW backend the application uses.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Trait</th><th>zenoh-pico</th><th>XRCE-DDS</th></tr>
+</thead>
+<tbody>
+<tr><td><code>PlatformClock</code></td><td>Required</td><td>Required</td></tr>
+<tr><td><code>PlatformAlloc</code></td><td>Required (~64 KB heap)</td><td>Not needed</td></tr>
+<tr><td><code>PlatformSleep</code></td><td>Required</td><td>Not needed</td></tr>
+<tr><td><code>PlatformRandom</code></td><td>Required</td><td>Not needed</td></tr>
+<tr><td><code>PlatformTime</code></td><td>Required</td><td>Not needed</td></tr>
+<tr><td><code>PlatformThreading</code></td><td>Required (multi-threaded platforms)</td><td>Not needed</td></tr>
+<tr><td><code>PlatformTcp</code></td><td>Required</td><td>Not needed</td></tr>
+<tr><td><code>PlatformUdp</code></td><td>Required</td><td>Not needed</td></tr>
+<tr><td><code>PlatformSocketHelpers</code></td><td>Required</td><td>Not needed</td></tr>
+<tr><td><code>PlatformNetworkPoll</code></td><td>Bare-metal only</td><td>Not needed</td></tr>
+<tr><td><code>PlatformUdpMulticast</code></td><td>Desktop platforms only</td><td>Not needed</td></tr>
+<tr><td><code>PlatformLibc</code></td><td>Bare-metal only</td><td>Not needed</td></tr>
+</tbody>
+</table>
+</div>
+<p>XRCE-DDS is significantly simpler to port: it is single-threaded, heap-free, and uses user-provided transport callbacks rather than a full socket API. A minimal XRCE-DDS port requires only <code>PlatformClock</code> and four C function pointers (open, close, read, write).</p>
+<p>zenoh-pico requires a complete platform implementation but provides richer functionality (peer-to-peer, scouting, zero-copy receive, actions).</p>
+<h2 id="registration"><a class="header" href="#registration">Registration</a></h2>
+<p>After implementing the required traits, you register your platform with two changes:</p>
+<ol>
+<li>Add a <code>platform-&lt;name&gt;</code> feature to <code>nros-platform/Cargo.toml</code> that pulls in your crate as an optional dependency.</li>
+<li>Add a <code>ConcretePlatform</code> type alias in <code>nros-platform/src/resolve.rs</code> gated by that feature.</li>
+</ol>
+<p>The shim crates pick up the new platform automatically. No changes to RMW backends or core crates are needed.</p>
+<h2 id="existing-platform-implementations"><a class="header" href="#existing-platform-implementations">Existing platform implementations</a></h2>
+<p>These serve as reference when writing a new port.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Platform crate</th><th>Target</th><th>Threading</th><th>Networking</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros-platform-posix</code></td><td>Linux, macOS</td><td>pthreads</td><td>libc BSD sockets</td></tr>
+<tr><td><code>nros-platform-freertos</code></td><td>FreeRTOS</td><td>FreeRTOS tasks</td><td>lwIP</td></tr>
+<tr><td><code>nros-platform-nuttx</code></td><td>NuttX</td><td>pthreads</td><td>POSIX sockets</td></tr>
+<tr><td><code>nros-platform-threadx</code></td><td>ThreadX</td><td>ThreadX threads</td><td>NetX Duo</td></tr>
+<tr><td><code>nros-platform-zephyr</code></td><td>Zephyr</td><td>Zephyr POSIX</td><td>Zephyr sockets</td></tr>
+<tr><td><code>nros-platform-mps2-an385</code></td><td>Cortex-M3 bare-metal</td><td>Single-threaded</td><td>smoltcp</td></tr>
+<tr><td><code>nros-platform-stm32f4</code></td><td>STM32F4 bare-metal</td><td>Single-threaded</td><td>smoltcp</td></tr>
+<tr><td><code>nros-platform-esp32</code></td><td>ESP32 bare-metal</td><td>Single-threaded</td><td>smoltcp + WiFi</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="further-reading"><a class="header" href="#further-reading">Further reading</a></h2>
+<ul>
+<li><a href="#porting-a-custom-rmw-backend">Custom RMW Backend</a> – implementing a new transport protocol</li>
+<li><a href="#custom-platform">Custom Platform</a> – porting to a new RTOS or bare-metal target</li>
+<li><a href="#custom-board-package">Custom Board Package</a> – bringing up a new MCU board</li>
+<li><a href="#platform-api-reference">Platform API Reference</a> – complete trait signatures and method documentation</li>
+<li><a href="internals/rmw-api.html">RMW API Reference</a> – RMW trait hierarchy and backend details</li>
+<li><a href="#nano-ros-architecture-overview">Architecture Overview</a> – full crate dependency graph</li>
+<li><a href="#platform-model">Platform Model</a> – conceptual overview of the three feature axes</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="porting-a-custom-rmw-backend"><a class="header" href="#porting-a-custom-rmw-backend">Porting a Custom RMW Backend</a></h1>
+<p>nano-ros ships with two RMW backends – zenoh-pico and Micro-XRCE-DDS. To
+add your own transport (DDS, MQTT, a proprietary bus, etc.), implement a
+small set of traits or fill in a C function table.</p>
+<p>Two paths are available:</p>
+<ul>
+<li><strong>Rust path</strong> – implement the <code>nros-rmw</code> traits directly.</li>
+<li><strong>C/C++ path</strong> – fill in <code>nros_rmw_vtable_t</code> and register it at
+startup via <code>nros-rmw-cffi</code>.</li>
+</ul>
+<h2 id="what-you-implement"><a class="header" href="#what-you-implement">What you implement</a></h2>
+<p>Your backend provides concrete types for six traits:</p>
+<pre><code class="language-text">Rmw                    -- factory: opens a Session from RmwConfig
+  Session              -- connection lifecycle, creates handles
+    Publisher          -- send CDR-encoded messages
+    Subscriber         -- non-blocking receive (poll-based)
+    ServiceServerTrait -- receive requests, send replies
+    ServiceClientTrait -- send requests, poll for replies
+</code></pre>
+<p>Most methods have default implementations. The required methods per trait are:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Trait</th><th>Required methods</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Rmw</code></td><td><code>open()</code></td></tr>
+<tr><td><code>Session</code></td><td><code>create_publisher()</code>, <code>create_subscriber()</code>, <code>create_service_server()</code>, <code>create_service_client()</code>, <code>close()</code></td></tr>
+<tr><td><code>Publisher</code></td><td><code>publish_raw()</code>, <code>buffer_error()</code>, <code>serialization_error()</code></td></tr>
+<tr><td><code>Subscriber</code></td><td><code>try_recv_raw()</code>, <code>deserialization_error()</code></td></tr>
+<tr><td><code>ServiceServerTrait</code></td><td><code>try_recv_request()</code>, <code>send_reply()</code></td></tr>
+<tr><td><code>ServiceClientTrait</code></td><td><code>send_request_raw()</code>, <code>try_recv_reply_raw()</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>For full trait signatures and associated types, see
+<a href="#rmw-api">RMW API Reference</a>.</p>
+<h2 id="use-nros-platform-for-networking"><a class="header" href="#use-nros-platform-for-networking">Use nros-platform for networking</a></h2>
+<p>Call <code>ConcretePlatform::tcp_open()</code> / <code>udp_bind()</code> from <code>nros-platform</code>
+rather than OS sockets directly. This makes your backend portable across
+every platform (POSIX, Zephyr, FreeRTOS, NuttX, ThreadX, bare-metal). If
+your transport library already abstracts networking (like zenoh-pico does),
+you can use its own I/O layer instead.</p>
+<hr>
+<h2 id="rust-path"><a class="header" href="#rust-path">Rust path</a></h2>
+<h3 id="1-create-the-crate"><a class="header" href="#1-create-the-crate">1. Create the crate</a></h3>
+<p>Create <code>packages/myproto/nros-rmw-myproto/</code> with <code>nros-rmw</code> and
+<code>nros-core</code> as dependencies (both <code>default-features = false</code> for
+<code>no_std</code> support). Follow the <code>std</code>/<code>alloc</code> feature forwarding pattern
+used by the existing backends.</p>
+<h3 id="2-implement-the-traits"><a class="header" href="#2-implement-the-traits">2. Implement the traits</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span>#![no_std]
+<span class="boring">fn main() {
+</span>use nros_rmw::*;
+
+pub struct MyProtoRmw;
+impl Rmw for MyProtoRmw {
+    type Session = MyProtoSession;
+    type Error = TransportError;
+    fn open(config: &amp;RmwConfig) -&gt; Result&lt;MyProtoSession, TransportError&gt; {
+        todo!() // Parse config.locator, connect, map config.domain_id
+    }
+}
+
+pub struct MyProtoSession { /* connection state */ }
+impl Session for MyProtoSession {
+    type Error = TransportError;
+    type PublisherHandle = MyProtoPub;
+    type SubscriberHandle = MyProtoSub;
+    type ServiceServerHandle = MyProtoServer;
+    type ServiceClientHandle = MyProtoClient;
+
+    fn create_publisher(&amp;mut self, t: &amp;TopicInfo, q: QosSettings)
+        -&gt; Result&lt;MyProtoPub, TransportError&gt; { todo!() }
+    fn create_subscriber(&amp;mut self, t: &amp;TopicInfo, q: QosSettings)
+        -&gt; Result&lt;MyProtoSub, TransportError&gt; { todo!() }
+    fn create_service_server(&amp;mut self, s: &amp;ServiceInfo)
+        -&gt; Result&lt;MyProtoServer, TransportError&gt; { todo!() }
+    fn create_service_client(&amp;mut self, s: &amp;ServiceInfo)
+        -&gt; Result&lt;MyProtoClient, TransportError&gt; { todo!() }
+    fn close(&amp;mut self) -&gt; Result&lt;(), TransportError&gt; { todo!() }
+    fn drive_io(&amp;mut self, timeout_ms: i32) -&gt; Result&lt;(), TransportError&gt; {
+        let _ = timeout_ms; Ok(()) // poll network, dispatch to buffers
+    }
+}
+
+pub struct MyProtoPub;
+impl Publisher for MyProtoPub {
+    type Error = TransportError;
+    fn publish_raw(&amp;self, data: &amp;[u8]) -&gt; Result&lt;(), TransportError&gt; { todo!() }
+    fn buffer_error(&amp;self) -&gt; TransportError { TransportError::BufferTooSmall }
+    fn serialization_error(&amp;self) -&gt; TransportError { TransportError::SerializationError }
+}
+
+pub struct MyProtoSub;
+impl Subscriber for MyProtoSub {
+    type Error = TransportError;
+    fn try_recv_raw(&amp;mut self, buf: &amp;mut [u8])
+        -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; { todo!() }
+    fn deserialization_error(&amp;self) -&gt; TransportError { TransportError::DeserializationError }
+}
+
+pub struct MyProtoServer;
+impl ServiceServerTrait for MyProtoServer {
+    type Error = TransportError;
+    fn try_recv_request&lt;'a&gt;(&amp;mut self, buf: &amp;'a mut [u8])
+        -&gt; Result&lt;Option&lt;ServiceRequest&lt;'a&gt;&gt;, TransportError&gt; { todo!() }
+    fn send_reply(&amp;mut self, seq: i64, data: &amp;[u8])
+        -&gt; Result&lt;(), TransportError&gt; { todo!() }
+}
+
+pub struct MyProtoClient;
+impl ServiceClientTrait for MyProtoClient {
+    type Error = TransportError;
+    fn send_request_raw(&amp;mut self, req: &amp;[u8])
+        -&gt; Result&lt;(), TransportError&gt; { todo!() }
+    fn try_recv_reply_raw(&amp;mut self, buf: &amp;mut [u8])
+        -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; { todo!() }
+}
+<span class="boring">}</span></code></pre>
+<h3 id="3-wire-into-nros"><a class="header" href="#3-wire-into-nros">3. Wire into nros</a></h3>
+<p>Three changes are needed to integrate the new backend:</p>
+<p><strong>a)</strong> In <code>nros/Cargo.toml</code>, add a feature and optional dependency:</p>
+<pre><code class="language-toml">rmw-myproto = ["dep:nros-rmw-myproto", "nros-node/rmw-myproto"]
+</code></pre>
+<p><strong>b)</strong> In <code>nros-node</code>, add the concrete session type alias:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[cfg(feature = "rmw-myproto")]
+pub type ConcreteSession = nros_rmw_myproto::MyProtoSession;
+<span class="boring">}</span></code></pre>
+<p><strong>c)</strong> Add <code>compile_error!</code> guards to enforce mutual exclusivity with the
+other backends (see existing guards in <code>nros-node/src/session.rs</code>).</p>
+<p>Applications then select your backend with
+<code>nros = { features = ["rmw-myproto", "platform-posix"] }</code>.</p>
+<hr>
+<h2 id="cc-path"><a class="header" href="#cc-path">C/C++ path</a></h2>
+<p>If your transport library is C or C++, use <code>nros-rmw-cffi</code> – a vtable of
+C function pointers that map one-to-one onto the Rust trait methods.</p>
+<h3 id="1-fill-in-the-vtable"><a class="header" href="#1-fill-in-the-vtable">1. Fill in the vtable</a></h3>
+<p>The vtable has 18 function pointers. Key signatures:</p>
+<pre><code class="language-c">#include &lt;nros/rmw_vtable.h&gt;
+
+static void *my_open(const char *locator, uint8_t mode,
+                     uint32_t domain_id, const char *node_name);
+static int   my_close(void *session);
+static int   my_drive_io(void *session, int timeout_ms);
+static void *my_create_publisher(void *session, const char *topic,
+    const char *type_name, const char *type_hash,
+    uint32_t domain_id, const nros_cffi_qos_t *qos);
+static void  my_destroy_publisher(void *pub_handle);
+static int   my_publish_raw(void *pub_handle, const uint8_t *data, size_t len);
+// ... subscriber, service server, service client follow the same pattern.
+
+static nros_rmw_vtable_t my_vtable = {
+    .open = my_open, .close = my_close, .drive_io = my_drive_io,
+    .create_publisher = my_create_publisher,
+    .destroy_publisher = my_destroy_publisher,
+    .publish_raw = my_publish_raw,
+    /* ... fill all 18 fields (see nros/rmw_vtable.h) ... */
+};
+</code></pre>
+<h3 id="2-register-before-opening-a-session"><a class="header" href="#2-register-before-opening-a-session">2. Register before opening a session</a></h3>
+<pre><code class="language-c">nros_rmw_cffi_register(&amp;my_vtable);  // before any nros API call
+</code></pre>
+<p>Build with <code>cargo build -p nros-c --features "rmw-cffi,platform-posix,ros-humble"</code>.</p>
+<p>All strings are null-terminated. Handles are opaque <code>void *</code>. Return
+convention: 0 = success/no data, positive = byte count, negative = error.</p>
+<hr>
+<h2 id="example-local-echo-rmw"><a class="header" href="#example-local-echo-rmw">Example: local echo RMW</a></h2>
+<p>Loops published messages back to subscribers – no real transport. Only
+pub/sub shown; service types are no-op stubs.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>static mut ECHO_BUF: [u8; 1024] = [0; 1024];
+static mut ECHO_LEN: usize = 0;
+
+pub struct EchoPub;
+impl Publisher for EchoPub {
+    type Error = TransportError;
+    fn publish_raw(&amp;self, data: &amp;[u8]) -&gt; Result&lt;(), TransportError&gt; {
+        unsafe {
+            let len = data.len().min(ECHO_BUF.len());
+            ECHO_BUF[..len].copy_from_slice(&amp;data[..len]);
+            ECHO_LEN = len;
+        }
+        Ok(())
+    }
+    fn buffer_error(&amp;self) -&gt; TransportError { TransportError::BufferTooSmall }
+    fn serialization_error(&amp;self) -&gt; TransportError { TransportError::SerializationError }
+}
+
+pub struct EchoSub;
+impl Subscriber for EchoSub {
+    type Error = TransportError;
+    fn try_recv_raw(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; {
+        unsafe {
+            if ECHO_LEN == 0 { return Ok(None); }
+            let len = ECHO_LEN;
+            buf[..len].copy_from_slice(&amp;ECHO_BUF[..len]);
+            ECHO_LEN = 0;
+            Ok(Some(len))
+        }
+    }
+    fn deserialization_error(&amp;self) -&gt; TransportError { TransportError::DeserializationError }
+}
+<span class="boring">}</span></code></pre>
+<p>Wire <code>EchoPub</code>/<code>EchoSub</code> into an <code>EchoSession</code> the same way as the
+skeleton above – <code>create_publisher</code> returns <code>Ok(EchoPub)</code>, etc. The
+<code>Rmw::open()</code> impl just returns <code>Ok(EchoSession)</code> unconditionally.</p>
+<hr>
+<h2 id="further-reading-1"><a class="header" href="#further-reading-1">Further reading</a></h2>
+<ul>
+<li><a href="#rmw-api">RMW API Reference</a> – full trait signatures,
+QoS profiles, error types, configuration structs.</li>
+<li><a href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design</a> – architectural motivation and
+comparison with the ROS 2 rmw interface.</li>
+<li><a href="#zenoh-pico-symbol-reference">Zenoh-pico Symbol Reference</a>
+– FFI symbol mapping for the zenoh-pico backend (useful as a reference
+for how an existing backend is structured).</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="custom-platform"><a class="header" href="#custom-platform">Custom Platform</a></h1>
+<p>This guide walks through porting nano-ros to a new RTOS or bare-metal environment. A “platform” provides the OS-level primitives that nano-ros needs at runtime: clock, memory, sleep, threading, and networking. The core library is <code>#![no_std]</code> and makes zero platform calls directly – everything flows through your platform crate.</p>
+<h2 id="what-you-implement-1"><a class="header" href="#what-you-implement-1">What you implement</a></h2>
+<p>All platform traits are defined in <code>nros-platform/src/traits.rs</code>. Your platform crate implements some or all of them as inherent methods on a zero-sized type (ZST). The set you need depends on your RMW backend.</p>
+<h3 id="required-for-all-backends"><a class="header" href="#required-for-all-backends">Required for all backends</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Trait</th><th>Methods</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>PlatformClock</code></td><td><code>clock_ms()</code>, <code>clock_us()</code></td><td>Monotonic time. Must use a hardware timer or OS tick – never a software counter that only advances when polled.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="required-for-zenoh-pico-rmw-zenoh"><a class="header" href="#required-for-zenoh-pico-rmw-zenoh">Required for zenoh-pico (rmw-zenoh)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Trait</th><th>Methods</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>PlatformAlloc</code></td><td><code>alloc()</code>, <code>realloc()</code>, <code>dealloc()</code></td><td>Heap allocation. zenoh-pico needs ~64 KB.</td></tr>
+<tr><td><code>PlatformSleep</code></td><td><code>sleep_us()</code>, <code>sleep_ms()</code>, <code>sleep_s()</code></td><td>Delay. On bare-metal with smoltcp, poll the network during busy-wait.</td></tr>
+<tr><td><code>PlatformRandom</code></td><td><code>random_u8()</code> through <code>random_u64()</code>, <code>random_fill()</code></td><td>PRNG for session IDs and protocol nonces.</td></tr>
+<tr><td><code>PlatformTime</code></td><td><code>time_now_ms()</code>, <code>time_since_epoch()</code></td><td>Wall-clock time for logging. Return monotonic time if no RTC.</td></tr>
+<tr><td><code>PlatformThreading</code></td><td>Tasks, mutexes, recursive mutexes, condvars (19 methods)</td><td>OS threading primitives. Single-threaded platforms provide no-op stubs.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="networking"><a class="header" href="#networking">Networking</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Trait</th><th>Methods</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>PlatformTcp</code></td><td><code>open()</code>, <code>read()</code>, <code>send()</code>, <code>close()</code>, …</td><td>TCP client and server sockets.</td></tr>
+<tr><td><code>PlatformUdp</code></td><td><code>open()</code>, <code>read()</code>, <code>send()</code>, <code>close()</code>, …</td><td>UDP unicast sockets.</td></tr>
+<tr><td><code>PlatformSocketHelpers</code></td><td><code>set_non_blocking()</code>, <code>accept()</code>, <code>close()</code>, <code>wait_event()</code></td><td>Socket utility operations.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="optional"><a class="header" href="#optional">Optional</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Trait</th><th>When needed</th></tr>
+</thead>
+<tbody>
+<tr><td><code>PlatformUdpMulticast</code></td><td>Desktop platforms using zenoh scouting. Not needed for embedded client mode.</td></tr>
+<tr><td><code>PlatformNetworkPoll</code></td><td>Bare-metal platforms using smoltcp. Called during sleep to process packets.</td></tr>
+<tr><td><code>PlatformLibc</code></td><td>Bare-metal targets without a C runtime. Provides <code>strlen</code>, <code>memcpy</code>, etc.</td></tr>
+</tbody>
+</table>
+</div>
+<p>For full method signatures, see the <a href="#platform-api-reference">Platform API Reference</a>.</p>
+<h2 id="wiring-into-nros"><a class="header" href="#wiring-into-nros">Wiring into nros</a></h2>
+<p>Five files need changes to register a new platform. This example adds a fictional “MyOS” platform.</p>
+<h3 id="1-create-the-platform-crate"><a class="header" href="#1-create-the-platform-crate">1. Create the platform crate</a></h3>
+<pre><code>packages/core/nros-platform-myos/
+  Cargo.toml
+  src/
+    lib.rs
+</code></pre>
+<p>The crate must have <strong>zero</strong> <code>nros-*</code> dependencies. It may depend on your RTOS bindings, HAL crates, or <code>embedded-alloc</code>.</p>
+<h3 id="2-add-the-feature-to-nros-platform"><a class="header" href="#2-add-the-feature-to-nros-platform">2. Add the feature to nros-platform</a></h3>
+<p>In <code>packages/core/nros-platform/Cargo.toml</code>:</p>
+<pre><code class="language-toml">[features]
+platform-myos = ["dep:nros-platform-myos"]
+
+[dependencies]
+nros-platform-myos = { version = "0.1.0", path = "../nros-platform-myos", optional = true }
+</code></pre>
+<h3 id="3-add-the-concreteplatform-alias"><a class="header" href="#3-add-the-concreteplatform-alias">3. Add the ConcretePlatform alias</a></h3>
+<p>In <code>packages/core/nros-platform/src/resolve.rs</code>:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[cfg(feature = "platform-myos")]
+pub type ConcretePlatform = nros_platform_myos::MyOsPlatform;
+<span class="boring">}</span></code></pre>
+<h3 id="4-propagate-through-the-nros-facade"><a class="header" href="#4-propagate-through-the-nros-facade">4. Propagate through the nros facade</a></h3>
+<p>In <code>packages/core/nros/Cargo.toml</code>, add <code>platform-myos</code> to the feature list so users can write <code>nros = { features = ["rmw-zenoh", "platform-myos"] }</code>.</p>
+<h3 id="5-activate-the-shim-in-zpico-sys"><a class="header" href="#5-activate-the-shim-in-zpico-sys">5. Activate the shim in zpico-sys</a></h3>
+<p>In <code>packages/zpico/zpico-sys/Cargo.toml</code>, add a feature that activates the platform shim:</p>
+<pre><code class="language-toml">[features]
+myos = ["dep:zpico-platform-shim", "zpico-platform-shim?/active", "zpico-platform-shim?/network"]
+</code></pre>
+<p>The shim crate picks up <code>ConcretePlatform</code> automatically through Cargo feature unification – no changes inside the shim itself.</p>
+<h2 id="rust-path-1"><a class="header" href="#rust-path-1">Rust path</a></h2>
+<p>This is the recommended approach. Create a ZST and implement each capability as inherent methods (not trait impls). The shim calls these methods directly through the <code>ConcretePlatform</code> type alias.</p>
+<h3 id="skeleton"><a class="header" href="#skeleton">Skeleton</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// packages/core/nros-platform-myos/src/lib.rs
+#![no_std]
+use core::ffi::c_void;
+
+/// Zero-sized type implementing platform methods for MyOS.
+pub struct MyOsPlatform;
+
+// -- Clock --
+impl MyOsPlatform {
+    pub fn clock_ms() -&gt; u64 {
+        // Call your RTOS tick API, e.g.:
+        // unsafe { myos_get_tick_count() as u64 }
+        todo!()
+    }
+
+    pub fn clock_us() -&gt; u64 { Self::clock_ms() * 1000 }
+}
+
+// -- Alloc --
+impl MyOsPlatform {
+    pub fn alloc(size: usize) -&gt; *mut c_void {
+        // unsafe { myos_malloc(size) }
+        todo!()
+    }
+
+    pub fn realloc(ptr: *mut c_void, size: usize) -&gt; *mut c_void {
+        // If your RTOS lacks realloc: alloc new, copy, free old
+        todo!()
+    }
+
+    pub fn dealloc(ptr: *mut c_void) {
+        // unsafe { myos_free(ptr) }
+        todo!()
+    }
+}
+
+// -- Sleep --
+impl MyOsPlatform {
+    pub fn sleep_us(us: usize) { Self::sleep_ms(us.div_ceil(1000)); }
+    pub fn sleep_ms(ms: usize) {
+        // unsafe { myos_thread_sleep(ms as u32) }
+        todo!()
+    }
+    pub fn sleep_s(s: usize) { Self::sleep_ms(s * 1000); }
+}
+
+// -- Threading (stubs for single-threaded, real impls for RTOS) --
+impl MyOsPlatform {
+    pub fn mutex_init(m: *mut c_void) -&gt; i8 {
+        // Create a mutex via your RTOS API. Store the handle in `m`.
+        // Return 0 on success, -1 on failure.
+        todo!()
+    }
+    pub fn mutex_lock(m: *mut c_void) -&gt; i8 { todo!() }
+    pub fn mutex_unlock(m: *mut c_void) -&gt; i8 { todo!() }
+    // ... remaining threading methods (see traits.rs for the full list)
+}
+<span class="boring">}</span></code></pre>
+<h3 id="key-points"><a class="header" href="#key-points">Key points</a></h3>
+<ul>
+<li><strong>Inherent methods, not trait impls.</strong> The shim calls <code>ConcretePlatform::clock_ms()</code> directly. The traits in <code>traits.rs</code> document the contract, but the ZST uses inherent <code>impl</code> blocks.</li>
+<li><strong><code>c_void</code> pointers for handles.</strong> Mutex, condvar, and task handles are opaque <code>#[repr(C)]</code> structs sized to hold your RTOS handle. Cast the <code>*mut c_void</code> to your internal type.</li>
+<li><strong>Recursive mutexes are required.</strong> zenoh-pico locks the same mutex recursively. On FreeRTOS this maps to <code>xSemaphoreCreateRecursiveMutex</code>; on pthreads, <code>PTHREAD_MUTEX_RECURSIVE</code>.</li>
+<li><strong>Seed the PRNG.</strong> A deterministic seed (like FreeRTOS <code>rand()</code> starting from 1) causes duplicate zenoh session IDs across QEMU instances. Seed from hardware entropy, IP address, or semihosting wall-clock.</li>
+</ul>
+<h3 id="reference-implementation"><a class="header" href="#reference-implementation">Reference implementation</a></h3>
+<p><code>packages/core/nros-platform-freertos/src/lib.rs</code> is a complete real-world example covering all categories: clock via <code>xTaskGetTickCount</code>, heap via <code>pvPortMalloc</code>/<code>vPortFree</code>, sleep via <code>vTaskDelay</code>, xorshift32 PRNG, and full threading with tasks, recursive mutexes, and condvars built on counting semaphores.</p>
+<h2 id="cc-path-1"><a class="header" href="#cc-path-1">C/C++ path</a></h2>
+<p>If your platform is easier to implement in C, use the <code>nros-platform-cffi</code> adapter. It provides a vtable-based bridge so you never write Rust.</p>
+<h3 id="1-fill-in-the-vtable-1"><a class="header" href="#1-fill-in-the-vtable-1">1. Fill in the vtable</a></h3>
+<pre><code class="language-c">#include &lt;nros/platform_vtable.h&gt;
+
+static uint64_t my_clock_ms(void) {
+    return myos_get_ticks();  // your RTOS tick API
+}
+
+static void *my_alloc(size_t size) {
+    return myos_malloc(size);
+}
+
+static void my_dealloc(void *ptr) {
+    myos_free(ptr);
+}
+
+static void *my_realloc(void *ptr, size_t size) {
+    return myos_realloc(ptr, size);
+}
+
+static int8_t my_mutex_init(void *m) {
+    myos_mutex_t *mx = (myos_mutex_t *)m;
+    *mx = myos_mutex_create();
+    return (*mx != NULL) ? 0 : -1;
+}
+
+// ... fill in remaining function pointers
+
+static const nros_platform_vtable_t my_vtable = {
+    .clock_ms           = my_clock_ms,
+    .clock_us           = my_clock_us,
+    .alloc              = my_alloc,
+    .realloc            = my_realloc,
+    .dealloc            = my_dealloc,
+    .sleep_us           = my_sleep_us,
+    .sleep_ms           = my_sleep_ms,
+    .sleep_s            = my_sleep_s,
+    .random_u32         = my_random_u32,
+    // ... all random, time, task, mutex, condvar fields (see platform_vtable.h)
+    .mutex_init         = my_mutex_init,
+    .mutex_lock         = my_mutex_lock,
+    .mutex_unlock       = my_mutex_unlock,
+    // ... remaining fields
+};
+</code></pre>
+<h3 id="2-register-at-boot"><a class="header" href="#2-register-at-boot">2. Register at boot</a></h3>
+<p>Call <code>nros_platform_cffi_register()</code> before opening an executor session:</p>
+<pre><code class="language-c">int main(void) {
+    myos_init();
+    nros_platform_cffi_register(&amp;my_vtable);
+
+    // Now use the nano-ros C or C++ API normally
+    nros_executor_t exec;
+    nros_executor_open(&amp;exec, &amp;config);
+    // ...
+}
+</code></pre>
+<h3 id="3-build-configuration"><a class="header" href="#3-build-configuration">3. Build configuration</a></h3>
+<p>Enable the <code>platform-cffi</code> feature instead of a platform-specific feature:</p>
+<pre><code class="language-toml">nros = { features = ["rmw-zenoh", "platform-cffi"] }
+</code></pre>
+<p>All function pointers in the vtable are required. For capabilities your platform does not support (e.g., threading on single-threaded bare-metal), provide stubs that return 0 for mutex/condvar operations and -1 for <code>task_init</code>.</p>
+<h2 id="networking-1"><a class="header" href="#networking-1">Networking</a></h2>
+<p>There are two paths for providing TCP/UDP sockets to zenoh-pico.</p>
+<h3 id="option-a-rust-networking-preferred"><a class="header" href="#option-a-rust-networking-preferred">Option A: Rust networking (preferred)</a></h3>
+<p>Implement <code>PlatformTcp</code>, <code>PlatformUdp</code>, and <code>PlatformSocketHelpers</code> on your ZST. These methods map to your OS socket API (BSD sockets, lwIP, NetX Duo, etc.).</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl MyOsPlatform {
+    pub fn tcp_open(sock: *mut c_void, endpoint: *const c_void, timeout_ms: u32) -&gt; i8 {
+        // Parse endpoint, call connect(), store fd in sock
+        todo!()
+    }
+
+    pub fn tcp_read(sock: *const c_void, buf: *mut u8, len: usize) -&gt; usize {
+        // Call recv() on the socket fd
+        todo!()
+    }
+
+    pub fn tcp_send(sock: *const c_void, buf: *const u8, len: usize) -&gt; usize {
+        // Call send() on the socket fd
+        todo!()
+    }
+
+    pub fn tcp_close(sock: *mut c_void) {
+        // Close the socket fd
+    }
+}
+<span class="boring">}</span></code></pre>
+<p>Activate the <code>network</code> shim feature in <code>zpico-sys</code> so the shim provides the <code>_z_open_tcp</code>, <code>_z_read_tcp</code>, etc. C symbols by forwarding to your Rust methods.</p>
+<p>For bare-metal with smoltcp, use <code>zpico-smoltcp</code> as the networking driver. It provides <code>PlatformTcp</code> and <code>PlatformUdp</code> implementations using smoltcp’s TCP/UDP sockets. Your platform crate implements <code>PlatformNetworkPoll</code> so the sleep loop can process packets.</p>
+<h3 id="option-b-keep-zenoh-picos-c-networkc"><a class="header" href="#option-b-keep-zenoh-picos-c-networkc">Option B: Keep zenoh-pico’s C network.c</a></h3>
+<p>If your platform already has a working zenoh-pico <code>network.c</code> (e.g., <code>freertos/lwip/network.c</code> or <code>unix/network.c</code>), you can compile it directly instead of implementing the Rust networking traits.</p>
+<p>In this case, do <strong>not</strong> activate the <code>network</code> shim feature in zpico-sys. Instead, link the appropriate <code>network.c</code> through your build system. The C file provides the <code>_z_open_tcp</code>, <code>_z_read_tcp</code>, etc. symbols directly, bypassing the Rust shim.</p>
+<p>This is the approach used by platforms with mature C networking stacks (lwIP on FreeRTOS, BSD sockets on NuttX, NetX Duo on ThreadX).</p>
+<h2 id="common-pitfalls-1"><a class="header" href="#common-pitfalls-1">Common pitfalls</a></h2>
+<ul>
+<li><strong>Poll-driven clocks.</strong> If the clock only advances when you call a function, timeouts and keep-alives break silently. Use a free-running hardware timer.</li>
+<li><strong>Stack overflow on RTOS.</strong> The <code>Executor</code> has an inline arena on the task stack. Use at least 16384 words (64 KB) for the application task on action examples.</li>
+<li><strong>Deterministic PRNG seeds.</strong> Duplicate zenoh session IDs cause silent connection failures. Seed from a source that varies across instances.</li>
+<li><strong>Missing recursive mutexes.</strong> zenoh-pico re-enters the same mutex. Non-recursive mutexes deadlock.</li>
+<li><strong>QEMU clock drift.</strong> Use <code>-icount shift=auto</code> for QEMU targets so the virtual clock tracks wall time during WFI.</li>
+</ul>
+<h2 id="next-steps-3"><a class="header" href="#next-steps-3">Next steps</a></h2>
+<ul>
+<li><a href="#custom-board-package">Custom Board Package</a> – create a board crate that ties your platform to specific hardware</li>
+<li><a href="#platform-api-reference">Platform API Reference</a> – complete method signatures for all traits</li>
+<li><a href="#platform-porting-pitfalls">Platform Porting Pitfalls</a> – QEMU networking and timing issues</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="custom-board-package"><a class="header" href="#custom-board-package">Custom Board Package</a></h1>
+<p>A board crate is the top-level, batteries-included package that application code depends on. It provides three things:</p>
+<ol>
+<li><strong><code>Config</code> struct</strong> – network settings (IP, MAC, gateway), transport selection (Ethernet, serial, or WiFi via Cargo features), and a zenoh locator string.</li>
+<li><strong><code>run()</code> entry point</strong> – initializes hardware, starts the network stack, and calls a user-provided closure with <code>&amp;Config</code>.</li>
+<li><strong>Hardware initialization</strong> – PHY/MAC driver setup, interrupt configuration, clock init, and force-linking of platform shim crates.</li>
+</ol>
+<p>Users never interact with platform crates or driver crates directly. They depend on a single board crate, call <code>run()</code>, and get a working environment for creating an <code>Executor</code>.</p>
+<pre><code class="language-rust ignore">use nros_my_board::{Config, run};
+use nros::prelude::*;
+
+run(Config::default(), |config| {
+    let exec_config = ExecutorConfig::new(config.zenoh_locator)
+        .domain_id(config.domain_id);
+    let mut executor = Executor::open(&amp;exec_config)?;
+    let mut node = executor.create_node("my_node")?;
+    // publishers, subscriptions, services, actions, timers...
+    Ok(())
+})</code></pre>
+<h2 id="board--platform--hardware"><a class="header" href="#board--platform--hardware">Board = platform + hardware</a></h2>
+<p>A board crate combines two layers:</p>
+<ul>
+<li><strong>Platform crate</strong> (<code>nros-platform-&lt;os&gt;</code>) – generic RTOS or bare-metal primitives: clock, sleep, threading, memory, random number generation. Implements the traits defined in <code>nros-platform</code>. See <a href="#custom-platform">Custom Platform</a> for how to write one.</li>
+<li><strong>Hardware drivers</strong> – board-specific peripherals: Ethernet controller, WiFi radio, serial UART. Driver crates in <code>packages/drivers/</code> (e.g., <code>lan9118-smoltcp</code>, <code>openeth-smoltcp</code>) implement the smoltcp <code>Device</code> trait for a specific Ethernet MAC/PHY.</li>
+</ul>
+<p>The board crate glues these together: it depends on the platform crate for OS primitives, on driver crates for peripheral access, and on transport crates (<code>nros-smoltcp</code>, <code>zpico-serial</code>) for bridging the network stack to zenoh-pico. The result is a single dependency that gives application code everything it needs.</p>
+<pre><code class="language-text">Application
+    |
+    v
+Board crate (nros-my-board)
+    |
+    +-- Platform crate (nros-platform-freertos)
+    +-- Driver crate (lan9118-smoltcp)
+    +-- Transport bridge (nros-smoltcp or zpico-serial)
+    +-- Shim crate (zpico-platform-shim)
+</code></pre>
+<h2 id="crate-structure"><a class="header" href="#crate-structure">Crate structure</a></h2>
+<p>A minimal board crate looks like this:</p>
+<pre><code class="language-text">nros-my-board/
+  Cargo.toml
+  .gitignore        # /target/
+  src/
+    lib.rs          # extern crate force-links, pub use Config, pub fn run()
+    config.rs       # Config struct with network fields
+    node.rs         # Hardware init sequence + run() implementation
+</code></pre>
+<h3 id="cargotoml"><a class="header" href="#cargotoml">Cargo.toml</a></h3>
+<pre><code class="language-toml">[package]
+name = "nros-my-board"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "nros_my_board"
+
+[dependencies]
+# Platform primitives (pick one)
+nros-platform = { path = "../../core/nros-platform", features = ["platform-freertos"] }
+nros-platform-freertos = { path = "../../core/nros-platform-freertos" }
+
+# Force-link shim crate (provides zenoh-pico C symbols)
+zpico-platform-shim = { path = "../../zpico/zpico-platform-shim", features = ["active"] }
+zpico-sys = { path = "../../zpico/zpico-sys", default-features = false }
+
+# Ethernet transport (optional, gated by feature)
+nros-smoltcp = { path = "../../drivers/nros-smoltcp", optional = true }
+lan9118-smoltcp = { path = "../../drivers/lan9118-smoltcp", optional = true }
+smoltcp = { version = "0.12", default-features = false, optional = true, features = [
+    "medium-ethernet", "proto-ipv4", "socket-tcp", "socket-udp",
+] }
+
+# Serial transport (optional, gated by feature)
+zpico-serial = { path = "../../zpico/zpico-serial", optional = true }
+my-uart-driver = { path = "../../drivers/my-uart", optional = true }
+
+# Board-specific dependencies
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+cortex-m-semihosting = "0.5"
+panic-semihosting = "0.6"
+
+[features]
+default = ["ethernet"]
+ethernet = ["dep:nros-smoltcp", "dep:lan9118-smoltcp", "dep:smoltcp"]
+serial = ["dep:zpico-serial", "dep:my-uart-driver"]
+</code></pre>
+<h3 id="librs"><a class="header" href="#librs">lib.rs</a></h3>
+<p>The lib module force-links shim crates and re-exports the public API.</p>
+<pre><code class="language-rust ignore">#![no_std]
+
+// Force-link: ensures the platform shim's C symbols (zpico FFI) are
+// included in the final binary even though Rust code never calls them
+// directly. Without this, the linker drops them and zenoh-pico fails.
+extern crate zpico_platform_shim;
+
+mod config;
+mod node;
+
+pub use config::Config;
+pub use node::{init_hardware, run};
+
+// Re-export entry macro so examples can use #[entry]
+pub use cortex_m_rt::entry;
+
+// Convenience println! that routes to semihosting (QEMU) or UART
+pub use cortex_m_semihosting;
+#[macro_export]
+macro_rules! println {
+    ($($arg:tt)*) =&gt; { $crate::cortex_m_semihosting::hprintln!($($arg)*) };
+}
+
+pub fn exit_success() -&gt; ! {
+    cortex_m_semihosting::debug::exit(cortex_m_semihosting::debug::EXIT_SUCCESS);
+    loop {}
+}
+
+pub fn exit_failure() -&gt; ! {
+    cortex_m_semihosting::debug::exit(cortex_m_semihosting::debug::EXIT_FAILURE);
+    loop {}
+}</code></pre>
+<h3 id="configrs"><a class="header" href="#configrs">config.rs</a></h3>
+<p>The <code>Config</code> struct holds all network and transport settings. Fields are
+gated by Cargo features so only relevant fields exist for a given build.</p>
+<pre><code class="language-rust ignore">#[derive(Clone)]
+pub struct Config {
+    #[cfg(feature = "ethernet")]
+    pub mac: [u8; 6],
+    #[cfg(feature = "ethernet")]
+    pub ip: [u8; 4],
+    #[cfg(feature = "ethernet")]
+    pub prefix: u8,
+    #[cfg(feature = "ethernet")]
+    pub gateway: [u8; 4],
+
+    #[cfg(feature = "serial")]
+    pub uart_base: usize,
+    #[cfg(feature = "serial")]
+    pub baudrate: u32,
+
+    pub zenoh_locator: &amp;'static str,
+    pub domain_id: u32,
+}
+
+#[cfg(feature = "ethernet")]
+impl Default for Config {
+    fn default() -&gt; Self {
+        Self {
+            mac: [0x02, 0x00, 0x00, 0x00, 0x00, 0x00],
+            ip: [192, 0, 3, 10],
+            prefix: 24,
+            gateway: [192, 0, 3, 1],
+            #[cfg(feature = "serial")]
+            uart_base: 0x4000_4000,
+            #[cfg(feature = "serial")]
+            baudrate: 115200,
+            zenoh_locator: "tcp/192.0.3.1:7447",
+            domain_id: 0,
+        }
+    }
+}</code></pre>
+<p>Provide builder methods (<code>with_ip</code>, <code>with_mac</code>, <code>with_gateway</code>, etc.) and factory presets (<code>listener()</code>, <code>talker()</code>) for common test topologies. See <code>nros-mps2-an385/src/config.rs</code> for a complete example including <code>from_toml()</code> parsing.</p>
+<h3 id="noders"><a class="header" href="#noders">node.rs</a></h3>
+<p>The <code>run()</code> function is the entry point. For bare-metal targets it calls the user closure directly. For RTOS targets it creates a task, starts the scheduler, and runs the closure inside that task.</p>
+<p><strong>Bare-metal pattern:</strong></p>
+<pre><code class="language-rust ignore">pub fn run&lt;F, E: core::fmt::Debug&gt;(config: Config, f: F) -&gt; !
+where
+    F: FnOnce(&amp;Config) -&gt; Result&lt;(), E&gt;,
+{
+    init_hardware(&amp;config);
+    match f(&amp;config) {
+        Ok(()) =&gt; exit_success(),
+        Err(e) =&gt; {
+            hprintln!("Error: {:?}", e);
+            exit_failure()
+        }
+    }
+}</code></pre>
+<p><strong>RTOS pattern (FreeRTOS example):</strong></p>
+<pre><code class="language-rust ignore">pub fn run&lt;F, E: core::fmt::Debug&gt;(config: Config, f: F) -&gt; !
+where
+    F: FnOnce(&amp;Config) -&gt; Result&lt;(), E&gt;,
+{
+    init_hardware(&amp;config);
+    // Create FreeRTOS task with the user closure
+    create_app_task(f, config);
+    // Start the scheduler -- never returns
+    start_scheduler()
+}</code></pre>
+<p>The <code>init_hardware()</code> function must follow this order:</p>
+<ol>
+<li><strong>Clock</strong> – initialize the hardware timer (must happen before any clock reads)</li>
+<li><strong>Cycle counter</strong> – enable DWT or equivalent for timing measurements</li>
+<li><strong>RNG seed</strong> – seed PRNG with entropy (IP-based hash, semihosting time, etc.)</li>
+<li><strong>Transport</strong> – Ethernet driver + smoltcp, or UART + zpico-serial</li>
+<li><strong>Application</strong> – call the user closure</li>
+</ol>
+<p>Ethernet peripherals and smoltcp state must live in <code>static mut</code> storage (they are referenced by FFI poll callbacks):</p>
+<pre><code class="language-rust ignore">static mut ETH_DEVICE: MaybeUninit&lt;Lan9118&gt; = MaybeUninit::uninit();
+static mut NET_IFACE: MaybeUninit&lt;Interface&gt; = MaybeUninit::uninit();
+static mut NET_SOCKETS: MaybeUninit&lt;SocketSet&lt;'static&gt;&gt; = MaybeUninit::uninit();</code></pre>
+<h2 id="transport-features"><a class="header" href="#transport-features">Transport features</a></h2>
+<p>Board crates use Cargo features to select the communication transport:</p>
+<ul>
+<li><strong><code>ethernet</code></strong> (typically the default) – TCP/UDP via smoltcp or lwIP. Requires an Ethernet driver crate and <code>nros-smoltcp</code>.</li>
+<li><strong><code>serial</code></strong> – UART link via <code>zpico-serial</code>. Requires a UART driver crate.</li>
+<li><strong><code>wifi</code></strong> – WiFi via the platform’s native stack (ESP32). The zenoh-pico layer uses OS sockets directly.</li>
+</ul>
+<p>At least one transport must be enabled. Enforce this at compile time:</p>
+<pre><code class="language-rust ignore">#[cfg(not(any(feature = "ethernet", feature = "serial")))]
+compile_error!("Enable at least one transport: `ethernet` or `serial`");</code></pre>
+<p><code>Config</code> fields are <code>#[cfg(feature = "...")]</code>-gated per transport, so the struct only contains fields relevant to the enabled transport. Both <code>ethernet</code> and <code>serial</code> can be enabled simultaneously – the zenoh locator string determines which transport is used at runtime (<code>tcp/...</code> for Ethernet, <code>serial/...</code> for UART).</p>
+<h2 id="reference-implementations-1"><a class="header" href="#reference-implementations-1">Reference implementations</a></h2>
+<p>Start from the crate closest to your target:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Board crate</th><th>Transport</th><th>Platform</th><th>Location</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros-mps2-an385</code></td><td>Ethernet + Serial</td><td>Bare-metal</td><td><code>packages/boards/nros-mps2-an385/</code></td></tr>
+<tr><td><code>nros-mps2-an385-freertos</code></td><td>Ethernet (lwIP)</td><td>FreeRTOS</td><td><code>packages/boards/nros-mps2-an385-freertos/</code></td></tr>
+<tr><td><code>nros-esp32</code></td><td>WiFi</td><td>Bare-metal (ESP-IDF)</td><td><code>packages/boards/nros-esp32/</code></td></tr>
+<tr><td><code>nros-stm32f4</code></td><td>Ethernet + Serial</td><td>Bare-metal</td><td><code>packages/boards/nros-stm32f4/</code></td></tr>
+<tr><td><code>nros-nuttx-qemu-arm</code></td><td>BSD sockets</td><td>NuttX</td><td><code>packages/boards/nros-nuttx-qemu-arm/</code></td></tr>
+<tr><td><code>nros-threadx-qemu-riscv64</code></td><td>NetX Duo</td><td>ThreadX</td><td><code>packages/boards/nros-threadx-qemu-riscv64/</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The bare-metal <code>nros-mps2-an385</code> is the simplest starting point. The FreeRTOS variant shows how to add RTOS task creation and lwIP networking.</p>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<ul>
+<li><a href="#custom-platform">Custom Platform</a> – writing the platform crate that sits underneath a board crate</li>
+<li><a href="#porting-overview">Porting Overview</a> – the three customization axes (RMW, platform, board)</li>
+<li><a href="internals/board-crate.html">Board Crate Implementation</a> – detailed internal reference with driver implementation, lwIP/NetX Duo setup, and a full checklist</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="design-overview"><a class="header" href="#design-overview">Design Overview</a></h1>
+<p>This section explains <em>why</em> nano-ros has the shape it does. It is not a tutorial (see <a href="#installation">Getting Started</a>) and not an API reference (see the <a href="#rust-api">Reference</a> chapters). It is the rationale a contributor needs to evaluate proposed changes, and the context a porter needs to make judgment calls when the <a href="#porting-overview">Porting</a> guides don’t cover their case.</p>
+<p>Three design choices shape almost everything else:</p>
+<h2 id="1-the-rmw-layer-was-rewritten-not-adopted"><a class="header" href="#1-the-rmw-layer-was-rewritten-not-adopted">1. The RMW layer was rewritten, not adopted</a></h2>
+<p>ROS 2’s <code>rmw.h</code> assumes a libc heap, an OS scheduler with preemptable threads, dynamic loaders, and middleware-owned background dispatch. None of those hold on a Cortex-M3 with 64 KB of RAM. nano-ros defines its own RMW abstraction (<code>nros-rmw</code>) that pushes I/O buffers to the caller, replaces wait sets with explicit <code>drive_io()</code>, drops dynamic graph discovery, and selects the backend at compile time.</p>
+<p>→ <a href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design</a></p>
+<h2 id="2-futurepromise-unifies-blocking-and-async-with-no-internal-spin"><a class="header" href="#2-futurepromise-unifies-blocking-and-async-with-no-internal-spin">2. Future/Promise unifies blocking and async, with no internal spin</a></h2>
+<p>rclcpp owns the spin loop (<code>rclcpp::spin(node)</code> blocks the thread it was called on); rclc has no future/promise type at all. Neither model works on a single-threaded MCU. nano-ros uses a single <code>Promise&lt;T&gt;</code> value that supports three patterns – callback-driven polling, blocking-with-timeout, and <code>.await</code> – and <em>never</em> owns the spin loop. Every blocking helper takes the executor as an argument and drives it internally.</p>
+<p>→ <a href="#client-library-model-nros-vs-rclc--rclcpp--rclrs">Client Library Model</a></p>
+<h2 id="3-platform-traits-are-independent-and-contract-first"><a class="header" href="#3-platform-traits-are-independent-and-contract-first">3. Platform traits are independent and contract-first</a></h2>
+<p>zenoh-pico needs a heap, threading, networking, and a clock. XRCE-DDS only needs a clock and four C function pointers. Bare-metal has no scheduler. Each capability is a separate trait the platform may stub if unsupported. Every method has an explicit behavior contract: blocking? may-fail? unsupported-fallback?</p>
+<p>→ <a href="#platform-api-design">Platform API Design</a></p>
+<h2 id="how-to-read-this-section"><a class="header" href="#how-to-read-this-section">How to read this section</a></h2>
+<p>If you are evaluating a <em>new</em> feature: start with the design page closest to the change (RMW for transport-level changes, Client Library for executor or callback-shape changes, Platform API for OS-primitive changes). Each page lists the constraints the current shape satisfies; a new design must satisfy them or argue for relaxing one.</p>
+<p>If you are <em>porting</em> nano-ros to new hardware or a new transport: the <a href="#porting-overview">Porting</a> chapters tell you <em>what</em> to implement. Read the matching design page to understand <em>why</em> each trait exists, which is what you need when the porting guide leaves a judgment call to you.</p>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="rmw-api-design-nros-rmw-vs-ros2rmw"><a class="header" href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design: nros-rmw vs ros2/rmw</a></h1>
 <p>nano-ros defines its own RMW (ROS Middleware) abstraction in the <code>nros-rmw</code> crate. While it serves the same purpose as the official <a href="https://github.com/ros2/rmw">ros2/rmw</a> interface – decoupling the client library from the transport backend – it is designed for <code>no_std</code> embedded systems and uses a fundamentally different approach.</p>
-<p>This page documents the architectural differences and trade-offs.</p>
+<p>This page documents the architectural differences and trade-offs. For trait signatures and the available backends, see <a href="#rmw-api">RMW API Reference</a>. For implementing a new backend, see <a href="#porting-a-custom-rmw-backend">Custom RMW Backend</a>.</p>
+<h2 id="why-we-revised-rmwh"><a class="header" href="#why-we-revised-rmwh">Why We Revised <code>rmw.h</code></a></h2>
+<p><code>rmw.h</code> was designed for ROS 2 on Linux: a process with a libc heap, an OS scheduler, dynamic loaders, and middleware-owned background threads. None of those assumptions hold on a Cortex-M3 with 64 KB of RAM. Each constraint below drove a specific change.</p>
+<h3 id="heap-availability"><a class="header" href="#heap-availability">Heap availability</a></h3>
+<p><code>rmw.h</code> heap-allocates everywhere – handles, serialized message buffers, wait sets, type support tables. Bare-metal targets often have no allocator; RTOS targets have allocators with hard total budgets (~16-256 KB) that must cover the application as well.</p>
+<p>nros-rmw moves all I/O buffers to the caller. <code>publish_raw(&amp;[u8])</code> and <code>try_recv_raw(&amp;mut [u8])</code> operate on slices that the caller stack- or statically-allocates. Type metadata is a string-only <code>TopicInfo</code> struct, not a pointer-laden <code>rosidl_message_type_support_t</code> table. The only heap users in core paths are zenoh-pico’s internal transport buffers (~64 KB), exposed through <code>PlatformAlloc</code> and replaceable with a bump allocator on bare-metal.</p>
+<h3 id="threading-model"><a class="header" href="#threading-model">Threading model</a></h3>
+<p><code>rmw.h</code> assumes the middleware owns threads. <code>rmw_wait()</code> blocks the calling thread on a wait set; some implementations also spawn internal dispatch threads that fire callbacks asynchronously. Bare-metal has no scheduler; cooperative RTOS configurations can’t tolerate hidden threads.</p>
+<p>nros-rmw replaces <code>rmw_wait</code> with <code>Session::drive_io(timeout_ms)</code> – a single call the executor invokes from its own (and only) thread. There is no wait set object, and no entity is implicitly polled by the middleware. The application drives all I/O explicitly. For async runtimes, subscribers and service clients expose <code>register_waker(&amp;Waker)</code> so the transport’s C receive callback can wake a Rust future without a wait set abstraction.</p>
+<h3 id="single-threaded-callback-dispatch"><a class="header" href="#single-threaded-callback-dispatch">Single-threaded callback dispatch</a></h3>
+<p><code>rmw.h</code> permits multi-threaded executors and reentrant callbacks. Cooperative single-threaded targets cannot guarantee atomicity around RMW state without locks they don’t have.</p>
+<p>nros-rmw assumes a single-threaded executor that owns the session for its lifetime. Callbacks run sequentially on the executor thread; no callback can preempt another. This eliminates the need for internal locking around publisher state, subscriber buffers, or service queues – a measurable code-size and runtime win on MCUs.</p>
+<h3 id="no-dynamic-discovery-tables"><a class="header" href="#no-dynamic-discovery-tables">No dynamic discovery tables</a></h3>
+<p><code>rmw.h</code> provides <code>rmw_get_topic_names_and_types()</code>, <code>rmw_count_publishers()</code>, <code>rmw_get_node_names()</code>, and similar graph-introspection APIs. These require maintaining a dynamic discovery cache, which costs heap and CPU continuously even when nothing reads it.</p>
+<p>nros-rmw drops these APIs entirely. Discovery still happens at the transport layer (zenoh liveliness, XRCE-DDS session establishment), but it is not surfaced as queryable graph state. Applications that need topic introspection can issue a zenoh query directly.</p>
+<h3 id="compile-time-backend-selection"><a class="header" href="#compile-time-backend-selection">Compile-time backend selection</a></h3>
+<p><code>rmw.h</code> selects backends at runtime via <code>dlopen()</code> of <code>librmw_*.so</code>. This requires a dynamic loader (no embedded MCU has one) and forces every call through a vtable.</p>
+<p>nros-rmw selects the backend at compile time via Cargo features. The <code>Session</code> trait uses associated types, so the compiler monomorphizes all transport calls – no vtables, no dynamic dispatch, no relocation overhead at startup. The trade-off is exactly one RMW backend per binary, enforced by <code>compile_error!()</code>.</p>
 <h2 id="architectural-pattern"><a class="header" href="#architectural-pattern">Architectural Pattern</a></h2>
 <div class="table-wrapper">
 <table>
@@ -7270,6 +7300,370 @@ let msg: Option&lt;MyMsg&gt; = subscriber.try_recv(&amp;mut buf)?;</code></pre>
 <h2 id="summary-1"><a class="header" href="#summary-1">Summary</a></h2>
 <p>The core difference is that ROS 2 rmw is a <strong>C plugin interface</strong> designed for desktop systems with dynamic linking, heap allocation, and OS threading. nros-rmw is a <strong>Rust trait hierarchy</strong> designed for MCUs with static dispatch, stack allocation, and cooperative scheduling. The trade-off is flexibility (ROS 2 can swap backends at runtime) vs efficiency (nros eliminates all abstraction overhead at compile time).</p>
 <p>Despite these differences, the two are <strong>wire-compatible</strong> when using the same transport. An nros node using <code>rmw-zenoh</code> communicates with a ROS 2 node using <code>rmw_zenoh_cpp</code> through the same <code>zenohd</code> router, with matching QoS profiles and CDR encoding.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="client-library-model-nros-vs-rclc--rclcpp--rclrs"><a class="header" href="#client-library-model-nros-vs-rclc--rclcpp--rclrs">Client Library Model: nros vs rclc / rclcpp / rclrs</a></h1>
+<p>The RMW layer decouples the transport from the client library. The <em>client library</em> is the user-facing API on top of RMW: nodes, executors, publishers, subscribers, services, clients, callbacks, futures. ROS 2 ships three: <strong>rclc</strong> (C, MCU-focused), <strong>rclcpp</strong> (C++, desktop), and <strong>rclrs</strong> (Rust, experimental). nano-ros adds a fourth – the <code>nros-node</code> crate plus its <code>nros-c</code> / <code>nros-cpp</code> wrappers.</p>
+<p>This page explains the shape of nros-node and how it differs from the three official client libraries. For trait signatures see <a href="#rust-api">Rust API</a> / <a href="#c-api-and-cmake-integration">C API</a> / <a href="#c-api-1">C++ API</a>.</p>
+<h2 id="side-by-side"><a class="header" href="#side-by-side">Side-by-side</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Concern</th><th>rclc</th><th>rclcpp</th><th>rclrs</th><th>nros</th></tr>
+</thead>
+<tbody>
+<tr><td>Target</td><td>MCU (Micro-XRCE-DDS)</td><td>Desktop / robot</td><td>Desktop (alpha)</td><td>MCU + RTOS + desktop</td></tr>
+<tr><td>Language</td><td>C99</td><td>C++17</td><td>Rust (std)</td><td>Rust (<code>no_std</code>) + C + C++14</td></tr>
+<tr><td>Node ownership</td><td>App owns node + executor</td><td><code>shared_ptr&lt;Node&gt;</code> + <code>Executor</code></td><td><code>Arc&lt;Node&gt;</code> + executor</td><td>Executor owns the session; node borrows from it</td></tr>
+<tr><td>Executor model</td><td>Single-threaded, polled</td><td>Single-/multi-threaded, owned thread</td><td>Single-threaded, polled</td><td>Single-threaded, polled</td></tr>
+<tr><td>Spin entry point</td><td><code>rclc_executor_spin_some(&amp;exec, timeout)</code></td><td><code>rclcpp::spin(node)</code> (blocks, owns thread)</td><td><code>executor.spin()</code> (blocks current thread)</td><td><code>executor.spin_once(timeout_ms)</code></td></tr>
+<tr><td>Blocking primitive</td><td>None (callback-only)</td><td><code>std::shared_future::wait_for(timeout)</code></td><td><code>Promise::wait(timeout)</code> (Tokio-style)</td><td><code>Promise::wait(&amp;mut executor, timeout_ms)</code></td></tr>
+<tr><td>Async primitive</td><td>None</td><td><code>std::shared_future</code> + <code>spin_until_future_complete</code></td><td><code>impl Future</code></td><td><code>Promise&lt;T&gt;</code> (impls <code>Future</code> + manual poll + executor-driven blocking wait)</td></tr>
+<tr><td>Heap requirement</td><td>Optional (static allocator)</td><td>Required</td><td>Required</td><td>Optional (caller buffers; only zenoh-pico transport heap)</td></tr>
+<tr><td>Threading requirement</td><td>None</td><td>Required (<code>std::thread</code>)</td><td>Required (<code>std::thread</code>)</td><td>None (single-threaded valid)</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="future--promise-as-the-unifying-primitive"><a class="header" href="#future--promise-as-the-unifying-primitive">Future / Promise as the unifying primitive</a></h2>
+<p>The same <code>Promise&lt;T&gt;</code> value serves three usage patterns. None of the other client libraries achieves this with a single type.</p>
+<p><strong>Pattern 1 – callback-driven (no blocking call):</strong></p>
+<pre><code class="language-rust ignore">let promise = client.call(&amp;request)?;
+// ... continue running other work ...
+executor.spin_once(10);
+if let Some(reply) = promise.try_recv()? {
+    handle(reply);
+}</code></pre>
+<p><strong>Pattern 2 – blocking with timeout:</strong></p>
+<pre><code class="language-rust ignore">let mut promise = client.call(&amp;request)?;
+let reply = promise.wait(&amp;mut executor, 5000)?;  // blocks up to 5s, drives I/O</code></pre>
+<p><strong>Pattern 3 – async runtime (Tokio, Embassy, smol):</strong></p>
+<pre><code class="language-rust ignore">let reply = client.call(&amp;request)?.await;  // Promise: Future&lt;Output = T&gt;</code></pre>
+<p>Contrast this with the alternatives:</p>
+<ul>
+<li><strong>rclcpp</strong> uses <code>std::shared_future&lt;Response&gt;</code>, which is bound to <code>std::thread</code> and <code>std::condition_variable</code>. There is no way to drive it on a cooperative single-threaded MCU. The blocking helper <code>rclcpp::spin_until_future_complete()</code> <em>requires</em> an owned thread.</li>
+<li><strong>rclc</strong> has no future or promise concept. The only way to receive a service reply is to register a callback that fires from <code>rclc_executor_spin_some()</code>. Building request/response chains becomes an explicit state machine.</li>
+<li><strong>rclrs</strong> has <code>impl Future</code> but no callback-poll path; you must <code>.await</code> from a Tokio task. No blocking-with-timeout helper that drives I/O internally.</li>
+</ul>
+<p>In nano-ros, the same <code>Promise</code> carries a borrow of the standalone service client and a sequence number; <code>try_recv()</code> polls it, <code>wait()</code> polls it in a loop while spinning the executor, and the <code>Future</code> impl integrates with any executor that calls <code>register_waker(&amp;Waker)</code> underneath.</p>
+<h2 id="no-internal-spin"><a class="header" href="#no-internal-spin">No internal spin</a></h2>
+<p><code>rclcpp::spin(node)</code> blocks the calling thread inside the library and owns the dispatch loop. This works on Linux but cannot work on bare-metal: there is no thread to give up, and the application loop must remain in user code (for power management, interrupt servicing, smoltcp polling, RTIC integration).</p>
+<p>nano-ros never owns the spin loop. The user <em>always</em> writes the loop:</p>
+<pre><code class="language-rust ignore">loop {
+    executor.spin_once(10);
+    // user can also: poll smoltcp, service interrupts, run other tasks, sleep
+}</code></pre>
+<p>Convenience wrappers (<code>spin(count)</code>, <code>spin_blocking(opts)</code>, <code>spin_period(duration)</code>) exist for desktop-style use cases, but each is implemented as a <code>spin_once()</code> loop that the user could write by hand. On <code>no_std</code> targets they aren’t available – the user writes the loop.</p>
+<p>This is the reason every blocking API in nros takes <code>&amp;mut Executor</code>. <code>Promise::wait</code>, <code>Stream::wait_next</code>, <code>Client::call_blocking</code>, the C++ <code>Future::wait(executor.handle(), ...)</code>, and the C <code>nros_call_service(..., timeout_ms)</code> all internally call <code>spin_once()</code> to keep I/O moving while waiting. They cannot rely on a background thread doing it for them, because there is none.</p>
+<h2 id="executor-is-the-session-owner-not-a-singleton"><a class="header" href="#executor-is-the-session-owner-not-a-singleton">Executor is the session owner, not a singleton</a></h2>
+<p>In rclcpp, the <code>Executor</code> is a <em>separate</em> object that you attach nodes to (<code>exec.add_node(node)</code>). The node owns its own RMW context. Multiple executor classes (<code>SingleThreadedExecutor</code>, <code>MultiThreadedExecutor</code>, <code>StaticSingleThreadedExecutor</code>) exist as parallel implementations.</p>
+<p>In nano-ros, the <code>Executor</code> <em>is</em> the RMW session owner. Calling <code>Executor::open(&amp;config)</code> opens the transport; nodes are derived from the executor:</p>
+<pre><code class="language-rust ignore">let mut executor = Executor::open(&amp;config)?;
+let mut node = executor.create_node("my_node")?;
+let pub_ = node.create_publisher::&lt;Int32&gt;("/topic")?;</code></pre>
+<p>There is exactly one executor type. There is no separate “context” object, no add/remove-node lifecycle, no executor selection at runtime. The single-threaded model is baked in – adding a multi-threaded variant would require redesigning the callback dispatch, which we deliberately avoid to keep the bare-metal path viable.</p>
+<p>The trade-off: you cannot share one transport session between two executors. In practice no embedded application wants this, and on desktop you can run multiple processes if you need it.</p>
+<h2 id="explicit-spin-in-blocking-ops--why-pass-the-executor"><a class="header" href="#explicit-spin-in-blocking-ops--why-pass-the-executor">Explicit spin in blocking ops – why pass the executor?</a></h2>
+<p>Every blocking operation takes <code>&amp;mut Executor</code> (Rust) or an executor handle (C/C++). This looks redundant when the executor is also the entity that created the operation. The reason is borrow-checker hygiene plus single-threaded I/O.</p>
+<p>The standalone communication handles (<code>StandaloneClient</code>, <code>StandaloneSubscription</code>, the <code>Promise</code> returned from <code>call</code>) borrow from the session. They cannot also borrow the executor at the same time, because the executor <em>owns</em> the session. Passing <code>&amp;mut executor</code> at the wait call – after the promise has been created and the borrow released – is the only way to get a mutable executor reference while a promise is in flight.</p>
+<p>The deeper reason: there is no other thread that can drive I/O. If <code>Promise::wait()</code> did not have the executor, it could not call <code>spin_once()</code> – the network would freeze and the wait would always time out. By forcing the executor parameter, the API makes the I/O dependency explicit and impossible to forget.</p>
+<h2 id="language-parity"><a class="header" href="#language-parity">Language parity</a></h2>
+<p>The same Future/Promise + explicit-executor model is preserved in C and C++ wrappers.</p>
+<p><strong>Rust</strong> uses <code>Promise&lt;'_, T&gt;</code> directly. It implements <code>core::future::Future</code> and exposes <code>try_recv()</code> + <code>wait(&amp;mut executor, ms)</code>.</p>
+<p><strong>C++</strong> wraps the promise as <code>nros::Future&lt;T&gt;</code>:</p>
+<pre><code class="language-cpp">auto fut = client.send_request(req);
+ResponseType resp;
+NROS_TRY(fut.wait(executor.handle(), 5000, resp));
+</code></pre>
+<p><code>Future::wait()</code> takes <code>void* executor_handle</code> (from <code>executor.handle()</code> or <code>nros::global_handle()</code>) for the same reason the Rust API takes <code>&amp;mut executor</code>. There is no global executor singleton; the handle is explicit.</p>
+<p><strong>C</strong> uses paired <code>_async</code> and blocking entry points:</p>
+<pre><code class="language-c">// Blocking: drives the executor internally, returns reply or timeout.
+nros_call_service(client, &amp;req, sizeof(req), &amp;reply, sizeof(reply), 5000);
+
+// Async: returns immediately, result via callback registered ahead of time.
+nros_action_send_goal_async(client, &amp;goal, sizeof(goal));
+nros_action_client_set_result_callback(client, on_result);
+// User keeps calling nros_spin_once() to drive callbacks.
+</code></pre>
+<p>The C API has no Future/Promise type because C lacks generics, but the <em>pattern</em> is the same: an <code>_async</code> send-without-wait paired with a callback (or polled status), and a blocking call that drives the executor for you.</p>
+<h2 id="summary-2"><a class="header" href="#summary-2">Summary</a></h2>
+<p>The four design choices that shape nano-ros’s client library:</p>
+<ol>
+<li><strong>Single executor type</strong> that owns the session – no separate context object, no executor variants.</li>
+<li><strong>No internal spin</strong> – the user always owns the spin loop; blocking helpers exist but are wrappers.</li>
+<li><strong>Explicit <code>&amp;mut Executor</code> on every blocking op</strong> – the API enforces the I/O dependency at the call site.</li>
+<li><strong>Future/Promise as the unifying primitive</strong> – one type for callback-drive, blocking-with-timeout, and <code>.await</code>.</li>
+</ol>
+<p>These choices are what make the same client library viable on a Cortex-M3 and a Linux workstation without a separate “MCU client library” like rclc.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="platform-api-design"><a class="header" href="#platform-api-design">Platform API Design</a></h1>
+<p>The platform API (<code>nros-platform</code>) sits below the RMW backend. It exposes the OS or hardware primitives that zenoh-pico and XRCE-DDS need: a clock, optionally a heap, optionally threading, optionally networking. This page explains <em>why</em> the trait surface is grouped the way it is and what the <strong>behavior contract</strong> is for each method. For trait signatures and the implementation status matrix, see <a href="#platform-api-reference">Platform API Reference</a>. For implementing a new platform, see <a href="#custom-platform">Custom Platform</a>.</p>
+<h2 id="trait-groups-and-rationale"><a class="header" href="#trait-groups-and-rationale">Trait groups and rationale</a></h2>
+<p>The traits cluster into seven concern groups. Each group is independent: a platform can provide some and stub others, and the RMW backend declares which it actually needs.</p>
+<h3 id="time--platformclock"><a class="header" href="#time--platformclock">Time – <code>PlatformClock</code></a></h3>
+<p>Every backend needs a monotonic clock. zenoh-pico uses milliseconds for socket timeouts and lease management; it uses microseconds for finer-grained protocol math (KeepAlive intervals, lease expiry calculations). We expose <strong>both</strong> <code>clock_ms</code> and <code>clock_us</code> rather than a single <code>clock_ns</code> because:</p>
+<ul>
+<li>32-bit MCUs without a hardware microsecond tick cannot serve <code>clock_ns</code> accurately. Synthesizing nanoseconds from a 1 ms tick is a lie that hides clock resolution from the caller.</li>
+<li><code>u64</code> nanoseconds wraps after ~584 years, but on a Cortex-M0 every multiply-divide on a 64-bit value costs cycles that the lease task does not have to spare.</li>
+<li>The two functions can share a single hardware source: <code>clock_us</code> returns the raw counter, <code>clock_ms</code> divides by 1000. Platforms with a slow tick (1 ms) implement <code>clock_us</code> as <code>clock_ms * 1000</code> and accept the resolution loss.</li>
+</ul>
+<p>The clock is <strong>monotonic and wraparound-free for system lifetime</strong>. There is no failure mode – if the platform cannot produce time, it cannot run nano-ros at all.</p>
+<h3 id="memory--platformalloc"><a class="header" href="#memory--platformalloc">Memory – <code>PlatformAlloc</code></a></h3>
+<p>Only zenoh-pico needs <code>PlatformAlloc</code>. XRCE-DDS does not allocate. The trait is a thin malloc/realloc/free shim because zenoh-pico’s internal buffer types expect that contract.</p>
+<p>Bare-metal platforms back this with a bump allocator (<code>linked-list-allocator</code> or <code>embedded-alloc</code>). RTOS platforms back it with <code>pvPortMalloc</code> (FreeRTOS), <code>tx_byte_allocate</code> (ThreadX), <code>k_malloc</code> (Zephyr), or <code>malloc</code> (NuttX, POSIX). zenoh-pico’s working set is ~64 KB total; the allocator must have at least that much budget, ideally more.</p>
+<h3 id="threading--platformthreading"><a class="header" href="#threading--platformthreading">Threading – <code>PlatformThreading</code></a></h3>
+<p>Three sub-areas: tasks (spawn/join/exit), mutexes (regular + recursive), and condition variables. Single-threaded targets (bare-metal) provide stub implementations: <code>task_init</code> returns -1 (so zenoh-pico’s lease task spawn fails gracefully and the application drives lease-keepalive itself), and <code>mutex_lock</code>/<code>condvar_wait</code> are no-ops that always succeed.</p>
+<p>The condvar API is the load-bearing one: zenoh-pico’s blocking <code>z_get</code> and the C++ <code>Future::wait</code> both block on a condvar that the receive callback signals. On single-threaded platforms there is no thread to block, so the blocking C++ wait paths are not used (the <a href="#c-api-1">C++ action client status note</a> and Phase 77 cover the migration to non-blocking polling).</p>
+<h3 id="sleep--random--wall-time"><a class="header" href="#sleep--random--wall-time">Sleep / Random / Wall-time</a></h3>
+<p>Three small zenoh-pico-only traits grouped for convenience:</p>
+<ul>
+<li><strong><code>PlatformSleep</code></strong> – delay APIs. On bare-metal with smoltcp, the implementation must call <code>network_poll()</code> while busy-waiting, otherwise packets queue and the lease times out.</li>
+<li><strong><code>PlatformRandom</code></strong> – a 32-bit xorshift PRNG seeded with hardware entropy (or a user-supplied seed). Used for session IDs and protocol nonces, not cryptography.</li>
+<li><strong><code>PlatformTime</code></strong> – wall-clock time for log timestamps. On bare-metal with no RTC, return monotonic time as a fallback.</li>
+</ul>
+<h3 id="networking--platformtcp--platformudp--platformsockethelpers"><a class="header" href="#networking--platformtcp--platformudp--platformsockethelpers">Networking – <code>PlatformTcp</code> / <code>PlatformUdp</code> / <code>PlatformSocketHelpers</code></a></h3>
+<p>zenoh-pico’s network layer is split into three traits because the original C interface (<code>unix/network.c</code>) has three concerns:</p>
+<ul>
+<li>TCP and UDP each have their own <code>open</code>/<code>read</code>/<code>send</code>/<code>close</code> because the backend opens different socket types for each.</li>
+<li><code>PlatformSocketHelpers</code> carries the cross-cutting operations – <code>set_non_blocking</code>, <code>accept</code>, generic <code>close</code>, and <code>wait_event</code> – that apply to either socket family.</li>
+</ul>
+<p>Sockets and endpoints are opaque <code>*mut c_void</code> pointers; their underlying types vary per platform (POSIX <code>int</code>, lwIP <code>struct netconn*</code>, Zephyr socket descriptor, smoltcp <code>SocketHandle</code>). The shim layer auto-detects the type sizes from C headers at build time so the FFI boundary stays type-erased.</p>
+<p><code>PlatformUdpMulticast</code> is split out as a fourth networking trait because embedded targets that connect to a fixed <code>tcp/host:port</code> locator never multicast and should not pay the code-size cost of multicast plumbing.</p>
+<h3 id="networkpoll--platformnetworkpoll"><a class="header" href="#networkpoll--platformnetworkpoll">NetworkPoll – <code>PlatformNetworkPoll</code></a></h3>
+<p>Bare-metal only. <code>network_poll()</code> advances the smoltcp state machine, processing pending RX/TX. Platforms with kernel-level networking (Linux, lwIP-on-FreeRTOS, NetX-on-ThreadX, Zephyr sockets) drive their own NIC and don’t need this.</p>
+<p><code>PlatformSleep</code> and the <code>wait_event</code> helper both call <code>network_poll()</code> while waiting, so packets keep flowing during otherwise-idle time. Without this hook, smoltcp would only receive when the application explicitly asked for it – a recipe for dropped TCP segments.</p>
+<h3 id="libc--platformlibc"><a class="header" href="#libc--platformlibc">Libc – <code>PlatformLibc</code></a></h3>
+<p>zenoh-pico uses <code>strlen</code>, <code>memcpy</code>, <code>errno</code>, etc. directly. Bare-metal targets that link <code>picolibc</code> or <code>newlib-nano</code> get these for free. Targets without a C runtime (some <code>no_std</code> builds) provide the trait, which forwards to Rust implementations of the same functions.</p>
+<p>This trait exists because the alternative – patching zenoh-pico to call platform shims for every libc function – would require modifying upstream sources we don’t control.</p>
+<h2 id="why-clock_ms-and-clock_us-not-clock_ns"><a class="header" href="#why-clock_ms-and-clock_us-not-clock_ns">Why <code>clock_ms</code> <em>and</em> <code>clock_us</code>, not <code>clock_ns</code></a></h2>
+<p>Summarized from above:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>API</th><th>Pros</th><th>Cons</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+<tr><td><code>clock_ns</code> only</td><td>Single function, finest resolution</td><td>64-bit math on every call; lies on 1 ms-tick MCUs</td><td>Rejected</td></tr>
+<tr><td><code>clock_ms</code> only</td><td>Cheap, fits zenoh-pico’s lease math</td><td>Insufficient resolution for sub-millisecond protocol timing</td><td>Insufficient</td></tr>
+<tr><td>Both <code>clock_ms</code> <em>and</em> <code>clock_us</code></td><td>Each call is cheap and honest about its resolution</td><td>Two functions to implement</td><td><strong>Chosen</strong></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="behavior-contracts"><a class="header" href="#behavior-contracts">Behavior contracts</a></h2>
+<p>Each trait below has a contract table. Columns:</p>
+<ul>
+<li><strong>Method</strong> – name (matches the trait definition).</li>
+<li><strong>Blocking?</strong> – whether the method may suspend the caller.</li>
+<li><strong>May fail?</strong> – whether the method has a meaningful failure mode.</li>
+<li><strong>Unsupported fallback</strong> – what to do when the platform cannot provide the capability.</li>
+<li><strong>Notes</strong> – extra constraints (monotonicity, reentrancy, side effects).</li>
+</ul>
+<h3 id="platformclock"><a class="header" href="#platformclock"><code>PlatformClock</code></a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>clock_ms</code></td><td>No</td><td>No</td><td>Required for any backend</td><td>Monotonic; wraparound-free for system lifetime</td></tr>
+<tr><td><code>clock_us</code></td><td>No</td><td>No</td><td>Required for any backend</td><td>Same monotonic base as <code>clock_ms</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformalloc"><a class="header" href="#platformalloc"><code>PlatformAlloc</code></a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>alloc</code></td><td>No</td><td>Yes (null)</td><td>Required for zenoh-pico</td><td>Caller checks for null and propagates as RMW error</td></tr>
+<tr><td><code>realloc</code></td><td>No</td><td>Yes (null)</td><td>Required for zenoh-pico</td><td>Existing block must be preserved on failure</td></tr>
+<tr><td><code>dealloc</code></td><td>No</td><td>No</td><td>Required for zenoh-pico</td><td><code>dealloc(null)</code> is a no-op</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformsleep"><a class="header" href="#platformsleep"><code>PlatformSleep</code></a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>sleep_us</code></td><td>Yes</td><td>No</td><td>Required for zenoh-pico</td><td>Bare-metal must call <code>network_poll()</code> during busy-wait</td></tr>
+<tr><td><code>sleep_ms</code></td><td>Yes</td><td>No</td><td>Required for zenoh-pico</td><td>Same</td></tr>
+<tr><td><code>sleep_s</code></td><td>Yes</td><td>No</td><td>Required for zenoh-pico</td><td>Same; typically implemented as <code>sleep_ms(s * 1000)</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformrandom"><a class="header" href="#platformrandom"><code>PlatformRandom</code></a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>random_u8</code> / <code>_u16</code> / <code>_u32</code> / <code>_u64</code></td><td>No</td><td>No</td><td>Required for zenoh-pico</td><td>xorshift32 is sufficient; not cryptographic</td></tr>
+<tr><td><code>random_fill</code></td><td>No</td><td>No</td><td>Required for zenoh-pico</td><td>Fills <code>len</code> bytes; no upper bound check</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformtime-wall-clock"><a class="header" href="#platformtime-wall-clock"><code>PlatformTime</code> (wall-clock)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>time_now_ms</code></td><td>No</td><td>No</td><td>Required for zenoh-pico</td><td>Return <code>clock_ms</code> if no RTC</td></tr>
+<tr><td><code>time_since_epoch</code></td><td>No</td><td>No</td><td>Required for zenoh-pico</td><td>Return <code>(monotonic_s, 0)</code> if no RTC</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformthreading--tasks"><a class="header" href="#platformthreading--tasks"><code>PlatformThreading</code> – tasks</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>task_init</code></td><td>No</td><td>Yes (-1)</td><td>Return -1 on single-threaded</td><td>zenoh-pico’s lease task must degrade gracefully</td></tr>
+<tr><td><code>task_join</code></td><td>Yes</td><td>Yes</td><td>Return 0 (success)</td><td>Single-threaded never spawned a task to join</td></tr>
+<tr><td><code>task_detach</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Same</td></tr>
+<tr><td><code>task_cancel</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Same</td></tr>
+<tr><td><code>task_exit</code></td><td>No</td><td>No</td><td>No-op</td><td>Caller is the only thread</td></tr>
+<tr><td><code>task_free</code></td><td>No</td><td>No</td><td>No-op</td><td>No allocation to free</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformthreading--mutexes-regular-and-recursive"><a class="header" href="#platformthreading--mutexes-regular-and-recursive"><code>PlatformThreading</code> – mutexes (regular and recursive)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>mutex_init</code> / <code>mutex_rec_init</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Single-threaded has no mutex state</td></tr>
+<tr><td><code>mutex_drop</code> / <code>mutex_rec_drop</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Same</td></tr>
+<tr><td><code>mutex_lock</code> / <code>mutex_rec_lock</code></td><td>Yes</td><td>Yes</td><td>Return 0 (success)</td><td>Single-threaded: no contention possible</td></tr>
+<tr><td><code>mutex_try_lock</code> / <code>mutex_rec_try_lock</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Always “succeeds” on single-threaded</td></tr>
+<tr><td><code>mutex_unlock</code> / <code>mutex_rec_unlock</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Same</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformthreading--condition-variables"><a class="header" href="#platformthreading--condition-variables"><code>PlatformThreading</code> – condition variables</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>condvar_init</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>No state on single-threaded</td></tr>
+<tr><td><code>condvar_drop</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Same</td></tr>
+<tr><td><code>condvar_signal</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>No waiter to wake</td></tr>
+<tr><td><code>condvar_signal_all</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Same</td></tr>
+<tr><td><code>condvar_wait</code></td><td>Yes</td><td>Yes</td><td>Return 0</td><td>Single-threaded must use polling instead – avoid this path</td></tr>
+<tr><td><code>condvar_wait_until</code></td><td>Yes</td><td>Yes (timeout)</td><td>Return 0 immediately</td><td>Same; blocking C++ <code>Future::wait</code> deadlocks on single-threaded (Phase 77)</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformtcp"><a class="header" href="#platformtcp"><code>PlatformTcp</code></a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>create_endpoint</code></td><td>Yes (DNS)</td><td>Yes</td><td>Required for zenoh-pico</td><td>Backed by <code>getaddrinfo</code> or platform equivalent</td></tr>
+<tr><td><code>free_endpoint</code></td><td>No</td><td>No</td><td>Required</td><td>Mirrors <code>freeaddrinfo</code></td></tr>
+<tr><td><code>open</code></td><td>Yes</td><td>Yes</td><td>Required</td><td>Connect with timeout in ms</td></tr>
+<tr><td><code>listen</code></td><td>No</td><td>Yes</td><td>Optional (server mode)</td><td>Bare-metal client typically returns -1</td></tr>
+<tr><td><code>close</code></td><td>No</td><td>No</td><td>Required</td><td>Shutdown + close</td></tr>
+<tr><td><code>read</code></td><td>No (after <code>set_non_blocking</code>)</td><td>Yes (<code>usize::MAX</code>)</td><td>Required</td><td>Returns 0 if no data; <strong>must be non-blocking</strong> for zenoh-pico’s poll loop</td></tr>
+<tr><td><code>read_exact</code></td><td>Yes</td><td>Yes</td><td>Required</td><td>Used for length-prefixed framing</td></tr>
+<tr><td><code>send</code></td><td>Yes</td><td>Yes</td><td>Required</td><td>May block on socket buffer full</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformudp"><a class="header" href="#platformudp"><code>PlatformUdp</code></a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>create_endpoint</code></td><td>Yes (DNS)</td><td>Yes</td><td>Required for zenoh-pico</td><td>Same as TCP but <code>SOCK_DGRAM</code></td></tr>
+<tr><td><code>free_endpoint</code></td><td>No</td><td>No</td><td>Required</td><td></td></tr>
+<tr><td><code>open</code></td><td>No</td><td>Yes</td><td>Required</td><td>UDP socket open is non-blocking</td></tr>
+<tr><td><code>close</code></td><td>No</td><td>No</td><td>Required</td><td></td></tr>
+<tr><td><code>read</code></td><td>No</td><td>Yes</td><td>Required</td><td>recvfrom; returns 0 if no datagram</td></tr>
+<tr><td><code>read_exact</code></td><td>Yes</td><td>Yes</td><td>Required</td><td>Rarely used (UDP is message-oriented)</td></tr>
+<tr><td><code>send</code></td><td>Yes</td><td>Yes</td><td>Required</td><td>sendto</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformsockethelpers"><a class="header" href="#platformsockethelpers"><code>PlatformSocketHelpers</code></a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>set_non_blocking</code></td><td>No</td><td>Yes</td><td>Required</td><td><strong>Critical</strong>: enables non-blocking <code>read</code></td></tr>
+<tr><td><code>accept</code></td><td>No (after <code>set_non_blocking</code>)</td><td>Yes</td><td>Optional</td><td>Server-mode only</td></tr>
+<tr><td><code>close</code></td><td>No</td><td>No</td><td>Required</td><td>Generic socket close</td></tr>
+<tr><td><code>wait_event</code></td><td>Yes</td><td>Yes</td><td>Required</td><td>Multi-threaded: yields to scheduler. Single-threaded: spins + <code>network_poll</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformudpmulticast-optional"><a class="header" href="#platformudpmulticast-optional"><code>PlatformUdpMulticast</code> (optional)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>mcast_open</code></td><td>Yes</td><td>Yes</td><td>Stub returns -1</td><td>Skipped on embedded targets without scouting</td></tr>
+<tr><td><code>mcast_listen</code></td><td>Yes</td><td>Yes</td><td>Stub returns -1</td><td>Same</td></tr>
+<tr><td><code>mcast_close</code></td><td>No</td><td>No</td><td>No-op</td><td></td></tr>
+<tr><td><code>mcast_read</code> / <code>mcast_read_exact</code></td><td>Varies</td><td>Yes</td><td>Stub returns <code>usize::MAX</code></td><td></td></tr>
+<tr><td><code>mcast_send</code></td><td>Yes</td><td>Yes</td><td>Stub returns <code>usize::MAX</code></td><td></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformnetworkpoll-bare-metal-only-2"><a class="header" href="#platformnetworkpoll-bare-metal-only-2"><code>PlatformNetworkPoll</code> (bare-metal only)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>network_poll</code></td><td>No</td><td>No</td><td>OS-driven platforms: no-op</td><td>Advances smoltcp once; called by <code>sleep_*</code> and <code>wait_event</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformlibc-bare-metal-without-libc"><a class="header" href="#platformlibc-bare-metal-without-libc"><code>PlatformLibc</code> (bare-metal without libc)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>strlen</code>, <code>strcmp</code>, <code>strncmp</code>, <code>strchr</code>, <code>strncpy</code></td><td>No</td><td>No</td><td>Linker provides if libc present</td><td>Same semantics as the C standard</td></tr>
+<tr><td><code>memcpy</code>, <code>memmove</code>, <code>memset</code>, <code>memcmp</code>, <code>memchr</code></td><td>No</td><td>No</td><td>Same</td><td>Same</td></tr>
+<tr><td><code>strtoul</code></td><td>No</td><td>Yes (errno)</td><td>Same</td><td>Used by zenoh-pico to parse locator strings</td></tr>
+<tr><td><code>errno_ptr</code></td><td>No</td><td>No</td><td>Same</td><td>Returns pointer to thread-local (or static) errno</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="cross-cutting-rules"><a class="header" href="#cross-cutting-rules">Cross-cutting rules</a></h2>
+<p>Two contract rules apply to every trait method:</p>
+<ol>
+<li>
+<p><strong>Reentrancy.</strong> Methods may be called from any context the executor enters: a publisher callback, a service handler, or directly from user code. Implementations must not assume a particular calling thread or critical-section state. Single-threaded platforms get this for free; RTOS platforms must use reentrant primitives.</p>
+</li>
+<li>
+<p><strong>No panics across the FFI boundary.</strong> All trait methods are exposed to C through the shim crates. Panicking through C is undefined behavior. Implementations return error codes (or <code>usize::MAX</code> for byte counts) instead of panicking. The exception is <code>PlatformClock</code> – if the clock cannot be read, the system is fundamentally broken and there is nothing useful to return.</p>
+</li>
+</ol>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="ros-2-rmw_zenoh-interoperability"><a class="header" href="#ros-2-rmw_zenoh-interoperability">ROS 2 rmw_zenoh Interoperability</a></h1>
 <p>This document describes how nros communicates with standard ROS 2 nodes using <code>rmw_zenoh_cpp</code>.</p>

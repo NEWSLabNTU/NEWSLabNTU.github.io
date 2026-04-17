@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Platform API - nano-ros Book</title>
+        <title>Platform API Design - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,142 +177,238 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="platform-api-reference"><a class="header" href="#platform-api-reference">Platform API Reference</a></h1>
-<p>nano-ros abstracts hardware and OS differences through the <strong>nros-platform</strong> trait system. Each platform (POSIX, FreeRTOS, NuttX, ThreadX, Zephyr, bare-metal) implements these traits once, and both RMW backends (zenoh-pico and XRCE-DDS) consume them through thin shim crates.</p>
-<blockquote>
-<p>For the design rationale – why these traits are grouped this way, why we expose both <code>clock_ms</code> and <code>clock_us</code>, and the per-method behavior contracts (blocking, may-fail, unsupported-fallback) – see <a href="../design/platform-api.html">Platform API Design</a>. For implementing a new platform, see <a href="../porting/custom-platform.html">Custom Platform</a>.</p>
-</blockquote>
-<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
-<pre class="mermaid">graph TD
-    ZP["zenoh-pico (C)"] --&gt; ZPSHIM["zpico-platform-shim"]
-    XRCE["XRCE-DDS (C)"] --&gt; XSHIM["xrce-platform-shim"]
-    ZPSHIM --&gt; NP["nros-platform::ConcretePlatform"]
-    XSHIM --&gt; NP
-    NP --&gt; POSIX["nros-platform-posix"]
-    NP --&gt; FREERTOS["nros-platform-freertos"]
-    NP --&gt; NUTTX["nros-platform-nuttx"]
-    NP --&gt; THREADX["nros-platform-threadx"]
-    NP --&gt; ZEPHYR["nros-platform-zephyr"]
-    NP --&gt; BM["nros-platform-mps2-an385&lt;br/&gt;nros-platform-stm32f4&lt;br/&gt;nros-platform-esp32"]
-</pre>
-
-<h2 id="platform-traits-nros-platform"><a class="header" href="#platform-traits-nros-platform">Platform Traits (<code>nros-platform</code>)</a></h2>
-<p>Platform implementations provide capabilities through independent sub-traits. Not all traits are required — each RMW backend declares what it needs.</p>
-<h3 id="platformclock-required-by-all-backends"><a class="header" href="#platformclock-required-by-all-backends"><code>PlatformClock</code> (required by all backends)</a></h3>
-<p>Monotonic clock. Must be backed by a hardware timer or OS tick.</p>
+                        <h1 id="platform-api-design"><a class="header" href="#platform-api-design">Platform API Design</a></h1>
+<p>The platform API (<code>nros-platform</code>) sits below the RMW backend. It exposes the OS or hardware primitives that zenoh-pico and XRCE-DDS need: a clock, optionally a heap, optionally threading, optionally networking. This page explains <em>why</em> the trait surface is grouped the way it is and what the <strong>behavior contract</strong> is for each method. For trait signatures and the implementation status matrix, see <a href="../reference/platform-api.html">Platform API Reference</a>. For implementing a new platform, see <a href="../porting/custom-platform.html">Custom Platform</a>.</p>
+<h2 id="trait-groups-and-rationale"><a class="header" href="#trait-groups-and-rationale">Trait groups and rationale</a></h2>
+<p>The traits cluster into seven concern groups. Each group is independent: a platform can provide some and stub others, and the RMW backend declares which it actually needs.</p>
+<h3 id="time--platformclock"><a class="header" href="#time--platformclock">Time – <code>PlatformClock</code></a></h3>
+<p>Every backend needs a monotonic clock. zenoh-pico uses milliseconds for socket timeouts and lease management; it uses microseconds for finer-grained protocol math (KeepAlive intervals, lease expiry calculations). We expose <strong>both</strong> <code>clock_ms</code> and <code>clock_us</code> rather than a single <code>clock_ns</code> because:</p>
+<ul>
+<li>32-bit MCUs without a hardware microsecond tick cannot serve <code>clock_ns</code> accurately. Synthesizing nanoseconds from a 1 ms tick is a lie that hides clock resolution from the caller.</li>
+<li><code>u64</code> nanoseconds wraps after ~584 years, but on a Cortex-M0 every multiply-divide on a 64-bit value costs cycles that the lease task does not have to spare.</li>
+<li>The two functions can share a single hardware source: <code>clock_us</code> returns the raw counter, <code>clock_ms</code> divides by 1000. Platforms with a slow tick (1 ms) implement <code>clock_us</code> as <code>clock_ms * 1000</code> and accept the resolution loss.</li>
+</ul>
+<p>The clock is <strong>monotonic and wraparound-free for system lifetime</strong>. There is no failure mode – if the platform cannot produce time, it cannot run nano-ros at all.</p>
+<h3 id="memory--platformalloc"><a class="header" href="#memory--platformalloc">Memory – <code>PlatformAlloc</code></a></h3>
+<p>Only zenoh-pico needs <code>PlatformAlloc</code>. XRCE-DDS does not allocate. The trait is a thin malloc/realloc/free shim because zenoh-pico’s internal buffer types expect that contract.</p>
+<p>Bare-metal platforms back this with a bump allocator (<code>linked-list-allocator</code> or <code>embedded-alloc</code>). RTOS platforms back it with <code>pvPortMalloc</code> (FreeRTOS), <code>tx_byte_allocate</code> (ThreadX), <code>k_malloc</code> (Zephyr), or <code>malloc</code> (NuttX, POSIX). zenoh-pico’s working set is ~64 KB total; the allocator must have at least that much budget, ideally more.</p>
+<h3 id="threading--platformthreading"><a class="header" href="#threading--platformthreading">Threading – <code>PlatformThreading</code></a></h3>
+<p>Three sub-areas: tasks (spawn/join/exit), mutexes (regular + recursive), and condition variables. Single-threaded targets (bare-metal) provide stub implementations: <code>task_init</code> returns -1 (so zenoh-pico’s lease task spawn fails gracefully and the application drives lease-keepalive itself), and <code>mutex_lock</code>/<code>condvar_wait</code> are no-ops that always succeed.</p>
+<p>The condvar API is the load-bearing one: zenoh-pico’s blocking <code>z_get</code> and the C++ <code>Future::wait</code> both block on a condvar that the receive callback signals. On single-threaded platforms there is no thread to block, so the blocking C++ wait paths are not used (the <a href="../reference/cpp-api.html">C++ action client status note</a> and Phase 77 cover the migration to non-blocking polling).</p>
+<h3 id="sleep--random--wall-time"><a class="header" href="#sleep--random--wall-time">Sleep / Random / Wall-time</a></h3>
+<p>Three small zenoh-pico-only traits grouped for convenience:</p>
+<ul>
+<li><strong><code>PlatformSleep</code></strong> – delay APIs. On bare-metal with smoltcp, the implementation must call <code>network_poll()</code> while busy-waiting, otherwise packets queue and the lease times out.</li>
+<li><strong><code>PlatformRandom</code></strong> – a 32-bit xorshift PRNG seeded with hardware entropy (or a user-supplied seed). Used for session IDs and protocol nonces, not cryptography.</li>
+<li><strong><code>PlatformTime</code></strong> – wall-clock time for log timestamps. On bare-metal with no RTC, return monotonic time as a fallback.</li>
+</ul>
+<h3 id="networking--platformtcp--platformudp--platformsockethelpers"><a class="header" href="#networking--platformtcp--platformudp--platformsockethelpers">Networking – <code>PlatformTcp</code> / <code>PlatformUdp</code> / <code>PlatformSocketHelpers</code></a></h3>
+<p>zenoh-pico’s network layer is split into three traits because the original C interface (<code>unix/network.c</code>) has three concerns:</p>
+<ul>
+<li>TCP and UDP each have their own <code>open</code>/<code>read</code>/<code>send</code>/<code>close</code> because the backend opens different socket types for each.</li>
+<li><code>PlatformSocketHelpers</code> carries the cross-cutting operations – <code>set_non_blocking</code>, <code>accept</code>, generic <code>close</code>, and <code>wait_event</code> – that apply to either socket family.</li>
+</ul>
+<p>Sockets and endpoints are opaque <code>*mut c_void</code> pointers; their underlying types vary per platform (POSIX <code>int</code>, lwIP <code>struct netconn*</code>, Zephyr socket descriptor, smoltcp <code>SocketHandle</code>). The shim layer auto-detects the type sizes from C headers at build time so the FFI boundary stays type-erased.</p>
+<p><code>PlatformUdpMulticast</code> is split out as a fourth networking trait because embedded targets that connect to a fixed <code>tcp/host:port</code> locator never multicast and should not pay the code-size cost of multicast plumbing.</p>
+<h3 id="networkpoll--platformnetworkpoll"><a class="header" href="#networkpoll--platformnetworkpoll">NetworkPoll – <code>PlatformNetworkPoll</code></a></h3>
+<p>Bare-metal only. <code>network_poll()</code> advances the smoltcp state machine, processing pending RX/TX. Platforms with kernel-level networking (Linux, lwIP-on-FreeRTOS, NetX-on-ThreadX, Zephyr sockets) drive their own NIC and don’t need this.</p>
+<p><code>PlatformSleep</code> and the <code>wait_event</code> helper both call <code>network_poll()</code> while waiting, so packets keep flowing during otherwise-idle time. Without this hook, smoltcp would only receive when the application explicitly asked for it – a recipe for dropped TCP segments.</p>
+<h3 id="libc--platformlibc"><a class="header" href="#libc--platformlibc">Libc – <code>PlatformLibc</code></a></h3>
+<p>zenoh-pico uses <code>strlen</code>, <code>memcpy</code>, <code>errno</code>, etc. directly. Bare-metal targets that link <code>picolibc</code> or <code>newlib-nano</code> get these for free. Targets without a C runtime (some <code>no_std</code> builds) provide the trait, which forwards to Rust implementations of the same functions.</p>
+<p>This trait exists because the alternative – patching zenoh-pico to call platform shims for every libc function – would require modifying upstream sources we don’t control.</p>
+<h2 id="why-clock_ms-and-clock_us-not-clock_ns"><a class="header" href="#why-clock_ms-and-clock_us-not-clock_ns">Why <code>clock_ms</code> <em>and</em> <code>clock_us</code>, not <code>clock_ns</code></a></h2>
+<p>Summarized from above:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+<tr><th>API</th><th>Pros</th><th>Cons</th><th>Verdict</th></tr>
 </thead>
 <tbody>
-<tr><td><code>clock_ms</code></td><td><code>fn clock_ms() -&gt; u64</code></td><td>Monotonic time in milliseconds</td></tr>
-<tr><td><code>clock_us</code></td><td><code>fn clock_us() -&gt; u64</code></td><td>Monotonic time in microseconds</td></tr>
+<tr><td><code>clock_ns</code> only</td><td>Single function, finest resolution</td><td>64-bit math on every call; lies on 1 ms-tick MCUs</td><td>Rejected</td></tr>
+<tr><td><code>clock_ms</code> only</td><td>Cheap, fits zenoh-pico’s lease math</td><td>Insufficient resolution for sub-millisecond protocol timing</td><td>Insufficient</td></tr>
+<tr><td>Both <code>clock_ms</code> <em>and</em> <code>clock_us</code></td><td>Each call is cheap and honest about its resolution</td><td>Two functions to implement</td><td><strong>Chosen</strong></td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="platformalloc-zenoh-pico-only"><a class="header" href="#platformalloc-zenoh-pico-only"><code>PlatformAlloc</code> (zenoh-pico only)</a></h3>
-<p>Heap memory allocation. zenoh-pico requires ~64 KB heap for transport buffers.</p>
+<h2 id="behavior-contracts"><a class="header" href="#behavior-contracts">Behavior contracts</a></h2>
+<p>Each trait below has a contract table. Columns:</p>
+<ul>
+<li><strong>Method</strong> – name (matches the trait definition).</li>
+<li><strong>Blocking?</strong> – whether the method may suspend the caller.</li>
+<li><strong>May fail?</strong> – whether the method has a meaningful failure mode.</li>
+<li><strong>Unsupported fallback</strong> – what to do when the platform cannot provide the capability.</li>
+<li><strong>Notes</strong> – extra constraints (monotonicity, reentrancy, side effects).</li>
+</ul>
+<h3 id="platformclock"><a class="header" href="#platformclock"><code>PlatformClock</code></a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>alloc</code></td><td><code>fn alloc(size: usize) -&gt; *mut c_void</code></td><td>Allocate <code>size</code> bytes; null on failure</td></tr>
-<tr><td><code>realloc</code></td><td><code>fn realloc(ptr: *mut c_void, size: usize) -&gt; *mut c_void</code></td><td>Reallocate block</td></tr>
-<tr><td><code>dealloc</code></td><td><code>fn dealloc(ptr: *mut c_void)</code></td><td>Free block</td></tr>
+<tr><td><code>clock_ms</code></td><td>No</td><td>No</td><td>Required for any backend</td><td>Monotonic; wraparound-free for system lifetime</td></tr>
+<tr><td><code>clock_us</code></td><td>No</td><td>No</td><td>Required for any backend</td><td>Same monotonic base as <code>clock_ms</code></td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="platformsleep-zenoh-pico-only"><a class="header" href="#platformsleep-zenoh-pico-only"><code>PlatformSleep</code> (zenoh-pico only)</a></h3>
+<h3 id="platformalloc"><a class="header" href="#platformalloc"><code>PlatformAlloc</code></a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>sleep_us</code></td><td><code>fn sleep_us(us: usize)</code></td><td>Sleep for microseconds</td></tr>
-<tr><td><code>sleep_ms</code></td><td><code>fn sleep_ms(ms: usize)</code></td><td>Sleep for milliseconds</td></tr>
-<tr><td><code>sleep_s</code></td><td><code>fn sleep_s(s: usize)</code></td><td>Sleep for seconds</td></tr>
+<tr><td><code>alloc</code></td><td>No</td><td>Yes (null)</td><td>Required for zenoh-pico</td><td>Caller checks for null and propagates as RMW error</td></tr>
+<tr><td><code>realloc</code></td><td>No</td><td>Yes (null)</td><td>Required for zenoh-pico</td><td>Existing block must be preserved on failure</td></tr>
+<tr><td><code>dealloc</code></td><td>No</td><td>No</td><td>Required for zenoh-pico</td><td><code>dealloc(null)</code> is a no-op</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="platformrandom-zenoh-pico-only"><a class="header" href="#platformrandom-zenoh-pico-only"><code>PlatformRandom</code> (zenoh-pico only)</a></h3>
+<h3 id="platformsleep"><a class="header" href="#platformsleep"><code>PlatformSleep</code></a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>random_u8</code></td><td><code>fn random_u8() -&gt; u8</code></td><td>Random byte</td></tr>
-<tr><td><code>random_u16</code></td><td><code>fn random_u16() -&gt; u16</code></td><td>Random 16-bit</td></tr>
-<tr><td><code>random_u32</code></td><td><code>fn random_u32() -&gt; u32</code></td><td>Random 32-bit</td></tr>
-<tr><td><code>random_u64</code></td><td><code>fn random_u64() -&gt; u64</code></td><td>Random 64-bit</td></tr>
-<tr><td><code>random_fill</code></td><td><code>fn random_fill(buf: *mut c_void, len: usize)</code></td><td>Fill buffer with random bytes</td></tr>
+<tr><td><code>sleep_us</code></td><td>Yes</td><td>No</td><td>Required for zenoh-pico</td><td>Bare-metal must call <code>network_poll()</code> during busy-wait</td></tr>
+<tr><td><code>sleep_ms</code></td><td>Yes</td><td>No</td><td>Required for zenoh-pico</td><td>Same</td></tr>
+<tr><td><code>sleep_s</code></td><td>Yes</td><td>No</td><td>Required for zenoh-pico</td><td>Same; typically implemented as <code>sleep_ms(s * 1000)</code></td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="platformtime-zenoh-pico-only"><a class="header" href="#platformtime-zenoh-pico-only"><code>PlatformTime</code> (zenoh-pico only)</a></h3>
-<p>Wall-clock time for logging. On bare-metal without an RTC, return monotonic time.</p>
+<h3 id="platformrandom"><a class="header" href="#platformrandom"><code>PlatformRandom</code></a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>time_now_ms</code></td><td><code>fn time_now_ms() -&gt; u64</code></td><td>System time in ms</td></tr>
-<tr><td><code>time_since_epoch</code></td><td><code>fn time_since_epoch() -&gt; TimeSinceEpoch</code></td><td>Seconds + nanoseconds since epoch</td></tr>
+<tr><td><code>random_u8</code> / <code>_u16</code> / <code>_u32</code> / <code>_u64</code></td><td>No</td><td>No</td><td>Required for zenoh-pico</td><td>xorshift32 is sufficient; not cryptographic</td></tr>
+<tr><td><code>random_fill</code></td><td>No</td><td>No</td><td>Required for zenoh-pico</td><td>Fills <code>len</code> bytes; no upper bound check</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="platformthreading-multi-threaded-platforms"><a class="header" href="#platformthreading-multi-threaded-platforms"><code>PlatformThreading</code> (multi-threaded platforms)</a></h3>
-<p>Tasks, mutexes, and condition variables. Single-threaded platforms return no-ops (0) except <code>task_init</code> which returns -1.</p>
-<p><strong>Tasks:</strong></p>
+<h3 id="platformtime-wall-clock"><a class="header" href="#platformtime-wall-clock"><code>PlatformTime</code> (wall-clock)</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>task_init</code></td><td><code>fn task_init(task, attr, entry, arg) -&gt; i8</code></td><td>Spawn a new task; 0 = success</td></tr>
-<tr><td><code>task_join</code></td><td><code>fn task_join(task) -&gt; i8</code></td><td>Wait for task to complete</td></tr>
-<tr><td><code>task_detach</code></td><td><code>fn task_detach(task) -&gt; i8</code></td><td>Detach task</td></tr>
-<tr><td><code>task_cancel</code></td><td><code>fn task_cancel(task) -&gt; i8</code></td><td>Cancel task</td></tr>
-<tr><td><code>task_exit</code></td><td><code>fn task_exit()</code></td><td>Exit current task</td></tr>
-<tr><td><code>task_free</code></td><td><code>fn task_free(task: *mut *mut TaskHandle)</code></td><td>Free task resources</td></tr>
+<tr><td><code>time_now_ms</code></td><td>No</td><td>No</td><td>Required for zenoh-pico</td><td>Return <code>clock_ms</code> if no RTC</td></tr>
+<tr><td><code>time_since_epoch</code></td><td>No</td><td>No</td><td>Required for zenoh-pico</td><td>Return <code>(monotonic_s, 0)</code> if no RTC</td></tr>
 </tbody>
 </table>
 </div>
-<p><strong>Mutexes:</strong></p>
+<h3 id="platformthreading--tasks"><a class="header" href="#platformthreading--tasks"><code>PlatformThreading</code> – tasks</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>mutex_init</code></td><td><code>fn mutex_init(m) -&gt; i8</code></td><td>Create mutex</td></tr>
-<tr><td><code>mutex_drop</code></td><td><code>fn mutex_drop(m) -&gt; i8</code></td><td>Destroy mutex</td></tr>
-<tr><td><code>mutex_lock</code></td><td><code>fn mutex_lock(m) -&gt; i8</code></td><td>Lock (blocking)</td></tr>
-<tr><td><code>mutex_try_lock</code></td><td><code>fn mutex_try_lock(m) -&gt; i8</code></td><td>Try lock (non-blocking)</td></tr>
-<tr><td><code>mutex_unlock</code></td><td><code>fn mutex_unlock(m) -&gt; i8</code></td><td>Unlock</td></tr>
+<tr><td><code>task_init</code></td><td>No</td><td>Yes (-1)</td><td>Return -1 on single-threaded</td><td>zenoh-pico’s lease task must degrade gracefully</td></tr>
+<tr><td><code>task_join</code></td><td>Yes</td><td>Yes</td><td>Return 0 (success)</td><td>Single-threaded never spawned a task to join</td></tr>
+<tr><td><code>task_detach</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Same</td></tr>
+<tr><td><code>task_cancel</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Same</td></tr>
+<tr><td><code>task_exit</code></td><td>No</td><td>No</td><td>No-op</td><td>Caller is the only thread</td></tr>
+<tr><td><code>task_free</code></td><td>No</td><td>No</td><td>No-op</td><td>No allocation to free</td></tr>
 </tbody>
 </table>
 </div>
-<p>Recursive mutex variants (<code>mutex_rec_*</code>) have the same signatures.</p>
-<p><strong>Condition Variables:</strong></p>
+<h3 id="platformthreading--mutexes-regular-and-recursive"><a class="header" href="#platformthreading--mutexes-regular-and-recursive"><code>PlatformThreading</code> – mutexes (regular and recursive)</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>condvar_init</code></td><td><code>fn condvar_init(cv) -&gt; i8</code></td><td>Create condvar</td></tr>
-<tr><td><code>condvar_drop</code></td><td><code>fn condvar_drop(cv) -&gt; i8</code></td><td>Destroy condvar</td></tr>
-<tr><td><code>condvar_signal</code></td><td><code>fn condvar_signal(cv) -&gt; i8</code></td><td>Wake one waiter</td></tr>
-<tr><td><code>condvar_signal_all</code></td><td><code>fn condvar_signal_all(cv) -&gt; i8</code></td><td>Wake all waiters</td></tr>
-<tr><td><code>condvar_wait</code></td><td><code>fn condvar_wait(cv, m) -&gt; i8</code></td><td>Wait (unlocks mutex, re-locks on wake)</td></tr>
-<tr><td><code>condvar_wait_until</code></td><td><code>fn condvar_wait_until(cv, m, abstime) -&gt; i8</code></td><td>Wait with timeout (ms since boot)</td></tr>
+<tr><td><code>mutex_init</code> / <code>mutex_rec_init</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Single-threaded has no mutex state</td></tr>
+<tr><td><code>mutex_drop</code> / <code>mutex_rec_drop</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Same</td></tr>
+<tr><td><code>mutex_lock</code> / <code>mutex_rec_lock</code></td><td>Yes</td><td>Yes</td><td>Return 0 (success)</td><td>Single-threaded: no contention possible</td></tr>
+<tr><td><code>mutex_try_lock</code> / <code>mutex_rec_try_lock</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Always “succeeds” on single-threaded</td></tr>
+<tr><td><code>mutex_unlock</code> / <code>mutex_rec_unlock</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Same</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformthreading--condition-variables"><a class="header" href="#platformthreading--condition-variables"><code>PlatformThreading</code> – condition variables</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>condvar_init</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>No state on single-threaded</td></tr>
+<tr><td><code>condvar_drop</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Same</td></tr>
+<tr><td><code>condvar_signal</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>No waiter to wake</td></tr>
+<tr><td><code>condvar_signal_all</code></td><td>No</td><td>Yes</td><td>Return 0</td><td>Same</td></tr>
+<tr><td><code>condvar_wait</code></td><td>Yes</td><td>Yes</td><td>Return 0</td><td>Single-threaded must use polling instead – avoid this path</td></tr>
+<tr><td><code>condvar_wait_until</code></td><td>Yes</td><td>Yes (timeout)</td><td>Return 0 immediately</td><td>Same; blocking C++ <code>Future::wait</code> deadlocks on single-threaded (Phase 77)</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformtcp"><a class="header" href="#platformtcp"><code>PlatformTcp</code></a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>create_endpoint</code></td><td>Yes (DNS)</td><td>Yes</td><td>Required for zenoh-pico</td><td>Backed by <code>getaddrinfo</code> or platform equivalent</td></tr>
+<tr><td><code>free_endpoint</code></td><td>No</td><td>No</td><td>Required</td><td>Mirrors <code>freeaddrinfo</code></td></tr>
+<tr><td><code>open</code></td><td>Yes</td><td>Yes</td><td>Required</td><td>Connect with timeout in ms</td></tr>
+<tr><td><code>listen</code></td><td>No</td><td>Yes</td><td>Optional (server mode)</td><td>Bare-metal client typically returns -1</td></tr>
+<tr><td><code>close</code></td><td>No</td><td>No</td><td>Required</td><td>Shutdown + close</td></tr>
+<tr><td><code>read</code></td><td>No (after <code>set_non_blocking</code>)</td><td>Yes (<code>usize::MAX</code>)</td><td>Required</td><td>Returns 0 if no data; <strong>must be non-blocking</strong> for zenoh-pico’s poll loop</td></tr>
+<tr><td><code>read_exact</code></td><td>Yes</td><td>Yes</td><td>Required</td><td>Used for length-prefixed framing</td></tr>
+<tr><td><code>send</code></td><td>Yes</td><td>Yes</td><td>Required</td><td>May block on socket buffer full</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformudp"><a class="header" href="#platformudp"><code>PlatformUdp</code></a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>create_endpoint</code></td><td>Yes (DNS)</td><td>Yes</td><td>Required for zenoh-pico</td><td>Same as TCP but <code>SOCK_DGRAM</code></td></tr>
+<tr><td><code>free_endpoint</code></td><td>No</td><td>No</td><td>Required</td><td></td></tr>
+<tr><td><code>open</code></td><td>No</td><td>Yes</td><td>Required</td><td>UDP socket open is non-blocking</td></tr>
+<tr><td><code>close</code></td><td>No</td><td>No</td><td>Required</td><td></td></tr>
+<tr><td><code>read</code></td><td>No</td><td>Yes</td><td>Required</td><td>recvfrom; returns 0 if no datagram</td></tr>
+<tr><td><code>read_exact</code></td><td>Yes</td><td>Yes</td><td>Required</td><td>Rarely used (UDP is message-oriented)</td></tr>
+<tr><td><code>send</code></td><td>Yes</td><td>Yes</td><td>Required</td><td>sendto</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformsockethelpers"><a class="header" href="#platformsockethelpers"><code>PlatformSocketHelpers</code></a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>set_non_blocking</code></td><td>No</td><td>Yes</td><td>Required</td><td><strong>Critical</strong>: enables non-blocking <code>read</code></td></tr>
+<tr><td><code>accept</code></td><td>No (after <code>set_non_blocking</code>)</td><td>Yes</td><td>Optional</td><td>Server-mode only</td></tr>
+<tr><td><code>close</code></td><td>No</td><td>No</td><td>Required</td><td>Generic socket close</td></tr>
+<tr><td><code>wait_event</code></td><td>Yes</td><td>Yes</td><td>Required</td><td>Multi-threaded: yields to scheduler. Single-threaded: spins + <code>network_poll</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="platformudpmulticast-optional"><a class="header" href="#platformudpmulticast-optional"><code>PlatformUdpMulticast</code> (optional)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>mcast_open</code></td><td>Yes</td><td>Yes</td><td>Stub returns -1</td><td>Skipped on embedded targets without scouting</td></tr>
+<tr><td><code>mcast_listen</code></td><td>Yes</td><td>Yes</td><td>Stub returns -1</td><td>Same</td></tr>
+<tr><td><code>mcast_close</code></td><td>No</td><td>No</td><td>No-op</td><td></td></tr>
+<tr><td><code>mcast_read</code> / <code>mcast_read_exact</code></td><td>Varies</td><td>Yes</td><td>Stub returns <code>usize::MAX</code></td><td></td></tr>
+<tr><td><code>mcast_send</code></td><td>Yes</td><td>Yes</td><td>Stub returns <code>usize::MAX</code></td><td></td></tr>
 </tbody>
 </table>
 </div>
@@ -320,158 +416,47 @@
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>network_poll</code></td><td><code>fn network_poll()</code></td><td>Poll smoltcp network stack for pending I/O</td></tr>
+<tr><td><code>network_poll</code></td><td>No</td><td>No</td><td>OS-driven platforms: no-op</td><td>Advances smoltcp once; called by <code>sleep_*</code> and <code>wait_event</code></td></tr>
 </tbody>
 </table>
 </div>
-<p>Not required for platforms with OS-level networking (POSIX, Zephyr, NuttX, FreeRTOS, ThreadX).</p>
-<h3 id="platformtcp-zenoh-pico-networking"><a class="header" href="#platformtcp-zenoh-pico-networking"><code>PlatformTcp</code> (zenoh-pico networking)</a></h3>
-<p>TCP socket operations. Socket and endpoint parameters are opaque <code>*mut c_void</code> pointers to platform-specific types whose sizes are auto-detected from C headers at build time.</p>
+<h3 id="platformlibc-bare-metal-without-libc"><a class="header" href="#platformlibc-bare-metal-without-libc"><code>PlatformLibc</code> (bare-metal without libc)</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
+<tr><th>Method</th><th>Blocking?</th><th>May fail?</th><th>Unsupported fallback</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>create_endpoint</code></td><td><code>fn create_endpoint(ep, address, port) -&gt; i8</code></td><td>Resolve address + port into an endpoint handle (getaddrinfo)</td></tr>
-<tr><td><code>free_endpoint</code></td><td><code>fn free_endpoint(ep)</code></td><td>Free endpoint resources (freeaddrinfo)</td></tr>
-<tr><td><code>open</code></td><td><code>fn open(sock, endpoint, timeout_ms) -&gt; i8</code></td><td>Open a TCP client connection</td></tr>
-<tr><td><code>listen</code></td><td><code>fn listen(sock, endpoint) -&gt; i8</code></td><td>Open a TCP listening socket</td></tr>
-<tr><td><code>close</code></td><td><code>fn close(sock)</code></td><td>Shutdown + close a TCP socket</td></tr>
-<tr><td><code>read</code></td><td><code>fn read(sock, buf, len) -&gt; usize</code></td><td>Read up to <code>len</code> bytes; <code>usize::MAX</code> on error</td></tr>
-<tr><td><code>read_exact</code></td><td><code>fn read_exact(sock, buf, len) -&gt; usize</code></td><td>Read exactly <code>len</code> bytes; <code>usize::MAX</code> on error</td></tr>
-<tr><td><code>send</code></td><td><code>fn send(sock, buf, len) -&gt; usize</code></td><td>Send <code>len</code> bytes; <code>usize::MAX</code> on error</td></tr>
+<tr><td><code>strlen</code>, <code>strcmp</code>, <code>strncmp</code>, <code>strchr</code>, <code>strncpy</code></td><td>No</td><td>No</td><td>Linker provides if libc present</td><td>Same semantics as the C standard</td></tr>
+<tr><td><code>memcpy</code>, <code>memmove</code>, <code>memset</code>, <code>memcmp</code>, <code>memchr</code></td><td>No</td><td>No</td><td>Same</td><td>Same</td></tr>
+<tr><td><code>strtoul</code></td><td>No</td><td>Yes (errno)</td><td>Same</td><td>Used by zenoh-pico to parse locator strings</td></tr>
+<tr><td><code>errno_ptr</code></td><td>No</td><td>No</td><td>Same</td><td>Returns pointer to thread-local (or static) errno</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="platformudp-zenoh-pico-networking"><a class="header" href="#platformudp-zenoh-pico-networking"><code>PlatformUdp</code> (zenoh-pico networking)</a></h3>
-<p>UDP unicast socket operations.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>create_endpoint</code></td><td><code>fn create_endpoint(ep, address, port) -&gt; i8</code></td><td>Resolve address + port (SOCK_DGRAM)</td></tr>
-<tr><td><code>free_endpoint</code></td><td><code>fn free_endpoint(ep)</code></td><td>Free endpoint resources</td></tr>
-<tr><td><code>open</code></td><td><code>fn open(sock, endpoint, timeout_ms) -&gt; i8</code></td><td>Open a UDP socket</td></tr>
-<tr><td><code>close</code></td><td><code>fn close(sock)</code></td><td>Close a UDP socket</td></tr>
-<tr><td><code>read</code></td><td><code>fn read(sock, buf, len) -&gt; usize</code></td><td>Receive up to <code>len</code> bytes (recvfrom)</td></tr>
-<tr><td><code>read_exact</code></td><td><code>fn read_exact(sock, buf, len) -&gt; usize</code></td><td>Receive exactly <code>len</code> bytes</td></tr>
-<tr><td><code>send</code></td><td><code>fn send(sock, buf, len, endpoint) -&gt; usize</code></td><td>Send <code>len</code> bytes to endpoint (sendto)</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="platformsockethelpers-zenoh-pico-networking"><a class="header" href="#platformsockethelpers-zenoh-pico-networking"><code>PlatformSocketHelpers</code> (zenoh-pico networking)</a></h3>
-<p>Cross-cutting socket operations used by zenoh-pico’s transport layer.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>set_non_blocking</code></td><td><code>fn set_non_blocking(sock) -&gt; i8</code></td><td>Set socket to non-blocking mode</td></tr>
-<tr><td><code>accept</code></td><td><code>fn accept(sock_in, sock_out) -&gt; i8</code></td><td>Accept a pending connection</td></tr>
-<tr><td><code>close</code></td><td><code>fn close(sock)</code></td><td>Close a socket (shutdown + close)</td></tr>
-<tr><td><code>wait_event</code></td><td><code>fn wait_event(peers, mutex) -&gt; i8</code></td><td>Wait for socket events; yields on multi-threaded platforms</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="platformudpmulticast-zenoh-pico-networking-desktop-platforms"><a class="header" href="#platformudpmulticast-zenoh-pico-networking-desktop-platforms"><code>PlatformUdpMulticast</code> (zenoh-pico networking, desktop platforms)</a></h3>
-<p>UDP multicast for zenoh scouting. Not required on embedded platforms that use <code>tcp/</code> locators with scouting disabled.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>mcast_open</code></td><td><code>fn mcast_open(sock, endpoint, lep, timeout_ms, iface) -&gt; i8</code></td><td>Open multicast socket + join group</td></tr>
-<tr><td><code>mcast_listen</code></td><td><code>fn mcast_listen(sock, endpoint, timeout_ms, iface, join) -&gt; i8</code></td><td>Listen on multicast group</td></tr>
-<tr><td><code>mcast_close</code></td><td><code>fn mcast_close(sockrecv, socksend, rep, lep)</code></td><td>Leave group + close sockets</td></tr>
-<tr><td><code>mcast_read</code></td><td><code>fn mcast_read(sock, buf, len, lep, addr) -&gt; usize</code></td><td>Receive multicast datagram</td></tr>
-<tr><td><code>mcast_read_exact</code></td><td><code>fn mcast_read_exact(sock, buf, len, lep, addr) -&gt; usize</code></td><td>Receive exact bytes</td></tr>
-<tr><td><code>mcast_send</code></td><td><code>fn mcast_send(sock, buf, len, endpoint) -&gt; usize</code></td><td>Send multicast datagram</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="networking-implementation-status"><a class="header" href="#networking-implementation-status">Networking implementation status</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Platform</th><th>TCP</th><th>UDP</th><th>Multicast</th><th>Socket Helpers</th><th>Implementation</th></tr>
-</thead>
-<tbody>
-<tr><td>POSIX</td><td>Rust</td><td>Rust</td><td>Rust</td><td>Rust</td><td><code>nros-platform-posix/src/net.rs</code> via libc</td></tr>
-<tr><td>Bare-metal</td><td>Rust</td><td>Rust</td><td>—</td><td>Rust</td><td>Board platform crates via nros-smoltcp</td></tr>
-<tr><td>FreeRTOS</td><td>Rust</td><td>Rust</td><td>—</td><td>Rust</td><td><code>nros-platform-freertos/src/net.rs</code> via lwIP (freertos-lwip-sys)</td></tr>
-<tr><td>Zephyr</td><td>Rust</td><td>Rust</td><td>stubbed</td><td>Rust</td><td><code>nros-platform-zephyr/src/net.rs</code> via Zephyr POSIX sockets</td></tr>
-<tr><td>NuttX</td><td>C</td><td>C</td><td>C</td><td>C</td><td>zenoh-pico <code>unix/network.c</code> (POSIX-compatible)</td></tr>
-<tr><td>ThreadX</td><td>C</td><td>C</td><td>—</td><td>C</td><td><code>c/platform/threadx/network.c</code> via NetX Duo BSD</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="platformnetworkpoll-bare-metal-only-1"><a class="header" href="#platformnetworkpoll-bare-metal-only-1"><code>PlatformNetworkPoll</code> (bare-metal only)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>network_poll</code></td><td><code>fn network_poll()</code></td><td>Poll smoltcp network stack for pending I/O</td></tr>
-</tbody>
-</table>
-</div>
-<p>Not required for platforms with OS-level networking (POSIX, Zephyr, NuttX, FreeRTOS, ThreadX).</p>
-<h3 id="platformlibc-bare-metal-only"><a class="header" href="#platformlibc-bare-metal-only"><code>PlatformLibc</code> (bare-metal only)</a></h3>
-<p>Standard C library functions needed by zenoh-pico on targets without a C runtime. Provides <code>strlen</code>, <code>strcmp</code>, <code>strncmp</code>, <code>strchr</code>, <code>strncpy</code>, <code>memcpy</code>, <code>memmove</code>, <code>memset</code>, <code>memcmp</code>, <code>memchr</code>, <code>strtoul</code>, <code>errno_ptr</code>.</p>
-<h2 id="platform-implementations"><a class="header" href="#platform-implementations">Platform Implementations</a></h2>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Crate</th><th>Target</th><th>Clock Source</th><th>Allocator</th><th>Threading</th><th>Networking</th></tr>
-</thead>
-<tbody>
-<tr><td><code>nros-platform-posix</code></td><td>Linux/macOS</td><td><code>clock_gettime</code></td><td>libc <code>malloc</code></td><td>pthreads</td><td>libc BSD sockets (Rust)</td></tr>
-<tr><td><code>nros-platform-nuttx</code></td><td>NuttX QEMU</td><td>POSIX (alias)</td><td>libc <code>malloc</code></td><td>pthreads</td><td>zenoh-pico C <code>network.c</code></td></tr>
-<tr><td><code>nros-platform-freertos</code></td><td>FreeRTOS</td><td><code>xTaskGetTickCount</code></td><td><code>pvPortMalloc</code></td><td>FreeRTOS tasks</td><td>lwIP via freertos-lwip-sys (Rust)</td></tr>
-<tr><td><code>nros-platform-threadx</code></td><td>ThreadX</td><td><code>tx_time_get</code></td><td><code>tx_byte_allocate</code></td><td>ThreadX threads</td><td>NetX Duo C <code>network.c</code></td></tr>
-<tr><td><code>nros-platform-zephyr</code></td><td>Zephyr</td><td><code>k_uptime_get</code></td><td><code>k_malloc</code></td><td>Zephyr POSIX pthreads</td><td>Zephyr POSIX sockets (Rust)</td></tr>
-<tr><td><code>nros-platform-mps2-an385</code></td><td>Cortex-M3</td><td>CMSDK Timer0</td><td>bump allocator</td><td>single-threaded</td><td>nros-smoltcp (Rust)</td></tr>
-<tr><td><code>nros-platform-stm32f4</code></td><td>STM32F4</td><td>DWT cycle counter</td><td>bump allocator</td><td>single-threaded</td><td>nros-smoltcp (Rust)</td></tr>
-<tr><td><code>nros-platform-esp32</code></td><td>ESP32</td><td><code>esp_timer_get_time</code></td><td>bump allocator</td><td>single-threaded</td><td>nros-smoltcp (Rust)</td></tr>
-<tr><td><code>nros-platform-esp32-qemu</code></td><td>ESP32 QEMU</td><td><code>esp_timer_get_time</code></td><td>bump allocator</td><td>single-threaded</td><td>nros-smoltcp (Rust)</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="compile-time-resolution"><a class="header" href="#compile-time-resolution">Compile-Time Resolution</a></h2>
-<p>Exactly one platform feature must be enabled. The <code>ConcretePlatform</code> type alias resolves to the active backend:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// In nros-platform/src/resolve.rs:
-#[cfg(feature = "platform-posix")]
-pub type ConcretePlatform = nros_platform_posix::PosixPlatform;
-
-#[cfg(feature = "platform-freertos")]
-pub type ConcretePlatform = nros_platform_freertos::FreeRtosPlatform;
-
-#[cfg(feature = "platform-threadx")]
-pub type ConcretePlatform = nros_platform_threadx::ThreadxPlatform;
-// ... etc.
-<span class="boring">}</span></code></pre>
-<p>RMW shim crates use <code>ConcretePlatform</code> directly — no dynamic dispatch, no generics propagation. The forwarding from RMW-layer C symbols to platform trait methods is handled internally by nano-ros and is transparent to platform implementors.</p>
+<h2 id="cross-cutting-rules"><a class="header" href="#cross-cutting-rules">Cross-cutting rules</a></h2>
+<p>Two contract rules apply to every trait method:</p>
+<ol>
+<li>
+<p><strong>Reentrancy.</strong> Methods may be called from any context the executor enters: a publisher callback, a service handler, or directly from user code. Implementations must not assume a particular calling thread or critical-section state. Single-threaded platforms get this for free; RTOS platforms must use reentrant primitives.</p>
+</li>
+<li>
+<p><strong>No panics across the FFI boundary.</strong> All trait methods are exposed to C through the shim crates. Panicking through C is undefined behavior. Implementations return error codes (or <code>usize::MAX</code> for byte counts) instead of panicking. The exception is <code>PlatformClock</code> – if the clock cannot be read, the system is fundamentally broken and there is nothing useful to return.</p>
+</li>
+</ol>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../reference/rmw-api.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../design/client-library.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../reference/environment-variables.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../internals/rmw-zenoh-protocol.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -481,11 +466,11 @@ pub type ConcretePlatform = nros_platform_threadx::ThreadxPlatform;
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../reference/rmw-api.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../design/client-library.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../reference/environment-variables.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../internals/rmw-zenoh-protocol.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
