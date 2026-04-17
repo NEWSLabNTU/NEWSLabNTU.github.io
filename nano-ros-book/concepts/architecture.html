@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-213e8e56.js";
+            window.path_to_searchindex_js = "../searchindex-a14b6c41.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-64d92d4c.js"></script>
+        <script src="../toc-2cbf73c5.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -224,14 +224,28 @@
     N["C vtable"]
   end
 
+  space:3
+
+  block:platform:3
+    O["nros-platform (traits + shims)"]
+  end
+
+  space:3
+
+  block:hw:3
+    P["nros-platform-posix / freertos / zephyr / ..."]
+  end
+
   app --&gt; facade
   facade --&gt; core
   core --&gt; rmw
   rmw --&gt; backends
   backends --&gt; transport
+  transport --&gt; platform
+  platform --&gt; hw
 </pre>
 
-<p>Applications depend on the nano-ros facade crate (<code>nros</code>), which re-exports everything and enforces compile-time mutual exclusivity of feature axes. The core library stack is middleware-agnostic. Only the RMW backend crates know about specific transport protocols.</p>
+<p>Applications depend on the nano-ros facade crate (<code>nros</code>), which re-exports everything and enforces compile-time mutual exclusivity of feature axes. The core library stack is middleware-agnostic. Only the RMW backend crates know about specific transport protocols. The <strong>platform layer</strong> (<code>nros-platform</code>) provides a unified trait interface for clock, memory, threading, and networking — the transport layer calls platform functions through thin shim crates (<code>zpico-platform-shim</code>, <code>xrce-platform-shim</code>) that forward to the active platform implementation. See the <a href="../reference/platform-api.html">Platform API Reference</a> for trait details and the <a href="../guides/platform-customization.html">Platform Customization Guide</a> for which crates to modify.</p>
 <h2 id="crate-dependency-graph"><a class="header" href="#crate-dependency-graph">Crate Dependency Graph</a></h2>
 <pre class="mermaid">graph TD
     subgraph "User Code"
@@ -256,7 +270,7 @@
     subgraph "Zenoh Backend"
         RMW_Z["nros-rmw-zenoh&lt;br/&gt;&lt;i&gt;ZenohSession, keyexpr, liveliness&lt;/i&gt;"]
         ZPICO["zpico-sys&lt;br/&gt;&lt;i&gt;C shim + zenoh-pico&lt;/i&gt;"]
-        ZSMOL["zpico-smoltcp&lt;br/&gt;&lt;i&gt;TCP/UDP via smoltcp&lt;/i&gt;"]
+        NSMOL["nros-smoltcp&lt;br/&gt;&lt;i&gt;TCP/UDP via smoltcp&lt;/i&gt;"]
         ZPSHIM["zpico-platform-shim&lt;br/&gt;&lt;i&gt;z_* → ConcretePlatform&lt;/i&gt;"]
     end
 
@@ -268,8 +282,8 @@
     end
 
     subgraph "Platform Layer"
-        NPLAT["nros-platform&lt;br/&gt;&lt;i&gt;PlatformOps trait + ConcretePlatform alias&lt;/i&gt;"]
-        NPLATIMPL["nros-platform-*&lt;br/&gt;&lt;i&gt;clock, memory, sleep, random, threading&lt;/i&gt;"]
+        NPLAT["nros-platform&lt;br/&gt;&lt;i&gt;PlatformClock, PlatformTcp, PlatformUdp, ... traits&lt;br/&gt;+ ConcretePlatform alias&lt;/i&gt;"]
+        NPLATIMPL["nros-platform-posix / freertos / zephyr / threadx / nuttx&lt;br/&gt;nros-platform-mps2-an385 / stm32f4 / esp32&lt;br/&gt;&lt;i&gt;clock, memory, sleep, random, threading, networking&lt;/i&gt;"]
     end
 
     subgraph "Board Crates"
@@ -307,7 +321,7 @@
 
     RMW_Z --&gt; RMW
     RMW_Z --&gt; ZPICO
-    ZPICO --&gt; ZSMOL
+    ZPICO --&gt; NSMOL
     ZPICO --&gt; ZPSHIM
     ZPSHIM --&gt; NPLAT
 
@@ -323,7 +337,7 @@
     BOARD --&gt; NPLAT
     BOARD --&gt; NPLATIMPL
     BOARD --&gt; ZPSHIM
-    BOARD --&gt; ZSMOL
+    BOARD --&gt; NSMOL
     BOARD --&gt; DRV
 
     style NROS fill:#1864ab,color:#fff
@@ -477,20 +491,7 @@ nros = { features = ["rmw-zenoh", "platform-posix", "ros-humble", "std"] }
 <h3 id="const-generic-zero-cost-opt-out"><a class="header" href="#const-generic-zero-cost-opt-out">Const-Generic Zero-Cost Opt-Out</a></h3>
 <p>When <code>MAX_CBS = 0</code> and <code>CB_ARENA = 0</code>, the arrays are zero-sized. This means manual-polling code (using <code>create_node()</code> + <code>try_recv()</code> without callbacks) pays zero overhead for the callback infrastructure.</p>
 <h3 id="spin-variants"><a class="header" href="#spin-variants">Spin Variants</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Method</th><th><code>no_std</code></th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>spin_once(timeout_ms)</code></td><td>Yes</td><td>Single iteration: drive I/O, dispatch ready callbacks</td></tr>
-<tr><td><code>spin_one_period(period_ms, elapsed_ms)</code></td><td>Yes</td><td>Caller-timed loop (caller provides clock + sleep)</td></tr>
-<tr><td><code>spin_blocking(SpinOptions)</code></td><td>No</td><td>Loop with optional timeout/max_callbacks</td></tr>
-<tr><td><code>spin_period(Duration)</code></td><td>No</td><td>Wall-clock-timed loop</td></tr>
-<tr><td><code>spin_async()</code></td><td>Yes</td><td>Yields between iterations via <code>poll_fn</code>; works with Embassy, tokio</td></tr>
-</tbody>
-</table>
-</div>
+<p>The executor provides several spin strategies (<code>spin_once</code>, <code>spin_blocking</code>, <code>spin_period</code>, <code>spin_async</code>) for different deployment scenarios. See <a href="../reference/rust-api.html#spin-methods">Rust API Reference: Spin Methods</a> for the full list with signatures and <code>no_std</code> compatibility.</p>
 <h3 id="node-factory"><a class="header" href="#node-factory">Node Factory</a></h3>
 <p><code>Node&lt;'a, S&gt;</code> borrows the session from the executor and creates typed communication handles:</p>
 <pre class="mermaid">graph LR
@@ -584,22 +585,7 @@ nros = { features = ["rmw-zenoh", "platform-posix", "ros-humble", "std"] }
 </table>
 </div>
 <h3 id="platform-primitives"><a class="header" href="#platform-primitives">Platform Primitives</a></h3>
-<p>Each platform provides OS-level primitives that the transport libraries (zenoh-pico, XRCE-DDS) require at link time:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Primitive</th><th>POSIX</th><th>Bare-metal</th><th>FreeRTOS</th><th>NuttX</th><th>ThreadX</th><th>Zephyr</th></tr>
-</thead>
-<tbody>
-<tr><td>Threading</td><td>pthreads</td><td>N/A (single-threaded)</td><td>xTaskCreate</td><td>pthreads</td><td>tx_thread_create</td><td>k_thread_create</td></tr>
-<tr><td>Mutex</td><td>pthread_mutex</td><td>spin / critical-section</td><td>xSemaphore</td><td>pthread_mutex</td><td>tx_mutex</td><td>k_mutex</td></tr>
-<tr><td>Clock</td><td>clock_gettime</td><td>DWT / cycle counter</td><td>xTaskGetTickCount</td><td>clock_gettime</td><td>tx_time_get</td><td>k_uptime_get</td></tr>
-<tr><td>Sleep</td><td>usleep</td><td>busy-wait</td><td>vTaskDelay</td><td>usleep</td><td>tx_thread_sleep</td><td>k_sleep</td></tr>
-<tr><td>Network</td><td>BSD sockets</td><td>smoltcp</td><td>lwIP</td><td>BSD sockets</td><td>NetX Duo</td><td>Zephyr sockets</td></tr>
-<tr><td>RNG</td><td>/dev/urandom</td><td>IP-seeded PRNG</td><td>IP-seeded srand()</td><td>/dev/urandom</td><td>IP-seeded</td><td>sys_rand32_get</td></tr>
-</tbody>
-</table>
-</div>
+<p>Each platform provides OS-level primitives (clock, memory, sleep, random, threading, networking) that the transport libraries require at link time. See the <a href="../reference/platform-api.html">Platform API Reference</a> for the full trait definitions and per-platform implementation details.</p>
 <h2 id="c-api"><a class="header" href="#c-api">C API</a></h2>
 <p><code>nros-c</code> is a thin FFI wrapper over <code>nros-node</code>, following the rclc naming convention. C headers are auto-generated by cbindgen from <code>#[repr(C)]</code> types.</p>
 <pre class="mermaid">graph TD

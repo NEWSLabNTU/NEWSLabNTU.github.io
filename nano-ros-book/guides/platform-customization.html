@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Zephyr - nano-ros Book</title>
+        <title>Platform Customization - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,290 +177,211 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="zephyr"><a class="header" href="#zephyr">Zephyr</a></h1>
-<p>Complete setup procedure for Zephyr native_sim testing with TAP networking.</p>
-<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
-<p>nros uses a <strong>sibling Zephyr workspace</strong> alongside the repository. A symlink inside nros provides a stable path for scripts to locate the workspace.</p>
-<pre><code>repos/
-├── nros/                     # Your repository
-│   ├── scripts/zephyr/
-│   │   ├── setup.sh              # Initialize workspace
-│   │   ├── setup-network.sh      # Configure bridge network
-│   │   ├── downloads/            # SDK tarball cache (gitignored)
-│   │   └── sdk/                  # Installed Zephyr SDK (gitignored)
-│   ├── zephyr/                   # Zephyr module definition
-│   │   ├── Kconfig               # RMW backend, API selection, tuning
-│   │   ├── CMakeLists.txt        # Transport C sources + nros-c build
-│   │   └── cmake/                # nros_cargo_build(), nros_generate_interfaces()
-│   ├── examples/zephyr/
-│   │   ├── rust/zenoh/           # Rust + zenoh (talker, listener, ...)
-│   │   ├── rust/xrce/            # Rust + XRCE-DDS (talker, listener)
-│   │   ├── c/zenoh/              # C + zenoh (talker, listener)
-│   │   └── c/xrce/              # C + XRCE-DDS (talker, listener)
-│   ├── zephyr-workspace -&gt; ../nano-ros-workspace/  # Symlink (gitignored)
-│   └── west.yml                  # West manifest
-│
-└── nano-ros-workspace/           # Created by setup script
-    ├── nros -&gt; ../nros   # Symlink to your repo
-    ├── zephyr/                   # Zephyr RTOS v3.7.0
-    └── modules/                  # HALs, zephyr-lang-rust
+                        <h1 id="platform-customization-guide"><a class="header" href="#platform-customization-guide">Platform Customization Guide</a></h1>
+<p>This guide classifies every nano-ros package by its role in the architecture and explains which packages you modify, which you leave alone, and where the trait boundary sits between them.</p>
+<h2 id="customization-boundary"><a class="header" href="#customization-boundary">Customization Boundary</a></h2>
+<p>nano-ros is split into a <strong>core layer</strong> that never changes and a <strong>user layer</strong> that you customize per target. The boundary between them is a set of Rust traits defined in <code>nros-platform</code> (<code>packages/core/nros-platform/src/traits.rs</code>).</p>
+<pre><code>+============================================================+
+|                     YOUR APPLICATION                        |
++============================================================+
+|              Board Crate (nros-&lt;board&gt;)                     |
+|         Config, run(), HW init, network stack               |
++------------------------------------------------------------+
+|          Platform Crate (nros-platform-&lt;name&gt;)              |
+|    Implements: PlatformClock, PlatformAlloc, PlatformSleep, |
+|    PlatformRandom, PlatformTime, PlatformThreading,         |
+|    PlatformTcp, PlatformUdp, PlatformNetworkPoll, ...       |
++------------------------------------------------------------+
+|          Driver Crate (lan9118-smoltcp, etc.)               |
+|             smoltcp Device / lwIP / NetX Duo                |
++============================================================+
+                    TRAIT BOUNDARY
+              (nros-platform traits.rs)
++============================================================+
+|          zpico-platform-shim / xrce-platform-shim           |
+|      Maps z_* / uxr_* FFI symbols to ConcretePlatform       |
++------------------------------------------------------------+
+|              RMW Backend (nros-rmw-zenoh, etc.)             |
++------------------------------------------------------------+
+|          Core Library (nros-node, nros-core, nros-rmw, ...) |
++============================================================+
 </code></pre>
-<p>The <code>zephyr-workspace</code> symlink allows scripts to find the workspace without hardcoding paths.
-For custom workspace locations, update the symlink:</p>
-<pre><code class="language-bash">ln -sfn /path/to/custom-workspace zephyr-workspace
-</code></pre>
-<h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
-<p>Install system packages (Ubuntu/Debian):</p>
-<pre><code class="language-bash">sudo apt install python3 python3-pip python3-venv cmake ninja-build aria2 git
-</code></pre>
-<p>Install Rust (if not already):</p>
-<pre><code class="language-bash">curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-</code></pre>
-<h2 id="step-1-initialize-workspace-one-time"><a class="header" href="#step-1-initialize-workspace-one-time">Step 1: Initialize Workspace (One-Time)</a></h2>
-<pre><code class="language-bash">just zephyr setup
-</code></pre>
-<p>This recipe automatically:</p>
+<p>Everything above the trait boundary is yours to write or modify. Everything below it is fixed – your platform crate implements the traits, and the core consumes them through the <code>ConcretePlatform</code> type alias resolved at compile time in <code>nros-platform/src/resolve.rs</code>.</p>
+<h2 id="package-classification"><a class="header" href="#package-classification">Package Classification</a></h2>
+<h3 id="core-do-not-modify"><a class="header" href="#core-do-not-modify">Core (do not modify)</a></h3>
+<p>These crates form the stable core of nano-ros. They are generic over the platform and RMW backend, contain no hardware-specific code, and should never need modification for a new port.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Package</th><th>Path</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros</code></td><td><code>packages/core/nros</code></td><td>Facade crate: re-exports + feature-axis enforcement</td></tr>
+<tr><td><code>nros-core</code></td><td><code>packages/core/nros-core</code></td><td><code>RosMessage</code>, <code>RosService</code>, <code>RosAction</code> traits</td></tr>
+<tr><td><code>nros-serdes</code></td><td><code>packages/core/nros-serdes</code></td><td>CDR serialization (<code>CdrWriter</code>, <code>CdrReader</code>)</td></tr>
+<tr><td><code>nros-macros</code></td><td><code>packages/core/nros-macros</code></td><td><code>#[derive(RosMessage)]</code> proc macro</td></tr>
+<tr><td><code>nros-node</code></td><td><code>packages/core/nros-node</code></td><td>Executor, Node, pub/sub/service/action handles</td></tr>
+<tr><td><code>nros-params</code></td><td><code>packages/core/nros-params</code></td><td>Parameter server</td></tr>
+<tr><td><code>nros-rmw</code></td><td><code>packages/core/nros-rmw</code></td><td>RMW trait definitions (<code>Session</code>, <code>Publisher</code>, <code>Subscriber</code>)</td></tr>
+<tr><td><code>nros-platform</code></td><td><code>packages/core/nros-platform</code></td><td>Platform trait definitions + <code>ConcretePlatform</code> alias</td></tr>
+<tr><td><code>zpico-sys</code></td><td><code>packages/zpico/zpico-sys</code></td><td>zenoh-pico C build + Rust FFI bindings</td></tr>
+<tr><td><code>xrce-sys</code></td><td><code>packages/xrce/xrce-sys</code></td><td>Micro-XRCE-DDS C build + Rust FFI bindings</td></tr>
+<tr><td><code>zpico-platform-shim</code></td><td>inside <code>zpico-sys</code></td><td>Maps 53 <code>z_*</code> FFI symbols to <code>ConcretePlatform</code></td></tr>
+<tr><td><code>xrce-platform-shim</code></td><td>inside <code>xrce-sys</code></td><td>Maps 2-3 <code>uxr_*</code> FFI symbols to <code>ConcretePlatform</code></td></tr>
+<tr><td><code>nros-c</code></td><td><code>packages/core/nros-c</code></td><td>C API (thin FFI wrapper over <code>nros-node</code>)</td></tr>
+<tr><td><code>nros-cpp</code></td><td><code>packages/core/nros-cpp</code></td><td>C++ API (header-only C++ + Rust FFI staticlib)</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="rmw-crates-one-per-middleware"><a class="header" href="#rmw-crates-one-per-middleware">RMW Crates (one per middleware)</a></h3>
+<p>Each RMW crate implements the <code>nros-rmw</code> traits for a specific transport protocol. You select one via Cargo features. To add a new transport (e.g., DDS, MQTT), create a new <code>nros-rmw-&lt;name&gt;</code> crate that implements <code>Session</code>, <code>Publisher</code>, <code>Subscriber</code>, etc.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Package</th><th>Path</th><th>Transport</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros-rmw-zenoh</code></td><td><code>packages/zpico/nros-rmw-zenoh</code></td><td>zenoh-pico (Zenoh protocol)</td></tr>
+<tr><td><code>nros-rmw-xrce</code></td><td><code>packages/xrce/nros-rmw-xrce</code></td><td>Micro-XRCE-DDS (DDS via agent)</td></tr>
+<tr><td><code>nros-rmw-cffi</code></td><td><code>packages/core/nros-rmw-cffi</code></td><td>C vtable adapter (third-party transports)</td></tr>
+</tbody>
+</table>
+</div>
+<p>See <a href="./adding-rmw-backend.html">Adding an RMW Backend</a> for details on creating a new RMW crate.</p>
+<h3 id="platform-crates-one-per-rtos"><a class="header" href="#platform-crates-one-per-rtos">Platform Crates (one per RTOS)</a></h3>
+<p>Platform crates implement the traits from <code>nros-platform/src/traits.rs</code>. Each crate provides clock, memory, sleep, random, and (for multi-threaded platforms) threading primitives for a specific OS or bare-metal environment.</p>
+<p><strong>RTOS-level platform crates</strong> (implement traits using RTOS APIs):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Package</th><th>Path</th><th>Target</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros-platform-posix</code></td><td><code>packages/core/nros-platform-posix</code></td><td>Linux, macOS (pthreads, BSD sockets)</td></tr>
+<tr><td><code>nros-platform-freertos</code></td><td><code>packages/core/nros-platform-freertos</code></td><td>FreeRTOS (xTaskCreate, xSemaphore, lwIP)</td></tr>
+<tr><td><code>nros-platform-nuttx</code></td><td><code>packages/core/nros-platform-nuttx</code></td><td>NuttX (POSIX-like API)</td></tr>
+<tr><td><code>nros-platform-threadx</code></td><td><code>packages/core/nros-platform-threadx</code></td><td>ThreadX (tx_thread, tx_mutex, NetX Duo)</td></tr>
+<tr><td><code>nros-platform-zephyr</code></td><td><code>packages/core/nros-platform-zephyr</code></td><td>Zephyr (k_thread, k_mutex, Zephyr sockets)</td></tr>
+<tr><td><code>nros-platform-cffi</code></td><td><code>packages/core/nros-platform-cffi</code></td><td>C function-pointer table (vendor-provided)</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Board-level platform crates</strong> (implement traits using bare-metal drivers):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Package</th><th>Path</th><th>Target</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros-platform-mps2-an385</code></td><td><code>packages/boards/nros-platform-mps2-an385</code></td><td>QEMU Cortex-M3 (DWT, smoltcp)</td></tr>
+<tr><td><code>nros-platform-stm32f4</code></td><td><code>packages/boards/nros-platform-stm32f4</code></td><td>STM32F4 (SysTick, smoltcp)</td></tr>
+<tr><td><code>nros-platform-esp32</code></td><td><code>packages/boards/nros-platform-esp32</code></td><td>ESP32-C3 (esp-hal timers, WiFi)</td></tr>
+<tr><td><code>nros-platform-esp32-qemu</code></td><td><code>packages/boards/nros-platform-esp32-qemu</code></td><td>QEMU ESP32-C3 (openeth, smoltcp)</td></tr>
+</tbody>
+</table>
+</div>
+<p>The distinction: RTOS-level crates are hardware-agnostic (FreeRTOS runs on many MCUs), while board-level crates are tied to specific hardware (bare-metal needs direct register access for clocks, Ethernet, etc.).</p>
+<h3 id="board-crates-one-per-hardware--rtos-combination"><a class="header" href="#board-crates-one-per-hardware--rtos-combination">Board Crates (one per hardware + RTOS combination)</a></h3>
+<p>Board crates are the user-facing entry point. They provide <code>Config</code>, <code>run()</code>, hardware initialization, and network stack setup. You write one for each target you want to support.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Package</th><th>Path</th><th>RTOS</th><th>Network</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros-mps2-an385</code></td><td><code>packages/boards/nros-mps2-an385</code></td><td>Bare-metal</td><td>smoltcp (LAN9118)</td></tr>
+<tr><td><code>nros-mps2-an385-freertos</code></td><td><code>packages/boards/nros-mps2-an385-freertos</code></td><td>FreeRTOS</td><td>lwIP (LAN9118)</td></tr>
+<tr><td><code>nros-stm32f4</code></td><td><code>packages/boards/nros-stm32f4</code></td><td>Bare-metal</td><td>smoltcp (STM32 Ethernet)</td></tr>
+<tr><td><code>nros-esp32</code></td><td><code>packages/boards/nros-esp32</code></td><td>Bare-metal</td><td>WiFi (esp-hal)</td></tr>
+<tr><td><code>nros-esp32-qemu</code></td><td><code>packages/boards/nros-esp32-qemu</code></td><td>Bare-metal</td><td>smoltcp (openeth)</td></tr>
+<tr><td><code>nros-nuttx-qemu-arm</code></td><td><code>packages/boards/nros-nuttx-qemu-arm</code></td><td>NuttX</td><td>BSD sockets</td></tr>
+<tr><td><code>nros-threadx-qemu-riscv64</code></td><td><code>packages/boards/nros-threadx-qemu-riscv64</code></td><td>ThreadX</td><td>NetX Duo (VirtIO)</td></tr>
+<tr><td><code>nros-threadx-linux</code></td><td><code>packages/boards/nros-threadx-linux</code></td><td>ThreadX</td><td>veth sockets</td></tr>
+</tbody>
+</table>
+</div>
+<p>See <a href="./board-crate.html">Board Crate Implementation</a> for the full guide on creating a new board crate.</p>
+<h3 id="driver-crates"><a class="header" href="#driver-crates">Driver Crates</a></h3>
+<p>Peripheral drivers for network hardware. These implement smoltcp’s <code>Device</code> trait, lwIP’s driver interface, or NetX Duo’s driver callbacks.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Package</th><th>Path</th><th>Hardware</th><th>Stack</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros-smoltcp</code></td><td><code>packages/zpico/nros-smoltcp</code></td><td>Generic smoltcp utilities</td><td>smoltcp</td></tr>
+<tr><td><code>zpico-smoltcp</code></td><td><code>packages/zpico/zpico-smoltcp</code></td><td>smoltcp TCP/UDP bridge for zenoh-pico</td><td>smoltcp</td></tr>
+<tr><td><code>xrce-smoltcp</code></td><td><code>packages/xrce/xrce-smoltcp</code></td><td>smoltcp UDP transport for XRCE-DDS</td><td>smoltcp</td></tr>
+<tr><td><code>lan9118-smoltcp</code></td><td><code>packages/drivers/lan9118-smoltcp</code></td><td>LAN9118 Ethernet (QEMU, STM32F4)</td><td>smoltcp</td></tr>
+<tr><td><code>lan9118-lwip</code></td><td><code>packages/drivers/lan9118-lwip</code></td><td>LAN9118 Ethernet (FreeRTOS)</td><td>lwIP</td></tr>
+<tr><td><code>openeth-smoltcp</code></td><td><code>packages/drivers/openeth-smoltcp</code></td><td>Open Ethernet (QEMU ESP32)</td><td>smoltcp</td></tr>
+<tr><td><code>virtio-net-netx</code></td><td><code>packages/drivers/virtio-net-netx</code></td><td>VirtIO-Net (QEMU RISC-V)</td><td>NetX Duo</td></tr>
+<tr><td><code>zpico-serial</code></td><td><code>packages/zpico/zpico-serial</code></td><td>UART serial transport</td><td>N/A</td></tr>
+<tr><td><code>zpico-alloc</code></td><td><code>packages/zpico/zpico-alloc</code></td><td>Custom allocator for zenoh-pico</td><td>N/A</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="the-pattern"><a class="header" href="#the-pattern">The Pattern</a></h2>
+<p>The customization pattern is always the same:</p>
+<ol>
+<li>
+<p><strong>Implement platform traits</strong> in an <code>nros-platform-&lt;name&gt;</code> crate. Your struct (e.g., <code>FreeRtosPlatform</code>) implements whichever traits the RMW backend requires: <code>PlatformClock</code>, <code>PlatformAlloc</code>, <code>PlatformSleep</code>, <code>PlatformRandom</code>, <code>PlatformTime</code>, <code>PlatformThreading</code>, and optionally the networking traits (<code>PlatformTcp</code>, <code>PlatformUdp</code>).</p>
+</li>
+<li>
+<p><strong>Register via Cargo features.</strong> Add a <code>platform-&lt;name&gt;</code> feature to <code>nros-platform/Cargo.toml</code> that pulls in your crate as an optional dependency. Add a <code>ConcretePlatform</code> type alias in <code>resolve.rs</code> gated by that feature. The shim crates (<code>zpico-platform-shim</code>, <code>xrce-platform-shim</code>) automatically dispatch to your implementation through this alias.</p>
+</li>
+<li>
+<p><strong>Write a board crate</strong> that calls <code>init_hardware()</code>, sets up the network stack, and exposes <code>Config</code> + <code>run()</code>. This is where smoltcp/lwIP/NetX initialization lives.</p>
+</li>
+<li>
+<p><strong>Core crates are untouched.</strong> <code>nros-node</code>, <code>nros-core</code>, <code>nros-rmw-zenoh</code>, etc. compile and work without modification. They interact with your platform solely through the trait boundary.</p>
+</li>
+</ol>
+<h3 id="trait-requirements-by-rmw-backend"><a class="header" href="#trait-requirements-by-rmw-backend">Trait Requirements by RMW Backend</a></h3>
+<p>Not every trait is needed. The requirements depend on which RMW backend you use:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Trait</th><th>zenoh-pico</th><th>XRCE-DDS</th></tr>
+</thead>
+<tbody>
+<tr><td><code>PlatformClock</code></td><td>Required</td><td>Required</td></tr>
+<tr><td><code>PlatformAlloc</code></td><td>Required (~64 KB heap)</td><td>Not needed</td></tr>
+<tr><td><code>PlatformSleep</code></td><td>Required</td><td>Not needed</td></tr>
+<tr><td><code>PlatformRandom</code></td><td>Required</td><td>Not needed</td></tr>
+<tr><td><code>PlatformTime</code></td><td>Required (logging)</td><td>Not needed</td></tr>
+<tr><td><code>PlatformThreading</code></td><td>Required (multi-threaded)</td><td>Not needed</td></tr>
+<tr><td><code>PlatformTcp</code></td><td>Required (TCP transport)</td><td>Not needed</td></tr>
+<tr><td><code>PlatformUdp</code></td><td>Required (UDP transport)</td><td>Custom callbacks</td></tr>
+<tr><td><code>PlatformNetworkPoll</code></td><td>Bare-metal only</td><td>Not needed</td></tr>
+<tr><td><code>PlatformLibc</code></td><td>Bare-metal only</td><td>Not needed</td></tr>
+</tbody>
+</table>
+</div>
+<p>XRCE-DDS is significantly simpler to port because it is single-threaded, heap-free, and uses user-provided transport callbacks rather than a socket API.</p>
+<h2 id="common-customization-scenarios"><a class="header" href="#common-customization-scenarios">Common Customization Scenarios</a></h2>
+<p><strong>Adding a new RTOS:</strong> Create <code>nros-platform-&lt;rtos&gt;</code> implementing the traits using your RTOS APIs. Register the feature in <code>nros-platform/Cargo.toml</code> and <code>resolve.rs</code>. Then create a board crate for your target hardware. See <a href="./porting-platform/README.html">Porting to a New Platform</a>.</p>
+<p><strong>Adding a new board on an existing RTOS:</strong> Create a board crate that depends on the existing <code>nros-platform-&lt;rtos&gt;</code>. Write the hardware init (clocks, Ethernet driver, network stack). See <a href="./board-crate.html">Board Crate Implementation</a>.</p>
+<p><strong>Adding a new Ethernet driver:</strong> Create a driver crate in <code>packages/drivers/</code> implementing smoltcp’s <code>Device</code> trait (or lwIP/NetX driver interface). Use it from your board crate.</p>
+<p><strong>Adding a new RMW transport:</strong> Create <code>nros-rmw-&lt;name&gt;</code> implementing the <code>Session</code> trait from <code>nros-rmw</code>. Add a feature to the <code>nros</code> facade. See <a href="./adding-rmw-backend.html">Adding an RMW Backend</a>.</p>
+<h2 id="related-documentation"><a class="header" href="#related-documentation">Related Documentation</a></h2>
 <ul>
-<li>Installs <code>west</code> and Python tools</li>
-<li>Downloads Zephyr SDK (~1.5 GB) to <code>scripts/zephyr/downloads/</code> using aria2c (parallel, resumable)</li>
-<li>Verifies download with sha256sum</li>
-<li>Installs SDK to <code>scripts/zephyr/sdk/</code></li>
-<li>Creates sibling workspace <code>../nano-ros-workspace/</code></li>
-<li>Symlinks nros into the workspace</li>
-<li>Fetches Zephyr RTOS and all modules</li>
-<li>Installs Rust embedded targets</li>
-<li>Creates <code>env.sh</code> for environment setup</li>
+<li><a href="../concepts/architecture.html">Architecture</a> – full crate dependency graph and layer diagram</li>
+<li><a href="../concepts/platform-model.html">Platform Model</a> – conceptual overview of the three feature axes</li>
+<li><a href="./porting-platform/README.html">Porting to a New Platform</a> – step-by-step guide for new RTOS ports</li>
+<li><a href="./board-crate.html">Board Crate Implementation</a> – how to write <code>Config</code>, <code>run()</code>, and hardware init</li>
+<li><a href="../reference/platform-api.html">Platform API Reference</a> – complete trait signatures and method documentation</li>
 </ul>
-<p><strong>Options:</strong></p>
-<pre><code class="language-bash">just zephyr setup --skip-sdk    # Skip SDK download/install
-just zephyr setup --force       # Recreate existing workspace
-</code></pre>
-<h2 id="step-2-configure-bridge-network-one-time-requires-sudo"><a class="header" href="#step-2-configure-bridge-network-one-time-requires-sudo">Step 2: Configure Bridge Network (One-Time, Requires Sudo)</a></h2>
-<pre><code class="language-bash">sudo ./scripts/zephyr/setup-network.sh
-</code></pre>
-<p>This creates a bridge network for Zephyr to Host communication:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Interface</th><th>IP Address</th><th>Role</th></tr>
-</thead>
-<tbody>
-<tr><td><code>zeth-br</code> (bridge)</td><td>192.0.2.2</td><td>Host applications (zenohd, XRCE Agent)</td></tr>
-<tr><td><code>zeth0</code> (TAP)</td><td>–</td><td>Talker Zephyr instances</td></tr>
-<tr><td><code>zeth1</code> (TAP)</td><td>–</td><td>Listener Zephyr instances</td></tr>
-<tr><td>Zephyr talker</td><td>192.0.2.1</td><td>Application (on zeth0)</td></tr>
-<tr><td>Zephyr listener</td><td>192.0.2.3</td><td>Application (on zeth1)</td></tr>
-</tbody>
-</table>
-</div>
-<p>The interfaces are owned by your user, so Zephyr runs <strong>without sudo</strong> afterward.</p>
-<p><strong>Verify setup:</strong></p>
-<pre><code class="language-bash">ip addr show zeth-br
-# Should show: inet 192.0.2.2/24
-</code></pre>
-<p><strong>Teardown (if needed):</strong></p>
-<pre><code class="language-bash">sudo ./scripts/zephyr/setup-network.sh --down
-</code></pre>
-<h2 id="step-3-build-and-run-zephyr-examples"><a class="header" href="#step-3-build-and-run-zephyr-examples">Step 3: Build and Run Zephyr Examples</a></h2>
-<pre><code class="language-bash"># Source environment
-source ../nano-ros-workspace/env.sh
-
-# Build Zephyr talker (Rust + zenoh, default backend)
-cd ../nano-ros-workspace
-west build -b native_sim/native/64 nros/examples/zephyr/rust/zenoh/talker
-
-# Run (no sudo needed)
-./build/zephyr/zephyr.exe
-</code></pre>
-<h2 id="rmw-backend-selection"><a class="header" href="#rmw-backend-selection">RMW Backend Selection</a></h2>
-<p>nros supports two RMW backends on Zephyr, selected via <code>prj.conf</code>:</p>
-<h3 id="zenoh-default"><a class="header" href="#zenoh-default">Zenoh (default)</a></h3>
-<p>Connects to a zenoh router. Requires POSIX API for zenoh-pico threads.</p>
-<pre><code class="language-ini">CONFIG_NROS=y
-# CONFIG_NROS_RMW_ZENOH=y  # default, can be omitted
-CONFIG_NROS_ZENOH_LOCATOR="tcp/192.0.2.2:7456"
-CONFIG_POSIX_API=y
-CONFIG_MAX_PTHREAD_MUTEX_COUNT=32
-CONFIG_MAX_PTHREAD_COND_COUNT=16
-</code></pre>
-<h3 id="xrce-dds"><a class="header" href="#xrce-dds">XRCE-DDS</a></h3>
-<p>Connects to a Micro-XRCE-DDS Agent over UDP. Requires BSD sockets.</p>
-<pre><code class="language-ini">CONFIG_NROS=y
-CONFIG_NROS_RMW_XRCE=y
-CONFIG_NROS_XRCE_AGENT_ADDR="192.0.2.2"
-CONFIG_NROS_XRCE_AGENT_PORT=2018
-CONFIG_NET_SOCKETS=y
-</code></pre>
-<h2 id="api-selection"><a class="header" href="#api-selection">API Selection</a></h2>
-<p>Choose between Rust and C APIs via <code>prj.conf</code>:</p>
-<h3 id="rust-api-default"><a class="header" href="#rust-api-default">Rust API (default)</a></h3>
-<pre><code class="language-ini">CONFIG_NROS_RUST_API=y
-CONFIG_RUST=y
-CONFIG_RUST_ALLOC=y
-</code></pre>
-<p>CMakeLists.txt uses <code>rust_cargo_application()</code>:</p>
-<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.20.0)
-find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
-project(my_example)
-rust_cargo_application()
-</code></pre>
-<h3 id="c-api"><a class="header" href="#c-api">C API</a></h3>
-<pre><code class="language-ini">CONFIG_NROS_C_API=y
-</code></pre>
-<p>CMakeLists.txt uses <code>nros_generate_interfaces()</code>:</p>
-<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.20.0)
-find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
-project(my_example)
-nros_generate_interfaces(std_msgs "msg/Int32.msg")
-target_sources(app PRIVATE src/main.c)
-</code></pre>
-<h2 id="kconfig-reference"><a class="header" href="#kconfig-reference">Kconfig Reference</a></h2>
-<p>All options are under <code>menuconfig NROS</code> in <code>zephyr/Kconfig</code>.</p>
-<h3 id="common-options"><a class="header" href="#common-options">Common Options</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>CONFIG_NROS</code></td><td>bool</td><td>n</td><td>Enable nros module</td></tr>
-<tr><td><code>CONFIG_NROS_RUST_API</code></td><td>bool</td><td>y</td><td>Use Rust API</td></tr>
-<tr><td><code>CONFIG_NROS_C_API</code></td><td>bool</td><td>n</td><td>Use C API</td></tr>
-<tr><td><code>CONFIG_NROS_DOMAIN_ID</code></td><td>int</td><td>0</td><td>ROS 2 domain ID</td></tr>
-<tr><td><code>CONFIG_NROS_INIT_DELAY_MS</code></td><td>int</td><td>2000</td><td>Network init wait (ms)</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="zenoh-options-visible-when-config_nros_rmw_zenohy"><a class="header" href="#zenoh-options-visible-when-config_nros_rmw_zenohy">Zenoh Options (visible when <code>CONFIG_NROS_RMW_ZENOH=y</code>)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>CONFIG_NROS_ZENOH_LOCATOR</code></td><td>string</td><td><code>"tcp/192.0.2.2:7456"</code></td><td>Router address</td></tr>
-<tr><td><code>CONFIG_NROS_ZENOH_MULTI_THREAD</code></td><td>bool</td><td>y</td><td>Zenoh-pico multithreading</td></tr>
-<tr><td><code>CONFIG_NROS_ZENOH_PUBLICATION</code></td><td>bool</td><td>y</td><td>Publication support</td></tr>
-<tr><td><code>CONFIG_NROS_ZENOH_SUBSCRIPTION</code></td><td>bool</td><td>y</td><td>Subscription support</td></tr>
-<tr><td><code>CONFIG_NROS_ZENOH_QUERY</code></td><td>bool</td><td>y</td><td>Service client support</td></tr>
-<tr><td><code>CONFIG_NROS_ZENOH_QUERYABLE</code></td><td>bool</td><td>y</td><td>Service server support</td></tr>
-<tr><td><code>CONFIG_NROS_ZENOH_LINK_TCP</code></td><td>bool</td><td>y</td><td>TCP transport link</td></tr>
-<tr><td><code>CONFIG_NROS_MAX_PUBLISHERS</code></td><td>int</td><td>8</td><td>Max concurrent publishers</td></tr>
-<tr><td><code>CONFIG_NROS_MAX_SUBSCRIBERS</code></td><td>int</td><td>8</td><td>Max concurrent subscribers</td></tr>
-<tr><td><code>CONFIG_NROS_MAX_QUERYABLES</code></td><td>int</td><td>8</td><td>Max concurrent queryables</td></tr>
-<tr><td><code>CONFIG_NROS_FRAG_MAX_SIZE</code></td><td>int</td><td>2048</td><td>Max reassembled message size</td></tr>
-<tr><td><code>CONFIG_NROS_BATCH_UNICAST_SIZE</code></td><td>int</td><td>1024</td><td>Max unicast batch size</td></tr>
-<tr><td><code>CONFIG_NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td>int</td><td>1024</td><td>Per-subscriber buffer</td></tr>
-<tr><td><code>CONFIG_NROS_SERVICE_BUFFER_SIZE</code></td><td>int</td><td>1024</td><td>Per-service buffer</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="xrce-options-visible-when-config_nros_rmw_xrcey"><a class="header" href="#xrce-options-visible-when-config_nros_rmw_xrcey">XRCE Options (visible when <code>CONFIG_NROS_RMW_XRCE=y</code>)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>CONFIG_NROS_XRCE_AGENT_ADDR</code></td><td>string</td><td><code>"192.0.2.2"</code></td><td>Agent IP address</td></tr>
-<tr><td><code>CONFIG_NROS_XRCE_AGENT_PORT</code></td><td>int</td><td>2018</td><td>Agent UDP port</td></tr>
-<tr><td><code>CONFIG_NROS_XRCE_TRANSPORT_MTU</code></td><td>int</td><td>512</td><td>Transport MTU</td></tr>
-<tr><td><code>CONFIG_NROS_XRCE_MAX_SUBSCRIBERS</code></td><td>int</td><td>8</td><td>Max concurrent subscribers</td></tr>
-<tr><td><code>CONFIG_NROS_XRCE_MAX_SERVICE_SERVERS</code></td><td>int</td><td>4</td><td>Max service servers</td></tr>
-<tr><td><code>CONFIG_NROS_XRCE_MAX_SERVICE_CLIENTS</code></td><td>int</td><td>4</td><td>Max service clients</td></tr>
-<tr><td><code>CONFIG_NROS_XRCE_BUFFER_SIZE</code></td><td>int</td><td>1024</td><td>Per-slot buffer size</td></tr>
-<tr><td><code>CONFIG_NROS_XRCE_STREAM_HISTORY</code></td><td>int</td><td>4</td><td>Reliable stream depth (2-16)</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="c-api-options-visible-when-config_nros_c_apiy"><a class="header" href="#c-api-options-visible-when-config_nros_c_apiy">C API Options (visible when <code>CONFIG_NROS_C_API=y</code>)</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>CONFIG_NROS_C_MAX_HANDLES</code></td><td>int</td><td>16</td><td>Max executor handles</td></tr>
-<tr><td><code>CONFIG_NROS_C_MAX_SUBSCRIPTIONS</code></td><td>int</td><td>8</td><td>Max subscriptions</td></tr>
-<tr><td><code>CONFIG_NROS_C_MAX_TIMERS</code></td><td>int</td><td>8</td><td>Max timers</td></tr>
-<tr><td><code>CONFIG_NROS_C_MAX_SERVICES</code></td><td>int</td><td>4</td><td>Max services</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="e2e-testing"><a class="header" href="#e2e-testing">E2E Testing</a></h2>
-<pre><code class="language-bash"># Zenoh examples
-just build-zephyr           # Build Rust zenoh examples
-just build-zephyr-c         # Build C zenoh examples
-just test-zephyr            # Run zenoh E2E tests
-
-# XRCE examples
-just build-zephyr-xrce      # Build all XRCE examples (Rust + C)
-just test-zephyr-xrce       # Run XRCE E2E tests
-
-# All examples
-just build-zephyr-all       # Build everything
-</code></pre>
-<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Issue</th><th>Solution</th></tr>
-</thead>
-<tbody>
-<tr><td><code>west: command not found</code></td><td>Run <code>pip3 install --user west</code> and add <code>~/.local/bin</code> to PATH</td></tr>
-<tr><td><code>Bridge not found</code></td><td>Run <code>sudo ./scripts/zephyr/setup-network.sh</code></td></tr>
-<tr><td><code>Connection refused</code></td><td>Ensure zenohd listens on <code>tcp/0.0.0.0:7447</code> (not just localhost)</td></tr>
-<tr><td><code>Build fails</code></td><td>Source environment: <code>source ../nano-ros-workspace/env.sh</code></td></tr>
-<tr><td><code>Permission denied on zeth</code></td><td>TAP interface owned by different user, re-run setup script</td></tr>
-<tr><td><code>XRCE Agent not found</code></td><td>Install: <code>just setup</code> (installs MicroXRCEAgent)</td></tr>
-<tr><td>Zenoh mutex exhaustion</td><td>Increase <code>CONFIG_MAX_PTHREAD_MUTEX_COUNT</code> (default 5 is too low)</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="network-architecture"><a class="header" href="#network-architecture">Network Architecture</a></h2>
-<pre><code>┌─────────────────────────────────────────────────────────────┐
-│                         Host (Linux)                         │
-│                                                             │
-│  ┌─────────────┐                                            │
-│  │ zenohd      │ &lt;-- Zenoh backend uses TCP/7447            │
-│  │ XRCE Agent  │ &lt;-- XRCE backend uses UDP/2018             │
-│  │ 0.0.0.0     │                                            │
-│  └──────┬──────┘                                            │
-│         │                                                    │
-│  ┌──────┴──────┐                                            │
-│  │ zeth-br     │  Bridge                                    │
-│  │ 192.0.2.2   │                                            │
-│  └──┬──────┬───┘                                            │
-│     │      │                                                │
-│  ┌──┴──┐ ┌─┴───┐                                           │
-│  │zeth0│ │zeth1│  TAP devices                               │
-│  └──┬──┘ └──┬──┘                                            │
-└─────┼───────┼───────────────────────────────────────────────┘
-      │       │
-┌─────┴─────┐ ┌─────┴──────┐
-│ Zephyr    │ │ Zephyr     │
-│ talker    │ │ listener   │
-│ 192.0.2.1 │ │ 192.0.2.3  │
-└───────────┘ └────────────┘
-</code></pre>
-<h2 id="updating-the-workspace"><a class="header" href="#updating-the-workspace">Updating the Workspace</a></h2>
-<p>To update Zephyr and modules to latest versions specified in <code>west.yml</code>:</p>
-<pre><code class="language-bash">cd ../nano-ros-workspace
-west update
-</code></pre>
-<p>To completely recreate the workspace:</p>
-<pre><code class="language-bash">just zephyr setup --force
-</code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../platforms/posix.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../guides/board-crate.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../platforms/freertos.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../guides/troubleshooting.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -470,11 +391,11 @@ west update
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../platforms/posix.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../guides/board-crate.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../platforms/freertos.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../guides/troubleshooting.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
