@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Platform Model - nano-ros Book</title>
+        <title>RMW API Design - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,160 +177,165 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="platform-model"><a class="header" href="#platform-model">Platform Model</a></h1>
-<p>nano-ros uses three orthogonal compile-time feature axes to configure the library for a specific target. Each axis is mutually exclusive – enabling two features from the same axis produces a <code>compile_error!()</code>. Zero features on an axis is valid (reduced functionality).</p>
-<h2 id="the-three-axes"><a class="header" href="#the-three-axes">The Three Axes</a></h2>
-<h3 id="rmw-backend-pick-one"><a class="header" href="#rmw-backend-pick-one">RMW Backend (pick one)</a></h3>
-<p>The RMW backend determines which middleware transport the library uses to send and receive messages.</p>
+                        <h1 id="rmw-api-design-nros-rmw-vs-ros2rmw"><a class="header" href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design: nros-rmw vs ros2/rmw</a></h1>
+<p>nano-ros defines its own RMW (ROS Middleware) abstraction in the <code>nros-rmw</code> crate. While it serves the same purpose as the official <a href="https://github.com/ros2/rmw">ros2/rmw</a> interface – decoupling the client library from the transport backend – it is designed for <code>no_std</code> embedded systems and uses a fundamentally different approach.</p>
+<p>This page documents the architectural differences and trade-offs.</p>
+<h2 id="architectural-pattern"><a class="header" href="#architectural-pattern">Architectural Pattern</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Feature</th><th>Backend</th><th>Description</th></tr>
+<tr><th>Aspect</th><th>ROS 2 <code>rmw</code></th><th><code>nros-rmw</code></th></tr>
 </thead>
 <tbody>
-<tr><td><code>rmw-zenoh</code></td><td>zenoh-pico</td><td>Peer-to-peer via Zenoh protocol</td></tr>
-<tr><td><code>rmw-xrce</code></td><td>Micro-XRCE-DDS-Client</td><td>Agent-based via DDS-XRCE protocol</td></tr>
-<tr><td><code>rmw-cffi</code></td><td>C vtable adapter</td><td>Third-party transport via C function pointers</td></tr>
+<tr><td>Language</td><td>C API (<code>rmw/rmw.h</code>)</td><td>Rust traits</td></tr>
+<tr><td>Dispatch</td><td>Runtime plugin loading (shared library via <code>rmw_implementation</code>)</td><td>Compile-time monomorphization (Rust generics)</td></tr>
+<tr><td><code>no_std</code></td><td>No (requires libc, heap, POSIX)</td><td>Yes (zero heap in core path)</td></tr>
+<tr><td>Error model</td><td><code>rmw_ret_t</code> integer codes</td><td><code>TransportError</code> enum + associated <code>type Error</code> per trait</td></tr>
 </tbody>
 </table>
 </div>
-<p>See <a href="./rmw-backends.html">RMW Backends</a> for a detailed comparison of Zenoh vs XRCE-DDS.</p>
-<h3 id="platform-pick-one"><a class="header" href="#platform-pick-one">Platform (pick one)</a></h3>
-<p>The platform feature selects which OS primitives (threading, mutexes, clock, sleep, network) are linked. Each platform crate provides the symbols that the RMW backend’s C library requires at link time.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Target</th><th>Threading</th><th>Network</th></tr>
-</thead>
-<tbody>
-<tr><td><code>platform-posix</code></td><td>Linux, macOS</td><td>pthreads</td><td>BSD sockets</td></tr>
-<tr><td><code>platform-zephyr</code></td><td>Zephyr RTOS</td><td>k_thread_create</td><td>Zephyr sockets</td></tr>
-<tr><td><code>platform-bare-metal</code></td><td>Cortex-M, RISC-V, ESP32</td><td>Single-threaded</td><td>smoltcp</td></tr>
-<tr><td><code>platform-freertos</code></td><td>FreeRTOS</td><td>xTaskCreate</td><td>lwIP</td></tr>
-<tr><td><code>platform-nuttx</code></td><td>NuttX RTOS</td><td>pthreads</td><td>BSD sockets</td></tr>
-<tr><td><code>platform-threadx</code></td><td>Azure RTOS / ThreadX</td><td>tx_thread_create</td><td>NetX Duo</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="ros-edition-pick-one"><a class="header" href="#ros-edition-pick-one">ROS Edition (pick one)</a></h3>
-<p>The ROS edition controls wire-format compatibility with specific ROS 2 releases.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>ros-humble</code></td><td>Humble Hawksbill wire format (no type hash)</td></tr>
-<tr><td><code>ros-iron</code></td><td>Iron Irwini wire format (type hash in key expression)</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="cross-cutting-features"><a class="header" href="#cross-cutting-features">Cross-Cutting Features</a></h2>
-<p>These features are orthogonal to the three axes above and can be combined freely.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>std</code></td><td>Enables <code>std</code>-dependent APIs: <code>spin_blocking()</code>, <code>spin_period()</code>, system clock</td></tr>
-<tr><td><code>alloc</code></td><td>Enables heap-dependent APIs: boxed callbacks, <code>param-services</code></td></tr>
-<tr><td><code>safety-e2e</code></td><td>CRC-32 integrity + sequence tracking (AUTOSAR E2E / EN 50159)</td></tr>
-<tr><td><code>param-services</code></td><td>ROS 2 parameter service handlers (<code>~/get_parameters</code>, etc.). Implies <code>alloc</code>.</td></tr>
-<tr><td><code>ffi-sync</code></td><td>Wraps transport FFI calls in <code>critical_section::with()</code> for RTOS reentrancy</td></tr>
-<tr><td><code>sync-spin</code></td><td>Use spin-lock mutex (default)</td></tr>
-<tr><td><code>sync-critical-section</code></td><td>Use <code>critical-section</code> mutex (for RTIC, Embassy)</td></tr>
-<tr><td><code>unstable-zenoh-api</code></td><td>Zero-copy receive path (Zenoh backend only)</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="mutual-exclusivity-enforcement"><a class="header" href="#mutual-exclusivity-enforcement">Mutual Exclusivity Enforcement</a></h2>
-<p>The <code>nros</code> facade crate enforces mutual exclusivity at compile time using <code>compile_error!()</code>. For example:</p>
-<pre><code class="language-rust ignore">#[cfg(all(feature = "rmw-zenoh", feature = "rmw-xrce"))]
-compile_error!("Only one RMW backend can be enabled: rmw-zenoh or rmw-xrce");
+<p>ROS 2 selects the RMW backend at runtime by loading a shared library (e.g., <code>rmw_fastrtps_cpp.so</code>). This enables switching backends without recompilation but requires dynamic linking and heap allocation.</p>
+<p>nros-rmw selects the backend at compile time via Cargo feature flags. The <code>Session</code> trait uses associated types, so the compiler monomorphizes all transport calls – no vtables, no dynamic dispatch, no heap. This is critical for MCUs with 16–256 KB of RAM.</p>
+<h2 id="object-model"><a class="header" href="#object-model">Object Model</a></h2>
+<h3 id="ros-2"><a class="header" href="#ros-2">ROS 2</a></h3>
+<p>ROS 2 rmw has a deep initialization hierarchy:</p>
+<pre><code>rmw_init() → rmw_context_t
+  → rmw_create_node() → rmw_node_t
+    → rmw_create_publisher() → rmw_publisher_t*
+    → rmw_create_subscription() → rmw_subscription_t*
+    → rmw_create_service() → rmw_service_t*
+    → rmw_create_client() → rmw_client_t*
+</code></pre>
+<p>Nodes are first-class RMW objects. Each <code>rmw_node_t</code> carries its own context, name, namespace, and security credentials. The RMW layer is responsible for node lifecycle and graph participation.</p>
+<h3 id="nros-rmw"><a class="header" href="#nros-rmw">nros-rmw</a></h3>
+<p>nros-rmw is flatter – there is no node at the RMW level:</p>
+<pre><code>Rmw::open(&amp;RmwConfig) → Session
+  → session.create_publisher(&amp;TopicInfo, QosSettings) → Self::PublisherHandle
+  → session.create_subscriber(&amp;TopicInfo, QosSettings) → Self::SubscriberHandle
+  → session.create_service_server(&amp;ServiceInfo) → Self::ServiceServerHandle
+  → session.create_service_client(&amp;ServiceInfo) → Self::ServiceClientHandle
+</code></pre>
+<p><code>Node</code> lives one layer up in <code>nros-node</code>. It is purely a namespace and liveliness concern – it borrows the session from the executor and creates typed communication handles. The RMW layer only knows about sessions and communication endpoints.</p>
+<h2 id="serialization-boundary"><a class="header" href="#serialization-boundary">Serialization Boundary</a></h2>
+<p>This is the most significant design difference.</p>
+<p><strong>ROS 2:</strong> The rmw layer operates on pre-serialized data. <code>rcl</code> and <code>rosidl</code> handle CDR serialization before calling <code>rmw_publish()</code> with an <code>rmw_serialized_message_t</code>. The rmw layer never sees typed messages – it only moves byte buffers. Type metadata is passed separately via <code>rosidl_message_type_support_t</code> structs.</p>
+<p><strong>nros-rmw:</strong> The traits include both raw and typed methods:</p>
+<pre><code class="language-rust ignore">pub trait Publisher {
+    // Raw: caller handles serialization
+    fn publish_raw(&amp;self, data: &amp;[u8]) -&gt; Result&lt;(), Self::Error&gt;;
 
-#[cfg(all(feature = "platform-posix", feature = "platform-zephyr"))]
-compile_error!("Only one platform can be enabled");</code></pre>
-<p>This catches misconfiguration immediately at build time rather than producing subtle runtime failures.</p>
-<h2 id="example-configurations"><a class="header" href="#example-configurations">Example Configurations</a></h2>
-<p><strong>QEMU bare-metal Cortex-M3 with Zenoh:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-zenoh",
-    "platform-bare-metal",
-    "ros-humble",
-] }
-</code></pre>
-<p><strong>Zephyr with XRCE-DDS and safety features:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-xrce",
-    "platform-zephyr",
-    "ros-humble",
-    "alloc",
-    "safety-e2e",
-    "ffi-sync",
-] }
-</code></pre>
-<p><strong>Desktop Linux for development and testing:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { features = [
-    "rmw-zenoh",
-    "platform-posix",
-    "ros-humble",
-    "std",
-    "param-services",
-] }
-</code></pre>
-<p><strong>FreeRTOS with lwIP networking:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-zenoh",
-    "platform-freertos",
-    "ros-humble",
-] }
-</code></pre>
-<p><strong>ThreadX with NetX Duo (RISC-V):</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-zenoh",
-    "platform-threadx",
-    "ros-humble",
-] }
-</code></pre>
-<p><strong>NuttX with XRCE-DDS over serial:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-xrce",
-    "platform-nuttx",
-    "ros-humble",
-] }
-</code></pre>
-<h2 id="feature-propagation"><a class="header" href="#feature-propagation">Feature Propagation</a></h2>
-<p>Features propagate through the crate dependency graph using Cargo’s <code>?</code> syntax for optional dependencies. When you set <code>rmw-zenoh</code> on the <code>nros</code> facade, it activates:</p>
-<ul>
-<li><code>nros-node/rmw-zenoh</code> – selects <code>ZenohSession</code> as the concrete session type</li>
-<li><code>nros-rmw-zenoh</code> – the Zenoh RMW implementation crate</li>
-<li><code>zpico-sys</code> – zenoh-pico C bindings</li>
-</ul>
-<p>Platform features propagate through two paths depending on the platform type:</p>
-<ul>
-<li><strong>RTOS platforms</strong> (POSIX, FreeRTOS, NuttX, ThreadX): the facade activates <code>nros-platform/platform-*</code>, which pulls in the corresponding <code>nros-platform-*</code> implementation crate (e.g., <code>nros-platform-posix</code>, <code>nros-platform-freertos</code>). These live in <code>packages/core/</code>.</li>
-<li><strong>Bare-metal platforms</strong>: the facade only activates <code>nros-node/platform-bare-metal</code> and <code>nros-rmw-zenoh?/platform-bare-metal</code>. Since “bare-metal” isn’t a single platform, the <strong>board crate</strong> activates the specific board platform – e.g., <code>nros-mps2-an385</code> enables <code>nros-platform/platform-mps2-an385</code>, which pulls in <code>nros-platform-mps2-an385</code> from <code>packages/boards/</code>.</li>
-</ul>
-<p>The RMW transport libraries access platform primitives through thin shim crates – <code>zpico-platform-shim</code> (consumed by <code>zpico-sys</code>) and <code>xrce-platform-shim</code> (consumed by <code>xrce-sys</code>) – which forward <code>z_*</code> and <code>uxr_*</code> FFI symbols to the unified <code>ConcretePlatform</code> type alias from <code>nros-platform</code>. Board crates depend on the shim crate directly (with the <code>active</code> feature) to ensure the symbols are linked.</p>
-<p>The default feature set is <code>std</code> only. No RMW backend or platform is selected by default – users must explicitly choose their configuration.</p>
-<p>For implementation details on how to add a new platform, see the <a href="../internals/porting-platform/README.html">Porting Guide</a> and <a href="../reference/platform-api.html">Platform API Reference</a>.</p>
+    // Typed: serialize + publish in one call
+    fn publish&lt;M: RosMessage&gt;(&amp;self, msg: &amp;M, buf: &amp;mut [u8]) -&gt; Result&lt;(), Self::Error&gt;;
+}
+
+pub trait Subscriber {
+    fn try_recv_raw(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
+    fn try_recv&lt;M: RosMessage&gt;(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;M&gt;, Self::Error&gt;;
+}</code></pre>
+<p>The typed methods have default implementations that call the raw methods with CDR serialization/deserialization from <code>nros-serdes</code>. This keeps the RMW layer self-contained – no separate serialization layer is needed.</p>
+<p>Type metadata uses simple structs (<code>TopicInfo { name, type_name, type_hash }</code>) instead of C type support function tables.</p>
+<h2 id="io-and-readiness-model"><a class="header" href="#io-and-readiness-model">I/O and Readiness Model</a></h2>
+<p><strong>ROS 2:</strong> Uses <code>rmw_wait()</code> with a wait set (<code>rmw_wait_set_t</code>) containing subscriptions, services, clients, guard conditions, and events. The caller constructs a wait set, adds handles, and blocks until any handle is ready. This is similar to <code>select()</code>/<code>epoll()</code>.</p>
+<p><strong>nros-rmw:</strong> Uses a single <code>drive_io(timeout_ms)</code> method on the <code>Session</code> trait:</p>
+<pre><code class="language-rust ignore">pub trait Session {
+    fn drive_io(&amp;mut self, timeout_ms: i32) -&gt; Result&lt;(), Self::Error&gt; {
+        let _ = timeout_ms;
+        Ok(())
+    }
+}</code></pre>
+<p>This is a pull-based model: the executor calls <code>drive_io()</code> to poll the network and dispatch incoming data to internal subscriber buffers, then checks each entity with <code>has_data()</code>. There is no wait set – the executor iterates its dispatch table directly.</p>
+<p>For async integration, subscribers and service clients expose <code>register_waker(&amp;Waker)</code> instead of guard conditions. The transport backend calls <code>waker.wake()</code> from its C receive callback, bridging to Rust <code>Future</code> waking without the wait set abstraction.</p>
+<h2 id="memory-model"><a class="header" href="#memory-model">Memory Model</a></h2>
+<p><strong>ROS 2:</strong> Heap-allocates handles, messages, and serialization buffers. <code>rmw_serialized_message_t</code> wraps a dynamically-sized <code>rcutils_uint8_array_t</code>. Loaned message APIs (<code>rmw_borrow_loaned_message</code>, <code>rmw_take_loaned_message</code>) provide optional zero-copy for transports that support shared memory.</p>
+<p><strong>nros-rmw:</strong> Uses caller-provided <code>&amp;mut [u8]</code> buffers everywhere. All receive and serialize operations write into stack-allocated or statically-allocated buffers:</p>
+<pre><code class="language-rust ignore">// Caller provides the buffer
+let mut buf = [0u8; 512];
+let msg: Option&lt;MyMsg&gt; = subscriber.try_recv(&amp;mut buf)?;</code></pre>
+<p>Zero-copy receive is supported via <code>process_raw_in_place()</code>, which invokes a closure with a reference to the subscriber’s internal receive buffer, avoiding the copy into a caller-provided buffer. This is gated behind the <code>unstable-zenoh-api</code> feature.</p>
+<h2 id="qos-settings"><a class="header" href="#qos-settings">QoS Settings</a></h2>
+<p>ROS 2 <code>rmw_qos_profile_t</code> includes:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>ROS 2</th><th>nros-rmw</th></tr>
+</thead>
+<tbody>
+<tr><td>History (keep last/all)</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Depth</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Reliability (reliable/best-effort)</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Durability (volatile/transient local)</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Deadline</td><td>Yes</td><td>No</td></tr>
+<tr><td>Lifespan</td><td>Yes</td><td>No</td></tr>
+<tr><td>Liveliness (automatic/manual)</td><td>Yes</td><td>No</td></tr>
+<tr><td><code>avoid_ros_namespace_conventions</code></td><td>Yes</td><td>No</td></tr>
+</tbody>
+</table>
+</div>
+<p>nros-rmw provides the four QoS policies that zenoh-pico and XRCE-DDS can actually enforce. The time-based policies (deadline, lifespan, liveliness) are omitted because the supported transports do not implement them.</p>
+<p>Standard QoS profiles (<code>QOS_PROFILE_DEFAULT</code>, <code>QOS_PROFILE_SENSOR_DATA</code>, <code>QOS_PROFILE_SERVICES_DEFAULT</code>, etc.) match their ROS 2 equivalents for interoperability.</p>
+<h2 id="service-client-model"><a class="header" href="#service-client-model">Service Client Model</a></h2>
+<p><strong>ROS 2:</strong> Service clients are always asynchronous at the rmw level. <code>rmw_send_request()</code> sends a request and returns a sequence number. The reply is retrieved later via <code>rmw_take_response()</code>, typically driven by <code>rmw_wait()</code>.</p>
+<p><strong>nros-rmw:</strong> Provides both models:</p>
+<pre><code class="language-rust ignore">pub trait ServiceClientTrait {
+    // Blocking: send request and wait for reply
+    fn call_raw(&amp;mut self, request: &amp;[u8], reply_buf: &amp;mut [u8]) -&gt; Result&lt;usize, Self::Error&gt;;
+
+    // Async: send request, poll for reply separately
+    fn send_request_raw(&amp;mut self, request: &amp;[u8]) -&gt; Result&lt;(), Self::Error&gt;;
+    fn try_recv_reply_raw(&amp;mut self, reply_buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
+}</code></pre>
+<p>The blocking <code>call_raw()</code> is convenient for simple embedded applications. The async split (<code>send_request_raw</code> + <code>try_recv_reply_raw</code>) is used by the executor for non-blocking dispatch.</p>
+<h2 id="apis-present-in-ros-2-rmw-but-absent-in-nros-rmw"><a class="header" href="#apis-present-in-ros-2-rmw-but-absent-in-nros-rmw">APIs Present in ROS 2 rmw but Absent in nros-rmw</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>ROS 2 rmw API</th><th>Purpose</th><th>Why absent</th></tr>
+</thead>
+<tbody>
+<tr><td><code>rmw_node_t</code> / <code>rmw_create_node()</code></td><td>Node lifecycle at RMW level</td><td>Node is above the RMW layer in <code>nros-node</code></td></tr>
+<tr><td><code>rmw_wait_set_t</code> / <code>rmw_wait()</code></td><td>Multiplexed readiness waiting</td><td>Replaced by <code>drive_io()</code> + per-entity <code>has_data()</code></td></tr>
+<tr><td><code>rmw_guard_condition_t</code></td><td>Wake wait set from application code</td><td>Replaced by <code>register_waker(&amp;Waker)</code></td></tr>
+<tr><td><code>rmw_event_t</code></td><td>QoS event callbacks (deadline missed, etc.)</td><td>QoS events not supported</td></tr>
+<tr><td><code>rmw_get_topic_names_and_types()</code></td><td>Graph introspection</td><td>Discovery via zenoh liveliness, not exposed at trait level</td></tr>
+<tr><td><code>rmw_get_node_names()</code></td><td>Node discovery</td><td>Same as above</td></tr>
+<tr><td><code>rmw_count_publishers()</code> / <code>rmw_count_subscribers()</code></td><td>Graph statistics</td><td>Not exposed</td></tr>
+<tr><td><code>rosidl_message_type_support_t</code></td><td>C type support tables for serialization</td><td>Replaced by <code>TopicInfo</code> string metadata</td></tr>
+<tr><td><code>rmw_serialize()</code> / <code>rmw_deserialize()</code></td><td>Standalone serialization</td><td>CDR handled by <code>nros-serdes</code></td></tr>
+<tr><td><code>rmw_borrow_loaned_message()</code></td><td>Zero-copy shared memory publish</td><td>Not supported (smoltcp/zenoh-pico don’t use shared memory)</td></tr>
+<tr><td>Content-filtered topics</td><td>Server-side topic filtering</td><td>Not supported</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="apis-present-in-nros-rmw-but-absent-in-ros-2-rmw"><a class="header" href="#apis-present-in-nros-rmw-but-absent-in-ros-2-rmw">APIs Present in nros-rmw but Absent in ROS 2 rmw</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>nros-rmw API</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Publisher::publish&lt;M&gt;(msg, buf)</code></td><td>Typed publish with built-in CDR serialization</td></tr>
+<tr><td><code>Subscriber::try_recv&lt;M&gt;(buf)</code></td><td>Typed receive with built-in CDR deserialization</td></tr>
+<tr><td><code>Subscriber::process_raw_in_place(f)</code></td><td>Zero-copy in-place processing via closure</td></tr>
+<tr><td><code>Subscriber::try_recv_validated()</code></td><td>E2E safety validation (CRC-32 + sequence tracking)</td></tr>
+<tr><td><code>ServiceClientTrait::call_raw()</code></td><td>Blocking request/reply (ROS 2 rmw is async-only)</td></tr>
+<tr><td><code>ServiceServerTrait::handle_request&lt;S&gt;()</code></td><td>Typed request handling with automatic CDR roundtrip</td></tr>
+<tr><td><code>Session::drive_io(timeout_ms)</code></td><td>Explicit network polling (ROS 2 rmw relies on middleware threads)</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="summary"><a class="header" href="#summary">Summary</a></h2>
+<p>The core difference is that ROS 2 rmw is a <strong>C plugin interface</strong> designed for desktop systems with dynamic linking, heap allocation, and OS threading. nros-rmw is a <strong>Rust trait hierarchy</strong> designed for MCUs with static dispatch, stack allocation, and cooperative scheduling. The trade-off is flexibility (ROS 2 can swap backends at runtime) vs efficiency (nros eliminates all abstraction overhead at compile time).</p>
+<p>Despite these differences, the two are <strong>wire-compatible</strong> when using the same transport. An nros node using <code>rmw-zenoh</code> communicates with a ROS 2 node using <code>rmw_zenoh_cpp</code> through the same <code>zenohd</code> router, with matching QoS profiles and CDR encoding.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../concepts/no-std.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../concepts/platform-model.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../internals/rmw-api-design.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../internals/rmw-api.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -340,11 +345,11 @@ nros = { default-features = false, features = [
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../concepts/no-std.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../concepts/platform-model.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../internals/rmw-api-design.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../internals/rmw-api.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Platform Model - nano-ros Book</title>
+        <title>Real-Time Analysis - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,160 +177,423 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="platform-model"><a class="header" href="#platform-model">Platform Model</a></h1>
-<p>nano-ros uses three orthogonal compile-time feature axes to configure the library for a specific target. Each axis is mutually exclusive – enabling two features from the same axis produces a <code>compile_error!()</code>. Zero features on an axis is valid (reduced functionality).</p>
-<h2 id="the-three-axes"><a class="header" href="#the-three-axes">The Three Axes</a></h2>
-<h3 id="rmw-backend-pick-one"><a class="header" href="#rmw-backend-pick-one">RMW Backend (pick one)</a></h3>
-<p>The RMW backend determines which middleware transport the library uses to send and receive messages.</p>
+                        <h1 id="real-time-analysis"><a class="header" href="#real-time-analysis">Real-Time Analysis</a></h1>
+<p>This chapter describes static analysis methods and tools for detecting anti-patterns that violate real-time guarantees in Rust embedded applications.</p>
+<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
+<p>Real-time systems require deterministic execution times. Common anti-patterns that break real-time guarantees include:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Feature</th><th>Backend</th><th>Description</th></tr>
+<tr><th>Anti-Pattern</th><th>Problem</th><th>Detection Method</th></tr>
 </thead>
 <tbody>
-<tr><td><code>rmw-zenoh</code></td><td>zenoh-pico</td><td>Peer-to-peer via Zenoh protocol</td></tr>
-<tr><td><code>rmw-xrce</code></td><td>Micro-XRCE-DDS-Client</td><td>Agent-based via DDS-XRCE protocol</td></tr>
-<tr><td><code>rmw-cffi</code></td><td>C vtable adapter</td><td>Third-party transport via C function pointers</td></tr>
+<tr><td>Unbounded loops</td><td>Infinite execution time</td><td>Clippy + custom lints</td></tr>
+<tr><td>Recursion</td><td>Stack overflow, unbounded depth</td><td>cargo-call-stack</td></tr>
+<tr><td>Heap allocation</td><td>Non-deterministic timing, fragmentation</td><td>no_std + forbid patterns</td></tr>
+<tr><td>Blocking I/O</td><td>Unbounded wait times</td><td>Custom lints</td></tr>
+<tr><td>Missing timeouts</td><td>Operations can hang forever</td><td>Custom lints</td></tr>
+<tr><td>Large stack frames</td><td>Stack overflow</td><td>cargo-call-stack</td></tr>
 </tbody>
 </table>
 </div>
-<p>See <a href="./rmw-backends.html">RMW Backends</a> for a detailed comparison of Zenoh vs XRCE-DDS.</p>
-<h3 id="platform-pick-one"><a class="header" href="#platform-pick-one">Platform (pick one)</a></h3>
-<p>The platform feature selects which OS primitives (threading, mutexes, clock, sleep, network) are linked. Each platform crate provides the symbols that the RMW backend’s C library requires at link time.</p>
+<h2 id="built-in-clippy-lints"><a class="header" href="#built-in-clippy-lints">Built-in Clippy Lints</a></h2>
+<h3 id="loop-and-iteration-lints"><a class="header" href="#loop-and-iteration-lints">Loop and Iteration Lints</a></h3>
+<pre><code class="language-bash"># Enable all loop-related lints
+cargo clippy -- \
+    -D clippy::infinite_iter \
+    -D clippy::while_immutable_condition \
+    -D clippy::never_loop \
+    -D clippy::empty_loop
+</code></pre>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Feature</th><th>Target</th><th>Threading</th><th>Network</th></tr>
+<tr><th>Lint</th><th>Detects</th></tr>
 </thead>
 <tbody>
-<tr><td><code>platform-posix</code></td><td>Linux, macOS</td><td>pthreads</td><td>BSD sockets</td></tr>
-<tr><td><code>platform-zephyr</code></td><td>Zephyr RTOS</td><td>k_thread_create</td><td>Zephyr sockets</td></tr>
-<tr><td><code>platform-bare-metal</code></td><td>Cortex-M, RISC-V, ESP32</td><td>Single-threaded</td><td>smoltcp</td></tr>
-<tr><td><code>platform-freertos</code></td><td>FreeRTOS</td><td>xTaskCreate</td><td>lwIP</td></tr>
-<tr><td><code>platform-nuttx</code></td><td>NuttX RTOS</td><td>pthreads</td><td>BSD sockets</td></tr>
-<tr><td><code>platform-threadx</code></td><td>Azure RTOS / ThreadX</td><td>tx_thread_create</td><td>NetX Duo</td></tr>
+<tr><td><code>infinite_iter</code></td><td>Iterator chains guaranteed to be infinite</td></tr>
+<tr><td><code>while_immutable_condition</code></td><td>Loop conditions that can never change</td></tr>
+<tr><td><code>never_loop</code></td><td>Loops that exit on first iteration</td></tr>
+<tr><td><code>empty_loop</code></td><td><code>loop { }</code> without body (use <code>loop { hint::spin_loop() }</code>)</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="ros-edition-pick-one"><a class="header" href="#ros-edition-pick-one">ROS Edition (pick one)</a></h3>
-<p>The ROS edition controls wire-format compatibility with specific ROS 2 releases.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>ros-humble</code></td><td>Humble Hawksbill wire format (no type hash)</td></tr>
-<tr><td><code>ros-iron</code></td><td>Iron Irwini wire format (type hash in key expression)</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="cross-cutting-features"><a class="header" href="#cross-cutting-features">Cross-Cutting Features</a></h2>
-<p>These features are orthogonal to the three axes above and can be combined freely.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>std</code></td><td>Enables <code>std</code>-dependent APIs: <code>spin_blocking()</code>, <code>spin_period()</code>, system clock</td></tr>
-<tr><td><code>alloc</code></td><td>Enables heap-dependent APIs: boxed callbacks, <code>param-services</code></td></tr>
-<tr><td><code>safety-e2e</code></td><td>CRC-32 integrity + sequence tracking (AUTOSAR E2E / EN 50159)</td></tr>
-<tr><td><code>param-services</code></td><td>ROS 2 parameter service handlers (<code>~/get_parameters</code>, etc.). Implies <code>alloc</code>.</td></tr>
-<tr><td><code>ffi-sync</code></td><td>Wraps transport FFI calls in <code>critical_section::with()</code> for RTOS reentrancy</td></tr>
-<tr><td><code>sync-spin</code></td><td>Use spin-lock mutex (default)</td></tr>
-<tr><td><code>sync-critical-section</code></td><td>Use <code>critical-section</code> mutex (for RTIC, Embassy)</td></tr>
-<tr><td><code>unstable-zenoh-api</code></td><td>Zero-copy receive path (Zenoh backend only)</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="mutual-exclusivity-enforcement"><a class="header" href="#mutual-exclusivity-enforcement">Mutual Exclusivity Enforcement</a></h2>
-<p>The <code>nros</code> facade crate enforces mutual exclusivity at compile time using <code>compile_error!()</code>. For example:</p>
-<pre><code class="language-rust ignore">#[cfg(all(feature = "rmw-zenoh", feature = "rmw-xrce"))]
-compile_error!("Only one RMW backend can be enabled: rmw-zenoh or rmw-xrce");
+<h3 id="memory-and-performance-lints"><a class="header" href="#memory-and-performance-lints">Memory and Performance Lints</a></h3>
+<pre><code class="language-bash">cargo clippy -- \
+    -W clippy::large_stack_arrays \
+    -W clippy::large_types_passed_by_value \
+    -W clippy::box_collection \
+    -W clippy::rc_buffer
+</code></pre>
+<h3 id="recommended-clippy-configuration"><a class="header" href="#recommended-clippy-configuration">Recommended Clippy Configuration</a></h3>
+<p>Create <code>clippy.toml</code> in your project root:</p>
+<pre><code class="language-toml"># Maximum size for stack-allocated arrays (bytes)
+array-size-threshold = 512
 
-#[cfg(all(feature = "platform-posix", feature = "platform-zephyr"))]
-compile_error!("Only one platform can be enabled");</code></pre>
-<p>This catches misconfiguration immediately at build time rather than producing subtle runtime failures.</p>
-<h2 id="example-configurations"><a class="header" href="#example-configurations">Example Configurations</a></h2>
-<p><strong>QEMU bare-metal Cortex-M3 with Zenoh:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-zenoh",
-    "platform-bare-metal",
-    "ros-humble",
-] }
+# Warn on types larger than this passed by value
+trivial-copy-size-limit = 16
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 15
 </code></pre>
-<p><strong>Zephyr with XRCE-DDS and safety features:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-xrce",
-    "platform-zephyr",
-    "ros-humble",
-    "alloc",
-    "safety-e2e",
-    "ffi-sync",
-] }
+<h3 id="running-clippy-for-real-time-code"><a class="header" href="#running-clippy-for-real-time-code">Running Clippy for Real-Time Code</a></h3>
+<pre><code class="language-bash"># Strict mode for real-time code
+cargo clippy --all-targets -- \
+    -D warnings \
+    -D clippy::all \
+    -W clippy::pedantic \
+    -D clippy::infinite_iter \
+    -D clippy::while_immutable_condition \
+    -A clippy::module_name_repetitions
 </code></pre>
-<p><strong>Desktop Linux for development and testing:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { features = [
-    "rmw-zenoh",
-    "platform-posix",
-    "ros-humble",
-    "std",
-    "param-services",
-] }
+<h2 id="stack-analysis-with-cargo-call-stack"><a class="header" href="#stack-analysis-with-cargo-call-stack">Stack Analysis with cargo-call-stack</a></h2>
+<h3 id="installation-and-usage"><a class="header" href="#installation-and-usage">Installation and Usage</a></h3>
+<pre><code class="language-bash"># Install (requires nightly)
+cargo +nightly install cargo-call-stack
+
+# Build with stack size info
+cd examples/stm32f4/rust/zenoh/rtic
+RUSTFLAGS="-Z emit-stack-sizes" cargo +nightly build --release
+
+# Generate call graph with stack sizes
+cargo +nightly call-stack --release &gt; call_graph.dot
+
+# Visualize (requires graphviz)
+dot -Tsvg call_graph.dot -o call_graph.svg
 </code></pre>
-<p><strong>FreeRTOS with lwIP networking:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-zenoh",
-    "platform-freertos",
-    "ros-humble",
-] }
-</code></pre>
-<p><strong>ThreadX with NetX Duo (RISC-V):</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-zenoh",
-    "platform-threadx",
-    "ros-humble",
-] }
-</code></pre>
-<p><strong>NuttX with XRCE-DDS over serial:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-xrce",
-    "platform-nuttx",
-    "ros-humble",
-] }
-</code></pre>
-<h2 id="feature-propagation"><a class="header" href="#feature-propagation">Feature Propagation</a></h2>
-<p>Features propagate through the crate dependency graph using Cargo’s <code>?</code> syntax for optional dependencies. When you set <code>rmw-zenoh</code> on the <code>nros</code> facade, it activates:</p>
+<h3 id="interpreting-results"><a class="header" href="#interpreting-results">Interpreting Results</a></h3>
+<p>The output shows:</p>
 <ul>
-<li><code>nros-node/rmw-zenoh</code> – selects <code>ZenohSession</code> as the concrete session type</li>
-<li><code>nros-rmw-zenoh</code> – the Zenoh RMW implementation crate</li>
-<li><code>zpico-sys</code> – zenoh-pico C bindings</li>
+<li>Each function’s stack frame size</li>
+<li>Call graph relationships</li>
+<li>Maximum stack depth through any path</li>
+<li>Cycles (recursion) in the call graph</li>
 </ul>
-<p>Platform features propagate through two paths depending on the platform type:</p>
+<p><strong>Example output:</strong></p>
+<pre><code>digraph {
+    "main" [label="main\n256 bytes"]
+    "zenoh_poll" [label="zenoh_poll\n128 bytes"]
+    "publisher_task" [label="publisher_task\n512 bytes"]
+
+    "main" -&gt; "zenoh_poll"
+    "main" -&gt; "publisher_task"
+}
+</code></pre>
+<h3 id="limitations"><a class="header" href="#limitations">Limitations</a></h3>
 <ul>
-<li><strong>RTOS platforms</strong> (POSIX, FreeRTOS, NuttX, ThreadX): the facade activates <code>nros-platform/platform-*</code>, which pulls in the corresponding <code>nros-platform-*</code> implementation crate (e.g., <code>nros-platform-posix</code>, <code>nros-platform-freertos</code>). These live in <code>packages/core/</code>.</li>
-<li><strong>Bare-metal platforms</strong>: the facade only activates <code>nros-node/platform-bare-metal</code> and <code>nros-rmw-zenoh?/platform-bare-metal</code>. Since “bare-metal” isn’t a single platform, the <strong>board crate</strong> activates the specific board platform – e.g., <code>nros-mps2-an385</code> enables <code>nros-platform/platform-mps2-an385</code>, which pulls in <code>nros-platform-mps2-an385</code> from <code>packages/boards/</code>.</li>
+<li>Requires fat LTO (<code>lto = "fat"</code> in Cargo.toml)</li>
+<li>Limited support for programs linking <code>std</code></li>
+<li>Indirect calls (function pointers, trait objects) may not be analyzed</li>
+<li>Best for embedded <code>no_std</code> programs</li>
 </ul>
-<p>The RMW transport libraries access platform primitives through thin shim crates – <code>zpico-platform-shim</code> (consumed by <code>zpico-sys</code>) and <code>xrce-platform-shim</code> (consumed by <code>xrce-sys</code>) – which forward <code>z_*</code> and <code>uxr_*</code> FFI symbols to the unified <code>ConcretePlatform</code> type alias from <code>nros-platform</code>. Board crates depend on the shim crate directly (with the <code>active</code> feature) to ensure the symbols are linked.</p>
-<p>The default feature set is <code>std</code> only. No RMW backend or platform is selected by default – users must explicitly choose their configuration.</p>
-<p>For implementation details on how to add a new platform, see the <a href="../internals/porting-platform/README.html">Porting Guide</a> and <a href="../reference/platform-api.html">Platform API Reference</a>.</p>
+<h2 id="preventing-heap-allocation"><a class="header" href="#preventing-heap-allocation">Preventing Heap Allocation</a></h2>
+<h3 id="method-1-no_std-without-allocator"><a class="header" href="#method-1-no_std-without-allocator">Method 1: no_std Without Allocator</a></h3>
+<p>The simplest approach – don’t provide a global allocator:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span>#![no_std]
+#![no_main]
+
+<span class="boring">fn main() {
+</span>// No #[global_allocator] defined
+// Attempting to use Box, Vec, String will fail to compile
+<span class="boring">}</span></code></pre>
+<h3 id="method-2-compile-time-enforcement"><a class="header" href="#method-2-compile-time-enforcement">Method 2: Compile-Time Enforcement</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span>#![no_std]
+#![forbid(unsafe_code)]  // Also prevents custom allocators
+
+<span class="boring">fn main() {
+</span>use heapless::{Vec, String};  // Static-sized alternatives
+
+// This will NOT compile:
+// let v = alloc::vec::Vec::new();  // Error: no allocator
+
+// This works:
+let v: heapless::Vec&lt;u8, 256&gt; = heapless::Vec::new();
+<span class="boring">}</span></code></pre>
+<h3 id="method-3-custom-lint-dylint"><a class="header" href="#method-3-custom-lint-dylint">Method 3: Custom Lint (Dylint)</a></h3>
+<p>For projects that need <code>alloc</code> but want to restrict usage in certain modules:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// In real-time critical code, add:
+#![deny(clippy::disallowed_methods)]
+<span class="boring">}</span></code></pre>
+<p>With <code>clippy.toml</code>:</p>
+<pre><code class="language-toml">disallowed-methods = [
+    { path = "alloc::vec::Vec::push", reason = "Use heapless::Vec in RT code" },
+    { path = "alloc::boxed::Box::new", reason = "No heap in RT code" },
+    { path = "alloc::string::String::new", reason = "Use heapless::String" },
+]
+</code></pre>
+<h2 id="detecting-missing-timeouts"><a class="header" href="#detecting-missing-timeouts">Detecting Missing Timeouts</a></h2>
+<h3 id="pattern-io-operations-without-timeout"><a class="header" href="#pattern-io-operations-without-timeout">Pattern: I/O Operations Without Timeout</a></h3>
+<p>Anti-pattern:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// BAD: No timeout - can block forever
+let data = socket.read(&amp;mut buf)?;
+<span class="boring">}</span></code></pre>
+<p>Correct pattern:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD: Explicit timeout
+socket.set_read_timeout(Some(Duration::from_millis(100)))?;
+let data = socket.read(&amp;mut buf)?;
+<span class="boring">}</span></code></pre>
+<h3 id="manual-audit-checklist"><a class="header" href="#manual-audit-checklist">Manual Audit Checklist</a></h3>
+<p>For code review, check that these operations have timeouts:</p>
+<ul>
+<li><code>TcpStream::connect()</code> – use <code>connect_timeout()</code></li>
+<li><code>socket.read()</code> / <code>socket.write()</code> – set socket timeout</li>
+<li><code>channel.recv()</code> – use <code>recv_timeout()</code></li>
+<li>zenoh operations – configure session timeout</li>
+<li>Any blocking syscall</li>
+</ul>
+<h2 id="detecting-unbounded-loops"><a class="header" href="#detecting-unbounded-loops">Detecting Unbounded Loops</a></h2>
+<h3 id="clippy-detection"><a class="header" href="#clippy-detection">Clippy Detection</a></h3>
+<pre><code class="language-bash">cargo clippy -- -D clippy::infinite_iter -D clippy::while_immutable_condition
+</code></pre>
+<h3 id="manual-patterns-to-audit"><a class="header" href="#manual-patterns-to-audit">Manual Patterns to Audit</a></h3>
+<p><strong>Potentially unbounded:</strong></p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// BAD: No termination guarantee
+loop {
+    if let Some(msg) = queue.pop() {
+        process(msg);
+    }
+}
+
+// BAD: Condition may never be false
+while !flag.load(Ordering::Relaxed) {
+    do_work();
+}
+<span class="boring">}</span></code></pre>
+<p><strong>Bounded alternatives:</strong></p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// GOOD: Bounded iteration count
+for _ in 0..MAX_ITERATIONS {
+    if let Some(msg) = queue.pop() {
+        process(msg);
+    } else {
+        break;
+    }
+}
+
+// GOOD: Timeout-based termination
+let deadline = Instant::now() + Duration::from_millis(10);
+while Instant::now() &lt; deadline {
+    if let Some(msg) = queue.pop() {
+        process(msg);
+    } else {
+        break;
+    }
+}
+<span class="boring">}</span></code></pre>
+<h2 id="detecting-recursion"><a class="header" href="#detecting-recursion">Detecting Recursion</a></h2>
+<h3 id="cargo-call-stack-cycle-detection"><a class="header" href="#cargo-call-stack-cycle-detection">cargo-call-stack Cycle Detection</a></h3>
+<pre><code class="language-bash"># Will report cycles in call graph
+cargo +nightly call-stack --release 2&gt;&amp;1 | grep -i "cycle"
+</code></pre>
+<h3 id="clippy-recursion-lint"><a class="header" href="#clippy-recursion-lint">Clippy Recursion Lint</a></h3>
+<pre><code class="language-bash"># Warn on unconditional recursion
+cargo clippy -- -D clippy::unconditional_recursion
+</code></pre>
+<h3 id="manual-pattern-detection"><a class="header" href="#manual-pattern-detection">Manual Pattern Detection</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// BAD: Direct recursion
+fn process(node: &amp;Node) {
+    process(&amp;node.child);  // May overflow stack
+}
+
+// BAD: Mutual recursion
+fn a() { b(); }
+fn b() { a(); }
+
+// GOOD: Iterative with explicit stack
+fn process(root: &amp;Node) {
+    let mut stack: heapless::Vec&lt;&amp;Node, 32&gt; = heapless::Vec::new();
+    stack.push(root).ok();
+
+    while let Some(node) = stack.pop() {
+        // Process node
+        if stack.push(&amp;node.child).is_err() {
+            // Handle stack full - bounded!
+            break;
+        }
+    }
+}
+<span class="boring">}</span></code></pre>
+<h2 id="advanced-custom-dylint-lints"><a class="header" href="#advanced-custom-dylint-lints">Advanced: Custom Dylint Lints</a></h2>
+<h3 id="setting-up-dylint"><a class="header" href="#setting-up-dylint">Setting Up Dylint</a></h3>
+<pre><code class="language-bash"># Install dylint
+cargo install cargo-dylint dylint-link
+
+# Create a new lint library
+cargo dylint new realtime_lints
+cd realtime_lints
+</code></pre>
+<h3 id="recommended-custom-lints-for-real-time"><a class="header" href="#recommended-custom-lints-for-real-time">Recommended Custom Lints for Real-Time</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Lint</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>blocking_in_async</code></td><td>Detect std::thread::sleep, blocking I/O in async</td></tr>
+<tr><td><code>unbounded_loop_in_task</code></td><td>Flag loops without bounds in RTIC tasks</td></tr>
+<tr><td><code>heap_in_interrupt</code></td><td>Detect allocation in <code>#[interrupt]</code> handlers</td></tr>
+<tr><td><code>mutex_in_interrupt</code></td><td>Flag std::sync::Mutex in interrupt context</td></tr>
+<tr><td><code>float_in_isr</code></td><td>Warn about FP operations in ISRs (soft-float targets)</td></tr>
+<tr><td><code>missing_timeout</code></td><td>I/O operations without timeout</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="tool-summary"><a class="header" href="#tool-summary">Tool Summary</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Tool</th><th>Detects</th><th>Effort</th><th>CI-Ready</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Clippy</strong></td><td>Infinite iters, recursion, large arrays</td><td>Low</td><td>Yes</td></tr>
+<tr><td><strong>cargo-call-stack</strong></td><td>Stack usage, recursion cycles</td><td>Medium</td><td>Yes</td></tr>
+<tr><td><strong>Miri</strong></td><td>Undefined behavior, memory errors</td><td>Low</td><td>Yes</td></tr>
+<tr><td><strong>Dylint</strong></td><td>Custom patterns (blocking, heap, etc.)</td><td>High</td><td>Yes</td></tr>
+<tr><td><strong>MIRAI</strong></td><td>Abstract interpretation, all paths</td><td>High</td><td>Experimental</td></tr>
+<tr><td><strong>no_std</strong></td><td>Prevents std heap allocation</td><td>Low</td><td>Automatic</td></tr>
+<tr><td><strong>heapless</strong></td><td>Static collections</td><td>Low</td><td>N/A</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="quick-reference-lint-flags"><a class="header" href="#quick-reference-lint-flags">Quick Reference: Lint Flags</a></h2>
+<pre><code class="language-bash"># Copy-paste for strict real-time checking
+cargo clippy -- \
+    -D warnings \
+    -D clippy::all \
+    -D clippy::infinite_iter \
+    -D clippy::while_immutable_condition \
+    -D clippy::never_loop \
+    -D clippy::empty_loop \
+    -D clippy::unconditional_recursion \
+    -W clippy::large_stack_arrays \
+    -W clippy::large_types_passed_by_value \
+    -W clippy::cognitive_complexity
+</code></pre>
+<h2 id="wcet-baselines"><a class="header" href="#wcet-baselines">WCET Baselines</a></h2>
+<p>Worst-Case Execution Time (WCET) measurements for nros core operations, collected via DWT cycle counting on Cortex-M3.</p>
+<h3 id="measurement-platform"><a class="header" href="#measurement-platform">Measurement Platform</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Property</th><th>Value</th></tr>
+</thead>
+<tbody>
+<tr><td>Target</td><td>ARM Cortex-M3 (<code>thumbv7m-none-eabi</code>)</td></tr>
+<tr><td>Machine</td><td>QEMU <code>lm3s6965evb</code> (for infrastructure validation)</td></tr>
+<tr><td>Clock</td><td>DWT CYCCNT (cycle-accurate on real hardware)</td></tr>
+<tr><td>Iterations</td><td>100 per benchmark (10 warmup)</td></tr>
+<tr><td>Optimization</td><td><code>release</code> profile (<code>opt-level = "s"</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>DWT limitation on QEMU:</strong> QEMU’s Cortex-M3 emulation does not implement the DWT cycle counter – all reads return 0. The benchmark infrastructure is validated by the fact that it compiles, runs, and produces structured output. Actual cycle counts must be collected on real hardware (e.g., STM32F4 at 168 MHz, STM32F7 at 216 MHz).</p>
+<h3 id="benchmark-categories"><a class="header" href="#benchmark-categories">Benchmark Categories</a></h3>
+<p><strong>CDR Serialization:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Function</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>serialize <code>Int32</code></td><td>Single i32 field</td></tr>
+<tr><td>deserialize <code>Int32</code></td><td>Single i32 field</td></tr>
+<tr><td>serialize <code>Time</code></td><td>Two fields (i32 + u32)</td></tr>
+<tr><td>roundtrip <code>Int32</code></td><td>Serialize + deserialize</td></tr>
+<tr><td>serialize w/ header</td><td>CDR encapsulation header + Int32</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Node API:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Function</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Node::new()</code></td><td>StandaloneNode creation</td></tr>
+<tr><td><code>create_publisher()</code></td><td>Register Int32 publisher</td></tr>
+<tr><td><code>serialize_message()</code></td><td>Node-level serialize to buffer</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Safety E2E:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Function</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>crc32</code> (64B)</td><td>CRC-32/ISO-HDLC, 64-byte payload</td></tr>
+<tr><td><code>crc32</code> (256B)</td><td>CRC-32/ISO-HDLC, 256-byte payload</td></tr>
+<tr><td><code>crc32</code> (1024B)</td><td>CRC-32/ISO-HDLC, 1024-byte payload</td></tr>
+<tr><td><code>validate()</code></td><td>SafetyValidator sequence check</td></tr>
+<tr><td>full pipeline (128B)</td><td>Extract attachment + CRC + validate</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="sanity-bound"><a class="header" href="#sanity-bound">Sanity Bound</a></h3>
+<p>All functions are expected to complete within <strong>100,000 cycles</strong> for typical payloads on a Cortex-M3 at any clock rate. This is a conservative upper bound; actual WCET should be well below this:</p>
+<ul>
+<li>CRC-32 is O(n) in payload size with a single table lookup per byte</li>
+<li><code>SafetyValidator::validate()</code> is O(1) – a few comparisons and an increment</li>
+<li>The full pipeline combines CRC computation with attachment parsing and validation</li>
+</ul>
+<h3 id="running-the-benchmark"><a class="header" href="#running-the-benchmark">Running the Benchmark</a></h3>
+<pre><code class="language-bash"># Build all QEMU examples (includes rs-wcet-bench)
+just build-examples-qemu
+
+# Run the WCET benchmark
+just test-qemu-wcet
+</code></pre>
+<h3 id="static-wcet-analysis"><a class="header" href="#static-wcet-analysis">Static WCET Analysis</a></h3>
+<p>For certification (ISO 26262 ASIL C/D, DO-178C DAL A/B), dynamic measurement is insufficient – static WCET analysis is required. Candidate tools:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Tool</th><th>Type</th><th>License</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Platin</strong></td><td>Static (IPET)</td><td>Open source</td><td>Analyzes LLVM IR + machine code</td></tr>
+<tr><td><strong>aiT</strong></td><td>Static (abstract interpretation)</td><td>Commercial (AbsInt)</td><td>Industry standard for DO-178C / ISO 26262</td></tr>
+<tr><td><strong>SWEET</strong></td><td>Static (flow analysis)</td><td>Academic</td><td>Research tool; good for Cortex-M</td></tr>
+<tr><td><strong>Chronos</strong></td><td>Static (IPET)</td><td>Open source</td><td>Academic; limited embedded target support</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Recommended path</strong>: Use Platin for open-source WCET bounding on the LLVM IR produced by <code>rustc</code>. For certification evidence, aiT provides the strongest tool qualification story (pre-qualified per ISO 26262 Part 8).</p>
+<h2 id="references"><a class="header" href="#references">References</a></h2>
+<ul>
+<li><a href="https://rust-lang.github.io/rust-clippy/master/index.html">Clippy Lints Reference</a></li>
+<li><a href="https://github.com/japaric/cargo-call-stack">cargo-call-stack</a></li>
+<li><a href="https://github.com/trailofbits/dylint">Dylint - Custom Lints</a></li>
+<li><a href="https://github.com/facebookexperimental/MIRAI">MIRAI Abstract Interpreter</a></li>
+<li><a href="https://docs.rs/heapless">heapless Crate</a></li>
+<li><a href="https://docs.rust-embedded.org/book/">Embedded Rust Book</a></li>
+<li><a href="https://rtic.rs/">RTIC Book</a></li>
+</ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../concepts/no-std.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../internals/verification.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../internals/rmw-api-design.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../internals/safety.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -340,11 +603,11 @@ nros = { default-features = false, features = [
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../concepts/no-std.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../internals/verification.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../internals/rmw-api-design.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../internals/safety.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

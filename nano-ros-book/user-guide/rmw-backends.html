@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Platform Model - nano-ros Book</title>
+        <title>Choosing an RMW Backend - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,160 +177,116 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="platform-model"><a class="header" href="#platform-model">Platform Model</a></h1>
-<p>nano-ros uses three orthogonal compile-time feature axes to configure the library for a specific target. Each axis is mutually exclusive – enabling two features from the same axis produces a <code>compile_error!()</code>. Zero features on an axis is valid (reduced functionality).</p>
-<h2 id="the-three-axes"><a class="header" href="#the-three-axes">The Three Axes</a></h2>
-<h3 id="rmw-backend-pick-one"><a class="header" href="#rmw-backend-pick-one">RMW Backend (pick one)</a></h3>
-<p>The RMW backend determines which middleware transport the library uses to send and receive messages.</p>
+                        <h1 id="rmw-backends-zenoh-vs-xrce-dds"><a class="header" href="#rmw-backends-zenoh-vs-xrce-dds">RMW Backends: Zenoh vs XRCE-DDS</a></h1>
+<p>nano-ros supports two RMW (ROS Middleware) backends for connecting embedded devices to a ROS 2 network. Each backend targets different deployment scenarios and resource constraints. Only one backend can be active at compile time.</p>
+<h2 id="zenoh-rmw-zenoh"><a class="header" href="#zenoh-rmw-zenoh">Zenoh (rmw-zenoh)</a></h2>
+<p>The Zenoh backend uses <a href="https://github.com/eclipse-zenoh/zenoh-pico">zenoh-pico</a>, a lightweight C client for the Zenoh protocol. The MCU participates directly in the Zenoh network – there is no protocol translation layer.</p>
+<p><strong>How it works:</strong></p>
+<ol>
+<li>The MCU runs zenoh-pico in <strong>client mode</strong>, connecting to a <code>zenohd</code> router process over TCP, UDP, or TLS.</li>
+<li>zenoh-pico creates publishers and subscribers directly on the Zenoh network.</li>
+<li>ROS 2 nodes running <code>rmw_zenoh_cpp</code> connect to the same <code>zenohd</code> router, enabling transparent interop.</li>
+<li>In <strong>peer mode</strong>, two zenoh-pico devices can communicate directly without any router.</li>
+</ol>
+<p><strong>Key characteristics:</strong></p>
+<ul>
+<li>Peer-to-peer capable (no mandatory bridge process)</li>
+<li><code>zenohd</code> is a generic router, not a protocol translator – it forwards messages without interpreting them</li>
+<li>If <code>zenohd</code> crashes, peers in client mode lose routing but the MCU continues running</li>
+<li>Full ROS 2 graph discovery via liveliness tokens</li>
+<li>Transport options: TCP, UDP, TLS (via <code>zpico-smoltcp</code> or platform sockets)</li>
+</ul>
+<h2 id="xrce-dds-rmw-xrce"><a class="header" href="#xrce-dds-rmw-xrce">XRCE-DDS (rmw-xrce)</a></h2>
+<p>The XRCE-DDS backend uses <a href="https://github.com/eProsima/Micro-XRCE-DDS-Client">Micro-XRCE-DDS-Client</a>, the same client library used by micro-ROS. It follows an <strong>agent-based model</strong> where a lightweight client on the MCU delegates entity creation to an agent process.</p>
+<p><strong>How it works:</strong></p>
+<ol>
+<li>The MCU runs the XRCE-DDS client, connecting to an <strong>Agent</strong> process over UDP or serial (UART).</li>
+<li>The client sends requests to the Agent: “create a publisher on topic X with type Y.”</li>
+<li>The Agent creates full DDS entities on behalf of the client and bridges data between the XRCE protocol and the DDS data space.</li>
+<li>ROS 2 nodes using any DDS-based RMW (FastDDS, Cyclone DDS) communicate through the Agent.</li>
+</ol>
+<p><strong>Key characteristics:</strong></p>
+<ul>
+<li>Agent is <strong>mandatory</strong> – the MCU cannot participate in the network without it</li>
+<li>If the Agent crashes, the MCU loses all connectivity</li>
+<li>Fully static memory allocation on the MCU (no heap required)</li>
+<li>Client-side discovery is not supported; the Agent handles it</li>
+<li>Transport options: UDP, serial (HDLC framing), CAN FD</li>
+</ul>
+<h2 id="comparison"><a class="header" href="#comparison">Comparison</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Feature</th><th>Backend</th><th>Description</th></tr>
+<tr><th>Aspect</th><th>Zenoh (<code>rmw-zenoh</code>)</th><th>XRCE-DDS (<code>rmw-xrce</code>)</th></tr>
 </thead>
 <tbody>
-<tr><td><code>rmw-zenoh</code></td><td>zenoh-pico</td><td>Peer-to-peer via Zenoh protocol</td></tr>
-<tr><td><code>rmw-xrce</code></td><td>Micro-XRCE-DDS-Client</td><td>Agent-based via DDS-XRCE protocol</td></tr>
-<tr><td><code>rmw-cffi</code></td><td>C vtable adapter</td><td>Third-party transport via C function pointers</td></tr>
+<tr><td><strong>Client RAM</strong></td><td>~16 KB+ (heap required)</td><td>~3 KB (fully static)</td></tr>
+<tr><td><strong>Client Flash</strong></td><td>~100 KB+</td><td>~75 KB</td></tr>
+<tr><td><strong>Bridge process</strong></td><td><code>zenohd</code> (generic router)</td><td>Agent (protocol translator)</td></tr>
+<tr><td><strong>Peer-to-peer</strong></td><td>Yes (no router needed)</td><td>No (agent always required)</td></tr>
+<tr><td><strong>Discovery</strong></td><td>Client participates</td><td>Agent handles on behalf</td></tr>
+<tr><td><strong>Entity creation</strong></td><td>Client creates directly</td><td>Client requests, agent creates</td></tr>
+<tr><td><strong>Transport options</strong></td><td>TCP, UDP, TLS</td><td>UDP, serial, CAN FD</td></tr>
+<tr><td><strong>Heap allocation</strong></td><td>Required (C-level)</td><td>None</td></tr>
+<tr><td><strong>Platform symbols</strong></td><td>~55 (clock, malloc, sockets, RNG, …) via <code>zpico-platform-shim</code></td><td>~1 (<code>clock_gettime</code>) via <code>xrce-platform-shim</code></td></tr>
+<tr><td><strong>ROS 2 interop</strong></td><td>Via <code>rmw_zenoh_cpp</code> + <code>zenohd</code></td><td>Via Agent + any DDS RMW</td></tr>
+<tr><td><strong>Failure mode</strong></td><td>Router crash = lose routing</td><td>Agent crash = lose connectivity</td></tr>
+<tr><td><strong>C source files</strong></td><td>~100+</td><td>28</td></tr>
 </tbody>
 </table>
 </div>
-<p>See <a href="./rmw-backends.html">RMW Backends</a> for a detailed comparison of Zenoh vs XRCE-DDS.</p>
-<h3 id="platform-pick-one"><a class="header" href="#platform-pick-one">Platform (pick one)</a></h3>
-<p>The platform feature selects which OS primitives (threading, mutexes, clock, sleep, network) are linked. Each platform crate provides the symbols that the RMW backend’s C library requires at link time.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Target</th><th>Threading</th><th>Network</th></tr>
-</thead>
-<tbody>
-<tr><td><code>platform-posix</code></td><td>Linux, macOS</td><td>pthreads</td><td>BSD sockets</td></tr>
-<tr><td><code>platform-zephyr</code></td><td>Zephyr RTOS</td><td>k_thread_create</td><td>Zephyr sockets</td></tr>
-<tr><td><code>platform-bare-metal</code></td><td>Cortex-M, RISC-V, ESP32</td><td>Single-threaded</td><td>smoltcp</td></tr>
-<tr><td><code>platform-freertos</code></td><td>FreeRTOS</td><td>xTaskCreate</td><td>lwIP</td></tr>
-<tr><td><code>platform-nuttx</code></td><td>NuttX RTOS</td><td>pthreads</td><td>BSD sockets</td></tr>
-<tr><td><code>platform-threadx</code></td><td>Azure RTOS / ThreadX</td><td>tx_thread_create</td><td>NetX Duo</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="ros-edition-pick-one"><a class="header" href="#ros-edition-pick-one">ROS Edition (pick one)</a></h3>
-<p>The ROS edition controls wire-format compatibility with specific ROS 2 releases.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>ros-humble</code></td><td>Humble Hawksbill wire format (no type hash)</td></tr>
-<tr><td><code>ros-iron</code></td><td>Iron Irwini wire format (type hash in key expression)</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="cross-cutting-features"><a class="header" href="#cross-cutting-features">Cross-Cutting Features</a></h2>
-<p>These features are orthogonal to the three axes above and can be combined freely.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>std</code></td><td>Enables <code>std</code>-dependent APIs: <code>spin_blocking()</code>, <code>spin_period()</code>, system clock</td></tr>
-<tr><td><code>alloc</code></td><td>Enables heap-dependent APIs: boxed callbacks, <code>param-services</code></td></tr>
-<tr><td><code>safety-e2e</code></td><td>CRC-32 integrity + sequence tracking (AUTOSAR E2E / EN 50159)</td></tr>
-<tr><td><code>param-services</code></td><td>ROS 2 parameter service handlers (<code>~/get_parameters</code>, etc.). Implies <code>alloc</code>.</td></tr>
-<tr><td><code>ffi-sync</code></td><td>Wraps transport FFI calls in <code>critical_section::with()</code> for RTOS reentrancy</td></tr>
-<tr><td><code>sync-spin</code></td><td>Use spin-lock mutex (default)</td></tr>
-<tr><td><code>sync-critical-section</code></td><td>Use <code>critical-section</code> mutex (for RTIC, Embassy)</td></tr>
-<tr><td><code>unstable-zenoh-api</code></td><td>Zero-copy receive path (Zenoh backend only)</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="mutual-exclusivity-enforcement"><a class="header" href="#mutual-exclusivity-enforcement">Mutual Exclusivity Enforcement</a></h2>
-<p>The <code>nros</code> facade crate enforces mutual exclusivity at compile time using <code>compile_error!()</code>. For example:</p>
-<pre><code class="language-rust ignore">#[cfg(all(feature = "rmw-zenoh", feature = "rmw-xrce"))]
-compile_error!("Only one RMW backend can be enabled: rmw-zenoh or rmw-xrce");
+<h2 id="feature-selection"><a class="header" href="#feature-selection">Feature Selection</a></h2>
+<h3 id="cargotoml-rust"><a class="header" href="#cargotoml-rust">Cargo.toml (Rust)</a></h3>
+<p>Select exactly one RMW backend in your dependency features:</p>
+<pre><code class="language-toml"># Zenoh backend
+[dependencies]
+nros = { features = ["rmw-zenoh", "platform-bare-metal"] }
 
-#[cfg(all(feature = "platform-posix", feature = "platform-zephyr"))]
-compile_error!("Only one platform can be enabled");</code></pre>
-<p>This catches misconfiguration immediately at build time rather than producing subtle runtime failures.</p>
-<h2 id="example-configurations"><a class="header" href="#example-configurations">Example Configurations</a></h2>
-<p><strong>QEMU bare-metal Cortex-M3 with Zenoh:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-zenoh",
-    "platform-bare-metal",
-    "ros-humble",
-] }
+# XRCE-DDS backend
+[dependencies]
+nros = { features = ["rmw-xrce", "platform-bare-metal"] }
 </code></pre>
-<p><strong>Zephyr with XRCE-DDS and safety features:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-xrce",
-    "platform-zephyr",
-    "ros-humble",
-    "alloc",
-    "safety-e2e",
-    "ffi-sync",
-] }
+<h3 id="kconfig-zephyr"><a class="header" href="#kconfig-zephyr">Kconfig (Zephyr)</a></h3>
+<pre><code class="language-kconfig"># Zenoh backend
+CONFIG_NROS_RMW_ZENOH=y
+
+# XRCE-DDS backend
+CONFIG_NROS_RMW_XRCE=y
 </code></pre>
-<p><strong>Desktop Linux for development and testing:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { features = [
-    "rmw-zenoh",
-    "platform-posix",
-    "ros-humble",
-    "std",
-    "param-services",
-] }
-</code></pre>
-<p><strong>FreeRTOS with lwIP networking:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-zenoh",
-    "platform-freertos",
-    "ros-humble",
-] }
-</code></pre>
-<p><strong>ThreadX with NetX Duo (RISC-V):</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-zenoh",
-    "platform-threadx",
-    "ros-humble",
-] }
-</code></pre>
-<p><strong>NuttX with XRCE-DDS over serial:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-xrce",
-    "platform-nuttx",
-    "ros-humble",
-] }
-</code></pre>
-<h2 id="feature-propagation"><a class="header" href="#feature-propagation">Feature Propagation</a></h2>
-<p>Features propagate through the crate dependency graph using Cargo’s <code>?</code> syntax for optional dependencies. When you set <code>rmw-zenoh</code> on the <code>nros</code> facade, it activates:</p>
+<p>Enabling both simultaneously produces a <code>compile_error!()</code>.</p>
+<h2 id="when-to-use-which"><a class="header" href="#when-to-use-which">When to Use Which</a></h2>
+<p><strong>Choose Zenoh when:</strong></p>
 <ul>
-<li><code>nros-node/rmw-zenoh</code> – selects <code>ZenohSession</code> as the concrete session type</li>
-<li><code>nros-rmw-zenoh</code> – the Zenoh RMW implementation crate</li>
-<li><code>zpico-sys</code> – zenoh-pico C bindings</li>
+<li>You need ROS 2 interop with <code>rmw_zenoh_cpp</code> (the recommended ROS 2 middleware for Jazzy+)</li>
+<li>You want peer-to-peer communication without any bridge process</li>
+<li>Your MCU has at least ~16 KB of heap and ~100 KB of flash</li>
+<li>You are using TCP or UDP networking</li>
+<li>You want simpler deployment (zenohd is a single binary with no configuration required)</li>
 </ul>
-<p>Platform features propagate through two paths depending on the platform type:</p>
+<p><strong>Choose XRCE-DDS when:</strong></p>
 <ul>
-<li><strong>RTOS platforms</strong> (POSIX, FreeRTOS, NuttX, ThreadX): the facade activates <code>nros-platform/platform-*</code>, which pulls in the corresponding <code>nros-platform-*</code> implementation crate (e.g., <code>nros-platform-posix</code>, <code>nros-platform-freertos</code>). These live in <code>packages/core/</code>.</li>
-<li><strong>Bare-metal platforms</strong>: the facade only activates <code>nros-node/platform-bare-metal</code> and <code>nros-rmw-zenoh?/platform-bare-metal</code>. Since “bare-metal” isn’t a single platform, the <strong>board crate</strong> activates the specific board platform – e.g., <code>nros-mps2-an385</code> enables <code>nros-platform/platform-mps2-an385</code>, which pulls in <code>nros-platform-mps2-an385</code> from <code>packages/boards/</code>.</li>
+<li>Your MCU has very limited RAM (under 8 KB available for middleware)</li>
+<li>You need serial (UART) transport – useful for MCUs without networking hardware</li>
+<li>You are integrating with an existing micro-ROS or DDS deployment</li>
+<li>You want zero heap allocation on the MCU side</li>
+<li>You need CAN FD transport</li>
 </ul>
-<p>The RMW transport libraries access platform primitives through thin shim crates – <code>zpico-platform-shim</code> (consumed by <code>zpico-sys</code>) and <code>xrce-platform-shim</code> (consumed by <code>xrce-sys</code>) – which forward <code>z_*</code> and <code>uxr_*</code> FFI symbols to the unified <code>ConcretePlatform</code> type alias from <code>nros-platform</code>. Board crates depend on the shim crate directly (with the <code>active</code> feature) to ensure the symbols are linked.</p>
-<p>The default feature set is <code>std</code> only. No RMW backend or platform is selected by default – users must explicitly choose their configuration.</p>
-<p>For implementation details on how to add a new platform, see the <a href="../internals/porting-platform/README.html">Porting Guide</a> and <a href="../reference/platform-api.html">Platform API Reference</a>.</p>
+<p><strong>Either works well for:</strong></p>
+<ul>
+<li>Standard pub/sub and service patterns</li>
+<li>Integration with ROS 2 desktop nodes</li>
+<li>QEMU-based development and testing</li>
+</ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../concepts/no-std.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../getting-started/ros2-interop.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../internals/rmw-api-design.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../user-guide/configuration.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -340,11 +296,11 @@ nros = { default-features = false, features = [
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../concepts/no-std.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../getting-started/ros2-interop.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../internals/rmw-api-design.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../user-guide/configuration.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

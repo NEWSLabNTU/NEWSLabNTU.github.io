@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Rust API - nano-ros Book</title>
+        <title>Platform Porting Pitfalls - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,206 +177,362 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="rust-api"><a class="header" href="#rust-api">Rust API</a></h1>
-<p>This chapter provides a concise overview of the nano-ros Rust API. For full
-details, see the <a href="https://docs.rs/nros/">rustdoc documentation</a> or generate
-it locally with <code>just doc</code>.</p>
-<h2 id="prelude"><a class="header" href="#prelude">Prelude</a></h2>
-<p>Import everything you need with a single statement:</p>
+                        <h1 id="platform-porting-pitfalls"><a class="header" href="#platform-porting-pitfalls">Platform Porting Pitfalls</a></h1>
+<p>Hard-won lessons from porting nros to bare-metal ARM (QEMU MPS2-AN385), ESP32-C3,
+STM32F4, FreeRTOS, NuttX, ThreadX, and Zephyr. Read this before adding a new
+platform or debugging mysterious failures on an existing one.</p>
+<h2 id="memory-layout"><a class="header" href="#memory-layout">Memory Layout</a></h2>
+<h3 id="dma-buffer-placement"><a class="header" href="#dma-buffer-placement">DMA buffer placement</a></h3>
+<p>On MCUs with multiple SRAM regions, DMA descriptors and buffers <strong>must</strong> be in
+DMA-accessible memory. The STM32F4 has 64 KB of CCM RAM that is NOT
+DMA-accessible — placing Ethernet descriptors there causes silent data
+corruption with no error interrupt.</p>
+<p><strong>Fix:</strong> Use linker script sections to force placement:</p>
+<pre><code class="language-ld">/* stm32f4.x — place DMA descriptors in SRAM1, not CCM */
+.eth_descriptors (NOLOAD) : ALIGN(4) {
+    *(.eth_descriptors .eth_descriptors.*)
+} &gt; RAM
+</code></pre>
+<p>In Rust, annotate the buffer:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>use nros::prelude::*;
+</span>#[link_section = ".eth_descriptors"]
+static mut ETH_DMA_DESC: MaybeUninit&lt;[u32; 256]&gt; = MaybeUninit::uninit();
 <span class="boring">}</span></code></pre>
-<h2 id="executor"><a class="header" href="#executor">Executor</a></h2>
-<p>The executor owns the transport session and manages all callbacks. Its static
-memory layout is controlled via environment variables at build time:</p>
-<ul>
-<li><strong><code>NROS_EXECUTOR_MAX_CBS</code></strong> (default 4) – maximum registered callbacks
-(subscriptions + timers + services)</li>
-<li><strong><code>NROS_EXECUTOR_ARENA_SIZE</code></strong> (default 4096) – byte budget for storing
-callback closures inline</li>
-</ul>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let config = ExecutorConfig::from_env().node_name("my_node");
-let mut executor = Executor::open(&amp;config)?;
-<span class="boring">}</span></code></pre>
-<h3 id="spin-methods"><a class="header" href="#spin-methods">Spin Methods</a></h3>
+<h3 id="stack-sizing"><a class="header" href="#stack-sizing">Stack sizing</a></h3>
+<p>Bare-metal and RTIC applications share a single stack. FreeRTOS/Zephyr give each
+task its own stack. In both cases, zenoh-pico’s internal processing needs
+significant stack space:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Method</th><th>Description</th></tr>
+<tr><th>Context</th><th>Minimum stack</th></tr>
 </thead>
 <tbody>
-<tr><td><code>spin_once(timeout_ms)</code></td><td>Poll once, process ready callbacks. Returns immediately after processing.</td></tr>
-<tr><td><code>spin(count)</code></td><td>Call <code>spin_once()</code> in a loop <code>count</code> times (convenience for examples).</td></tr>
-<tr><td><code>spin_blocking(opts)</code></td><td>Block forever processing callbacks. Requires <code>std</code>. Uses <code>SpinOptions</code> for configuration.</td></tr>
-<tr><td><code>spin_period(duration)</code></td><td>Spin at a fixed rate, sleeping between iterations. Requires <code>std</code>. Returns <code>SpinPeriodResult</code>.</td></tr>
-<tr><td><code>spin_async()</code></td><td>Returns a future that drives the executor. Use with an external async runtime (tokio, Embassy). Does not call <code>block_on</code> — the caller’s runtime provides the event loop.</td></tr>
+<tr><td>Bare-metal / RTIC main stack</td><td>8 KB</td></tr>
+<tr><td>FreeRTOS zenoh read task</td><td>2 KB</td></tr>
+<tr><td>FreeRTOS zenoh lease task</td><td>1 KB</td></tr>
+<tr><td>Zephyr zpico work queue thread</td><td>2 KB</td></tr>
 </tbody>
 </table>
 </div>
-<p><strong><code>spin_once</code> vs <code>spin_blocking</code>:</strong> <code>spin_once(timeout_ms)</code> is the low-level primitive — one poll cycle, returns control immediately. <code>spin_blocking</code> and <code>spin_period</code> are convenience wrappers for common patterns. On <code>no_std</code> embedded targets, use <code>spin_once()</code> in a loop or <code>spin(count)</code>.</p>
-<h2 id="node"><a class="header" href="#node">Node</a></h2>
-<p>Create a node from the executor to get a typed handle for creating
-communication primitives:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let mut node = executor.create_node("my_node")?;
-<span class="boring">}</span></code></pre>
-<h2 id="publisher"><a class="header" href="#publisher">Publisher</a></h2>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let publisher = node.create_publisher::&lt;Int32&gt;("/my_topic")?;
-publisher.publish(&amp;Int32 { data: 42 })?;
-<span class="boring">}</span></code></pre>
-<p>Use <code>create_publisher_with_qos()</code> to specify QoS settings.</p>
-<h2 id="subscription"><a class="header" href="#subscription">Subscription</a></h2>
-<h3 id="callback-based-via-executor"><a class="header" href="#callback-based-via-executor">Callback-based (via executor)</a></h3>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>executor.add_subscription::&lt;Int32, _&gt;("/topic", |msg: &amp;Int32| {
-    // handle message
-})?;
-<span class="boring">}</span></code></pre>
-<p>Variants: <code>add_subscription_with_info()</code> (includes <code>MessageInfo</code>),
-<code>add_subscription_with_safety()</code> (includes E2E integrity status).</p>
-<p>Use the <code>_sized</code> variants (e.g., <code>add_subscription_sized::&lt;M, F, 2048&gt;()</code>)
-for messages larger than the default 1024-byte receive buffer.</p>
-<h3 id="manual-poll-via-node"><a class="header" href="#manual-poll-via-node">Manual poll (via node)</a></h3>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let sub = node.create_subscription::&lt;Int32&gt;("/topic")?;
-if let Some(msg) = sub.try_recv()? {
-    // handle message
-}
-<span class="boring">}</span></code></pre>
-<h2 id="service"><a class="header" href="#service">Service</a></h2>
-<h3 id="server"><a class="header" href="#server">Server</a></h3>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let service = node.create_service::&lt;AddTwoInts&gt;("/add")?;
-<span class="boring">}</span></code></pre>
-<p>Register a handler callback via the executor, or poll manually.</p>
-<h3 id="client"><a class="header" href="#client">Client</a></h3>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let mut client = node.create_client::&lt;AddTwoInts&gt;("/add")?;
-<span class="boring">}</span></code></pre>
-<p><strong>Non-blocking (recommended):</strong></p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let promise = client.call(&amp;request)?;  // returns Promise&lt;Response&gt;
-
-// Promise resolves on subsequent spin_once() calls
-executor.spin_once(100);
-if let Some(reply) = promise.try_recv()? {
-    println!("Result: {}", reply.sum);
-}
-
-// Or wait with timeout
-let reply = promise.wait(&amp;mut executor, 5000)?;
-<span class="boring">}</span></code></pre>
-<p><strong>Blocking (legacy):</strong></p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let reply = client.call_blocking(&amp;request, 5000)?;  // blocks up to 5s
-<span class="boring">}</span></code></pre>
-<p><code>call_blocking()</code> internally calls <code>spin_once()</code> in a loop. Prefer <code>call()</code> + <code>Promise</code> for better control over timeouts and cancellation.</p>
-<h2 id="action"><a class="header" href="#action">Action</a></h2>
-<h3 id="server-1"><a class="header" href="#server-1">Server</a></h3>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let mut action_server = node.create_action_server::&lt;Fibonacci&gt;("/fibonacci")?;
-<span class="boring">}</span></code></pre>
-<p><strong>Callback-based (via executor):</strong></p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>executor.add_action_server::&lt;Fibonacci, _&gt;("/fibonacci", |goal| {
-    // Process goal, publish feedback, return result
-    let mut feedback = FibonacciFeedback { sequence: heapless::Vec::new() };
-    // ... compute ...
-    FibonacciResult { sequence: feedback.sequence }
-})?;
-<span class="boring">}</span></code></pre>
-<p><strong>Manual-poll:</strong></p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let mut server = node.create_action_server::&lt;Fibonacci&gt;("/fibonacci")?;
-
-// create_action_server() is NOT arena-registered — spin_once() does NOT
-// process get_result queries automatically. After completing a goal, you
-// must explicitly call:
-server.try_handle_get_result()?;
-<span class="boring">}</span></code></pre>
-<h3 id="client-1"><a class="header" href="#client-1">Client</a></h3>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let mut action_client = node.create_action_client::&lt;Fibonacci&gt;("/fibonacci")?;
-
-// send_goal() returns (GoalId, Promise&lt;bool&gt;)
-let (goal_id, accepted) = action_client.send_goal(&amp;goal)?;
-let was_accepted = accepted.wait(&amp;mut executor, 5000)?;
-
-// get_result() returns Promise&lt;(GoalStatus, Result)&gt;
-let result_promise = action_client.get_result(&amp;goal_id)?;
-let (status, result) = result_promise.wait(&amp;mut executor, 10000)?;
-<span class="boring">}</span></code></pre>
-<p><strong>GoalStatus</strong> values: <code>Unknown(0)</code>, <code>Accepted(1)</code>, <code>Executing(2)</code>, <code>Canceling(3)</code>, <code>Succeeded(4)</code>, <code>Canceled(5)</code>, <code>Aborted(6)</code>.</p>
-<h2 id="timer"><a class="header" href="#timer">Timer</a></h2>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>executor.add_timer(TimerDuration::from_millis(1000), TimerMode::Repeating, |_| {
-    // called every second
-})?;
-
-executor.add_timer_oneshot(TimerDuration::from_millis(5000), |_| {
-    // called once after 5 seconds
-})?;
-<span class="boring">}</span></code></pre>
-<p>Callbacks receive a <code>&amp;TimerState</code> argument.</p>
-<h2 id="parameters"><a class="header" href="#parameters">Parameters</a></h2>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>use nros::prelude::*;
-use nros::{ParameterServer, ParameterValue};
-
-let mut params = ParameterServer::new();
-params.declare("max_speed", ParameterValue::Double(1.5))?;
-<span class="boring">}</span></code></pre>
-<p>Use <code>ParameterBuilder</code> for typed parameter declaration with constraints:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>use nros_params::ParameterBuilder;
-
-ParameterBuilder::&lt;f64&gt;::new("max_speed")
-    .default(1.5)
-    .description("Maximum speed in m/s")
-    .build(&amp;mut params)?;
-<span class="boring">}</span></code></pre>
-<p>Enable the <code>param-services</code> feature on <code>nros-node</code> to expose standard ROS 2
-parameter services (<code>~/get_parameters</code>, <code>~/set_parameters</code>, etc.).</p>
-<h2 id="error-types"><a class="header" href="#error-types">Error Types</a></h2>
-<p>The primary error type is <code>NodeError</code>, returned by executor and node
-operations. Transport-level errors use <code>TransportError</code>.</p>
-<h2 id="transport-backends"><a class="header" href="#transport-backends">Transport Backends</a></h2>
-<p>The transport backend is selected at compile time via feature flags:</p>
+<p>Stack overflow on embedded targets causes <strong>silent corruption</strong> — there is no
+guard page. FreeRTOS can detect overflow with <code>configCHECK_FOR_STACK_OVERFLOW=2</code>
+and the high-water-mark API (<code>uxTaskGetStackHighWaterMark</code>), but only after the
+fact.</p>
+<h3 id="heap-sizing"><a class="header" href="#heap-sizing">Heap sizing</a></h3>
+<p>zenoh-pico allocates heap memory during session open, publisher/subscriber
+creation, and message processing. Typical heap consumption:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Platform</th><th>Minimum heap</th></tr>
+</thead>
+<tbody>
+<tr><td>MPS2-AN385 (bare-metal)</td><td>64 KB</td></tr>
+<tr><td>ESP32-C3</td><td>64 KB (~16 KB static + dynamic)</td></tr>
+<tr><td>STM32F4</td><td>64 KB</td></tr>
+<tr><td>FreeRTOS (lwIP + zenoh)</td><td>256 KB (<code>configTOTAL_HEAP_SIZE</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Undersized heaps cause <code>_Z_ERR_SYSTEM_OUT_OF_MEMORY</code> (-78) during
+<code>z_open()</code> or entity creation, not during message I/O.</p>
+<h3 id="rust-struct-move-invalidation"><a class="header" href="#rust-struct-move-invalidation">Rust struct move invalidation</a></h3>
+<p>When Rust returns a struct from a function, it <strong>moves</strong> the value to a new
+address. If C code stored a pointer to the original location (e.g., during
+<code>init()</code>), that pointer is now dangling.</p>
+<p><strong>Symptom:</strong> Callback crashes or garbage field values after struct is returned
+from an init function.</p>
+<p><strong>Fix:</strong> Use static storage, <code>Box::pin()</code>, or index-based references instead of
+raw pointers. See <a href="../user-guide/troubleshooting.html#subscriber-callback-crashes">Troubleshooting: Subscriber Callback Crashes</a>.</p>
+<h2 id="clock-sources"><a class="header" href="#clock-sources">Clock Sources</a></h2>
+<h3 id="use-hardware-timers-not-poll-driven-counters"><a class="header" href="#use-hardware-timers-not-poll-driven-counters">Use hardware timers, not poll-driven counters</a></h3>
+<p>Every platform must provide a monotonic millisecond clock via <code>smoltcp_clock_now_ms()</code> (for
+smoltcp timestamping) and <code>z_clock_now()</code> / <code>z_clock_elapsed_*()</code> (for zenoh-pico timeouts).
+This clock <strong>must</strong> be backed by a hardware timer or OS clock — never by a software counter
+that only advances when <code>spin()</code> or <code>poll()</code> is called.</p>
+<p>A poll-driven clock causes:</p>
 <ul>
-<li><code>rmw-zenoh</code> –&gt; zenoh-pico transport</li>
-<li><code>rmw-xrce</code> –&gt; XRCE-DDS transport</li>
+<li><strong>Incorrect timeouts:</strong> zenoh-pico uses <code>z_clock_elapsed_ms()</code> for session keep-alive,
+query timeout, and transport timeout. If the clock only advances during poll, idle periods
+(waiting for network I/O, sleeping between spins) are invisible to the timeout logic.</li>
+<li><strong>Timeout storms:</strong> After a long idle period, the next poll advances the clock by a large
+jump, causing multiple timeouts to fire simultaneously.</li>
+<li><strong>Broken RTIC integration:</strong> RTIC tasks yield with <code>Mono::delay()</code> between spins. A
+poll-driven clock doesn’t advance during the delay, making all timeouts effectively infinite.</li>
 </ul>
-<p>The concrete session type is resolved automatically. Advanced users can access
-it via <code>nros::internals::RmwSession</code>.</p>
+<h3 id="platform-clock-status"><a class="header" href="#platform-clock-status">Platform clock status</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Platform</th><th>Clock source</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>MPS2-AN385 (zpico)</td><td>CMSDK APB Timer0</td><td>Hardware 25 MHz free-running counter. Wraps at ~171s, extended via <code>WRAP_COUNT</code>.</td></tr>
+<tr><td>ESP32-C3</td><td><code>esp_hal::time::Instant</code></td><td>Hardware timer, no manual updates needed.</td></tr>
+<tr><td>ESP32-C3 (QEMU)</td><td><code>esp_hal::time::Instant</code></td><td>Works with QEMU <code>-icount 3</code>.</td></tr>
+<tr><td>STM32F4</td><td>ARM DWT cycle counter</td><td>Hardware-backed. <code>update_from_dwt()</code> reads elapsed DWT cycles and advances the software counter. Must be called at least once per ~25.6s (at 168 MHz) to avoid missing DWT wraps.</td></tr>
+<tr><td>FreeRTOS</td><td>FreeRTOS kernel tick</td><td>OS-managed via <code>xTaskGetTickCount()</code>.</td></tr>
+<tr><td>NuttX</td><td>POSIX <code>clock_gettime()</code></td><td>OS-managed.</td></tr>
+<tr><td>Zephyr</td><td>Zephyr kernel tick</td><td>OS-managed via <code>k_uptime_get()</code>.</td></tr>
+<tr><td>POSIX (native)</td><td><code>std::time::Instant</code></td><td>OS-managed.</td></tr>
+<tr><td>XRCE MPS2-AN385</td><td>CMSDK APB Timer0</td><td>Same hardware timer as zpico MPS2-AN385. Call <code>init_hardware_timer()</code> before use.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="porting-checklist-for-new-platforms"><a class="header" href="#porting-checklist-for-new-platforms">Porting checklist for new platforms</a></h3>
+<ol>
+<li><strong>Identify a hardware timer</strong> — SysTick, a general-purpose timer, or DWT cycle counter.
+On RTOS platforms, use the OS tick API.</li>
+<li><strong>Export <code>smoltcp_clock_now_ms() -&gt; u64</code></strong> — called by <code>zpico-smoltcp</code> for TCP/IP
+timestamping.</li>
+<li><strong>Export zenoh-pico clock symbols</strong> — <code>z_clock_now()</code>, <code>z_clock_elapsed_us/ms/s()</code>,
+<code>z_clock_advance_us/ms/s()</code>. These read from the same underlying counter.</li>
+<li><strong>Never advance the clock inside <code>smoltcp_network_poll()</code></strong> — the poll callback runs
+during network I/O and is not a reliable time source. Read the hardware timer directly.</li>
+<li><strong>Handle timer wraps</strong> — 32-bit timers wrap. Track wrap count in an atomic or use a
+64-bit hardware counter if available.</li>
+</ol>
+<h3 id="qemu-clock-synchronization"><a class="header" href="#qemu-clock-synchronization">QEMU clock synchronization</a></h3>
+<p>QEMU’s virtual clock races ahead of wall-clock time during WFI, causing hardware
+timer-backed timeouts to fire before TAP network I/O completes. This is solved
+with <code>-icount shift=auto</code>, which makes virtual time advance at wall-clock speed
+during CPU sleep states.</p>
+<p>See <a href="../../docs/reference/qemu-icount.html">QEMU icount reference</a> for the full
+explanation, parameter reference, and tradeoffs.</p>
+<h2 id="networking"><a class="header" href="#networking">Networking</a></h2>
+<h3 id="ephemeral-port-conflicts"><a class="header" href="#ephemeral-port-conflicts">Ephemeral port conflicts</a></h3>
+<p>smoltcp’s ephemeral port allocator starts at port 49152 with a static counter
+that resets to zero on each boot. When QEMU instances are killed and restarted,
+the new instance picks the <strong>same</strong> source port, creating a 4-tuple collision
+with stale host-side TCP sockets.</p>
+<p><strong>Symptom:</strong> <code>ConnectionFailed</code> or <code>TransportOpenFailed</code> on the second test run.
+<code>ss -tnap</code> shows <code>FIN-WAIT-1</code> sockets from the previous QEMU instance.</p>
+<p><strong>Fix (test infrastructure):</strong> Kill stale host TCP sockets between test runs:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Clean stale TCP connections to QEMU IPs
+for ip in &amp;["192.0.3.10", "192.0.3.11"] {
+    let _ = Command::new("ss")
+        .args(["-K", "dst", ip])
+        .status();
+}
+<span class="boring">}</span></code></pre>
+<p><strong>Fix (Zephyr native_sim):</strong> Pass different <code>--seed</code> values to each instance so
+the entropy source produces different ephemeral ports:</p>
+<pre><code class="language-bash">./build-listener/zephyr/zephyr.exe --seed=12345
+./build-talker/zephyr/zephyr.exe --seed=67890
+</code></pre>
+<h3 id="qemu-single-threaded-io-starvation"><a class="header" href="#qemu-single-threaded-io-starvation">QEMU single-threaded I/O starvation</a></h3>
+<p>QEMU emulates the CPU and processes TAP network I/O in <strong>one thread</strong>. If the
+guest never executes WFI (Wait For Interrupt), QEMU never yields to its I/O
+event loop, and the TAP file descriptor is never serviced.</p>
+<p><strong>Symptom:</strong> First few packets work (buffered), then all networking stops.
+Services and actions time out. Pub/sub may appear to work because subscriber
+callbacks fire inline during <code>zp_read()</code>.</p>
+<p><strong>Fix:</strong> In RTIC, yield between <code>spin_once()</code> calls:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// CORRECT — yields to idle task → WFI → QEMU processes TAP
+cx.local.executor.spin_once(0);
+Mono::delay(10.millis()).await;
+
+// WRONG — busy-loops, starving QEMU I/O
+loop {
+    cx.local.executor.spin_once(0);
+}
+<span class="boring">}</span></code></pre>
+<p>In bare-metal (no RTIC), call <code>cortex_m::asm::wfi()</code> in your idle loop.</p>
+<h3 id="tap-device-assignment"><a class="header" href="#tap-device-assignment">TAP device assignment</a></h3>
+<p>Each QEMU peer <strong>must</strong> use a different TAP device. Two QEMU instances on the
+same TAP cause packet collision and loss.</p>
+<pre><code>QEMU talker  → tap-qemu0 ─┐
+                           ├── qemu-br (192.0.3.1/24)
+QEMU listener → tap-qemu1 ─┘
+</code></pre>
+<h3 id="subscriber-startup-ordering"><a class="header" href="#subscriber-startup-ordering">Subscriber startup ordering</a></h3>
+<p>Zenoh does not buffer messages for unknown subscribers. If the publisher starts
+before the subscriber’s declaration propagates through the router, early messages
+are lost.</p>
+<p><strong>Rule:</strong> Start subscriber first, wait 5 seconds for stabilization, then start
+publisher.</p>
+<h3 id="tap-queue-discipline"><a class="header" href="#tap-queue-discipline">TAP queue discipline</a></h3>
+<p>The default <code>fq_codel</code> qdisc drops packets when QEMU emulation is slow (CoDel’s
+default 5ms target interprets emulation pauses as congestion, and per-flow
+scheduling disrupts zenoh-pico’s service reply timing). This causes TCP data
+segments to be dropped, breaking zenoh session establishment.</p>
+<p><strong>Fix:</strong> Use <code>pfifo</code> instead:</p>
+<pre><code class="language-bash">sudo tc qdisc replace dev tap-qemu0 root pfifo limit 1000
+sudo tc qdisc replace dev tap-qemu1 root pfifo limit 1000
+</code></pre>
+<p><code>pfifo</code> queues packets without dropping, which QEMU needs to absorb bursts
+during emulation pauses. Stale packets from killed QEMU processes accumulate
+in the queue but are harmless — the firmware seeds smoltcp’s ephemeral port
+from the host’s wall clock via ARM semihosting <code>SYS_TIME</code>, so each QEMU run
+uses a different source port and stale packets are silently ignored.</p>
+<p>See <a href="../../docs/reference/tap-qdisc-analysis.html">TAP qdisc analysis</a> for why
+<code>fq_codel</code> and <code>noqueue</code> don’t work for QEMU TAP devices.</p>
+<h2 id="zenoh-pico"><a class="header" href="#zenoh-pico">zenoh-pico</a></h2>
+<h3 id="z_feature_interest-causes-multi-client-failures"><a class="header" href="#z_feature_interest-causes-multi-client-failures">Z_FEATURE_INTEREST causes multi-client failures</a></h3>
+<p>When multiple zenoh-pico clients connect to the same router, the interest
+protocol’s write filter creation can fail with <code>-78</code>
+(<code>_Z_ERR_SYSTEM_OUT_OF_MEMORY</code>) even when memory is available.</p>
+<p><strong>Fix:</strong> Disable in all builds:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// build.rs
+cmake::Config::new(&amp;zenoh_pico_path)
+    .define("Z_FEATURE_INTEREST", "0")
+    .define("Z_FEATURE_MATCHING", "0")
+    .build();
+<span class="boring">}</span></code></pre>
+<p><code>Z_FEATURE_MATCHING</code> depends on <code>Z_FEATURE_INTEREST</code> — both must be disabled.</p>
+<p>See <a href="../user-guide/troubleshooting.html#zenoh-pico-multiple-client-issues">Troubleshooting: zenoh-pico Multiple Client Issues</a>.</p>
+<h3 id="blocking-tcp-reads-in-cooperative-schedulers"><a class="header" href="#blocking-tcp-reads-in-cooperative-schedulers">Blocking TCP reads in cooperative schedulers</a></h3>
+<p><code>_z_read_tcp()</code> can block for up to <code>SOCKET_TIMEOUT_MS</code> (default 10 seconds).
+In cooperative schedulers (RTIC, bare-metal main loop), this blocks the entire
+system since C FFI cannot yield.</p>
+<p><strong>Impact:</strong> Pub/sub works (callbacks fire inline during <code>zp_read()</code>), but
+services and actions fail because <code>z_get()</code> query replies need multiple
+<code>zp_read()</code> cycles, and the 5-second query timeout expires while <code>_z_read_tcp</code>
+blocks.</p>
+<p><strong>Current status:</strong> <code>zpico_spin_once(0)</code> is non-blocking (<code>single_read=true</code>),
+but the underlying <code>z_get()</code> timeout is still 5 seconds. RTIC service/action E2E
+tests are <code>#[ignore]</code>d pending a fully non-blocking TCP read path.</p>
+<h3 id="version-pinning"><a class="header" href="#version-pinning">Version pinning</a></h3>
+<p>All zenoh components must be the <strong>same version</strong>. A version mismatch between
+zenoh-pico and zenohd causes transport-level failures (<code>-100</code>,
+<code>_Z_ERR_TRANSPORT_TX_FAILED</code>) that look like network issues.</p>
+<p>nros pins zenohd and zenoh-pico to the <strong>same version</strong>. zenohd is built from
+the <code>scripts/zenohd/zenoh/</code> submodule; zenoh-pico from <code>zpico-sys/zenoh-pico/</code>.</p>
+<h2 id="esp32-c3-risc-v"><a class="header" href="#esp32-c3-risc-v">ESP32-C3 (RISC-V)</a></h2>
+<h3 id="picolibc-errno-tls-crash"><a class="header" href="#picolibc-errno-tls-crash">picolibc errno TLS crash</a></h3>
+<p>picolibc’s <code>errno.h</code> uses <code>__thread</code> (thread-local storage), which crashes on
+bare-metal RISC-V because TLS is not initialized. The crash is a hard fault
+with no useful backtrace.</p>
+<p><strong>Fix:</strong> Shadow <code>errno.h</code> with a non-TLS version:</p>
+<pre><code class="language-c">// errno_override.h — no __thread, just a global
+extern int errno;
+#define EPERM  1
+#define ENOENT 2
+// ... subset of errno codes
+</code></pre>
+<p>Include this with <code>-include errno_override.h</code> in CFLAGS before picolibc headers.</p>
+<h3 id="flash-image-format"><a class="header" href="#flash-image-format">Flash image format</a></h3>
+<p>ESP32-C3 QEMU requires a merged flash image, not a raw binary:</p>
+<pre><code class="language-bash">espflash save-image --merge --chip esp32c3 target/riscv32imc-unknown-none-elf/release/app app.bin
+</code></pre>
+<p>The <code>--merge</code> flag creates a 4 MB image with bootloader, partition table, and
+application combined.</p>
+<h2 id="freertos"><a class="header" href="#freertos">FreeRTOS</a></h2>
+<h3 id="task-priority-inversion"><a class="header" href="#task-priority-inversion">Task priority inversion</a></h3>
+<p>The LAN9118 RX FIFO poll task and zenoh-pico read task must run at the <strong>same
+priority</strong> (typically priority 4). If the read task has higher priority, it
+monopolizes the CPU, preventing RX FIFO drain. TCP keep-alives are missed, and
+zenoh sessions expire.</p>
+<p>Similarly, lwIP’s <code>tcpip_thread</code> must run at the same priority. Lower priority
+stalls packet processing.</p>
+<h3 id="recursive-mutexes-required"><a class="header" href="#recursive-mutexes-required">Recursive mutexes required</a></h3>
+<p>zenoh-pico’s FFI layer requires recursive mutexes. Enable in FreeRTOS config:</p>
+<pre><code class="language-c">#define configUSE_RECURSIVE_MUTEXES 1
+</code></pre>
+<h3 id="interrupt-priority-constraints"><a class="header" href="#interrupt-priority-constraints">Interrupt priority constraints</a></h3>
+<p>On Cortex-M3 (3-bit priority, 8 levels): ISRs at priority &gt;= 5
+(<code>configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY</code>) cannot call FreeRTOS APIs.
+Ethernet IRQ handlers that signal tasks must use a lower (numerically higher)
+priority.</p>
+<h2 id="build-system"><a class="header" href="#build-system">Build System</a></h2>
+<h3 id="parallel-test-build-races"><a class="header" href="#parallel-test-build-races">Parallel test build races</a></h3>
+<p>When nextest runs test files in parallel and multiple tests build the same
+example with different features, cargo fingerprinting creates race conditions —
+one test overwrites the binary another test is about to execute.</p>
+<p><strong>Fix:</strong> Use <code>--target-dir</code> for each feature variant:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Command::new("cargo")
+    .args(["build", "--release", "--features", "safety-e2e"])
+    .arg("--target-dir").arg("target-safety")
+    .status()?;
+<span class="boring">}</span></code></pre>
+<p>Add each target dir to the example’s <code>.gitignore</code>:</p>
+<pre><code class="language-gitignore">/target/
+/target-safety/
+/target-zero-copy/
+</code></pre>
+<h3 id="cmake-cache-invalidation"><a class="header" href="#cmake-cache-invalidation">CMake cache invalidation</a></h3>
+<p>Changes to CMake defines (like <code>Z_FEATURE_INTEREST=0</code>) are cached. Changing the
+value without cleaning the build has no effect.</p>
+<p><strong>Fix:</strong></p>
+<pre><code class="language-bash"># Cargo (native)
+cargo clean -p zpico-sys &amp;&amp; cargo build
+
+# Zephyr (west)
+west build --pristine
+</code></pre>
+<h3 id="feature-flag-mutual-exclusivity"><a class="header" href="#feature-flag-mutual-exclusivity">Feature flag mutual exclusivity</a></h3>
+<p>The three platform axes — RMW backend, platform, ROS edition — are mutually
+exclusive within each axis. Enabling two platforms (e.g.,
+<code>platform-posix,platform-zephyr</code>) causes compile errors with confusing messages
+about duplicate symbol definitions, not a clear “pick one” error.</p>
+<h2 id="test-infrastructure"><a class="header" href="#test-infrastructure">Test Infrastructure</a></h2>
+<h3 id="orphan-process-prevention"><a class="header" href="#orphan-process-prevention">Orphan process prevention</a></h3>
+<p>When nextest is killed (Ctrl-C, OOM, timeout), child processes (zenohd, QEMU)
+can become orphans that hold ports and TAP devices.</p>
+<p><strong>Fix:</strong> Use <code>PR_SET_PDEATHSIG(SIGKILL)</code> in the pre-exec hook:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use std::os::unix::process::CommandExt;
+
+let mut cmd = Command::new("zenohd");
+unsafe {
+    cmd.pre_exec(|| {
+        // Kill this child when parent dies
+        libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+        // New process group for tree cleanup
+        libc::setpgid(0, 0);
+        Ok(())
+    });
+}
+<span class="boring">}</span></code></pre>
+<p><strong>Important:</strong> Do not use <code>pkill</code> to clean up zenohd — other agents or users
+may have their own zenohd instances. Use process groups and death signals
+instead.</p>
+<h3 id="sequential-test-execution-for-shared-resources"><a class="header" href="#sequential-test-execution-for-shared-resources">Sequential test execution for shared resources</a></h3>
+<p>Tests that use QEMU networking (TAP devices, zenohd on fixed ports) must run
+sequentially. Use nextest test groups:</p>
+<pre><code class="language-toml"># .config/nextest.toml
+[test-groups.qemu-network]
+max-threads = 1
+</code></pre>
+<h3 id="stale-tcp-connection-cleanup"><a class="header" href="#stale-tcp-connection-cleanup">Stale TCP connection cleanup</a></h3>
+<p>Between sequential QEMU tests, host-side TCP sockets may linger in <code>FIN-WAIT-1</code>
+(the QEMU peer was killed before completing the TCP close handshake). These
+cause 4-tuple collisions when the next QEMU instance reuses the same source port.</p>
+<p><strong>Fix:</strong> Call <code>ss -K dst &lt;ip&gt;</code> between tests to force-destroy stale sockets:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn cleanup_tap_network() {
+    for ip in &amp;["192.0.3.10", "192.0.3.11"] {
+        let _ = Command::new("ss")
+            .args(["-K", "dst", ip])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    std::thread::sleep(Duration::from_secs(1));
+}
+<span class="boring">}</span></code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../user-guide/troubleshooting.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../internals/creating-examples.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../reference/c-api.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../internals/contributing.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -386,11 +542,11 @@ it via <code>nros::internals::RmwSession</code>.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../user-guide/troubleshooting.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../internals/creating-examples.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../reference/c-api.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../internals/contributing.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

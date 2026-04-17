@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Platform Model - nano-ros Book</title>
+        <title>Bare-metal (QEMU ARM) - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,160 +177,253 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="platform-model"><a class="header" href="#platform-model">Platform Model</a></h1>
-<p>nano-ros uses three orthogonal compile-time feature axes to configure the library for a specific target. Each axis is mutually exclusive – enabling two features from the same axis produces a <code>compile_error!()</code>. Zero features on an axis is valid (reduced functionality).</p>
-<h2 id="the-three-axes"><a class="header" href="#the-three-axes">The Three Axes</a></h2>
-<h3 id="rmw-backend-pick-one"><a class="header" href="#rmw-backend-pick-one">RMW Backend (pick one)</a></h3>
-<p>The RMW backend determines which middleware transport the library uses to send and receive messages.</p>
+                        <h1 id="qemu-bare-metal-testing"><a class="header" href="#qemu-bare-metal-testing">QEMU Bare-Metal Testing</a></h1>
+<p>This document describes how to run bare-metal nros applications in QEMU with network connectivity.</p>
+<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
+<p>QEMU emulates the MPS2-AN385 board (ARM Cortex-M3) with LAN9118 Ethernet, allowing full network testing without physical hardware.</p>
+<h3 id="network-topology"><a class="header" href="#network-topology">Network Topology</a></h3>
+<pre><code>┌─────────────────────────────────────────────────────────────────┐
+│                         Host System                              │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
+│  │  zenohd     │    │ ROS 2 Node  │    │   Test Runner       │  │
+│  │  (router)   │    │ (rmw_zenoh) │    │   (cargo test)      │  │
+│  └──────┬──────┘    └──────┬──────┘    └──────────┬──────────┘  │
+│         │                  │                       │            │
+│         └─────────┬────────┴───────────────────────┘            │
+│                   │                                             │
+│         ┌─────────▼─────────┐                                   │
+│         │   Bridge          │  192.0.2.1                        │
+│         │   (qemu-br)       │                                   │
+│         └─────────┬─────────┘                                   │
+│                   │                                             │
+│    ┌──────────────┼──────────────┐                              │
+│    │              │              │                              │
+│    ▼              ▼              ▼                              │
+│ ┌──────────┐ ┌──────────┐ ┌──────────┐                          │
+│ │tap-qemu0 │ │tap-qemu1 │ │tap-qemu2 │                          │
+│ └────┬─────┘ └────┬─────┘ └────┬─────┘                          │
+└──────┼────────────┼────────────┼────────────────────────────────┘
+       │            │            │
+  ┌────▼────┐  ┌────▼────┐  ┌────▼────┐
+  │  QEMU   │  │  QEMU   │  │  QEMU   │
+  │ MPS2    │  │ MPS2    │  │ MPS2    │
+  │ talker  │  │listener │  │  node   │
+  │192.0.2.10│ │192.0.2.11│ │192.0.2.12│
+  └─────────┘  └─────────┘  └─────────┘
+</code></pre>
+<h3 id="ip-address-allocation"><a class="header" href="#ip-address-allocation">IP Address Allocation</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Feature</th><th>Backend</th><th>Description</th></tr>
+<tr><th>Address</th><th>Device</th></tr>
 </thead>
 <tbody>
-<tr><td><code>rmw-zenoh</code></td><td>zenoh-pico</td><td>Peer-to-peer via Zenoh protocol</td></tr>
-<tr><td><code>rmw-xrce</code></td><td>Micro-XRCE-DDS-Client</td><td>Agent-based via DDS-XRCE protocol</td></tr>
-<tr><td><code>rmw-cffi</code></td><td>C vtable adapter</td><td>Third-party transport via C function pointers</td></tr>
+<tr><td>192.0.2.1</td><td>Host bridge (zenohd)</td></tr>
+<tr><td>192.0.2.10</td><td>QEMU node 0 (tap-qemu0)</td></tr>
+<tr><td>192.0.2.11</td><td>QEMU node 1 (tap-qemu1)</td></tr>
+<tr><td>192.0.2.12+</td><td>Additional QEMU nodes</td></tr>
 </tbody>
 </table>
 </div>
-<p>See <a href="./rmw-backends.html">RMW Backends</a> for a detailed comparison of Zenoh vs XRCE-DDS.</p>
-<h3 id="platform-pick-one"><a class="header" href="#platform-pick-one">Platform (pick one)</a></h3>
-<p>The platform feature selects which OS primitives (threading, mutexes, clock, sleep, network) are linked. Each platform crate provides the symbols that the RMW backend’s C library requires at link time.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Target</th><th>Threading</th><th>Network</th></tr>
-</thead>
-<tbody>
-<tr><td><code>platform-posix</code></td><td>Linux, macOS</td><td>pthreads</td><td>BSD sockets</td></tr>
-<tr><td><code>platform-zephyr</code></td><td>Zephyr RTOS</td><td>k_thread_create</td><td>Zephyr sockets</td></tr>
-<tr><td><code>platform-bare-metal</code></td><td>Cortex-M, RISC-V, ESP32</td><td>Single-threaded</td><td>smoltcp</td></tr>
-<tr><td><code>platform-freertos</code></td><td>FreeRTOS</td><td>xTaskCreate</td><td>lwIP</td></tr>
-<tr><td><code>platform-nuttx</code></td><td>NuttX RTOS</td><td>pthreads</td><td>BSD sockets</td></tr>
-<tr><td><code>platform-threadx</code></td><td>Azure RTOS / ThreadX</td><td>tx_thread_create</td><td>NetX Duo</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="ros-edition-pick-one"><a class="header" href="#ros-edition-pick-one">ROS Edition (pick one)</a></h3>
-<p>The ROS edition controls wire-format compatibility with specific ROS 2 releases.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>ros-humble</code></td><td>Humble Hawksbill wire format (no type hash)</td></tr>
-<tr><td><code>ros-iron</code></td><td>Iron Irwini wire format (type hash in key expression)</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="cross-cutting-features"><a class="header" href="#cross-cutting-features">Cross-Cutting Features</a></h2>
-<p>These features are orthogonal to the three axes above and can be combined freely.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>std</code></td><td>Enables <code>std</code>-dependent APIs: <code>spin_blocking()</code>, <code>spin_period()</code>, system clock</td></tr>
-<tr><td><code>alloc</code></td><td>Enables heap-dependent APIs: boxed callbacks, <code>param-services</code></td></tr>
-<tr><td><code>safety-e2e</code></td><td>CRC-32 integrity + sequence tracking (AUTOSAR E2E / EN 50159)</td></tr>
-<tr><td><code>param-services</code></td><td>ROS 2 parameter service handlers (<code>~/get_parameters</code>, etc.). Implies <code>alloc</code>.</td></tr>
-<tr><td><code>ffi-sync</code></td><td>Wraps transport FFI calls in <code>critical_section::with()</code> for RTOS reentrancy</td></tr>
-<tr><td><code>sync-spin</code></td><td>Use spin-lock mutex (default)</td></tr>
-<tr><td><code>sync-critical-section</code></td><td>Use <code>critical-section</code> mutex (for RTIC, Embassy)</td></tr>
-<tr><td><code>unstable-zenoh-api</code></td><td>Zero-copy receive path (Zenoh backend only)</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="mutual-exclusivity-enforcement"><a class="header" href="#mutual-exclusivity-enforcement">Mutual Exclusivity Enforcement</a></h2>
-<p>The <code>nros</code> facade crate enforces mutual exclusivity at compile time using <code>compile_error!()</code>. For example:</p>
-<pre><code class="language-rust ignore">#[cfg(all(feature = "rmw-zenoh", feature = "rmw-xrce"))]
-compile_error!("Only one RMW backend can be enabled: rmw-zenoh or rmw-xrce");
+<h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
+<h3 id="install-qemu"><a class="header" href="#install-qemu">Install QEMU</a></h3>
+<pre><code class="language-bash">sudo apt install qemu-system-arm
+</code></pre>
+<h3 id="verify-installation"><a class="header" href="#verify-installation">Verify Installation</a></h3>
+<pre><code class="language-bash">just check-qemu
+</code></pre>
+<h2 id="quick-start"><a class="header" href="#quick-start">Quick Start</a></h2>
+<h3 id="1-build-qemu-examples"><a class="header" href="#1-build-qemu-examples">1. Build QEMU Examples</a></h3>
+<pre><code class="language-bash">just build-examples-qemu
+</code></pre>
+<h3 id="2-run-tests-no-networking"><a class="header" href="#2-run-tests-no-networking">2. Run Tests (No Networking)</a></h3>
+<pre><code class="language-bash"># Run all QEMU tests
+just test-qemu
 
-#[cfg(all(feature = "platform-posix", feature = "platform-zephyr"))]
-compile_error!("Only one platform can be enabled");</code></pre>
-<p>This catches misconfiguration immediately at build time rather than producing subtle runtime failures.</p>
-<h2 id="example-configurations"><a class="header" href="#example-configurations">Example Configurations</a></h2>
-<p><strong>QEMU bare-metal Cortex-M3 with Zenoh:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-zenoh",
-    "platform-bare-metal",
-    "ros-humble",
-] }
+# Run only LAN9118 driver test
+just test-qemu-lan9118
 </code></pre>
-<p><strong>Zephyr with XRCE-DDS and safety features:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-xrce",
-    "platform-zephyr",
-    "ros-humble",
-    "alloc",
-    "safety-e2e",
-    "ffi-sync",
-] }
+<h3 id="3-setup-networking-for-full-stack-tests"><a class="header" href="#3-setup-networking-for-full-stack-tests">3. Setup Networking (For Full Stack Tests)</a></h3>
+<pre><code class="language-bash"># Create TAP bridge (requires sudo)
+just setup-qemu-network
+
+# Verify setup
+just status-qemu-network
 </code></pre>
-<p><strong>Desktop Linux for development and testing:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { features = [
-    "rmw-zenoh",
-    "platform-posix",
-    "ros-humble",
-    "std",
-    "param-services",
-] }
+<h3 id="4-run-with-networking"><a class="header" href="#4-run-with-networking">4. Run with Networking</a></h3>
+<pre><code class="language-bash"># Terminal 1: Start zenoh router
+zenohd --listen tcp/0.0.0.0:7447
+
+# Terminal 2: Run QEMU with network
+./scripts/qemu/launch-mps2-an385.sh \
+    --tap tap-qemu0 \
+    --ip 192.0.2.10 \
+    --binary examples/qemu-arm-baremetal/rust/standalone/lan9118/target/thumbv7m-none-eabi/release/qemu-rs-lan9118
 </code></pre>
-<p><strong>FreeRTOS with lwIP networking:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-zenoh",
-    "platform-freertos",
-    "ros-humble",
-] }
+<h3 id="5-teardown"><a class="header" href="#5-teardown">5. Teardown</a></h3>
+<pre><code class="language-bash">just teardown-qemu-network
 </code></pre>
-<p><strong>ThreadX with NetX Duo (RISC-V):</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-zenoh",
-    "platform-threadx",
-    "ros-humble",
-] }
+<h2 id="scripts-reference"><a class="header" href="#scripts-reference">Scripts Reference</a></h2>
+<h3 id="scriptsqemusetup-networksh"><a class="header" href="#scriptsqemusetup-networksh"><code>scripts/qemu/setup-network.sh</code></a></h3>
+<p>Creates Linux bridge and TAP interfaces for QEMU networking.</p>
+<pre><code class="language-bash"># Create default setup (2 TAP interfaces)
+sudo ./scripts/qemu/setup-network.sh
+
+# Create with more TAP interfaces
+sudo ./scripts/qemu/setup-network.sh -n 4
+
+# Show current status
+./scripts/qemu/setup-network.sh --status
+
+# Tear down
+sudo ./scripts/qemu/setup-network.sh --down
 </code></pre>
-<p><strong>NuttX with XRCE-DDS over serial:</strong></p>
-<pre><code class="language-toml">[dependencies]
-nros = { default-features = false, features = [
-    "rmw-xrce",
-    "platform-nuttx",
-    "ros-humble",
-] }
+<h3 id="scriptsqemulaunch-mps2-an385sh"><a class="header" href="#scriptsqemulaunch-mps2-an385sh"><code>scripts/qemu/launch-mps2-an385.sh</code></a></h3>
+<p>Launches QEMU mps2-an385 with optional networking.</p>
+<pre><code class="language-bash"># Basic usage (no network)
+./scripts/qemu/launch-mps2-an385.sh --binary app.elf
+
+# With networking
+./scripts/qemu/launch-mps2-an385.sh \
+    --tap tap-qemu0 \
+    --ip 192.0.2.10 \
+    --binary app.elf
+
+# With GDB debugging
+./scripts/qemu/launch-mps2-an385.sh --gdb --binary app.elf
+# Then: arm-none-eabi-gdb -ex "target remote :1234" app.elf
+
+# Show full command without executing
+./scripts/qemu/launch-mps2-an385.sh --debug --tap tap-qemu0 --binary app.elf
 </code></pre>
-<h2 id="feature-propagation"><a class="header" href="#feature-propagation">Feature Propagation</a></h2>
-<p>Features propagate through the crate dependency graph using Cargo’s <code>?</code> syntax for optional dependencies. When you set <code>rmw-zenoh</code> on the <code>nros</code> facade, it activates:</p>
+<h2 id="justfile-recipes"><a class="header" href="#justfile-recipes">Justfile Recipes</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Recipe</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>build-examples-qemu</code></td><td>Build all QEMU examples</td></tr>
+<tr><td><code>test-qemu</code></td><td>Run all QEMU tests</td></tr>
+<tr><td><code>test-qemu-basic</code></td><td>Run basic serialization test</td></tr>
+<tr><td><code>test-qemu-lan9118</code></td><td>Run LAN9118 driver test</td></tr>
+<tr><td><code>setup-qemu-network</code></td><td>Create TAP bridge (sudo)</td></tr>
+<tr><td><code>teardown-qemu-network</code></td><td>Remove TAP bridge (sudo)</td></tr>
+<tr><td><code>status-qemu-network</code></td><td>Show network status</td></tr>
+<tr><td><code>qemu-help</code></td><td>Show QEMU help</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="available-examples"><a class="header" href="#available-examples">Available Examples</a></h2>
+<h3 id="qemu-rs-test"><a class="header" href="#qemu-rs-test"><code>qemu-rs-test</code></a></h3>
+<p>Basic nros test on Cortex-M3 (lm3s6965evb machine, no networking).</p>
 <ul>
-<li><code>nros-node/rmw-zenoh</code> – selects <code>ZenohSession</code> as the concrete session type</li>
-<li><code>nros-rmw-zenoh</code> – the Zenoh RMW implementation crate</li>
-<li><code>zpico-sys</code> – zenoh-pico C bindings</li>
+<li>Tests CDR serialization</li>
+<li>Tests Node API</li>
+<li>Uses semihosting for output</li>
 </ul>
-<p>Platform features propagate through two paths depending on the platform type:</p>
+<h3 id="qemu-rs-lan9118"><a class="header" href="#qemu-rs-lan9118"><code>qemu-rs-lan9118</code></a></h3>
+<p>LAN9118 Ethernet driver test on MPS2-AN385.</p>
 <ul>
-<li><strong>RTOS platforms</strong> (POSIX, FreeRTOS, NuttX, ThreadX): the facade activates <code>nros-platform/platform-*</code>, which pulls in the corresponding <code>nros-platform-*</code> implementation crate (e.g., <code>nros-platform-posix</code>, <code>nros-platform-freertos</code>). These live in <code>packages/core/</code>.</li>
-<li><strong>Bare-metal platforms</strong>: the facade only activates <code>nros-node/platform-bare-metal</code> and <code>nros-rmw-zenoh?/platform-bare-metal</code>. Since “bare-metal” isn’t a single platform, the <strong>board crate</strong> activates the specific board platform – e.g., <code>nros-mps2-an385</code> enables <code>nros-platform/platform-mps2-an385</code>, which pulls in <code>nros-platform-mps2-an385</code> from <code>packages/boards/</code>.</li>
+<li>Tests driver initialization</li>
+<li>Tests smoltcp Device trait</li>
+<li>Uses semihosting for output</li>
 </ul>
-<p>The RMW transport libraries access platform primitives through thin shim crates – <code>zpico-platform-shim</code> (consumed by <code>zpico-sys</code>) and <code>xrce-platform-shim</code> (consumed by <code>xrce-sys</code>) – which forward <code>z_*</code> and <code>uxr_*</code> FFI symbols to the unified <code>ConcretePlatform</code> type alias from <code>nros-platform</code>. Board crates depend on the shim crate directly (with the <code>active</code> feature) to ensure the symbols are linked.</p>
-<p>The default feature set is <code>std</code> only. No RMW backend or platform is selected by default – users must explicitly choose their configuration.</p>
-<p>For implementation details on how to add a new platform, see the <a href="../internals/porting-platform/README.html">Porting Guide</a> and <a href="../reference/platform-api.html">Platform API Reference</a>.</p>
+<h3 id="qemu-rs-talker"><a class="header" href="#qemu-rs-talker"><code>qemu-rs-talker</code></a></h3>
+<p>TCP client example with smoltcp networking on MPS2-AN385.</p>
+<ul>
+<li>Connects to a TCP server on the host (192.0.2.1:7777)</li>
+<li>Sends 5 test messages</li>
+<li>Demonstrates LAN9118 + smoltcp integration</li>
+<li>Static IP: 192.0.2.10</li>
+</ul>
+<h3 id="qemu-rs-listener"><a class="header" href="#qemu-rs-listener"><code>qemu-rs-listener</code></a></h3>
+<p>TCP server example with smoltcp networking on MPS2-AN385.</p>
+<ul>
+<li>Listens on port 7778</li>
+<li>Echoes received data</li>
+<li>Demonstrates TCP server pattern</li>
+<li>Static IP: 192.0.2.11</li>
+</ul>
+<h2 id="debugging"><a class="header" href="#debugging">Debugging</a></h2>
+<h3 id="using-gdb"><a class="header" href="#using-gdb">Using GDB</a></h3>
+<pre><code class="language-bash"># Terminal 1: Start QEMU with GDB server
+./scripts/qemu/launch-mps2-an385.sh --gdb --binary app.elf
+
+# Terminal 2: Connect GDB
+arm-none-eabi-gdb \
+    -ex "target remote :1234" \
+    -ex "load" \
+    app.elf
+</code></pre>
+<h3 id="semihosting-output"><a class="header" href="#semihosting-output">Semihosting Output</a></h3>
+<p>All examples use semihosting for debug output. Output appears directly in the terminal where QEMU runs.</p>
+<h3 id="common-issues"><a class="header" href="#common-issues">Common Issues</a></h3>
+<p><strong>TAP interface not found</strong></p>
+<pre><code>Error: TAP interface tap-qemu0 does not exist
+</code></pre>
+<p>Solution: Run <code>just setup-qemu-network</code></p>
+<p><strong>Permission denied on TAP</strong></p>
+<pre><code>qemu-system-arm: -netdev tap,id=net0,ifname=tap-qemu0: could not open /dev/net/tun: Permission denied
+</code></pre>
+<p>Solution: Ensure TAP is owned by your user. Re-run <code>sudo ./scripts/qemu/setup-network.sh $USER</code></p>
+<p><strong>QEMU not found</strong></p>
+<pre><code>Error: qemu-system-arm not found
+</code></pre>
+<p>Solution: <code>sudo apt install qemu-system-arm</code></p>
+<p><strong>QEMU version compatibility</strong></p>
+<p>The LAN9118 networking requires QEMU 7.0+ for full TAP networking support. On older versions (e.g., QEMU 6.2), the LAN9118 driver tests work but TAP networking may have issues.</p>
+<p>Check your QEMU version:</p>
+<pre><code class="language-bash">qemu-system-arm --version
+</code></pre>
+<p>To install a newer QEMU version on Ubuntu:</p>
+<pre><code class="language-bash">sudo add-apt-repository ppa:canonical-server/server-backports
+sudo apt update
+sudo apt install qemu-system-arm
+</code></pre>
+<h2 id="hardware-details"><a class="header" href="#hardware-details">Hardware Details</a></h2>
+<h3 id="mps2-an385-machine"><a class="header" href="#mps2-an385-machine">MPS2-AN385 Machine</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Feature</th><th>Value</th></tr>
+</thead>
+<tbody>
+<tr><td>CPU</td><td>ARM Cortex-M3</td></tr>
+<tr><td>Flash</td><td>4MB at 0x00000000</td></tr>
+<tr><td>SRAM</td><td>4MB at 0x20000000</td></tr>
+<tr><td>Ethernet</td><td>LAN9118 at 0x40200000</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="lan9118-ethernet-controller"><a class="header" href="#lan9118-ethernet-controller">LAN9118 Ethernet Controller</a></h3>
+<p>The <code>lan9118-smoltcp</code> crate provides a Rust driver for the LAN9118.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use lan9118_smoltcp::{Lan9118, Config};
+
+let config = Config {
+    base_addr: 0x4020_0000,
+    mac_addr: [0x02, 0x00, 0x00, 0x00, 0x00, 0x01],
+};
+
+let mut eth = unsafe { Lan9118::new(config) }?;
+eth.init()?;
+
+// Use with smoltcp
+let mut iface = Interface::new(iface_config, &amp;mut eth, instant);
+<span class="boring">}</span></code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../concepts/no-std.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../getting-started/threadx.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../internals/rmw-api-design.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../getting-started/esp32.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -340,11 +433,11 @@ nros = { default-features = false, features = [
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../concepts/no-std.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../getting-started/threadx.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../internals/rmw-api-design.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../getting-started/esp32.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
