@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-0a6fc5f7.js";
+            window.path_to_searchindex_js = "searchindex-06888d19.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-c8624503.js"></script>
@@ -3537,15 +3537,43 @@ nano_ros_generate_interfaces(${PROJECT_NAME}
 <tr><th>Function</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><code>nros_action_server_init()</code></td><td>Create action server</td></tr>
-<tr><td><code>nros_action_publish_feedback(goal, feedback, size)</code></td><td>Publish feedback to the client</td></tr>
-<tr><td><code>nros_action_succeed(goal, result, size)</code></td><td>Complete goal with success</td></tr>
-<tr><td><code>nros_action_abort(goal, result, size)</code></td><td>Abort goal</td></tr>
-<tr><td><code>nros_action_canceled(goal, result, size)</code></td><td>Mark goal as canceled</td></tr>
+<tr><td><code>nros_action_server_init()</code></td><td>Create action server (registers <code>goal</code>, <code>cancel</code>, <code>accepted</code> callbacks)</td></tr>
+<tr><td><code>nros_action_execute(server, goal)</code></td><td>Transition an accepted goal to <code>EXECUTING</code></td></tr>
+<tr><td><code>nros_action_publish_feedback(server, goal, feedback, size)</code></td><td>Publish feedback to the client</td></tr>
+<tr><td><code>nros_action_succeed(server, goal, result, size)</code></td><td>Complete goal with success</td></tr>
+<tr><td><code>nros_action_abort(server, goal, result, size)</code></td><td>Abort goal</td></tr>
+<tr><td><code>nros_action_canceled(server, goal, result, size)</code></td><td>Mark goal as canceled</td></tr>
+<tr><td><code>nros_action_get_goal_status(server, goal, &amp;status)</code></td><td>Read arena-authoritative status; <code>NROS_RET_NOT_FOUND</code> for retired goals</td></tr>
+<tr><td><code>nros_action_server_get_active_goal_count(server)</code></td><td>Count of active goals from the arena</td></tr>
 </tbody>
 </table>
 </div>
-<p><strong>Callback registration:</strong></p>
+<p><strong>Goal handle (<code>nros_goal_handle_t</code>):</strong> a pure identity card containing only the
+16-byte <code>uuid</code>. Per-goal user state (parsed goal data, progress, etc.) belongs
+in caller-managed <code>{uuid → state}</code> storage. The handle pointer passed to
+callbacks is valid only for the duration of that callback — copy it by value if
+you need to reference the goal later.</p>
+<p><strong>Server callback signatures</strong> all receive the owning <code>server</code>, a
+<code>const nros_goal_handle_t *</code>, and a user <code>context</code>:</p>
+<pre><code class="language-c">nros_goal_response_t goal_callback(
+    nros_action_server_t* server,
+    const nros_goal_handle_t* goal,
+    const uint8_t* goal_request, size_t goal_len, void* context);
+
+nros_cancel_response_t cancel_callback(
+    nros_action_server_t* server,
+    const nros_goal_handle_t* goal, void* context);
+
+void accepted_callback(
+    nros_action_server_t* server,
+    const nros_goal_handle_t* goal, void* context);
+</code></pre>
+<p>Goal lifecycle (status, active-goal count) is owned by the arena in
+<code>nros-node</code>. The C struct does not duplicate it: there are no <code>status</code> /
+<code>active</code> fields on <code>nros_goal_handle_t</code>, and no <code>goals[]</code> / <code>active_goal_count</code>
+fields on <code>nros_action_server_t</code>. Always read status via
+<code>nros_action_get_goal_status</code>.</p>
+<p><strong>Client callback registration:</strong></p>
 <pre><code class="language-c">nros_action_client_set_goal_response_callback(client, on_goal_accepted);
 nros_action_client_set_feedback_callback(client, on_feedback);
 nros_action_client_set_result_callback(client, on_result);
@@ -3897,43 +3925,86 @@ if (sub.stream().try_next(msg)) { /* ... */ }
 NROS_TRY(sub.stream().wait_next(executor.handle(), 5000, msg));
 </code></pre>
 <h2 id="actionservera"><a class="header" href="#actionservera">ActionServer&lt;A&gt;</a></h2>
-<p>Server-side action handler. Goals are auto-accepted during <code>spin_once()</code>. Poll
-for goals, publish feedback, and complete with a result.</p>
-<pre><code class="language-cpp">template &lt;typename A&gt;
+<p>Server-side action handler. Mirrors <code>rclcpp_action::Server&lt;A&gt;</code> with a
+callback-based API: register a typed goal callback that decides whether to
+accept, reject, or defer each goal, and (optionally) a cancel callback.
+Lifecycle state lives in the arena inside <code>nros-node</code> — the C++ class does not
+buffer goals. Use <code>for_each_active_goal</code> to iterate live goals by UUID +
+status.</p>
+<pre><code class="language-cpp">enum class GoalResponse   : int32_t { Reject = 0, AcceptAndExecute = 1, AcceptAndDefer = 2 };
+enum class CancelResponse : int32_t { Reject = 0, Accept = 1 };
+enum class GoalStatus     : int8_t  { Unknown = 0, Accepted = 1, Executing = 2,
+                                       Canceling = 3, Succeeded = 4, Canceled = 5, Aborted = 6 };
+
+template &lt;typename A&gt;
 class ActionServer {
 public:
-    using GoalType = typename A::Goal;
-    using ResultType = typename A::Result;
+    using GoalType     = typename A::Goal;
+    using ResultType   = typename A::Result;
     using FeedbackType = typename A::Feedback;
 
-    bool try_recv_goal(GoalType&amp; goal, uint8_t goal_id[16]);
-    Result publish_feedback(const uint8_t goal_id[16],
-                            const FeedbackType&amp; feedback);
-    Result complete_goal(const uint8_t goal_id[16],
-                         const ResultType&amp; result);
-    bool is_valid() const;
+    using TypedGoalFn    = GoalResponse   (*)(const uint8_t uuid[16], const GoalType&amp; goal);
+    using TypedCancelFn  = CancelResponse (*)(const uint8_t uuid[16]);
+    using TypedVisitorFn = void           (*)(const uint8_t uuid[16], GoalStatus status);
+
+    template &lt;typename F&gt; Result set_goal_callback(F f);     // F decays to TypedGoalFn
+    template &lt;typename F&gt; Result set_cancel_callback(F f);   // F decays to TypedCancelFn
+    template &lt;typename F&gt; Result for_each_active_goal(F f);  // F decays to TypedVisitorFn
+
+    Result publish_feedback(const uint8_t goal_id[16], const FeedbackType&amp; feedback);
+    Result complete_goal(const uint8_t goal_id[16], const ResultType&amp; result);
+    bool   is_valid() const;
 };
 </code></pre>
+<p>Callbacks must be <strong>stateless</strong> (empty-capture lambdas or plain function
+pointers). The freestanding C++14 API has no <code>std::function</code> storage per
+instance, so per-goal state must be tracked in user-side <code>{uuid → state}</code>
+storage keyed by the UUID delivered to the goal callback.</p>
 <p>Usage:</p>
-<pre><code class="language-cpp">nros::ActionServer&lt;example_interfaces::action::Fibonacci&gt; srv;
+<pre><code class="language-cpp">using Fib = example_interfaces::action::Fibonacci;
+static nros::ActionServer&lt;Fib&gt;* g_srv = nullptr;
+
+static nros::GoalResponse on_goal(const uint8_t uuid[16], const Fib::Goal&amp; goal) {
+    if (goal.order &lt; 0 || goal.order &gt;= 64) {
+        return nros::GoalResponse::Reject;
+    }
+
+    Fib::Result result;
+    int32_t a = 0, b = 1;
+    for (int32_t i = 0; i &lt; goal.order; i++) {
+        result.sequence.push_back(a);
+
+        // Periodic feedback
+        if (i &gt; 0 &amp;&amp; i % 3 == 0) {
+            Fib::Feedback fb;
+            for (uint32_t k = 0; k &lt; result.sequence.length(); k++) {
+                fb.sequence.push_back(result.sequence[k]);
+            }
+            g_srv-&gt;publish_feedback(uuid, fb);
+        }
+        int32_t next = a + b; a = b; b = next;
+    }
+    g_srv-&gt;complete_goal(uuid, result);
+    return nros::GoalResponse::AcceptAndExecute;
+}
+
+nros::ActionServer&lt;Fib&gt; srv;
 NROS_TRY(node.create_action_server(srv, "/fibonacci"));
+g_srv = &amp;srv;
+NROS_TRY(srv.set_goal_callback(on_goal));
 
-// In spin loop:
-nros::spin_once(10);
-typename decltype(srv)::GoalType goal;
-uint8_t goal_id[16];
-if (srv.try_recv_goal(goal, goal_id)) {
-    // Publish feedback
-    typename decltype(srv)::FeedbackType fb;
-    fb.partial_sequence = /* ... */;
-    srv.publish_feedback(goal_id, fb);
-
-    // Complete the goal
-    typename decltype(srv)::ResultType result;
-    result.sequence = /* ... */;
-    srv.complete_goal(goal_id, result);
+while (nros::ok()) {
+    nros::spin_once(10);
 }
 </code></pre>
+<p>Iterate currently live goals (e.g. for status reporting):</p>
+<pre><code class="language-cpp">srv.for_each_active_goal([](const uint8_t uuid[16], nros::GoalStatus status) {
+    // ...
+});
+</code></pre>
+<p>The arena does not retain the original goal CDR payload, so the visitor
+receives only <code>(uuid, status)</code>. If you need the parsed goal bytes later, stash
+them in your own <code>{uuid → state}</code> table from inside <code>set_goal_callback</code>.</p>
 <h2 id="actionclienta"><a class="header" href="#actionclienta">ActionClient&lt;A&gt;</a></h2>
 <p>Client-side action interface. Three usage patterns are available: blocking,
 Future-based, and callback-based.</p>
