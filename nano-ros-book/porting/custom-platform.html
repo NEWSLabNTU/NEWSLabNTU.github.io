@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-06888d19.js";
+            window.path_to_searchindex_js = "../searchindex-54f5f3f5.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c8624503.js"></script>
@@ -260,12 +260,46 @@ pub type ConcretePlatform = nros_platform_myos::MyOsPlatform;
 <span class="boring">}</span></code></pre>
 <h3 id="4-propagate-through-the-nros-facade"><a class="header" href="#4-propagate-through-the-nros-facade">4. Propagate through the nros facade</a></h3>
 <p>In <code>packages/core/nros/Cargo.toml</code>, add <code>platform-myos</code> to the feature list so users can write <code>nros = { features = ["rmw-zenoh", "platform-myos"] }</code>.</p>
-<h3 id="5-activate-the-shim-in-zpico-sys"><a class="header" href="#5-activate-the-shim-in-zpico-sys">5. Activate the shim in zpico-sys</a></h3>
-<p>In <code>packages/zpico/zpico-sys/Cargo.toml</code>, add a feature that activates the platform shim:</p>
-<pre><code class="language-toml">[features]
-myos = ["dep:zpico-platform-shim", "zpico-platform-shim?/active", "zpico-platform-shim?/network"]
+<h3 id="5-activate-the-shims"><a class="header" href="#5-activate-the-shims">5. Activate the shim(s)</a></h3>
+<p>Each RMW backend has its own platform shim crate. Enable the ones your
+platform will support:</p>
+<pre><code class="language-toml"># packages/zpico/zpico-sys/Cargo.toml  (needed for rmw-zenoh)
+[features]
+myos = [
+    "dep:zpico-platform-shim",
+    "zpico-platform-shim?/active",
+    "zpico-platform-shim?/network",
+]
+
+# packages/xrce/xrce-sys/Cargo.toml  (needed for rmw-xrce)
+[features]
+myos = [
+    "dep:xrce-platform-shim",
+    "xrce-platform-shim?/active",
+]
 </code></pre>
-<p>The shim crate picks up <code>ConcretePlatform</code> automatically through Cargo feature unification – no changes inside the shim itself.</p>
+<p>Shim feature flags:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Feature</th><th>When to enable</th></tr>
+</thead>
+<tbody>
+<tr><td><code>active</code></td><td>Always, when this platform should claim the shim’s symbols</td></tr>
+<tr><td><code>network</code></td><td>Rust-native TCP/UDP path — forwards <code>_z_open_tcp</code>/<code>_z_read_tcp</code>/etc. to your <code>PlatformTcp</code>/<code>PlatformUdp</code> impl. Omit if you compile zenoh-pico’s C <code>network.c</code> directly (see “Networking” below).</td></tr>
+<tr><td><code>skip-clock-symbols</code></td><td>Your platform provides its own <code>_z_time_elapsed_us</code> etc. (e.g. NuttX ships clock functions in libc). Skips the shim’s default clock forwarders to avoid duplicate-symbol link errors.</td></tr>
+<tr><td><code>network-smoltcp-bridge</code></td><td>Bare-metal smoltcp integration (implies <code>network</code>).</td></tr>
+</tbody>
+</table>
+</div>
+<p>The shim picks up <code>ConcretePlatform</code> automatically through Cargo
+feature unification — no changes inside the shim itself.</p>
+<p>Build-script contract: the shim’s <code>build.rs</code> reads
+<code>DEP_ZPICO_SOCKET_SIZE</code> / <code>DEP_ZPICO_ENDPOINT_SIZE</code> (exported by
+<code>zpico-sys</code>’s <code>build.rs</code>) so it can size socket-handle slabs correctly.
+If you replace <code>zpico-sys</code> with a custom transport crate, export the
+same <code>DEP_*</code> variables from its <code>build.rs</code> or the shim will fall back
+to defaults.</p>
 <h2 id="rust-path"><a class="header" href="#rust-path">Rust path</a></h2>
 <p>This is the recommended approach. Create a ZST and implement each capability as inherent methods (not trait impls). The shim calls these methods directly through the <code>ConcretePlatform</code> type alias.</p>
 <h3 id="skeleton"><a class="header" href="#skeleton">Skeleton</a></h3>
@@ -341,9 +375,36 @@ impl MyOsPlatform {
 <h2 id="cc-path"><a class="header" href="#cc-path">C/C++ path</a></h2>
 <p>If your platform is easier to implement in C, use the <code>nros-platform-cffi</code> adapter. It provides a vtable-based bridge so you never write Rust.</p>
 <h3 id="1-fill-in-the-vtable"><a class="header" href="#1-fill-in-the-vtable">1. Fill in the vtable</a></h3>
-<pre><code class="language-c">#include &lt;nros/platform_vtable.h&gt;
+<p>The vtable struct (<code>nros_platform_vtable_t</code>) is currently defined in
+Rust (<code>packages/core/nros-platform-cffi/src/lib.rs</code> as
+<code>NrosPlatformVtable</code>, <code>#[repr(C)]</code>). A C header is not yet
+auto-generated — until cbindgen produces one, mirror the struct
+manually in C, matching the Rust field order exactly:</p>
+<pre><code class="language-c">// my_platform_vtable.h — hand-mirrored from NrosPlatformVtable
+#include &lt;stdint.h&gt;
+#include &lt;stddef.h&gt;
 
-static uint64_t my_clock_ms(void) {
+typedef struct nros_platform_vtable_t {
+    // -- Clock --
+    uint64_t (*clock_ms)(void);
+    uint64_t (*clock_us)(void);
+    // -- Alloc --
+    void* (*alloc)(size_t size);
+    void* (*realloc)(void* ptr, size_t size);
+    void  (*dealloc)(void* ptr);
+    // -- Sleep --
+    void (*sleep_us)(size_t us);
+    void (*sleep_ms)(size_t ms);
+    void (*sleep_s)(size_t s);
+    // -- Random / Time / Threading / Sockets follow in the order
+    //    defined in nros-platform-cffi/src/lib.rs --
+    /* ... */
+} nros_platform_vtable_t;
+
+extern int32_t nros_platform_cffi_register(const nros_platform_vtable_t* vtable);
+</code></pre>
+<p>Then fill in the callbacks:</p>
+<pre><code class="language-c">static uint64_t my_clock_ms(void) {
     return myos_get_ticks();  // your RTOS tick API
 }
 

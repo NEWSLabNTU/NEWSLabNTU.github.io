@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-06888d19.js";
+            window.path_to_searchindex_js = "../searchindex-54f5f3f5.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c8624503.js"></script>
@@ -388,6 +388,106 @@ impl Subscriber for EchoSub {
 <p>Wire <code>EchoPub</code>/<code>EchoSub</code> into an <code>EchoSession</code> the same way as the
 skeleton above – <code>create_publisher</code> returns <code>Ok(EchoPub)</code>, etc. The
 <code>Rmw::open()</code> impl just returns <code>Ok(EchoSession)</code> unconditionally.</p>
+<hr>
+<h2 id="what-the-ros-2-ecosystem-expects"><a class="header" href="#what-the-ros-2-ecosystem-expects">What the ROS 2 ecosystem expects</a></h2>
+<p>Implementing the six traits compiles and runs, but a backend that stops
+there will not interoperate cleanly with <code>ros2 CLI</code>, RQt, or
+<code>rmw_zenoh_cpp</code> nodes. Real ROS 2 interop requires four extra
+invariants the traits do not express:</p>
+<h3 id="1-discovery--liveliness-tokens"><a class="header" href="#1-discovery--liveliness-tokens">1. Discovery / liveliness tokens</a></h3>
+<p><code>ros2 node list</code>, <code>ros2 topic list</code>, <code>ros2 service list</code> rely on
+discovery traffic. How you emit it depends on the backend protocol:</p>
+<ul>
+<li><strong>Zenoh-flavoured backends</strong>: publish a liveliness token per endpoint
+under <code>@ros2_lv/&lt;domain&gt;/&lt;zid&gt;/&lt;entity_kind&gt;/&lt;id&gt;/…</code>. See
+<a href="../internals/rmw-zenoh-protocol.html">rmw-zenoh-protocol.md</a> for the
+exact key grammar.</li>
+<li><strong>DDS-flavoured backends</strong>: use the SPDP/SEDP discovery traffic that
+your DDS stack provides, plus the ROS 2–specific USER_DATA payload
+(node name, namespace, enclave).</li>
+</ul>
+<p>If your backend is brand new (not wire-compatible with zenoh or DDS),
+you still need <em>some</em> discovery channel for <code>ros2 CLI</code> tools to find
+your endpoints. The traits currently do not cover this — discovery
+happens inside <code>create_publisher</code> / <code>create_subscriber</code> /
+<code>create_service_*</code> as a side effect.</p>
+<h3 id="2-rmw-attachments-per-message-metadata"><a class="header" href="#2-rmw-attachments-per-message-metadata">2. RMW attachments (per-message metadata)</a></h3>
+<p>Every published message carries ROS 2 metadata that consumers read
+through <code>MessageInfo</code>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Size</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>sequence_number</code></td><td>8 bytes</td><td><code>int64</code> LE — monotonic per publisher</td></tr>
+<tr><td><code>timestamp</code></td><td>8 bytes</td><td><code>int64</code> LE — source nanoseconds</td></tr>
+<tr><td><code>gid</code></td><td>16 bytes</td><td>random per publisher, constant over its lifetime</td></tr>
+</tbody>
+</table>
+</div>
+<ul>
+<li><strong>Zenoh</strong>: the attachment rides alongside the payload as a zenoh
+<code>Attachment</code>. Humble uses a simple concatenation; Jazzy onward uses a
+VLE-encoded <code>gid_length</code> prefix.</li>
+<li><strong>DDS</strong>: sample identity and source timestamp fall out of the DDS
+sample info — your backend only has to forward them.</li>
+</ul>
+<p>If you skip this, <code>add_subscription_with_info()</code> on consumers always
+reports <code>MessageInfo::default()</code>, and downstream features (safety-e2e
+checks, source-timestamp ordering) silently degrade.</p>
+<h3 id="3-actions-decompose-into-five-underlying-channels"><a class="header" href="#3-actions-decompose-into-five-underlying-channels">3. Actions decompose into five underlying channels</a></h3>
+<p>ROS 2 actions are not a transport primitive — they are a pattern built
+on services and topics. Each action server exposes:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Sub-entity</th><th>Kind</th><th>Name suffix</th></tr>
+</thead>
+<tbody>
+<tr><td><code>send_goal</code></td><td>Service</td><td><code>_action/send_goal</code></td></tr>
+<tr><td><code>cancel_goal</code></td><td>Service</td><td><code>_action/cancel_goal</code></td></tr>
+<tr><td><code>get_result</code></td><td>Service</td><td><code>_action/get_result</code></td></tr>
+<tr><td><code>feedback</code></td><td>Topic (pub)</td><td><code>_action/feedback</code></td></tr>
+<tr><td><code>status</code></td><td>Topic (pub)</td><td><code>_action/status</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>A backend that implements the six core traits automatically supports
+actions — <code>nros-node</code> composes the five channels itself. The only
+backend-specific piece is the key / topic construction, which the
+<code>Session::create_service_server</code> and <code>create_publisher</code> methods already
+handle.</p>
+<h3 id="4-type-hashes"><a class="header" href="#4-type-hashes">4. Type hashes</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>ROS 2 distro</th><th>Type hash</th></tr>
+</thead>
+<tbody>
+<tr><td>Humble</td><td>literal string <code>"TypeHashNotSupported"</code></td></tr>
+<tr><td>Iron / Jazzy / Rolling</td><td><code>RIHS01_&lt;sha256_hex&gt;</code> computed from the IDL</td></tr>
+</tbody>
+</table>
+</div>
+<p>nano-ros currently targets Humble (see <a href="../../../docs/roadmap/phase-41-iron-type-hash-support.html">Phase
+41</a> for Iron
+support). A new backend that aims at a newer distro must compute the
+right hash string — the <code>TopicInfo::type_hash</code> field is already plumbed
+through.</p>
+<h3 id="5-qos-mapping"><a class="header" href="#5-qos-mapping">5. QoS mapping</a></h3>
+<p>ROS 2 QoS (reliability, durability, history, depth) maps differently
+onto each backend:</p>
+<ul>
+<li><strong>Zenoh</strong> has reliable/best-effort and a <code>KEEP_LAST(N)</code> / <code>KEEP_ALL</code>
+buffering policy — direct mapping.</li>
+<li><strong>DDS</strong> has native QoS — almost 1:1.</li>
+<li><strong>Custom backends</strong> must either honour the requested QoS or document
+which fields are ignored. A <code>best_effort</code> publisher matched with a
+<code>reliable</code> subscriber is a QoS mismatch in ROS 2 — the transport must
+refuse the subscription (or flag it at runtime) rather than silently
+lose messages.</li>
+</ul>
 <hr>
 <h2 id="further-reading"><a class="header" href="#further-reading">Further reading</a></h2>
 <ul>

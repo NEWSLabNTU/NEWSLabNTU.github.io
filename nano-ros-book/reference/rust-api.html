@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-06888d19.js";
+            window.path_to_searchindex_js = "../searchindex-54f5f3f5.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c8624503.js"></script>
@@ -196,30 +196,49 @@ memory layout is controlled via environment variables at build time:</p>
 <li><strong><code>NROS_EXECUTOR_ARENA_SIZE</code></strong> (default 4096) – byte budget for storing
 callback closures inline</li>
 </ul>
+<p>Construct an <code>ExecutorConfig</code> and pass it to <code>Executor::open</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>let config = ExecutorConfig::from_env().node_name("my_node");
+let mut executor = Executor::open(&amp;config)?;
+<span class="boring">}</span></code></pre>
+<p>On embedded targets without <code>std</code>, build the config manually:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let config = ExecutorConfig::new("tcp/192.168.1.50:7447")
+    .node_name("talker")
+    .domain_id(0);
 let mut executor = Executor::open(&amp;config)?;
 <span class="boring">}</span></code></pre>
 <h3 id="spin-methods"><a class="header" href="#spin-methods">Spin Methods</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Method</th><th>Description</th></tr>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><code>spin_once(timeout_ms)</code></td><td>Poll once, process ready callbacks. Returns immediately after processing.</td></tr>
-<tr><td><code>spin(count)</code></td><td>Call <code>spin_once()</code> in a loop <code>count</code> times (convenience for examples).</td></tr>
-<tr><td><code>spin_blocking(opts)</code></td><td>Block forever processing callbacks. Requires <code>std</code>. Uses <code>SpinOptions</code> for configuration.</td></tr>
-<tr><td><code>spin_period(duration)</code></td><td>Spin at a fixed rate, sleeping between iterations. Requires <code>std</code>. Returns <code>SpinPeriodResult</code>.</td></tr>
-<tr><td><code>spin_async()</code></td><td>Returns a future that drives the executor. Use with an external async runtime (tokio, Embassy). Does not call <code>block_on</code> — the caller’s runtime provides the event loop.</td></tr>
+<tr><td><code>spin_once(timeout_ms)</code></td><td><code>fn(&amp;mut self, i32) -&gt; SpinOnceResult</code></td><td>Drive I/O for up to <code>timeout_ms</code> ms, then dispatch ready callbacks once. Returns immediately after processing.</td></tr>
+<tr><td><code>spin(timeout_ms)</code></td><td><code>fn(&amp;mut self, i32) -&gt; !</code></td><td>Infinite loop of <code>spin_once(timeout_ms)</code>. Never returns.</td></tr>
+<tr><td><code>spin_blocking(opts)</code></td><td><code>fn(&amp;mut self, SpinOptions) -&gt; Result&lt;(), NodeError&gt;</code></td><td>Block until halt signaled. Requires <code>std</code>.</td></tr>
+<tr><td><code>spin_period(period)</code></td><td><code>fn(&amp;mut self, Duration) -&gt; Result&lt;(), NodeError&gt;</code></td><td>Spin at a fixed rate, sleeping between iterations. Requires <code>std</code>.</td></tr>
+<tr><td><code>spin_async()</code></td><td><code>async fn(&amp;mut self)</code></td><td>Future that drives the executor. Use with an external async runtime.</td></tr>
 </tbody>
 </table>
 </div>
-<p><strong><code>spin_once</code> vs <code>spin_blocking</code>:</strong> <code>spin_once(timeout_ms)</code> is the low-level primitive — one poll cycle, returns control immediately. <code>spin_blocking</code> and <code>spin_period</code> are convenience wrappers for common patterns. On <code>no_std</code> embedded targets, use <code>spin_once()</code> in a loop or <code>spin(count)</code>.</p>
+<p><strong><code>spin_once</code> vs <code>spin_blocking</code></strong>: <code>spin_once(timeout_ms)</code> is the low-level
+primitive — one poll cycle, then returns control. <code>spin_blocking</code> /
+<code>spin_period</code> are <code>std</code>-only convenience wrappers. On <code>no_std</code> embedded
+targets, call <code>spin_once()</code> in your own loop or use <code>spin(timeout_ms)</code> when
+you never need to return.</p>
+<blockquote>
+<p><strong>Note</strong> (Phase 84.D7): every wait API currently takes <code>i32</code> / <code>u64</code>
+milliseconds. These will migrate to <code>core::time::Duration</code> and drop the
+“negative means indefinite” sentinel — it is not exercised by any in-repo
+example and has a latent bug with timer delta. See <a href="https://github.com/.../docs/roadmap/phase-84-api-ergonomics-and-consistency.md">Phase 84 roadmap</a>.</p>
+</blockquote>
 <h2 id="node"><a class="header" href="#node">Node</a></h2>
-<p>Create a node from the executor to get a typed handle for creating
-communication primitives:</p>
+<p>Create a node from the executor to get a handle for declaring communication
+primitives:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>let mut node = executor.create_node("my_node")?;
@@ -233,140 +252,195 @@ publisher.publish(&amp;Int32 { data: 42 })?;
 <p>Use <code>create_publisher_with_qos()</code> to specify QoS settings.</p>
 <h2 id="subscription"><a class="header" href="#subscription">Subscription</a></h2>
 <h3 id="callback-based-via-executor"><a class="header" href="#callback-based-via-executor">Callback-based (via executor)</a></h3>
+<p>The callback signature is <code>FnMut(&amp;M) + 'static</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>executor.add_subscription::&lt;Int32, _&gt;("/topic", |msg: &amp;Int32| {
     // handle message
 })?;
 <span class="boring">}</span></code></pre>
-<p>Variants: <code>add_subscription_with_info()</code> (includes <code>MessageInfo</code>),
-<code>add_subscription_with_safety()</code> (includes E2E integrity status).</p>
-<p>Use the <code>_sized</code> variants (e.g., <code>add_subscription_sized::&lt;M, F, 2048&gt;()</code>)
-for messages larger than the default 1024-byte receive buffer.</p>
+<p>Variants:</p>
+<ul>
+<li><code>add_subscription_with_info()</code> — callback receives <code>(&amp;M, &amp;MessageInfo)</code></li>
+<li><code>add_subscription_with_safety()</code> — includes E2E integrity status</li>
+</ul>
+<p>Use the <code>_sized</code> variants (e.g., <code>add_subscription_sized::&lt;M, _, 2048&gt;()</code>)
+for messages larger than the default 1024-byte receive buffer, or
+<code>add_subscription_buffered</code> for deeper QoS depth.</p>
 <h3 id="manual-poll-via-node"><a class="header" href="#manual-poll-via-node">Manual poll (via node)</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let sub = node.create_subscription::&lt;Int32&gt;("/topic")?;
+</span>let mut sub = node.create_subscription::&lt;Int32&gt;("/topic")?;
+executor.spin_once(10);
 if let Some(msg) = sub.try_recv()? {
     // handle message
 }
 <span class="boring">}</span></code></pre>
 <h2 id="service"><a class="header" href="#service">Service</a></h2>
 <h3 id="server"><a class="header" href="#server">Server</a></h3>
+<p>Callback-based via executor:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let service = node.create_service::&lt;AddTwoInts&gt;("/add")?;
+</span>executor.add_service::&lt;AddTwoInts, _&gt;("/add", |req: &amp;AddTwoIntsRequest| {
+    AddTwoIntsResponse { sum: req.a + req.b }
+})?;
 <span class="boring">}</span></code></pre>
-<p>Register a handler callback via the executor, or poll manually.</p>
+<p>Or create a standalone server via the node and call its poll methods from a
+spin loop.</p>
 <h3 id="client"><a class="header" href="#client">Client</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>let mut client = node.create_client::&lt;AddTwoInts&gt;("/add")?;
 <span class="boring">}</span></code></pre>
-<p><strong>Non-blocking (recommended):</strong></p>
+<p>Non-blocking — <code>call()</code> returns a <code>Promise</code> that resolves on subsequent
+<code>spin_once()</code> calls:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let promise = client.call(&amp;request)?;  // returns Promise&lt;Response&gt;
+</span>let mut promise = client.call(&amp;request)?;              // send, returns immediately
 
-// Promise resolves on subsequent spin_once() calls
-executor.spin_once(100);
+executor.spin_once(10);
 if let Some(reply) = promise.try_recv()? {
     println!("Result: {}", reply.sum);
 }
 
-// Or wait with timeout
+// Or wait with timeout (internally spins the executor):
 let reply = promise.wait(&amp;mut executor, 5000)?;
 <span class="boring">}</span></code></pre>
-<p><strong>Blocking (legacy):</strong></p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let reply = client.call_blocking(&amp;request, 5000)?;  // blocks up to 5s
-<span class="boring">}</span></code></pre>
-<p><code>call_blocking()</code> internally calls <code>spin_once()</code> in a loop. Prefer <code>call()</code> + <code>Promise</code> for better control over timeouts and cancellation.</p>
+<p><code>Promise&lt;T&gt;</code> also implements <code>core::future::Future&lt;Output = Result&lt;T, NodeError&gt;&gt;</code>, so you can <code>.await</code> it from an async runtime.</p>
 <h2 id="action"><a class="header" href="#action">Action</a></h2>
-<h3 id="server-1"><a class="header" href="#server-1">Server</a></h3>
+<h3 id="server-callback-based-via-executor"><a class="header" href="#server-callback-based-via-executor">Server (callback-based via executor)</a></h3>
+<p>Goal and cancel callbacks are registered together. The goal callback
+signature is <code>FnMut(&amp;GoalId, &amp;A::Goal) -&gt; GoalResponse</code>; cancel is
+<code>FnMut(&amp;GoalId, GoalStatus) -&gt; CancelResponse</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let mut action_server = node.create_action_server::&lt;Fibonacci&gt;("/fibonacci")?;
+</span>use nros::prelude::*;
+use nros_core::{GoalId, GoalResponse, GoalStatus, CancelResponse};
+
+executor.add_action_server::&lt;Fibonacci, _, _&gt;(
+    "/fibonacci",
+    |_id: &amp;GoalId, goal: &amp;FibonacciGoal| {
+        if goal.order &gt; 46 { GoalResponse::Reject }
+        else { GoalResponse::AcceptAndExecute }
+    },
+    |_id: &amp;GoalId, _status: GoalStatus| CancelResponse::Accept,
+)?;
 <span class="boring">}</span></code></pre>
-<p><strong>Callback-based (via executor):</strong></p>
+<p>The executor dispatches goal / cancel / accept events during <code>spin_once()</code>.
+Use the returned <code>ActionServerHandle&lt;A&gt;</code> to publish feedback and complete
+goals:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>executor.add_action_server::&lt;Fibonacci, _&gt;("/fibonacci", |goal| {
-    // Process goal, publish feedback, return result
-    let mut feedback = FibonacciFeedback { sequence: heapless::Vec::new() };
-    // ... compute ...
-    FibonacciResult { sequence: feedback.sequence }
-})?;
+</span>let handle = executor.add_action_server::&lt;Fibonacci, _, _&gt;(...)?;
+handle.publish_feedback(&amp;goal_id, &amp;FibonacciFeedback { partial_sequence: seq })?;
+handle.complete_goal(&amp;goal_id, &amp;FibonacciResult { sequence: seq }, GoalStatus::Succeeded)?;
 <span class="boring">}</span></code></pre>
-<p><strong>Manual-poll:</strong></p>
+<p>Use <code>add_action_server_sized::&lt;A, _, _, GB, RB, FB, MAX_GOALS&gt;()</code> to tune
+buffer sizes and the concurrent-goal cap.</p>
+<h3 id="server-manual-poll-via-node"><a class="header" href="#server-manual-poll-via-node">Server (manual-poll via node)</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>let mut server = node.create_action_server::&lt;Fibonacci&gt;("/fibonacci")?;
-
-// create_action_server() is NOT arena-registered — spin_once() does NOT
-// process get_result queries automatically. After completing a goal, you
-// must explicitly call:
-server.try_handle_get_result()?;
 <span class="boring">}</span></code></pre>
+<p><strong>Footgun</strong>: <code>create_action_server()</code> is <strong>not</strong> arena-registered. <code>spin_once()</code>
+will <strong>not</strong> process <code>get_result</code> queries automatically. After completing a
+goal, you must explicitly drain the result-query channel yourself:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>server.try_handle_get_result()?;
+<span class="boring">}</span></code></pre>
+<p>This is tracked as Phase 84.D2 — the manual-poll server will gain a fused
+<code>poll()</code> method that does accept / cancel / get-result drainage in one call.</p>
 <h3 id="client-1"><a class="header" href="#client-1">Client</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let mut action_client = node.create_action_client::&lt;Fibonacci&gt;("/fibonacci")?;
+</span>let mut client = node.create_action_client::&lt;Fibonacci&gt;("/fibonacci")?;
 
-// send_goal() returns (GoalId, Promise&lt;bool&gt;)
-let (goal_id, accepted) = action_client.send_goal(&amp;goal)?;
+// send_goal returns (GoalId, Promise&lt;'_, bool&gt;)
+let (goal_id, mut accepted) = client.send_goal(&amp;FibonacciGoal { order: 10 })?;
 let was_accepted = accepted.wait(&amp;mut executor, 5000)?;
 
-// get_result() returns Promise&lt;(GoalStatus, Result)&gt;
-let result_promise = action_client.get_result(&amp;goal_id)?;
-let (status, result) = result_promise.wait(&amp;mut executor, 10000)?;
+if was_accepted {
+    let mut result_promise = client.get_result(&amp;goal_id)?;
+    let (status, result) = result_promise.wait(&amp;mut executor, 10_000)?;
+}
+
+// Feedback is a stream, not a one-shot promise:
+let mut fb_stream = client.feedback_stream();
+if let Some((id, fb)) = fb_stream.try_next()? {
+    // handle feedback
+}
+
+// Cancellation returns a Promise&lt;CancelResponse&gt;:
+let mut cancel = client.cancel_goal(&amp;goal_id)?;
+let response = cancel.wait(&amp;mut executor, 5000)?;
 <span class="boring">}</span></code></pre>
-<p><strong>GoalStatus</strong> values: <code>Unknown(0)</code>, <code>Accepted(1)</code>, <code>Executing(2)</code>, <code>Canceling(3)</code>, <code>Succeeded(4)</code>, <code>Canceled(5)</code>, <code>Aborted(6)</code>.</p>
+<p><code>GoalStatus</code> values: <code>Unknown(0)</code>, <code>Accepted(1)</code>, <code>Executing(2)</code>,
+<code>Canceling(3)</code>, <code>Succeeded(4)</code>, <code>Canceled(5)</code>, <code>Aborted(6)</code>.</p>
 <h2 id="timer"><a class="header" href="#timer">Timer</a></h2>
+<p>Both variants take a <code>FnMut() + 'static</code> closure (no argument). They return
+a <code>HandleId</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>executor.add_timer(TimerDuration::from_millis(1000), TimerMode::Repeating, |_| {
+</span>let timer_id = executor.add_timer(TimerDuration::from_millis(1000), || {
     // called every second
 })?;
 
-executor.add_timer_oneshot(TimerDuration::from_millis(5000), |_| {
+executor.add_timer_oneshot(TimerDuration::from_millis(5000), || {
     // called once after 5 seconds
 })?;
 <span class="boring">}</span></code></pre>
-<p>Callbacks receive a <code>&amp;TimerState</code> argument.</p>
+<p>The repeating / one-shot distinction is in the function name, not a mode
+enum. The executor computes the delta internally from the <code>spin_once</code>
+timeout argument (another thing Phase 84.D7 will clean up).</p>
 <h2 id="parameters"><a class="header" href="#parameters">Parameters</a></h2>
+<p><code>ParameterServer::declare</code> returns <code>bool</code> (success / name-already-taken):</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use nros::prelude::*;
 use nros::{ParameterServer, ParameterValue};
 
 let mut params = ParameterServer::new();
-params.declare("max_speed", ParameterValue::Double(1.5))?;
+if !params.declare("max_speed", ParameterValue::Double(1.5)) {
+    // name already declared
+}
 <span class="boring">}</span></code></pre>
-<p>Use <code>ParameterBuilder</code> for typed parameter declaration with constraints:</p>
+<p>For typed, constrained parameters use the <code>ParameterBuilder</code>. Note that
+<code>new()</code> takes the server first, and the terminal methods are
+<code>.mandatory()</code> / <code>.optional()</code> / <code>.read_only()</code> — <strong>there is no <code>.build()</code></strong>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use nros_params::ParameterBuilder;
 
-ParameterBuilder::&lt;f64&gt;::new("max_speed")
+let mut speed = ParameterBuilder::&lt;f64&gt;::new(&amp;mut params, "max_speed")
     .default(1.5)
     .description("Maximum speed in m/s")
-    .build(&amp;mut params)?;
+    .range(0.0..=10.0)?
+    .mandatory()?;   // returns MandatoryParameter&lt;'a, f64&gt;
+
+let v = speed.get();           // typed read
+speed.set(2.0)?;               // typed write
 <span class="boring">}</span></code></pre>
-<p>Enable the <code>param-services</code> feature on <code>nros-node</code> to expose standard ROS 2
-parameter services (<code>~/get_parameters</code>, <code>~/set_parameters</code>, etc.).</p>
+<p>Enable the <code>param-services</code> feature on <code>nros-node</code> to expose the standard
+ROS 2 parameter services (<code>~/get_parameters</code>, <code>~/set_parameters</code>, etc.).</p>
 <h2 id="error-types"><a class="header" href="#error-types">Error Types</a></h2>
-<p>The primary error type is <code>NodeError</code>, returned by executor and node
-operations. Transport-level errors use <code>TransportError</code>.</p>
+<p>The primary user-facing error type is <code>NodeError</code>, returned by every
+executor and node operation. Transport-level failures are wrapped as
+<code>NodeError::Transport(TransportError)</code>.</p>
+<blockquote>
+<p><strong>Note</strong> (Phase 84.D1): <code>NodeError</code> and the richer <code>NanoRosError</code> will
+merge into a single public error at the <code>nros</code> crate boundary; per-crate
+errors will become internal. See the Phase 84 roadmap.</p>
+</blockquote>
 <h2 id="transport-backends"><a class="header" href="#transport-backends">Transport Backends</a></h2>
 <p>The transport backend is selected at compile time via feature flags:</p>
 <ul>
-<li><code>rmw-zenoh</code> –&gt; zenoh-pico transport</li>
-<li><code>rmw-xrce</code> –&gt; XRCE-DDS transport</li>
+<li><code>rmw-zenoh</code> → zenoh-pico transport</li>
+<li><code>rmw-xrce</code> → XRCE-DDS transport</li>
 </ul>
-<p>The concrete session type is resolved automatically. Advanced users can access
-it via <code>nros::internals::RmwSession</code>.</p>
+<p>Exactly one RMW feature must be enabled. The concrete session type is
+resolved automatically; advanced users can access it via
+<code>nros::internals::RmwSession</code>.</p>
 
                     </main>
 

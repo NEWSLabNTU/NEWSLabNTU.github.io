@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-06888d19.js";
+            window.path_to_searchindex_js = "searchindex-54f5f3f5.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-c8624503.js"></script>
@@ -3290,30 +3290,49 @@ memory layout is controlled via environment variables at build time:</p>
 <li><strong><code>NROS_EXECUTOR_ARENA_SIZE</code></strong> (default 4096) – byte budget for storing
 callback closures inline</li>
 </ul>
+<p>Construct an <code>ExecutorConfig</code> and pass it to <code>Executor::open</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>let config = ExecutorConfig::from_env().node_name("my_node");
+let mut executor = Executor::open(&amp;config)?;
+<span class="boring">}</span></code></pre>
+<p>On embedded targets without <code>std</code>, build the config manually:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let config = ExecutorConfig::new("tcp/192.168.1.50:7447")
+    .node_name("talker")
+    .domain_id(0);
 let mut executor = Executor::open(&amp;config)?;
 <span class="boring">}</span></code></pre>
 <h3 id="spin-methods"><a class="header" href="#spin-methods">Spin Methods</a></h3>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Method</th><th>Description</th></tr>
+<tr><th>Method</th><th>Signature</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><code>spin_once(timeout_ms)</code></td><td>Poll once, process ready callbacks. Returns immediately after processing.</td></tr>
-<tr><td><code>spin(count)</code></td><td>Call <code>spin_once()</code> in a loop <code>count</code> times (convenience for examples).</td></tr>
-<tr><td><code>spin_blocking(opts)</code></td><td>Block forever processing callbacks. Requires <code>std</code>. Uses <code>SpinOptions</code> for configuration.</td></tr>
-<tr><td><code>spin_period(duration)</code></td><td>Spin at a fixed rate, sleeping between iterations. Requires <code>std</code>. Returns <code>SpinPeriodResult</code>.</td></tr>
-<tr><td><code>spin_async()</code></td><td>Returns a future that drives the executor. Use with an external async runtime (tokio, Embassy). Does not call <code>block_on</code> — the caller’s runtime provides the event loop.</td></tr>
+<tr><td><code>spin_once(timeout_ms)</code></td><td><code>fn(&amp;mut self, i32) -&gt; SpinOnceResult</code></td><td>Drive I/O for up to <code>timeout_ms</code> ms, then dispatch ready callbacks once. Returns immediately after processing.</td></tr>
+<tr><td><code>spin(timeout_ms)</code></td><td><code>fn(&amp;mut self, i32) -&gt; !</code></td><td>Infinite loop of <code>spin_once(timeout_ms)</code>. Never returns.</td></tr>
+<tr><td><code>spin_blocking(opts)</code></td><td><code>fn(&amp;mut self, SpinOptions) -&gt; Result&lt;(), NodeError&gt;</code></td><td>Block until halt signaled. Requires <code>std</code>.</td></tr>
+<tr><td><code>spin_period(period)</code></td><td><code>fn(&amp;mut self, Duration) -&gt; Result&lt;(), NodeError&gt;</code></td><td>Spin at a fixed rate, sleeping between iterations. Requires <code>std</code>.</td></tr>
+<tr><td><code>spin_async()</code></td><td><code>async fn(&amp;mut self)</code></td><td>Future that drives the executor. Use with an external async runtime.</td></tr>
 </tbody>
 </table>
 </div>
-<p><strong><code>spin_once</code> vs <code>spin_blocking</code>:</strong> <code>spin_once(timeout_ms)</code> is the low-level primitive — one poll cycle, returns control immediately. <code>spin_blocking</code> and <code>spin_period</code> are convenience wrappers for common patterns. On <code>no_std</code> embedded targets, use <code>spin_once()</code> in a loop or <code>spin(count)</code>.</p>
+<p><strong><code>spin_once</code> vs <code>spin_blocking</code></strong>: <code>spin_once(timeout_ms)</code> is the low-level
+primitive — one poll cycle, then returns control. <code>spin_blocking</code> /
+<code>spin_period</code> are <code>std</code>-only convenience wrappers. On <code>no_std</code> embedded
+targets, call <code>spin_once()</code> in your own loop or use <code>spin(timeout_ms)</code> when
+you never need to return.</p>
+<blockquote>
+<p><strong>Note</strong> (Phase 84.D7): every wait API currently takes <code>i32</code> / <code>u64</code>
+milliseconds. These will migrate to <code>core::time::Duration</code> and drop the
+“negative means indefinite” sentinel — it is not exercised by any in-repo
+example and has a latent bug with timer delta. See <a href="https://github.com/.../docs/roadmap/phase-84-api-ergonomics-and-consistency.md">Phase 84 roadmap</a>.</p>
+</blockquote>
 <h2 id="node"><a class="header" href="#node">Node</a></h2>
-<p>Create a node from the executor to get a typed handle for creating
-communication primitives:</p>
+<p>Create a node from the executor to get a handle for declaring communication
+primitives:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>let mut node = executor.create_node("my_node")?;
@@ -3327,140 +3346,195 @@ publisher.publish(&amp;Int32 { data: 42 })?;
 <p>Use <code>create_publisher_with_qos()</code> to specify QoS settings.</p>
 <h2 id="subscription"><a class="header" href="#subscription">Subscription</a></h2>
 <h3 id="callback-based-via-executor"><a class="header" href="#callback-based-via-executor">Callback-based (via executor)</a></h3>
+<p>The callback signature is <code>FnMut(&amp;M) + 'static</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>executor.add_subscription::&lt;Int32, _&gt;("/topic", |msg: &amp;Int32| {
     // handle message
 })?;
 <span class="boring">}</span></code></pre>
-<p>Variants: <code>add_subscription_with_info()</code> (includes <code>MessageInfo</code>),
-<code>add_subscription_with_safety()</code> (includes E2E integrity status).</p>
-<p>Use the <code>_sized</code> variants (e.g., <code>add_subscription_sized::&lt;M, F, 2048&gt;()</code>)
-for messages larger than the default 1024-byte receive buffer.</p>
+<p>Variants:</p>
+<ul>
+<li><code>add_subscription_with_info()</code> — callback receives <code>(&amp;M, &amp;MessageInfo)</code></li>
+<li><code>add_subscription_with_safety()</code> — includes E2E integrity status</li>
+</ul>
+<p>Use the <code>_sized</code> variants (e.g., <code>add_subscription_sized::&lt;M, _, 2048&gt;()</code>)
+for messages larger than the default 1024-byte receive buffer, or
+<code>add_subscription_buffered</code> for deeper QoS depth.</p>
 <h3 id="manual-poll-via-node"><a class="header" href="#manual-poll-via-node">Manual poll (via node)</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let sub = node.create_subscription::&lt;Int32&gt;("/topic")?;
+</span>let mut sub = node.create_subscription::&lt;Int32&gt;("/topic")?;
+executor.spin_once(10);
 if let Some(msg) = sub.try_recv()? {
     // handle message
 }
 <span class="boring">}</span></code></pre>
 <h2 id="service"><a class="header" href="#service">Service</a></h2>
 <h3 id="server"><a class="header" href="#server">Server</a></h3>
+<p>Callback-based via executor:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let service = node.create_service::&lt;AddTwoInts&gt;("/add")?;
+</span>executor.add_service::&lt;AddTwoInts, _&gt;("/add", |req: &amp;AddTwoIntsRequest| {
+    AddTwoIntsResponse { sum: req.a + req.b }
+})?;
 <span class="boring">}</span></code></pre>
-<p>Register a handler callback via the executor, or poll manually.</p>
+<p>Or create a standalone server via the node and call its poll methods from a
+spin loop.</p>
 <h3 id="client"><a class="header" href="#client">Client</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>let mut client = node.create_client::&lt;AddTwoInts&gt;("/add")?;
 <span class="boring">}</span></code></pre>
-<p><strong>Non-blocking (recommended):</strong></p>
+<p>Non-blocking — <code>call()</code> returns a <code>Promise</code> that resolves on subsequent
+<code>spin_once()</code> calls:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let promise = client.call(&amp;request)?;  // returns Promise&lt;Response&gt;
+</span>let mut promise = client.call(&amp;request)?;              // send, returns immediately
 
-// Promise resolves on subsequent spin_once() calls
-executor.spin_once(100);
+executor.spin_once(10);
 if let Some(reply) = promise.try_recv()? {
     println!("Result: {}", reply.sum);
 }
 
-// Or wait with timeout
+// Or wait with timeout (internally spins the executor):
 let reply = promise.wait(&amp;mut executor, 5000)?;
 <span class="boring">}</span></code></pre>
-<p><strong>Blocking (legacy):</strong></p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let reply = client.call_blocking(&amp;request, 5000)?;  // blocks up to 5s
-<span class="boring">}</span></code></pre>
-<p><code>call_blocking()</code> internally calls <code>spin_once()</code> in a loop. Prefer <code>call()</code> + <code>Promise</code> for better control over timeouts and cancellation.</p>
+<p><code>Promise&lt;T&gt;</code> also implements <code>core::future::Future&lt;Output = Result&lt;T, NodeError&gt;&gt;</code>, so you can <code>.await</code> it from an async runtime.</p>
 <h2 id="action"><a class="header" href="#action">Action</a></h2>
-<h3 id="server-1"><a class="header" href="#server-1">Server</a></h3>
+<h3 id="server-callback-based-via-executor"><a class="header" href="#server-callback-based-via-executor">Server (callback-based via executor)</a></h3>
+<p>Goal and cancel callbacks are registered together. The goal callback
+signature is <code>FnMut(&amp;GoalId, &amp;A::Goal) -&gt; GoalResponse</code>; cancel is
+<code>FnMut(&amp;GoalId, GoalStatus) -&gt; CancelResponse</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let mut action_server = node.create_action_server::&lt;Fibonacci&gt;("/fibonacci")?;
+</span>use nros::prelude::*;
+use nros_core::{GoalId, GoalResponse, GoalStatus, CancelResponse};
+
+executor.add_action_server::&lt;Fibonacci, _, _&gt;(
+    "/fibonacci",
+    |_id: &amp;GoalId, goal: &amp;FibonacciGoal| {
+        if goal.order &gt; 46 { GoalResponse::Reject }
+        else { GoalResponse::AcceptAndExecute }
+    },
+    |_id: &amp;GoalId, _status: GoalStatus| CancelResponse::Accept,
+)?;
 <span class="boring">}</span></code></pre>
-<p><strong>Callback-based (via executor):</strong></p>
+<p>The executor dispatches goal / cancel / accept events during <code>spin_once()</code>.
+Use the returned <code>ActionServerHandle&lt;A&gt;</code> to publish feedback and complete
+goals:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>executor.add_action_server::&lt;Fibonacci, _&gt;("/fibonacci", |goal| {
-    // Process goal, publish feedback, return result
-    let mut feedback = FibonacciFeedback { sequence: heapless::Vec::new() };
-    // ... compute ...
-    FibonacciResult { sequence: feedback.sequence }
-})?;
+</span>let handle = executor.add_action_server::&lt;Fibonacci, _, _&gt;(...)?;
+handle.publish_feedback(&amp;goal_id, &amp;FibonacciFeedback { partial_sequence: seq })?;
+handle.complete_goal(&amp;goal_id, &amp;FibonacciResult { sequence: seq }, GoalStatus::Succeeded)?;
 <span class="boring">}</span></code></pre>
-<p><strong>Manual-poll:</strong></p>
+<p>Use <code>add_action_server_sized::&lt;A, _, _, GB, RB, FB, MAX_GOALS&gt;()</code> to tune
+buffer sizes and the concurrent-goal cap.</p>
+<h3 id="server-manual-poll-via-node"><a class="header" href="#server-manual-poll-via-node">Server (manual-poll via node)</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>let mut server = node.create_action_server::&lt;Fibonacci&gt;("/fibonacci")?;
-
-// create_action_server() is NOT arena-registered — spin_once() does NOT
-// process get_result queries automatically. After completing a goal, you
-// must explicitly call:
-server.try_handle_get_result()?;
 <span class="boring">}</span></code></pre>
+<p><strong>Footgun</strong>: <code>create_action_server()</code> is <strong>not</strong> arena-registered. <code>spin_once()</code>
+will <strong>not</strong> process <code>get_result</code> queries automatically. After completing a
+goal, you must explicitly drain the result-query channel yourself:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>server.try_handle_get_result()?;
+<span class="boring">}</span></code></pre>
+<p>This is tracked as Phase 84.D2 — the manual-poll server will gain a fused
+<code>poll()</code> method that does accept / cancel / get-result drainage in one call.</p>
 <h3 id="client-1"><a class="header" href="#client-1">Client</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let mut action_client = node.create_action_client::&lt;Fibonacci&gt;("/fibonacci")?;
+</span>let mut client = node.create_action_client::&lt;Fibonacci&gt;("/fibonacci")?;
 
-// send_goal() returns (GoalId, Promise&lt;bool&gt;)
-let (goal_id, accepted) = action_client.send_goal(&amp;goal)?;
+// send_goal returns (GoalId, Promise&lt;'_, bool&gt;)
+let (goal_id, mut accepted) = client.send_goal(&amp;FibonacciGoal { order: 10 })?;
 let was_accepted = accepted.wait(&amp;mut executor, 5000)?;
 
-// get_result() returns Promise&lt;(GoalStatus, Result)&gt;
-let result_promise = action_client.get_result(&amp;goal_id)?;
-let (status, result) = result_promise.wait(&amp;mut executor, 10000)?;
+if was_accepted {
+    let mut result_promise = client.get_result(&amp;goal_id)?;
+    let (status, result) = result_promise.wait(&amp;mut executor, 10_000)?;
+}
+
+// Feedback is a stream, not a one-shot promise:
+let mut fb_stream = client.feedback_stream();
+if let Some((id, fb)) = fb_stream.try_next()? {
+    // handle feedback
+}
+
+// Cancellation returns a Promise&lt;CancelResponse&gt;:
+let mut cancel = client.cancel_goal(&amp;goal_id)?;
+let response = cancel.wait(&amp;mut executor, 5000)?;
 <span class="boring">}</span></code></pre>
-<p><strong>GoalStatus</strong> values: <code>Unknown(0)</code>, <code>Accepted(1)</code>, <code>Executing(2)</code>, <code>Canceling(3)</code>, <code>Succeeded(4)</code>, <code>Canceled(5)</code>, <code>Aborted(6)</code>.</p>
+<p><code>GoalStatus</code> values: <code>Unknown(0)</code>, <code>Accepted(1)</code>, <code>Executing(2)</code>,
+<code>Canceling(3)</code>, <code>Succeeded(4)</code>, <code>Canceled(5)</code>, <code>Aborted(6)</code>.</p>
 <h2 id="timer"><a class="header" href="#timer">Timer</a></h2>
+<p>Both variants take a <code>FnMut() + 'static</code> closure (no argument). They return
+a <code>HandleId</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>executor.add_timer(TimerDuration::from_millis(1000), TimerMode::Repeating, |_| {
+</span>let timer_id = executor.add_timer(TimerDuration::from_millis(1000), || {
     // called every second
 })?;
 
-executor.add_timer_oneshot(TimerDuration::from_millis(5000), |_| {
+executor.add_timer_oneshot(TimerDuration::from_millis(5000), || {
     // called once after 5 seconds
 })?;
 <span class="boring">}</span></code></pre>
-<p>Callbacks receive a <code>&amp;TimerState</code> argument.</p>
+<p>The repeating / one-shot distinction is in the function name, not a mode
+enum. The executor computes the delta internally from the <code>spin_once</code>
+timeout argument (another thing Phase 84.D7 will clean up).</p>
 <h2 id="parameters"><a class="header" href="#parameters">Parameters</a></h2>
+<p><code>ParameterServer::declare</code> returns <code>bool</code> (success / name-already-taken):</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use nros::prelude::*;
 use nros::{ParameterServer, ParameterValue};
 
 let mut params = ParameterServer::new();
-params.declare("max_speed", ParameterValue::Double(1.5))?;
+if !params.declare("max_speed", ParameterValue::Double(1.5)) {
+    // name already declared
+}
 <span class="boring">}</span></code></pre>
-<p>Use <code>ParameterBuilder</code> for typed parameter declaration with constraints:</p>
+<p>For typed, constrained parameters use the <code>ParameterBuilder</code>. Note that
+<code>new()</code> takes the server first, and the terminal methods are
+<code>.mandatory()</code> / <code>.optional()</code> / <code>.read_only()</code> — <strong>there is no <code>.build()</code></strong>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use nros_params::ParameterBuilder;
 
-ParameterBuilder::&lt;f64&gt;::new("max_speed")
+let mut speed = ParameterBuilder::&lt;f64&gt;::new(&amp;mut params, "max_speed")
     .default(1.5)
     .description("Maximum speed in m/s")
-    .build(&amp;mut params)?;
+    .range(0.0..=10.0)?
+    .mandatory()?;   // returns MandatoryParameter&lt;'a, f64&gt;
+
+let v = speed.get();           // typed read
+speed.set(2.0)?;               // typed write
 <span class="boring">}</span></code></pre>
-<p>Enable the <code>param-services</code> feature on <code>nros-node</code> to expose standard ROS 2
-parameter services (<code>~/get_parameters</code>, <code>~/set_parameters</code>, etc.).</p>
+<p>Enable the <code>param-services</code> feature on <code>nros-node</code> to expose the standard
+ROS 2 parameter services (<code>~/get_parameters</code>, <code>~/set_parameters</code>, etc.).</p>
 <h2 id="error-types"><a class="header" href="#error-types">Error Types</a></h2>
-<p>The primary error type is <code>NodeError</code>, returned by executor and node
-operations. Transport-level errors use <code>TransportError</code>.</p>
+<p>The primary user-facing error type is <code>NodeError</code>, returned by every
+executor and node operation. Transport-level failures are wrapped as
+<code>NodeError::Transport(TransportError)</code>.</p>
+<blockquote>
+<p><strong>Note</strong> (Phase 84.D1): <code>NodeError</code> and the richer <code>NanoRosError</code> will
+merge into a single public error at the <code>nros</code> crate boundary; per-crate
+errors will become internal. See the Phase 84 roadmap.</p>
+</blockquote>
 <h2 id="transport-backends"><a class="header" href="#transport-backends">Transport Backends</a></h2>
 <p>The transport backend is selected at compile time via feature flags:</p>
 <ul>
-<li><code>rmw-zenoh</code> –&gt; zenoh-pico transport</li>
-<li><code>rmw-xrce</code> –&gt; XRCE-DDS transport</li>
+<li><code>rmw-zenoh</code> → zenoh-pico transport</li>
+<li><code>rmw-xrce</code> → XRCE-DDS transport</li>
 </ul>
-<p>The concrete session type is resolved automatically. Advanced users can access
-it via <code>nros::internals::RmwSession</code>.</p>
+<p>Exactly one RMW feature must be enabled. The concrete session type is
+resolved automatically; advanced users can access it via
+<code>nros::internals::RmwSession</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="c-api-and-cmake-integration"><a class="header" href="#c-api-and-cmake-integration">C API and CMake Integration</a></h1>
 <h2 id="overview-7"><a class="header" href="#overview-7">Overview</a></h2>
@@ -3496,22 +3570,83 @@ nano_ros_generate_interfaces(${PROJECT_NAME}
 <p>Resolution order for each file: <code>${CMAKE_CURRENT_SOURCE_DIR}/&lt;file&gt;</code> -&gt; <code>${AMENT_PREFIX_PATH}/share/&lt;target&gt;/&lt;file&gt;</code> -&gt; <code>&lt;install_prefix&gt;/share/nano-ros/interfaces/&lt;target&gt;/&lt;file&gt;</code>.</p>
 <p>Type info structs (<code>nros_message_type_t</code>, <code>nros_service_type_t</code>, <code>nros_action_type_t</code>) are all defined in <code>nros/types.h</code>.</p>
 <h2 id="c-api-by-header"><a class="header" href="#c-api-by-header">C API by Header</a></h2>
+<p>All objects use <strong>inline opaque storage</strong> — no heap allocation. Declare
+each as a <code>static</code> in <code>.bss</code> (the examples use an <code>app</code> struct) and pass
+pointers to the <code>_init</code> functions. Pair every <code>_init</code> with a matching
+<code>_fini</code> at shutdown.</p>
 <h3 id="core-lifecycle-nrosinith-nrosexecutorh-nrosnodeh"><a class="header" href="#core-lifecycle-nrosinith-nrosexecutorh-nrosnodeh">Core lifecycle (<code>nros/init.h</code>, <code>nros/executor.h</code>, <code>nros/node.h</code>)</a></h3>
+<pre><code class="language-c">nros_support_t support = nros_support_get_zero_initialized();
+nros_support_init(&amp;support, "tcp/127.0.0.1:7447", /*domain_id=*/0);
+
+nros_node_t node = nros_node_get_zero_initialized();
+nros_node_init(&amp;node, &amp;support, "my_node", /*namespace=*/"");
+
+nros_executor_t exec = nros_executor_get_zero_initialized();
+nros_executor_init(&amp;exec, &amp;support, /*max_handles=*/8);
+
+while (running) {
+    nros_executor_spin_some(&amp;exec, /*timeout_ms=*/100);
+}
+
+nros_executor_fini(&amp;exec);
+nros_node_fini(&amp;node);
+nros_support_fini(&amp;support);
+</code></pre>
+<p>Related helpers:</p>
 <ul>
-<li><code>nros_init(locator)</code> / <code>nros_shutdown()</code> — session open/close</li>
-<li><code>nros_executor_init()</code> / <code>nros_spin_once(timeout_ms)</code> — executor lifecycle</li>
-<li><code>nros_create_node(name)</code> — create a node handle</li>
+<li><code>nros_support_init_named()</code> — for XRCE sessions that need a distinct session name</li>
+<li><code>nros_executor_spin(&amp;exec)</code> — blocking loop (no return)</li>
+<li><code>nros_executor_spin_period(&amp;exec, period_ns)</code> — fixed-rate blocking loop</li>
+<li><code>nros_executor_stop(&amp;exec)</code> — signal the blocking spin to return</li>
 </ul>
 <h3 id="pubsub-nrospublisherh-nrossubscriptionh"><a class="header" href="#pubsub-nrospublisherh-nrossubscriptionh">Pub/Sub (<code>nros/publisher.h</code>, <code>nros/subscription.h</code>)</a></h3>
-<ul>
-<li><code>nros_publisher_init()</code> / <code>nros_publish(msg, size)</code></li>
-<li><code>nros_subscription_init()</code> / <code>nros_executor_add_subscription(callback)</code></li>
-</ul>
+<pre><code class="language-c">// Publisher
+nros_publisher_t pub = nros_publisher_get_zero_initialized();
+nros_publisher_init(&amp;pub, &amp;node, &amp;my_msg_type, "/counter");
+
+uint8_t buf[64];
+size_t len;
+my_msg_serialize(&amp;msg, buf, sizeof(buf), &amp;len);
+nros_publish_raw(&amp;pub, buf, len);
+
+// Subscription (callback-based via executor)
+nros_subscription_t sub = nros_subscription_get_zero_initialized();
+nros_subscription_init(&amp;sub, &amp;node, &amp;my_msg_type, "/counter",
+                       on_message_callback, &amp;ctx);
+nros_executor_add_subscription(&amp;exec, &amp;sub, NROS_EXECUTOR_ON_READY);
+</code></pre>
+<p>QoS customization: call <code>nros_publisher_init_with_qos(..., &amp;qos_profile)</code> /
+<code>nros_subscription_init_with_qos(..., &amp;qos_profile)</code> with a QoS struct
+(e.g. <code>NROS_QOS_SENSOR_DATA</code> for best-effort sensor data). The bare
+<code>_init</code> forms use RELIABLE / KEEP_LAST(10).</p>
 <h3 id="services-nrosserviceh-nrosclienth"><a class="header" href="#services-nrosserviceh-nrosclienth">Services (<code>nros/service.h</code>, <code>nros/client.h</code>)</a></h3>
-<ul>
-<li><code>nros_service_init()</code> / <code>nros_executor_add_service(callback)</code></li>
-<li><code>nros_client_init()</code> / <code>nros_call_service(req, req_size, reply, reply_size, timeout_ms)</code></li>
-</ul>
+<pre><code class="language-c">// Service server (callback-based via executor)
+nros_service_t srv = nros_service_get_zero_initialized();
+nros_service_init(&amp;srv, &amp;node, &amp;add_two_ints_type, "/add",
+                  on_request_callback, &amp;ctx);
+nros_executor_add_service(&amp;exec, &amp;srv, NROS_EXECUTOR_ON_READY);
+
+// Service client (blocking call)
+nros_client_t cli = nros_client_get_zero_initialized();
+nros_client_init(&amp;cli, &amp;node, &amp;add_two_ints_type, "/add");
+nros_executor_add_client(&amp;exec, &amp;cli, /*timeout_ms=*/5000);
+
+uint8_t req_buf[64], resp_buf[64];
+size_t req_len = /* serialize request into req_buf */, resp_len = 0;
+nros_ret_t ret = nros_client_call(&amp;cli,
+                                   req_buf, req_len,
+                                   resp_buf, sizeof(resp_buf), &amp;resp_len);
+</code></pre>
+<p><code>nros_client_call</code> spins the executor internally until the reply arrives
+or the registered timeout expires. Returns <code>NROS_RET_REENTRANT</code> (<code>-15</code>)
+if called from inside a dispatch callback — use a standalone non-blocking
+client path from within callbacks.</p>
+<blockquote>
+<p><strong>Type-argument note</strong> (Phase 84.B1): <code>nros_service_init</code> and
+<code>nros_client_init</code> currently take <code>nros_message_type_t*</code>. A future fix
+changes this to <code>nros_service_type_t*</code> to match the type struct in
+<code>nros/types.h</code> — the existing signature is a known bug.</p>
+</blockquote>
 <h3 id="actions-nrosactionh"><a class="header" href="#actions-nrosactionh">Actions (<code>nros/action.h</code>)</a></h3>
 <p><strong>Action client:</strong></p>
 <div class="table-wrapper">
@@ -3580,9 +3715,14 @@ nros_action_client_set_result_callback(client, on_result);
 </code></pre>
 <p><strong>Non-blocking pattern:</strong> Use <code>_async</code> variants to avoid blocking the executor. The async call returns immediately; results arrive via the registered callback on subsequent <code>nros_spin_once()</code> calls.</p>
 <h3 id="timers-nrostimerh"><a class="header" href="#timers-nrostimerh">Timers (<code>nros/timer.h</code>)</a></h3>
-<ul>
-<li><code>nros_timer_init(period_ms)</code> / <code>nros_executor_add_timer(callback)</code></li>
-</ul>
+<pre><code class="language-c">nros_timer_t tmr = nros_timer_get_zero_initialized();
+nros_timer_init(&amp;tmr, &amp;support,
+                /*period_ns=*/1000UL * 1000 * 1000,  // 1 s
+                timer_callback, &amp;ctx);
+nros_executor_add_timer(&amp;exec, &amp;tmr, NROS_EXECUTOR_ALWAYS);
+</code></pre>
+<p>The callback signature is <code>void (*)(struct nros_timer_t* timer, void* context)</code>.
+Period is expressed in <strong>nanoseconds</strong>.</p>
 <h3 id="parameters-lifecycle-guard-condition"><a class="header" href="#parameters-lifecycle-guard-condition">Parameters, Lifecycle, Guard Condition</a></h3>
 <ul>
 <li><code>nros/parameter.h</code> — declare/get/set parameters</li>
@@ -6670,6 +6810,106 @@ impl Subscriber for EchoSub {
 skeleton above – <code>create_publisher</code> returns <code>Ok(EchoPub)</code>, etc. The
 <code>Rmw::open()</code> impl just returns <code>Ok(EchoSession)</code> unconditionally.</p>
 <hr>
+<h2 id="what-the-ros-2-ecosystem-expects"><a class="header" href="#what-the-ros-2-ecosystem-expects">What the ROS 2 ecosystem expects</a></h2>
+<p>Implementing the six traits compiles and runs, but a backend that stops
+there will not interoperate cleanly with <code>ros2 CLI</code>, RQt, or
+<code>rmw_zenoh_cpp</code> nodes. Real ROS 2 interop requires four extra
+invariants the traits do not express:</p>
+<h3 id="1-discovery--liveliness-tokens"><a class="header" href="#1-discovery--liveliness-tokens">1. Discovery / liveliness tokens</a></h3>
+<p><code>ros2 node list</code>, <code>ros2 topic list</code>, <code>ros2 service list</code> rely on
+discovery traffic. How you emit it depends on the backend protocol:</p>
+<ul>
+<li><strong>Zenoh-flavoured backends</strong>: publish a liveliness token per endpoint
+under <code>@ros2_lv/&lt;domain&gt;/&lt;zid&gt;/&lt;entity_kind&gt;/&lt;id&gt;/…</code>. See
+<a href="#ros-2-rmw_zenoh-interoperability">rmw-zenoh-protocol.md</a> for the
+exact key grammar.</li>
+<li><strong>DDS-flavoured backends</strong>: use the SPDP/SEDP discovery traffic that
+your DDS stack provides, plus the ROS 2–specific USER_DATA payload
+(node name, namespace, enclave).</li>
+</ul>
+<p>If your backend is brand new (not wire-compatible with zenoh or DDS),
+you still need <em>some</em> discovery channel for <code>ros2 CLI</code> tools to find
+your endpoints. The traits currently do not cover this — discovery
+happens inside <code>create_publisher</code> / <code>create_subscriber</code> /
+<code>create_service_*</code> as a side effect.</p>
+<h3 id="2-rmw-attachments-per-message-metadata"><a class="header" href="#2-rmw-attachments-per-message-metadata">2. RMW attachments (per-message metadata)</a></h3>
+<p>Every published message carries ROS 2 metadata that consumers read
+through <code>MessageInfo</code>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Size</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>sequence_number</code></td><td>8 bytes</td><td><code>int64</code> LE — monotonic per publisher</td></tr>
+<tr><td><code>timestamp</code></td><td>8 bytes</td><td><code>int64</code> LE — source nanoseconds</td></tr>
+<tr><td><code>gid</code></td><td>16 bytes</td><td>random per publisher, constant over its lifetime</td></tr>
+</tbody>
+</table>
+</div>
+<ul>
+<li><strong>Zenoh</strong>: the attachment rides alongside the payload as a zenoh
+<code>Attachment</code>. Humble uses a simple concatenation; Jazzy onward uses a
+VLE-encoded <code>gid_length</code> prefix.</li>
+<li><strong>DDS</strong>: sample identity and source timestamp fall out of the DDS
+sample info — your backend only has to forward them.</li>
+</ul>
+<p>If you skip this, <code>add_subscription_with_info()</code> on consumers always
+reports <code>MessageInfo::default()</code>, and downstream features (safety-e2e
+checks, source-timestamp ordering) silently degrade.</p>
+<h3 id="3-actions-decompose-into-five-underlying-channels"><a class="header" href="#3-actions-decompose-into-five-underlying-channels">3. Actions decompose into five underlying channels</a></h3>
+<p>ROS 2 actions are not a transport primitive — they are a pattern built
+on services and topics. Each action server exposes:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Sub-entity</th><th>Kind</th><th>Name suffix</th></tr>
+</thead>
+<tbody>
+<tr><td><code>send_goal</code></td><td>Service</td><td><code>_action/send_goal</code></td></tr>
+<tr><td><code>cancel_goal</code></td><td>Service</td><td><code>_action/cancel_goal</code></td></tr>
+<tr><td><code>get_result</code></td><td>Service</td><td><code>_action/get_result</code></td></tr>
+<tr><td><code>feedback</code></td><td>Topic (pub)</td><td><code>_action/feedback</code></td></tr>
+<tr><td><code>status</code></td><td>Topic (pub)</td><td><code>_action/status</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>A backend that implements the six core traits automatically supports
+actions — <code>nros-node</code> composes the five channels itself. The only
+backend-specific piece is the key / topic construction, which the
+<code>Session::create_service_server</code> and <code>create_publisher</code> methods already
+handle.</p>
+<h3 id="4-type-hashes"><a class="header" href="#4-type-hashes">4. Type hashes</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>ROS 2 distro</th><th>Type hash</th></tr>
+</thead>
+<tbody>
+<tr><td>Humble</td><td>literal string <code>"TypeHashNotSupported"</code></td></tr>
+<tr><td>Iron / Jazzy / Rolling</td><td><code>RIHS01_&lt;sha256_hex&gt;</code> computed from the IDL</td></tr>
+</tbody>
+</table>
+</div>
+<p>nano-ros currently targets Humble (see <a href="../../docs/roadmap/phase-41-iron-type-hash-support.html">Phase
+41</a> for Iron
+support). A new backend that aims at a newer distro must compute the
+right hash string — the <code>TopicInfo::type_hash</code> field is already plumbed
+through.</p>
+<h3 id="5-qos-mapping"><a class="header" href="#5-qos-mapping">5. QoS mapping</a></h3>
+<p>ROS 2 QoS (reliability, durability, history, depth) maps differently
+onto each backend:</p>
+<ul>
+<li><strong>Zenoh</strong> has reliable/best-effort and a <code>KEEP_LAST(N)</code> / <code>KEEP_ALL</code>
+buffering policy — direct mapping.</li>
+<li><strong>DDS</strong> has native QoS — almost 1:1.</li>
+<li><strong>Custom backends</strong> must either honour the requested QoS or document
+which fields are ignored. A <code>best_effort</code> publisher matched with a
+<code>reliable</code> subscriber is a QoS mismatch in ROS 2 — the transport must
+refuse the subscription (or flag it at runtime) rather than silently
+lose messages.</li>
+</ul>
+<hr>
 <h2 id="further-reading-1"><a class="header" href="#further-reading-1">Further reading</a></h2>
 <ul>
 <li><a href="#rmw-api">RMW API Reference</a> – full trait signatures,
@@ -6764,12 +7004,46 @@ pub type ConcretePlatform = nros_platform_myos::MyOsPlatform;
 <span class="boring">}</span></code></pre>
 <h3 id="4-propagate-through-the-nros-facade"><a class="header" href="#4-propagate-through-the-nros-facade">4. Propagate through the nros facade</a></h3>
 <p>In <code>packages/core/nros/Cargo.toml</code>, add <code>platform-myos</code> to the feature list so users can write <code>nros = { features = ["rmw-zenoh", "platform-myos"] }</code>.</p>
-<h3 id="5-activate-the-shim-in-zpico-sys"><a class="header" href="#5-activate-the-shim-in-zpico-sys">5. Activate the shim in zpico-sys</a></h3>
-<p>In <code>packages/zpico/zpico-sys/Cargo.toml</code>, add a feature that activates the platform shim:</p>
-<pre><code class="language-toml">[features]
-myos = ["dep:zpico-platform-shim", "zpico-platform-shim?/active", "zpico-platform-shim?/network"]
+<h3 id="5-activate-the-shims"><a class="header" href="#5-activate-the-shims">5. Activate the shim(s)</a></h3>
+<p>Each RMW backend has its own platform shim crate. Enable the ones your
+platform will support:</p>
+<pre><code class="language-toml"># packages/zpico/zpico-sys/Cargo.toml  (needed for rmw-zenoh)
+[features]
+myos = [
+    "dep:zpico-platform-shim",
+    "zpico-platform-shim?/active",
+    "zpico-platform-shim?/network",
+]
+
+# packages/xrce/xrce-sys/Cargo.toml  (needed for rmw-xrce)
+[features]
+myos = [
+    "dep:xrce-platform-shim",
+    "xrce-platform-shim?/active",
+]
 </code></pre>
-<p>The shim crate picks up <code>ConcretePlatform</code> automatically through Cargo feature unification – no changes inside the shim itself.</p>
+<p>Shim feature flags:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Feature</th><th>When to enable</th></tr>
+</thead>
+<tbody>
+<tr><td><code>active</code></td><td>Always, when this platform should claim the shim’s symbols</td></tr>
+<tr><td><code>network</code></td><td>Rust-native TCP/UDP path — forwards <code>_z_open_tcp</code>/<code>_z_read_tcp</code>/etc. to your <code>PlatformTcp</code>/<code>PlatformUdp</code> impl. Omit if you compile zenoh-pico’s C <code>network.c</code> directly (see “Networking” below).</td></tr>
+<tr><td><code>skip-clock-symbols</code></td><td>Your platform provides its own <code>_z_time_elapsed_us</code> etc. (e.g. NuttX ships clock functions in libc). Skips the shim’s default clock forwarders to avoid duplicate-symbol link errors.</td></tr>
+<tr><td><code>network-smoltcp-bridge</code></td><td>Bare-metal smoltcp integration (implies <code>network</code>).</td></tr>
+</tbody>
+</table>
+</div>
+<p>The shim picks up <code>ConcretePlatform</code> automatically through Cargo
+feature unification — no changes inside the shim itself.</p>
+<p>Build-script contract: the shim’s <code>build.rs</code> reads
+<code>DEP_ZPICO_SOCKET_SIZE</code> / <code>DEP_ZPICO_ENDPOINT_SIZE</code> (exported by
+<code>zpico-sys</code>’s <code>build.rs</code>) so it can size socket-handle slabs correctly.
+If you replace <code>zpico-sys</code> with a custom transport crate, export the
+same <code>DEP_*</code> variables from its <code>build.rs</code> or the shim will fall back
+to defaults.</p>
 <h2 id="rust-path-1"><a class="header" href="#rust-path-1">Rust path</a></h2>
 <p>This is the recommended approach. Create a ZST and implement each capability as inherent methods (not trait impls). The shim calls these methods directly through the <code>ConcretePlatform</code> type alias.</p>
 <h3 id="skeleton"><a class="header" href="#skeleton">Skeleton</a></h3>
@@ -6845,9 +7119,36 @@ impl MyOsPlatform {
 <h2 id="cc-path-1"><a class="header" href="#cc-path-1">C/C++ path</a></h2>
 <p>If your platform is easier to implement in C, use the <code>nros-platform-cffi</code> adapter. It provides a vtable-based bridge so you never write Rust.</p>
 <h3 id="1-fill-in-the-vtable-1"><a class="header" href="#1-fill-in-the-vtable-1">1. Fill in the vtable</a></h3>
-<pre><code class="language-c">#include &lt;nros/platform_vtable.h&gt;
+<p>The vtable struct (<code>nros_platform_vtable_t</code>) is currently defined in
+Rust (<code>packages/core/nros-platform-cffi/src/lib.rs</code> as
+<code>NrosPlatformVtable</code>, <code>#[repr(C)]</code>). A C header is not yet
+auto-generated — until cbindgen produces one, mirror the struct
+manually in C, matching the Rust field order exactly:</p>
+<pre><code class="language-c">// my_platform_vtable.h — hand-mirrored from NrosPlatformVtable
+#include &lt;stdint.h&gt;
+#include &lt;stddef.h&gt;
 
-static uint64_t my_clock_ms(void) {
+typedef struct nros_platform_vtable_t {
+    // -- Clock --
+    uint64_t (*clock_ms)(void);
+    uint64_t (*clock_us)(void);
+    // -- Alloc --
+    void* (*alloc)(size_t size);
+    void* (*realloc)(void* ptr, size_t size);
+    void  (*dealloc)(void* ptr);
+    // -- Sleep --
+    void (*sleep_us)(size_t us);
+    void (*sleep_ms)(size_t ms);
+    void (*sleep_s)(size_t s);
+    // -- Random / Time / Threading / Sockets follow in the order
+    //    defined in nros-platform-cffi/src/lib.rs --
+    /* ... */
+} nros_platform_vtable_t;
+
+extern int32_t nros_platform_cffi_register(const nros_platform_vtable_t* vtable);
+</code></pre>
+<p>Then fill in the callbacks:</p>
+<pre><code class="language-c">static uint64_t my_clock_ms(void) {
     return myos_get_ticks();  // your RTOS tick API
 }
 
