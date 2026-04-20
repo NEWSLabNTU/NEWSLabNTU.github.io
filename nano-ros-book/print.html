@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d0419c9b.js";
+            window.path_to_searchindex_js = "searchindex-7f95b648.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-c8624503.js"></script>
@@ -468,8 +468,9 @@ fn main() {
 }</code></pre>
 <p>Key API elements:</p>
 <ul>
-<li><code>ExecutorConfig::from_env()</code> reads <code>ZENOH_LOCATOR</code>, <code>ROS_DOMAIN_ID</code>, and
-<code>ZENOH_MODE</code> from the environment.</li>
+<li><code>ExecutorConfig::from_env()</code> reads <code>NROS_LOCATOR</code>, <code>ROS_DOMAIN_ID</code>, and
+<code>NROS_SESSION_MODE</code> from the environment (legacy names <code>ZENOH_LOCATOR</code>
+and <code>ZENOH_MODE</code> still work with a deprecation warning).</li>
 <li><code>Executor</code> sizing is configured via <code>NROS_EXECUTOR_MAX_CBS</code> (default 4) and
 <code>NROS_EXECUTOR_ARENA_SIZE</code> (default 4096) environment variables.</li>
 <li><code>create_node()</code> borrows the session from the executor.</li>
@@ -2444,8 +2445,8 @@ at process startup:</p>
 </thead>
 <tbody>
 <tr><td><code>ROS_DOMAIN_ID</code></td><td>ROS 2 domain ID</td><td><code>0</code></td></tr>
-<tr><td><code>ZENOH_LOCATOR</code></td><td>Router address</td><td><code>tcp/127.0.0.1:7447</code></td></tr>
-<tr><td><code>ZENOH_MODE</code></td><td>Session mode (<code>client</code> / <code>peer</code>)</td><td><code>client</code></td></tr>
+<tr><td><code>NROS_LOCATOR</code></td><td>Router address (legacy alias: <code>ZENOH_LOCATOR</code>)</td><td><code>tcp/127.0.0.1:7447</code></td></tr>
+<tr><td><code>NROS_SESSION_MODE</code></td><td>Session mode, <code>client</code> / <code>peer</code> (legacy alias: <code>ZENOH_MODE</code>)</td><td><code>client</code></td></tr>
 <tr><td><code>ZENOH_TLS_ROOT_CA_CERTIFICATE</code></td><td>Path to CA certificate (PEM)</td><td>(none)</td></tr>
 <tr><td><code>ZENOH_TLS_ROOT_CA_CERTIFICATE_BASE64</code></td><td>Base64-encoded CA cert</td><td>(none)</td></tr>
 <tr><td><code>ZENOH_TLS_VERIFY_NAME_ON_CONNECT</code></td><td>Verify hostname (<code>true</code>/<code>false</code>)</td><td>(none)</td></tr>
@@ -2463,7 +2464,7 @@ let mut executor = Executor::open(&amp;config)?;
 from <code>config.toml</code> (layer 1).</p>
 <h2 id="configuration-by-deployment-scenario"><a class="header" href="#configuration-by-deployment-scenario">Configuration by Deployment Scenario</a></h2>
 <h3 id="desktop-development-posix"><a class="header" href="#desktop-development-posix">Desktop development (POSIX)</a></h3>
-<pre><code>Layer 4: ZENOH_LOCATOR=tcp/127.0.0.1:7447  (shell export or .env)
+<pre><code>Layer 4: NROS_LOCATOR=tcp/127.0.0.1:7447  (shell export or .env)
 Layer 3: features = ["rmw-zenoh", "platform-posix", "std"]
 </code></pre>
 <p>No config.toml needed. Start zenohd locally and set environment variables.</p>
@@ -3368,6 +3369,31 @@ for messages larger than the default 1024-byte receive buffer, or
 executor.spin_once(10);
 if let Some(msg) = sub.try_recv()? {
     // handle message
+}
+<span class="boring">}</span></code></pre>
+<p>The same <code>Subscription&lt;M&gt;</code> exposes three blocking modes for users who
+don’t want to write the spin/poll loop themselves:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Sync — spin the executor until a message arrives or timeout.
+// Returns Ok(None) on timeout (not an error — keep retrying).
+while let Some(msg) = sub.wait_next(&amp;mut executor, 1000)? {
+    /* handle msg */
+}
+
+// Async (no `futures` dep) — drives via `executor.spin_async()` in a
+// separate task. Never returns None on a healthy subscription.
+loop {
+    let msg = sub.recv().await?;
+    /* handle msg */
+}
+
+// Async (with the `stream` feature) — `futures_core::Stream` impl,
+// works with StreamExt / TryStreamExt combinators.
+use futures::StreamExt;
+while let Some(item) = sub.next().await {
+    let msg = item?;
+    /* handle msg */
 }
 <span class="boring">}</span></code></pre>
 <h2 id="service"><a class="header" href="#service">Service</a></h2>
@@ -5384,7 +5410,7 @@ cd examples/native/rust/zenoh/listener &amp;&amp; RUST_LOG=info cargo run --feat
 <h2 id="udp-transport"><a class="header" href="#udp-transport">UDP Transport</a></h2>
 <p>On native/POSIX, zenoh-pico has built-in UDP support via OS sockets:</p>
 <pre><code class="language-bash"># Use UDP instead of TCP for the zenoh locator
-ZENOH_LOCATOR=udp/127.0.0.1:7447 cargo run --features zenoh
+NROS_LOCATOR=udp/127.0.0.1:7447 cargo run --features zenoh
 </code></pre>
 <p>On bare-metal, enable the <code>link-udp-unicast</code> feature to use UDP over smoltcp:</p>
 <pre><code class="language-toml">nros = { features = ["rmw-zenoh", "platform-bare-metal", "link-tcp", "link-udp-unicast"] }
@@ -5402,7 +5428,7 @@ ZENOH_LOCATOR=udp/127.0.0.1:7447 cargo run --features zenoh
   --cfg 'transport/link/tls/listen_private_key:"key.pem"'
 
 # Terminal 2: Talker with TLS
-ZENOH_LOCATOR=tls/localhost:7447 \
+NROS_LOCATOR=tls/localhost:7447 \
   ZENOH_TLS_ROOT_CA_CERTIFICATE=cert.pem \
   cargo run -p native-rs-talker --features link-tls
 </code></pre>
@@ -10025,7 +10051,7 @@ fn main() {
 <ul>
 <li>Use <code>nros</code> with <code>features = ["std"]</code> and gate real transport behind <code>zenoh</code> feature</li>
 <li>Entry point is a standard <code>fn main()</code></li>
-<li>Use <code>Context::from_env()</code> to read <code>ROS_DOMAIN_ID</code>, <code>ZENOH_LOCATOR</code>, <code>ZENOH_MODE</code></li>
+<li>Use <code>Context::from_env()</code> to read <code>ROS_DOMAIN_ID</code>, <code>NROS_LOCATOR</code>, <code>NROS_SESSION_MODE</code> (legacy <code>ZENOH_LOCATOR</code> / <code>ZENOH_MODE</code> still accepted)</li>
 <li>Logging via <code>log</code> + <code>env_logger</code> (<code>RUST_LOG=info cargo run</code>)</li>
 </ul>
 <hr>
