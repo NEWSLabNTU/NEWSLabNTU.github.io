@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-8603d232.js";
+            window.path_to_searchindex_js = "searchindex-4f3080ba.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-c8624503.js"></script>
@@ -561,14 +561,16 @@ types</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="zephyr"><a class="header" href="#zephyr">Zephyr</a></h1>
-<p>Complete setup procedure for Zephyr native_sim testing with TAP networking.</p>
+<p>Complete setup procedure for Zephyr <code>native_sim</code> testing. Networking uses
+<strong>NSOS</strong> (Native Sim Offloaded Sockets) — each socket call is forwarded to
+the host kernel, so tests run on <code>127.0.0.1</code> without TAP devices, bridges,
+or <code>sudo</code>.</p>
 <h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
 <p>nros uses a <strong>sibling Zephyr workspace</strong> alongside the repository. A symlink inside nros provides a stable path for scripts to locate the workspace.</p>
 <pre><code>repos/
 ├── nros/                     # Your repository
 │   ├── scripts/zephyr/
 │   │   ├── setup.sh              # Initialize workspace
-│   │   ├── setup-network.sh      # Configure bridge network
 │   │   ├── downloads/            # SDK tarball cache (gitignored)
 │   │   └── sdk/                  # Installed Zephyr SDK (gitignored)
 │   ├── zephyr/                   # Zephyr module definition
@@ -618,32 +620,17 @@ For custom workspace locations, update the symlink:</p>
 <pre><code class="language-bash">just zephyr setup --skip-sdk    # Skip SDK download/install
 just zephyr setup --force       # Recreate existing workspace
 </code></pre>
-<h2 id="step-2-configure-bridge-network-one-time-requires-sudo"><a class="header" href="#step-2-configure-bridge-network-one-time-requires-sudo">Step 2: Configure Bridge Network (One-Time, Requires Sudo)</a></h2>
-<pre><code class="language-bash">sudo ./scripts/zephyr/setup-network.sh
+<h2 id="step-2-networking"><a class="header" href="#step-2-networking">Step 2: Networking</a></h2>
+<p>No network setup is required. <code>native_sim</code> uses the NSOS offloaded-sockets
+driver, enabled by <code>boards/native_sim_native_64.conf</code> in each example:</p>
+<pre><code>CONFIG_ETH_NATIVE_POSIX=n
+CONFIG_NET_SOCKETS_OFFLOAD=y
+CONFIG_NET_NATIVE_OFFLOADED_SOCKETS=y
 </code></pre>
-<p>This creates a bridge network for Zephyr to Host communication:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Interface</th><th>IP Address</th><th>Role</th></tr>
-</thead>
-<tbody>
-<tr><td><code>zeth-br</code> (bridge)</td><td>192.0.2.2</td><td>Host applications (zenohd, XRCE Agent)</td></tr>
-<tr><td><code>zeth0</code> (TAP)</td><td>–</td><td>Talker Zephyr instances</td></tr>
-<tr><td><code>zeth1</code> (TAP)</td><td>–</td><td>Listener Zephyr instances</td></tr>
-<tr><td>Zephyr talker</td><td>192.0.2.1</td><td>Application (on zeth0)</td></tr>
-<tr><td>Zephyr listener</td><td>192.0.2.3</td><td>Application (on zeth1)</td></tr>
-</tbody>
-</table>
-</div>
-<p>The interfaces are owned by your user, so Zephyr runs <strong>without sudo</strong> afterward.</p>
-<p><strong>Verify setup:</strong></p>
-<pre><code class="language-bash">ip addr show zeth-br
-# Should show: inet 192.0.2.2/24
-</code></pre>
-<p><strong>Teardown (if needed):</strong></p>
-<pre><code class="language-bash">sudo ./scripts/zephyr/setup-network.sh --down
-</code></pre>
+<p>With NSOS, Zephyr’s socket API goes straight to host syscalls. Bind to
+<code>127.0.0.1</code> and reach <code>zenohd</code> / the XRCE Agent on the host loopback just
+like any other native test. Multiple <code>native_sim</code> processes can coexist
+without bridge configuration.</p>
 <h2 id="step-3-build-and-run-zephyr-examples"><a class="header" href="#step-3-build-and-run-zephyr-examples">Step 3: Build and Run Zephyr Examples</a></h2>
 <pre><code class="language-bash"># Source environment
 source ../nano-ros-workspace/env.sh
@@ -661,7 +648,7 @@ west build -b native_sim/native/64 nros/examples/zephyr/rust/zenoh/talker
 <p>Connects to a zenoh router. Requires POSIX API for zenoh-pico threads.</p>
 <pre><code class="language-ini">CONFIG_NROS=y
 # CONFIG_NROS_RMW_ZENOH=y  # default, can be omitted
-CONFIG_NROS_ZENOH_LOCATOR="tcp/192.0.2.2:7456"
+CONFIG_NROS_ZENOH_LOCATOR="tcp/127.0.0.1:7456"
 CONFIG_POSIX_API=y
 CONFIG_MAX_PTHREAD_MUTEX_COUNT=32
 CONFIG_MAX_PTHREAD_COND_COUNT=16
@@ -670,7 +657,7 @@ CONFIG_MAX_PTHREAD_COND_COUNT=16
 <p>Connects to a Micro-XRCE-DDS Agent over UDP. Requires BSD sockets.</p>
 <pre><code class="language-ini">CONFIG_NROS=y
 CONFIG_NROS_RMW_XRCE=y
-CONFIG_NROS_XRCE_AGENT_ADDR="192.0.2.2"
+CONFIG_NROS_XRCE_AGENT_ADDR="127.0.0.1"
 CONFIG_NROS_XRCE_AGENT_PORT=2018
 CONFIG_NET_SOCKETS=y
 </code></pre>
@@ -721,7 +708,7 @@ target_sources(app PRIVATE src/main.c)
 <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><code>CONFIG_NROS_ZENOH_LOCATOR</code></td><td>string</td><td><code>"tcp/192.0.2.2:7456"</code></td><td>Router address</td></tr>
+<tr><td><code>CONFIG_NROS_ZENOH_LOCATOR</code></td><td>string</td><td><code>"tcp/127.0.0.1:7456"</code></td><td>Router address</td></tr>
 <tr><td><code>CONFIG_NROS_ZENOH_MULTI_THREAD</code></td><td>bool</td><td>y</td><td>Zenoh-pico multithreading</td></tr>
 <tr><td><code>CONFIG_NROS_ZENOH_PUBLICATION</code></td><td>bool</td><td>y</td><td>Publication support</td></tr>
 <tr><td><code>CONFIG_NROS_ZENOH_SUBSCRIPTION</code></td><td>bool</td><td>y</td><td>Subscription support</td></tr>
@@ -745,7 +732,7 @@ target_sources(app PRIVATE src/main.c)
 <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><code>CONFIG_NROS_XRCE_AGENT_ADDR</code></td><td>string</td><td><code>"192.0.2.2"</code></td><td>Agent IP address</td></tr>
+<tr><td><code>CONFIG_NROS_XRCE_AGENT_ADDR</code></td><td>string</td><td><code>"127.0.0.1"</code></td><td>Agent IP address</td></tr>
 <tr><td><code>CONFIG_NROS_XRCE_AGENT_PORT</code></td><td>int</td><td>2018</td><td>Agent UDP port</td></tr>
 <tr><td><code>CONFIG_NROS_XRCE_TRANSPORT_MTU</code></td><td>int</td><td>512</td><td>Transport MTU</td></tr>
 <tr><td><code>CONFIG_NROS_XRCE_MAX_SUBSCRIBERS</code></td><td>int</td><td>8</td><td>Max concurrent subscribers</td></tr>
@@ -791,40 +778,33 @@ just build-zephyr-all       # Build everything
 </thead>
 <tbody>
 <tr><td><code>west: command not found</code></td><td>Run <code>pip3 install --user west</code> and add <code>~/.local/bin</code> to PATH</td></tr>
-<tr><td><code>Bridge not found</code></td><td>Run <code>sudo ./scripts/zephyr/setup-network.sh</code></td></tr>
-<tr><td><code>Connection refused</code></td><td>Ensure zenohd listens on <code>tcp/0.0.0.0:7447</code> (not just localhost)</td></tr>
+<tr><td><code>Connection refused</code></td><td>Start <code>zenohd</code> / <code>MicroXRCEAgent</code> on the host loopback (e.g. <code>tcp/127.0.0.1:7456</code>)</td></tr>
 <tr><td><code>Build fails</code></td><td>Source environment: <code>source ../nano-ros-workspace/env.sh</code></td></tr>
-<tr><td><code>Permission denied on zeth</code></td><td>TAP interface owned by different user, re-run setup script</td></tr>
 <tr><td><code>XRCE Agent not found</code></td><td>Install: <code>just setup</code> (installs MicroXRCEAgent)</td></tr>
 <tr><td>Zenoh mutex exhaustion</td><td>Increase <code>CONFIG_MAX_PTHREAD_MUTEX_COUNT</code> (default 5 is too low)</td></tr>
 </tbody>
 </table>
 </div>
 <h2 id="network-architecture"><a class="header" href="#network-architecture">Network Architecture</a></h2>
+<p>With NSOS, Zephyr sockets are forwarded to host syscalls — there is no
+emulated L2/L3 stack to configure, no static IP, and no bridge.</p>
 <pre><code>┌─────────────────────────────────────────────────────────────┐
-│                         Host (Linux)                         │
-│                                                             │
-│  ┌─────────────┐                                            │
-│  │ zenohd      │ &lt;-- Zenoh backend uses TCP/7447            │
-│  │ XRCE Agent  │ &lt;-- XRCE backend uses UDP/2018             │
-│  │ 0.0.0.0     │                                            │
-│  └──────┬──────┘                                            │
-│         │                                                    │
-│  ┌──────┴──────┐                                            │
-│  │ zeth-br     │  Bridge                                    │
-│  │ 192.0.2.2   │                                            │
-│  └──┬──────┬───┘                                            │
-│     │      │                                                │
-│  ┌──┴──┐ ┌─┴───┐                                           │
-│  │zeth0│ │zeth1│  TAP devices                               │
-│  └──┬──┘ └──┬──┘                                            │
-└─────┼───────┼───────────────────────────────────────────────┘
-      │       │
-┌─────┴─────┐ ┌─────┴──────┐
-│ Zephyr    │ │ Zephyr     │
-│ talker    │ │ listener   │
-│ 192.0.2.1 │ │ 192.0.2.3  │
-└───────────┘ └────────────┘
+│                      Host (Linux)                            │
+│                                                              │
+│   ┌────────────────────┐       ┌────────────────────────┐   │
+│   │ zephyr.exe talker  │       │ zephyr.exe listener    │   │
+│   │ (native_sim+NSOS)  │       │ (native_sim+NSOS)      │   │
+│   └─────────┬──────────┘       └──────────┬─────────────┘   │
+│             │ host socket() via NSOS       │                │
+│             ▼                              ▼                │
+│                 127.0.0.1 (loopback)                        │
+│             │                              │                │
+│             ▼                              ▼                │
+│   ┌────────────────────┐       ┌────────────────────────┐   │
+│   │ zenohd             │       │ MicroXRCEAgent         │   │
+│   │ tcp/127.0.0.1:7456 │       │ udp/127.0.0.1:2018     │   │
+│   └────────────────────┘       └────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
 </code></pre>
 <h2 id="updating-the-workspace"><a class="header" href="#updating-the-workspace">Updating the Workspace</a></h2>
 <p>To update Zephyr and modules to latest versions specified in <code>west.yml</code>:</p>
@@ -3048,37 +3028,20 @@ zenoh_shim: z_publisher_put failed: -73
 <p><strong>For automated tests</strong>: The test framework (<code>packages/testing/nros-tests</code>) automatically assigns unique seeds to each process.</p>
 <hr>
 <h2 id="network-configuration-issues"><a class="header" href="#network-configuration-issues">Network Configuration Issues</a></h2>
-<h3 id="zephyr-and-qemu-subnet-conflicts"><a class="header" href="#zephyr-and-qemu-subnet-conflicts">Zephyr and QEMU Subnet Conflicts</a></h3>
-<p><strong>Symptom</strong>: Network communication fails when running both Zephyr native_sim and QEMU tests.</p>
-<p><strong>Cause</strong>: Both Zephyr and QEMU were using the same subnet (192.0.2.0/24).</p>
-<p><strong>Solution</strong>: nros uses separate subnets:</p>
-<ul>
-<li><strong>Zephyr (native_sim)</strong>: 192.0.2.0/24
-<ul>
-<li>Bridge: <code>zeth-br</code> at 192.0.2.2</li>
-<li>Talker: 192.0.2.1</li>
-<li>Listener: 192.0.2.3</li>
-</ul>
-</li>
-<li><strong>QEMU (MPS2-AN385)</strong>: 192.0.3.0/24
-<ul>
-<li>TAP interface: <code>tap0</code> at 192.0.3.1</li>
-<li>Guests: 192.0.3.10+</li>
-</ul>
-</li>
-</ul>
-<h3 id="tap-interface-setup"><a class="header" href="#tap-interface-setup">TAP Interface Setup</a></h3>
+<h3 id="tap-interface-setup-qemu-bare-metal-only"><a class="header" href="#tap-interface-setup-qemu-bare-metal-only">TAP Interface Setup (QEMU bare-metal only)</a></h3>
 <p><strong>Symptom</strong>: QEMU cannot connect to the network.</p>
 <p><strong>Solution</strong>: Run the network setup script:</p>
 <pre><code class="language-bash">sudo ./scripts/qemu/setup-network.sh
 </code></pre>
-<p>This creates and configures the TAP interface with proper permissions.</p>
-<h3 id="zephyr-bridge-setup"><a class="header" href="#zephyr-bridge-setup">Zephyr Bridge Setup</a></h3>
-<p><strong>Symptom</strong>: Zephyr native_sim instances cannot communicate.</p>
-<p><strong>Solution</strong>: Run the Zephyr network setup:</p>
-<pre><code class="language-bash">sudo ./scripts/zephyr/setup-network.sh
+<p>This creates and configures the <code>tap0</code> interface at <code>192.0.3.1</code>. QEMU
+bare-metal guests live on <code>192.0.3.10+</code>.</p>
+<h3 id="zephyr-native_sim-networking"><a class="header" href="#zephyr-native_sim-networking">Zephyr native_sim networking</a></h3>
+<p>Zephyr <code>native_sim</code> uses <strong>NSOS</strong> (Native Sim Offloaded Sockets) — socket
+calls are forwarded to host syscalls, so there is no emulated L2 stack and
+no TAP bridge. Point each example at a host-loopback zenohd / XRCE Agent:</p>
+<pre><code class="language-bash">zenohd --listen tcp/127.0.0.1:7456  # or any host-accessible address
 </code></pre>
-<p>This creates the <code>zeth-br</code> bridge for Zephyr native simulator instances.</p>
+<p>Multiple <code>native_sim</code> instances can coexist without bridge configuration.</p>
 <hr>
 <h2 id="message-too-large--truncated-messages"><a class="header" href="#message-too-large--truncated-messages">Message Too Large / Truncated Messages</a></h2>
 <h3 id="symptoms-2"><a class="header" href="#symptoms-2">Symptoms</a></h3>
@@ -3175,9 +3138,8 @@ pgrep zenohd
 # Check if port 7447 is in use
 ss -tlnp | grep 7447
 
-# Verify network interfaces
+# Verify QEMU bare-metal TAP (only needed for QEMU bare-metal platforms)
 ip addr show tap0
-ip addr show zeth-br
 </code></pre>
 <h3 id="zephyr-tests-skip"><a class="header" href="#zephyr-tests-skip">Zephyr Tests Skip</a></h3>
 <p><strong>Symptom</strong>: All Zephyr tests are skipped.</p>
@@ -3191,9 +3153,6 @@ export ZEPHYR_WORKSPACE=/path/to/nano-ros-workspace
 
 # Verify west is available
 west --version
-
-# Verify TAP network
-ip addr show zeth-br
 </code></pre>
 <hr>
 <h2 id="rustc-ffi-issues"><a class="header" href="#rustc-ffi-issues">Rust/C FFI Issues</a></h2>
@@ -5524,10 +5483,9 @@ just setup-qemu-network                    # Requires sudo
 </code></pre>
 <p>Run <code>just qemu-help</code> for more options.</p>
 <h2 id="zephyr-setup"><a class="header" href="#zephyr-setup">Zephyr Setup</a></h2>
-<pre><code class="language-bash">just zephyr setup                      # Initialize workspace + create symlink
-sudo ./scripts/zephyr/setup-network.sh # Configure bridge network (zeth-br)
-just test-zephyr                       # Run zenoh tests
-just test-zephyr-xrce                  # Run XRCE tests
+<pre><code class="language-bash">just zephyr setup   # Initialize workspace + create symlink
+just test-zephyr    # Run zenoh tests (native_sim uses NSOS on host loopback)
+just test-zephyr-xrce
 </code></pre>
 <p>The <code>zephyr-workspace</code> symlink points to the actual workspace (default: <code>../nano-ros-workspace/</code>). For custom workspace locations, update the symlink:</p>
 <pre><code class="language-bash">ln -sfn /path/to/custom-workspace zephyr-workspace
