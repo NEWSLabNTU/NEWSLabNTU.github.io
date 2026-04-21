@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-7f95b648.js";
+            window.path_to_searchindex_js = "searchindex-8603d232.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-c8624503.js"></script>
@@ -6708,11 +6708,18 @@ used by the existing backends.</p>
 <span class="boring">fn main() {
 </span>use nros_rmw::*;
 
-pub struct MyProtoRmw;
+#[derive(Default)]
+pub struct MyProtoRmw {
+    // Optional pre-open configuration (agent address, TLS CA, serial
+    // device handle, …) can live here and move into the Session at
+    // `open` time. Every backend in-repo implements `Default` so the
+    // caller can spell the common case as
+    // `MyProtoRmw::default().open(&amp;config)`.
+}
 impl Rmw for MyProtoRmw {
     type Session = MyProtoSession;
     type Error = TransportError;
-    fn open(config: &amp;RmwConfig) -&gt; Result&lt;MyProtoSession, TransportError&gt; {
+    fn open(self, config: &amp;RmwConfig) -&gt; Result&lt;MyProtoSession, TransportError&gt; {
         todo!() // Parse config.locator, connect, map config.domain_id
     }
 }
@@ -6773,6 +6780,41 @@ impl ServiceClientTrait for MyProtoClient {
         -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; { todo!() }
 }
 <span class="boring">}</span></code></pre>
+<h3 id="factory-shape-phase-84e2"><a class="header" href="#factory-shape-phase-84e2">Factory shape (Phase 84.E2)</a></h3>
+<p><code>Rmw::open</code> consumes <code>self</code>, not a <code>&amp;self</code>. That shape asks every
+backend to treat its factory type as a <strong>value</strong> that carries any
+pre-open configuration (agent address, serial device, TLS CA, …)
+and <em>moves</em> that state into the returned <code>Session</code>:</p>
+<pre><code class="language-rust ignore">// Default constructor (picks config from `&amp;RmwConfig`):
+let session = MyProtoRmw::default().open(&amp;config)?;
+
+// Explicit constructor when the backend has pre-open state
+// that isn't in the middleware-agnostic `RmwConfig`:
+let session = MyProtoRmw::with_endpoint("10.0.0.1", 7447).open(&amp;config)?;</code></pre>
+<p>Conventions:</p>
+<ul>
+<li><strong>Every backend implements <code>Default</code>.</strong> Keeps the common call
+site short and lets generic code build a factory without
+knowing the backend type.</li>
+<li><strong>Provide <code>new(...)</code> / <code>with_*(...)</code> helpers for backend-specific
+pre-open state.</strong> Don’t bake it into <code>RmwConfig</code> — that type is
+the middleware-agnostic contract. If your backend needs an agent
+IP, a serial device path, or a certificate slot, take it on the
+factory constructor.</li>
+<li><strong>Read your own environment variables in <code>&lt;Backend&gt;::from_env()</code></strong>
+if you want zero-boilerplate POSIX configuration. The shipped
+<code>ExecutorConfig::from_env()</code> only reads the middleware-agnostic
+<code>NROS_LOCATOR</code> / <code>NROS_SESSION_MODE</code> / <code>ROS_DOMAIN_ID</code>; anything
+backend-specific (e.g. <code>NROS_XRCE_AGENT</code>) stays on the backend
+side.</li>
+<li><strong>Post-open state lives in <code>Session</code>, never in <code>static mut</code>.</strong>
+The <code>open(self, …)</code> signature makes it natural to move the
+configured transport into the <code>Session</code> return value, which
+then owns the connection for the rest of its lifetime. A backend
+that still uses <code>static mut</code> session-global state will fail any
+multi-session test (<code>backend.open(...)</code> twice in one process
+should succeed).</li>
+</ul>
 <h3 id="3-wire-into-nros"><a class="header" href="#3-wire-into-nros">3. Wire into nros</a></h3>
 <p>Three changes are needed to integrate the new backend:</p>
 <p><strong>a)</strong> In <code>nros/Cargo.toml</code>, add a feature and optional dependency:</p>
