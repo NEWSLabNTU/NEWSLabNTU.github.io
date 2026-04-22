@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-2d0a5b21.js";
+            window.path_to_searchindex_js = "searchindex-0fe99f52.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-c8624503.js"></script>
+        <script src="toc-04bfab7e.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -9582,6 +9582,182 @@ Extended attachment (37 bytes):
 <li><strong>Formal verification</strong>: CRC correctness, sequence tracking invariants, and <code>IntegrityStatus::is_valid()</code> are candidates for Verus proofs.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="opaque-storage-sizing-phase-87"><a class="header" href="#opaque-storage-sizing-phase-87">Opaque Storage Sizing (Phase 87)</a></h1>
+<p><code>nano-ros</code> exposes a C and C++ API on top of Rust types whose layout is
+chosen by the Rust compiler. The C/C++ side has to allocate storage for
+those types — by value, on the user’s stack or BSS — without knowing
+their exact byte size. Phase 87 makes Rust the single source of truth
+for those sizes: the values flow from <code>core::mem::size_of</code> of the real
+Rust types into auto-generated C/C++ headers, with no hand-tuned
+constants.</p>
+<h2 id="the-pattern"><a class="header" href="#the-pattern">The pattern</a></h2>
+<p>Every size that crosses the Rust / C boundary follows the same path:</p>
+<ol>
+<li>
+<p><strong>Export from <code>nros::sizes</code></strong> — the <code>nros</code> umbrella crate defines a
+<code>pub const FOO_SIZE: usize = core::mem::size_of::&lt;T&gt;();</code> and emits a
+<code>#[used] static __NROS_SIZE_FOO: [u8; FOO_SIZE] = [0u8; FOO_SIZE]</code>
+with a <code>#[no_mangle]</code> symbol whose storage size in the rlib <em>is</em>
+<code>FOO_SIZE</code>. The two artefacts come from a single <code>export_size!</code> macro
+invocation:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// packages/core/nros/src/sizes.rs
+export_size!(pub PUBLISHER_SIZE = RmwPublisher);
+export_size!(pub SUBSCRIBER_SIZE = RmwSubscriber);
+export_size!(pub EXECUTOR_SIZE = nros_node::Executor);
+// ...etc
+<span class="boring">}</span></code></pre>
+</li>
+<li>
+<p><strong>Probe from consumer build scripts</strong> — <code>nros-c/build.rs</code> and
+<code>nros-cpp/build.rs</code> use the helper crate <code>nros-sizes-build</code> to find
+the compiled <code>nros</code> rlib (via <code>cargo metadata</code> + a glob over
+<code>target/&lt;triple&gt;/&lt;profile&gt;/deps/</code>) and read the <code>__NROS_SIZE_*</code>
+symbol storage sizes with the <a href="https://crates.io/crates/object"><code>object</code></a>
+crate. No subprocess, no llvm-nm; pure Rust.</p>
+</li>
+<li>
+<p><strong>Emit <code>#define NROS_FOO_SIZE</code> into a generated header</strong> —
+<code>nros_config_generated.h</code> (C) and <code>nros_cpp_config_generated.h</code> (C++)
+carry the probe values. <code>types.h</code> includes the generated config
+transitively, so every nros C header sees <code>NROS_*_SIZE</code> automatically.</p>
+</li>
+<li>
+<p><strong>C/C++ structs use the macros</strong> —</p>
+<pre><code class="language-c">typedef struct nros_publisher_t {
+    /* ... */
+    _Alignas(8) uint8_t _opaque[NROS_PUBLISHER_SIZE];
+} nros_publisher_t;
+</code></pre>
+<pre><code class="language-cpp">class Publisher {
+    alignas(8) uint8_t storage_[NROS_PUBLISHER_SIZE];
+    /* ... */
+};
+</code></pre>
+<p>The Rust side reads/writes the same bytes via
+<code>&amp;mut *(opaque as *mut RmwPublisher)</code>. C and Rust agree on the size by
+construction.</p>
+</li>
+</ol>
+<h2 id="what-the-ssot-covers-today"><a class="header" href="#what-the-ssot-covers-today">What the SSoT covers today</a></h2>
+<p>The <code>nros::sizes</code> module exports:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Symbol</th><th>Type</th><th>Used by</th></tr>
+</thead>
+<tbody>
+<tr><td><code>SESSION_SIZE</code></td><td><code>RmwSession</code></td><td><code>nros_support_t._opaque</code></td></tr>
+<tr><td><code>PUBLISHER_SIZE</code></td><td><code>RmwPublisher</code></td><td><code>nros_publisher_t._opaque</code>, <code>nros::Publisher&lt;M&gt;::storage_</code></td></tr>
+<tr><td><code>SUBSCRIBER_SIZE</code></td><td><code>RmwSubscriber</code></td><td><code>nros::Subscription&lt;M&gt;::storage_</code></td></tr>
+<tr><td><code>SERVICE_CLIENT_SIZE</code></td><td><code>RmwServiceClient</code></td><td><code>nros::Client&lt;S&gt;::storage_</code></td></tr>
+<tr><td><code>SERVICE_SERVER_SIZE</code></td><td><code>RmwServiceServer</code></td><td><code>nros::Service&lt;S&gt;::storage_</code></td></tr>
+<tr><td><code>EXECUTOR_SIZE</code></td><td><code>nros_node::Executor</code></td><td><code>nros_executor_t._opaque</code>, <code>nros::Executor::storage_</code></td></tr>
+<tr><td><code>GUARD_CONDITION_SIZE</code></td><td><code>nros_node::GuardConditionHandle</code></td><td><code>nros_guard_condition_t._guard_opaque</code>, <code>nros::GuardCondition::storage_</code></td></tr>
+<tr><td><code>LIFECYCLE_CTX_SIZE</code></td><td><code>nros_node::lifecycle::LifecyclePollingNodeCtx</code></td><td><code>nros_lifecycle_state_machine_t._opaque_storage</code></td></tr>
+<tr><td><code>ACTION_SERVER_INTERNAL_SIZE</code></td><td><code>ActionServerInternalLayout</code></td><td><code>nros_action_server_t._internal</code></td></tr>
+<tr><td><code>CPP_ACTION_SERVER_SIZE</code></td><td><code>CppActionServerLayout</code></td><td><code>nros::ActionServer&lt;A&gt;::storage_</code></td></tr>
+<tr><td><code>CPP_ACTION_CLIENT_SIZE</code></td><td><code>CppActionClientLayout</code></td><td><code>nros::ActionClient&lt;A&gt;::storage_</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>Plus three <code>*Internal</code> C-API shim structs (<code>ServiceServerInternal</code>,
+<code>ServiceClientInternal</code>, <code>ActionClientInternal</code>) that cbindgen now
+emits directly into <code>nros_generated.h</code> because they’re <code>#[repr(C)]</code> —
+the C side just embeds them as typed fields, no opaque storage at all.</p>
+<h2 id="layout-mirror-trick"><a class="header" href="#layout-mirror-trick">Layout-mirror trick</a></h2>
+<p>Some downstream types — <code>nros-c::ActionServerInternal</code>,
+<code>nros-cpp::CppActionServer</code>, <code>nros-cpp::CppActionClient</code> — embed C-API
+pointer types (<code>*mut nros_action_server_t</code>, <code>*const nros_goal_handle_t</code>)
+that aren’t visible from the <code>nros</code> umbrella crate. They can’t be
+referenced from <code>nros::sizes</code> directly, but their byte size only
+depends on the field shape: pointers are pointers, <code>Option&lt;extern "C" fn&gt;</code> collapses to a fn-pointer-sized slot via niche optimization, etc.</p>
+<p>The fix is a layout-mirror struct in <code>nros::sizes</code>:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// packages/core/nros/src/sizes.rs
+#[repr(C)]
+#[doc(hidden)]
+pub struct ActionServerInternalLayout {
+    pub handle: nros_node::ActionServerRawHandle,
+    pub executor_ptr: *mut c_void,
+    pub c_goal_callback: unsafe extern "C" fn(
+        *mut c_void, *const c_void, *const u8, usize, *mut c_void,
+    ) -&gt; i32,
+    // ...same field shape as the real `ActionServerInternal`,
+    // with C-API pointers replaced by `*mut c_void`...
+}
+export_size!(pub ACTION_SERVER_INTERNAL_SIZE = ActionServerInternalLayout);
+<span class="boring">}</span></code></pre>
+<p>Downstream then asserts byte-equivalence at compile time:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// packages/core/nros-c/src/opaque_sizes.rs
+const _: () = assert!(
+    size_of::&lt;crate::action::ActionServerInternal&gt;()
+        == size_of::&lt;nros::sizes::ActionServerInternalLayout&gt;(),
+    "ActionServerInternal size diverges from nros::sizes::ActionServerInternalLayout — \
+     update the layout mirror in `nros/src/sizes.rs`"
+);
+<span class="boring">}</span></code></pre>
+<p>The tripwire: any field-shape change in the real wrapper (adding a
+field, changing a pointer to a value, etc.) must be paired with an
+update to the mirror. The build fails immediately if they diverge.</p>
+<h2 id="whats-no-longer-hand-coded"><a class="header" href="#whats-no-longer-hand-coded">What’s no longer hand-coded</a></h2>
+<p>Pre-Phase 87, four places in the build hand-tuned storage sizes:</p>
+<ul>
+<li><code>nros-c/include/nros/types.h</code> — five <code>NROS_*_OPAQUE_U64S</code> literal
+macros (publisher, session, service-client, guard handle, lifecycle
+context).</li>
+<li><code>nros-c/build.rs</code> — pointer-width arithmetic for executor + action
+server/client storage.</li>
+<li><code>nros-cpp/build.rs</code> — pointer-width arithmetic for <em>every</em> C++
+wrapper (publisher, subscription, service, action server, action
+client, guard condition).</li>
+<li><code>nros-c/src/opaque_sizes.rs</code> — <code>u64s_for::&lt;T&gt;()</code> consts that cbindgen
+silently dropped (issue #252).</li>
+</ul>
+<p>After Phase 87:</p>
+<ul>
+<li>All four <code>*Internal</code> shim types are <code>#[repr(C)]</code> and embedded as
+typed fields in their outer <code>nros_*_t</code> structs.</li>
+<li>All seven C++ wrappers (Publisher, Subscription, Service, Client,
+ActionServer, ActionClient, GuardCondition) use the
+<code>NROS_*_SIZE</code> / <code>NROS_CPP_*_STORAGE_SIZE</code> probe macros.</li>
+<li><code>types.h</code> ships zero <code>*_OPAQUE_U64S</code> macros; the four consumer
+module headers route through the probe.</li>
+<li>The remaining hand-coded “upper bound” assertions (e.g., the
+<code>EXECUTOR_OPAQUE_U64S</code> envelope check in <code>nros-c/build.rs</code>) are
+defence-in-depth: they fire if a Rust type accidentally exceeds a
+configured envelope (which would normally also be flagged by the
+config knobs).</li>
+</ul>
+<h2 id="adding-a-new-size-export"><a class="header" href="#adding-a-new-size-export">Adding a new size export</a></h2>
+<p>When a new Rust handle type needs to cross the FFI boundary:</p>
+<ol>
+<li>Add the <code>export_size!(pub FOO_SIZE = nros_node::Foo)</code> line to
+<code>nros/src/sizes.rs</code>. (If <code>Foo</code> lives in a downstream crate that
+<code>nros</code> can’t import, define a <code>FooLayout</code> mirror struct first and
+add a byte-equivalence assert in the owning crate.)</li>
+<li>Add a <code>let probe_foo = probed.get("FOO_SIZE").copied().unwrap_or(0)</code>
+line to <code>nros-c/build.rs</code> (and/or <code>nros-cpp/build.rs</code>), and emit
+<code>#define NROS_FOO_SIZE {probe_foo}</code> into the generated config
+header.</li>
+<li>Use <code>NROS_FOO_SIZE</code> in the C/C++ struct that needs the storage.</li>
+</ol>
+<p>Cross-target verification: the same probe runs for every target
+triple. There’s no per-platform branching — <code>size_of::&lt;T&gt;()</code> resolves
+to the right value at the target’s compile time.</p>
+<h2 id="see-also-1"><a class="header" href="#see-also-1">See also</a></h2>
+<ul>
+<li><a href="https://github.com/jerry73204/nano-ros/blob/main/docs/roadmap/phase-87-nros-cpp-compile-time-sizes.md">Phase 87 roadmap</a> for the
+full design rationale and per-stage history.</li>
+<li><code>packages/core/nros-sizes-build/src/lib.rs</code> for the rlib probe
+implementation.</li>
+<li><code>packages/core/nros/src/sizes.rs</code> for the canonical exports.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="zenoh-pico-symbol-reference"><a class="header" href="#zenoh-pico-symbol-reference">Zenoh-pico Symbol Reference</a></h1>
 <p>This page documents the ~55 FFI symbols that zenoh-pico requires at link time.
 These symbols are provided by <code>zpico-platform-shim</code> (inside <code>zpico-sys</code>), which
@@ -10499,7 +10675,7 @@ CONFIG_NET_SOCKETS=y
 </tbody>
 </table>
 </div>
-<h2 id="see-also-1"><a class="header" href="#see-also-1">See Also</a></h2>
+<h2 id="see-also-2"><a class="header" href="#see-also-2">See Also</a></h2>
 <ul>
 <li><a href="internals/message-generation.html">Message Generation</a> – Message generation details</li>
 <li><a href="#zephyr">Zephyr</a> – Zephyr workspace setup</li>
