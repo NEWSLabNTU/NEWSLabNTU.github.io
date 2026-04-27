@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["nros_platform_cffi_register"],"struct":["CffiPlatform","NrosPlatformVtable"]};

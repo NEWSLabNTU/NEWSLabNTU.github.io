@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-ac5d83f5.js";
+            window.path_to_searchindex_js = "searchindex-a3186295.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-04bfab7e.js"></script>
@@ -5208,37 +5208,116 @@ other backends (see existing guards in <code>nros-node/src/session.rs</code>).</
 <code>nros = { features = ["rmw-myproto", "platform-posix"] }</code>.</p>
 <hr>
 <h2 id="cc-path"><a class="header" href="#cc-path">C/C++ path</a></h2>
-<p>If your transport library is C or C++, use <code>nros-rmw-cffi</code> – a vtable of
-C function pointers that map one-to-one onto the Rust trait methods.</p>
+<p>If your transport library is C or C++, use <code>nros-rmw-cffi</code> — a vtable
+of C function pointers that map one-to-one onto the Rust trait methods.</p>
+<p>The hand-written header lives at
+<code>packages/core/nros-rmw-cffi/include/nros/rmw_vtable.h</code>. Browse the
+rendered reference at <a href="api/rmw-cffi/index.html">/api/rmw-cffi/</a> for
+per-field return-value, threading, and blocking conventions.</p>
 <h3 id="1-fill-in-the-vtable"><a class="header" href="#1-fill-in-the-vtable">1. Fill in the vtable</a></h3>
-<p>The vtable has 18 function pointers. Key signatures:</p>
 <pre><code class="language-c">#include &lt;nros/rmw_vtable.h&gt;
 
-static void *my_open(const char *locator, uint8_t mode,
-                     uint32_t domain_id, const char *node_name);
-static int   my_close(void *session);
-static int   my_drive_io(void *session, int timeout_ms);
-static void *my_create_publisher(void *session, const char *topic,
-    const char *type_name, const char *type_hash,
-    uint32_t domain_id, const nros_cffi_qos_t *qos);
-static void  my_destroy_publisher(void *pub_handle);
-static int   my_publish_raw(void *pub_handle, const uint8_t *data, size_t len);
-// ... subscriber, service server, service client follow the same pattern.
+// -- Session lifecycle --
+static nros_rmw_handle_t my_open(const char *locator, uint8_t mode,
+                                 uint32_t domain_id, const char *node_name) {
+    /* connect, return non-NULL session handle (or NULL on failure). */
+}
+static int32_t my_close(nros_rmw_handle_t session) { /* ... */ }
+static int32_t my_drive_io(nros_rmw_handle_t session, int32_t timeout_ms) {
+    /* dispatch network I/O for up to timeout_ms; return 0 on success. */
+}
 
-static nros_rmw_vtable_t my_vtable = {
-    .open = my_open, .close = my_close, .drive_io = my_drive_io,
-    .create_publisher = my_create_publisher,
-    .destroy_publisher = my_destroy_publisher,
-    .publish_raw = my_publish_raw,
-    /* ... fill all 18 fields (see nros/rmw_vtable.h) ... */
+// -- Publisher --
+static nros_rmw_handle_t my_create_publisher(nros_rmw_handle_t session,
+        const char *topic, const char *type_name, const char *type_hash,
+        uint32_t domain_id, const nros_rmw_cffi_qos_t *qos) { /* ... */ }
+static void    my_destroy_publisher(nros_rmw_handle_t publisher) { /* ... */ }
+static int32_t my_publish_raw(nros_rmw_handle_t publisher,
+        const uint8_t *data, size_t len) { /* ... */ }
+
+// -- Subscriber --
+static nros_rmw_handle_t my_create_subscriber(nros_rmw_handle_t session,
+        const char *topic, const char *type_name, const char *type_hash,
+        uint32_t domain_id, const nros_rmw_cffi_qos_t *qos) { /* ... */ }
+static void    my_destroy_subscriber(nros_rmw_handle_t subscriber) { /* ... */ }
+static int32_t my_try_recv_raw(nros_rmw_handle_t subscriber,
+        uint8_t *buf, size_t buf_len) {
+    /* positive = bytes received, 0 = no data, negative = error. */
+}
+static int32_t my_has_data(nros_rmw_handle_t subscriber) { /* 1 = yes, 0 = no */ }
+
+// -- Service Server --
+static nros_rmw_handle_t my_create_service_server(nros_rmw_handle_t session,
+        const char *service, const char *type_name, const char *type_hash,
+        uint32_t domain_id) { /* ... */ }
+static void    my_destroy_service_server(nros_rmw_handle_t server) { /* ... */ }
+static int32_t my_try_recv_request(nros_rmw_handle_t server,
+        uint8_t *buf, size_t buf_len, int64_t *seq_out) { /* ... */ }
+static int32_t my_has_request(nros_rmw_handle_t server) { /* 1 = yes, 0 = no */ }
+static int32_t my_send_reply(nros_rmw_handle_t server,
+        int64_t seq, const uint8_t *data, size_t len) { /* ... */ }
+
+// -- Service Client --
+static nros_rmw_handle_t my_create_service_client(nros_rmw_handle_t session,
+        const char *service, const char *type_name, const char *type_hash,
+        uint32_t domain_id) { /* ... */ }
+static void    my_destroy_service_client(nros_rmw_handle_t client) { /* ... */ }
+static int32_t my_call_raw(nros_rmw_handle_t client,
+        const uint8_t *request, size_t req_len,
+        uint8_t *reply_buf, size_t reply_buf_len) { /* ... */ }
+
+static const nros_rmw_vtable_t MY_RMW = {
+    .open                   = my_open,
+    .close                  = my_close,
+    .drive_io               = my_drive_io,
+    .create_publisher       = my_create_publisher,
+    .destroy_publisher      = my_destroy_publisher,
+    .publish_raw            = my_publish_raw,
+    .create_subscriber      = my_create_subscriber,
+    .destroy_subscriber     = my_destroy_subscriber,
+    .try_recv_raw           = my_try_recv_raw,
+    .has_data               = my_has_data,
+    .create_service_server  = my_create_service_server,
+    .destroy_service_server = my_destroy_service_server,
+    .try_recv_request       = my_try_recv_request,
+    .has_request            = my_has_request,
+    .send_reply             = my_send_reply,
+    .create_service_client  = my_create_service_client,
+    .destroy_service_client = my_destroy_service_client,
+    .call_raw               = my_call_raw,
 };
 </code></pre>
 <h3 id="2-register-before-opening-a-session"><a class="header" href="#2-register-before-opening-a-session">2. Register before opening a session</a></h3>
-<pre><code class="language-c">nros_rmw_cffi_register(&amp;my_vtable);  // before any nros API call
+<pre><code class="language-c">int main(void) {
+    nros_rmw_cffi_register(&amp;MY_RMW);    // before any nros call
+    /* now use the nano-ros C or C++ API normally */
+}
 </code></pre>
-<p>Build with <code>cargo build -p nros-c --features "rmw-cffi,platform-posix,ros-humble"</code>.</p>
-<p>All strings are null-terminated. Handles are opaque <code>void *</code>. Return
-convention: 0 = success/no data, positive = byte count, negative = error.</p>
+<p>Build the static library with the matching feature combo:</p>
+<pre><code class="language-bash">cargo build -p nros-c --features rmw-cffi,platform-posix,ros-humble
+</code></pre>
+<h3 id="3-lifecycle-and-threading-contract"><a class="header" href="#3-lifecycle-and-threading-contract">3. Lifecycle and threading contract</a></h3>
+<p>The Rust traits behind this vtable
+(<a href="api/rust/nros_rmw/index.html"><code>nros_rmw::Session</code></a>,
+<a href="api/rust/nros_rmw/index.html"><code>Publisher</code></a>, …) document the
+per-method contract: thread safety, buffer ownership, blocking
+allowance. The C vtable inherits the same rules:</p>
+<ul>
+<li>The vtable itself is registered once and read concurrently. Function
+pointers must be safe to invoke from any executor thread.</li>
+<li><code>drive_io</code> may block up to <code>timeout_ms</code>; it must not hold
+application-visible locks across the wait.</li>
+<li><code>publish_raw</code>, <code>try_recv_raw</code>, and <code>send_reply</code> may run concurrently
+from different executor threads — your backend handles serialisation.</li>
+<li><code>try_recv_raw</code> and <code>try_recv_request</code> are non-blocking: return
+<code>0</code> if no data is ready. The executor will retry after <code>drive_io</code>.</li>
+<li><code>call_raw</code> is the deprecated blocking client path. In-tree backends
+route blocking waits through the executor instead. Implement it as
+a polling loop only if you need to support legacy callers.</li>
+</ul>
+<p>All strings are null-terminated. Handles are opaque <code>nros_rmw_handle_t</code>
+(<code>void*</code>). Return convention: <code>0</code> = success / no data, positive =
+byte count, negative = error.</p>
 <hr>
 <h2 id="example-local-echo-rmw"><a class="header" href="#example-local-echo-rmw">Example: local echo RMW</a></h2>
 <p>Loops published messages back to subscribers – no real transport. Only
@@ -5591,33 +5670,16 @@ impl MyOsPlatform {
 <h2 id="cc-path-1"><a class="header" href="#cc-path-1">C/C++ path</a></h2>
 <p>If your platform is easier to implement in C, use the <code>nros-platform-cffi</code> adapter. It provides a vtable-based bridge so you never write Rust.</p>
 <h3 id="1-fill-in-the-vtable-1"><a class="header" href="#1-fill-in-the-vtable-1">1. Fill in the vtable</a></h3>
-<p>The vtable struct (<code>nros_platform_vtable_t</code>) is currently defined in
-Rust (<code>packages/core/nros-platform-cffi/src/lib.rs</code> as
-<code>NrosPlatformVtable</code>, <code>#[repr(C)]</code>). A C header is not yet
-auto-generated — until cbindgen produces one, mirror the struct
-manually in C, matching the Rust field order exactly:</p>
-<pre><code class="language-c">// my_platform_vtable.h — hand-mirrored from NrosPlatformVtable
-#include &lt;stdint.h&gt;
-#include &lt;stddef.h&gt;
-
-typedef struct nros_platform_vtable_t {
-    // -- Clock --
-    uint64_t (*clock_ms)(void);
-    uint64_t (*clock_us)(void);
-    // -- Alloc --
-    void* (*alloc)(size_t size);
-    void* (*realloc)(void* ptr, size_t size);
-    void  (*dealloc)(void* ptr);
-    // -- Sleep --
-    void (*sleep_us)(size_t us);
-    void (*sleep_ms)(size_t ms);
-    void (*sleep_s)(size_t s);
-    // -- Random / Time / Threading / Sockets follow in the order
-    //    defined in nros-platform-cffi/src/lib.rs --
-    /* ... */
-} nros_platform_vtable_t;
-
-extern int32_t nros_platform_cffi_register(const nros_platform_vtable_t* vtable);
+<p>The vtable header lives at
+<code>packages/core/nros-platform-cffi/include/nros/platform_vtable.h</code> and
+is <strong>auto-generated by cbindgen on every build of <code>nros-platform-cffi</code></strong>
+(Phase 93.I) — it is the single source of truth for the C porter.
+Browse the rendered reference at
+<a href="api/platform-cffi/index.html">/api/platform-cffi/</a> for per-field
+return-value, threading, and blocking conventions.</p>
+<p>Include the generated header in your port:</p>
+<pre><code class="language-c">// my_platform.c
+#include &lt;nros/platform_vtable.h&gt;
 </code></pre>
 <p>Then fill in the callbacks:</p>
 <pre><code class="language-c">static uint64_t my_clock_ms(void) {

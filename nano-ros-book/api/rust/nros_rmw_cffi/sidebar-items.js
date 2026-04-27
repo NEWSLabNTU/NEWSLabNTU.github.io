@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["nros_rmw_cffi_register"],"struct":["CffiPublisher","CffiQos","CffiRmw","CffiServiceClient","CffiServiceServer","CffiSession","CffiSubscriber","NrosRmwVtable"],"type":["CffiHandle"]};
