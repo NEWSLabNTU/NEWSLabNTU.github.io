@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CDR_BE_HEADER","CDR_HEADER_LEN","CDR_LE_HEADER"],"fn":["strip_cdr_header","write_cdr_le_header"]};

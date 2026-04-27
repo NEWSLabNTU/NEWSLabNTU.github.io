@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["LifecycleCallbackSlot","LifecycleError","LifecycleState","LifecycleTransition","TransitionResult"],"struct":["LifecyclePollingNode","LifecyclePollingNodeCtx"],"type":["LifecycleCallbackFn","LifecycleCallbackFnCtx"]};

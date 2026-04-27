@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["RMW_GID_SIZE","SERVICE_BUFFER_SIZE","SUBSCRIBER_BUFFER_SIZE"],"fn":["signal_executor_wake","wait_for_executor_wake"],"mod":["publisher","service","session","subscriber","transport"],"struct":["MessageInfo","RmwAttachment","Ros2Liveliness"]};
