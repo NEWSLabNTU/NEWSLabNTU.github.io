@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-01fb2145.js";
+            window.path_to_searchindex_js = "../searchindex-4b94d0be.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-04bfab7e.js"></script>
@@ -177,8 +177,8 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="rmw-backends-zenoh-vs-xrce-dds"><a class="header" href="#rmw-backends-zenoh-vs-xrce-dds">RMW Backends: Zenoh vs XRCE-DDS</a></h1>
-<p>nano-ros supports two RMW (ROS Middleware) backends for connecting embedded devices to a ROS 2 network. Each backend targets different deployment scenarios and resource constraints. Only one backend can be active at compile time.</p>
+                        <h1 id="rmw-backends-zenoh-xrce-dds-dds"><a class="header" href="#rmw-backends-zenoh-xrce-dds-dds">RMW Backends: Zenoh, XRCE-DDS, DDS</a></h1>
+<p>nano-ros supports three RMW (ROS Middleware) backends for connecting embedded devices to a ROS 2 network. Each backend targets different deployment scenarios and resource constraints. Only one backend can be active at compile time.</p>
 <h2 id="zenoh-rmw-zenoh"><a class="header" href="#zenoh-rmw-zenoh">Zenoh (rmw-zenoh)</a></h2>
 <p>The Zenoh backend uses <a href="https://github.com/eclipse-zenoh/zenoh-pico">zenoh-pico</a>, a lightweight C client for the Zenoh protocol. The MCU participates directly in the Zenoh network – there is no protocol translation layer.</p>
 <p><strong>How it works:</strong></p>
@@ -213,25 +213,42 @@
 <li>Client-side discovery is not supported; the Agent handles it</li>
 <li>Transport options: UDP, serial (HDLC framing), CAN FD</li>
 </ul>
+<h2 id="dds-rmw-dds"><a class="header" href="#dds-rmw-dds">DDS (rmw-dds)</a></h2>
+<p>The DDS backend uses <a href="https://github.com/s2e-systems/dust-dds">dust-dds</a>, a pure-Rust DDS / RTPS implementation with <code>no_std + alloc</code> support and OMG-certified RTPS interoperability.</p>
+<p><strong>How it works:</strong></p>
+<ol>
+<li>The MCU runs the dust-dds participant directly — no agent, no router.</li>
+<li>SPDP / SEDP discovery flows over UDP multicast (<code>239.255.0.1:7400</code>+); peers find each other on the same domain via standard RTPS.</li>
+<li>dust-dds creates DDS readers / writers per topic and exchanges samples via UDP unicast or multicast.</li>
+<li>ROS 2 nodes using any DDS-based RMW (Cyclone DDS, FastDDS, dust-dds itself) interoperate directly — same wire protocol, same discovery.</li>
+</ol>
+<p><strong>Key characteristics:</strong></p>
+<ul>
+<li>Brokerless peer-to-peer — no <code>zenohd</code>, no Agent process needed.</li>
+<li>Pure-Rust transport: dust-dds replaces zenoh-pico’s C transport layer with a <code>NrosPlatformRuntime</code> adapter on every platform except <code>platform-posix</code>, which keeps using dust-dds’s stock OS-thread transport.</li>
+<li>Heap required (<code>alloc</code>-only on <code>no_std</code> platforms). Boot-time allocation only on RTOS targets where the global allocator is opt-in (<code>feature = "platform-zephyr"</code> enables <code>k_malloc</code>-backed allocator in <code>nros-c</code> / <code>nros-cpp</code>).</li>
+<li>Transport options: UDP unicast + multicast.</li>
+<li>ROS 2 interop is end-to-end (no protocol translator) — DDS-on-MCU appears in the ROS 2 graph the same way a desktop ROS 2 node does.</li>
+</ul>
 <h2 id="comparison"><a class="header" href="#comparison">Comparison</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Aspect</th><th>Zenoh (<code>rmw-zenoh</code>)</th><th>XRCE-DDS (<code>rmw-xrce</code>)</th></tr>
+<tr><th>Aspect</th><th>Zenoh (<code>rmw-zenoh</code>)</th><th>XRCE-DDS (<code>rmw-xrce</code>)</th><th>DDS (<code>rmw-dds</code>)</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>Client RAM</strong></td><td>~16 KB+ (heap required)</td><td>~3 KB (fully static)</td></tr>
-<tr><td><strong>Client Flash</strong></td><td>~100 KB+</td><td>~75 KB</td></tr>
-<tr><td><strong>Bridge process</strong></td><td><code>zenohd</code> (generic router)</td><td>Agent (protocol translator)</td></tr>
-<tr><td><strong>Peer-to-peer</strong></td><td>Yes (no router needed)</td><td>No (agent always required)</td></tr>
-<tr><td><strong>Discovery</strong></td><td>Client participates</td><td>Agent handles on behalf</td></tr>
-<tr><td><strong>Entity creation</strong></td><td>Client creates directly</td><td>Client requests, agent creates</td></tr>
-<tr><td><strong>Transport options</strong></td><td>TCP, UDP, TLS</td><td>UDP, serial, CAN FD</td></tr>
-<tr><td><strong>Heap allocation</strong></td><td>Required (C-level)</td><td>None</td></tr>
-<tr><td><strong>Platform symbols</strong></td><td>~55 (clock, malloc, sockets, RNG, …) via <code>zpico-platform-shim</code></td><td>~1 (<code>clock_gettime</code>) via <code>xrce-platform-shim</code></td></tr>
-<tr><td><strong>ROS 2 interop</strong></td><td>Via <code>rmw_zenoh_cpp</code> + <code>zenohd</code></td><td>Via Agent + any DDS RMW</td></tr>
-<tr><td><strong>Failure mode</strong></td><td>Router crash = lose routing</td><td>Agent crash = lose connectivity</td></tr>
-<tr><td><strong>C source files</strong></td><td>~100+</td><td>28</td></tr>
+<tr><td><strong>Client RAM</strong></td><td>~16 KB+ (heap required)</td><td>~3 KB (fully static)</td><td>~32 KB+ (heap required)</td></tr>
+<tr><td><strong>Client Flash</strong></td><td>~100 KB+</td><td>~75 KB</td><td>~120 KB+</td></tr>
+<tr><td><strong>Bridge process</strong></td><td><code>zenohd</code> (generic router)</td><td>Agent (protocol translator)</td><td>None — RTPS multicast directly</td></tr>
+<tr><td><strong>Peer-to-peer</strong></td><td>Yes (no router needed)</td><td>No (agent always required)</td><td>Yes (RTPS native)</td></tr>
+<tr><td><strong>Discovery</strong></td><td>Client participates</td><td>Agent handles on behalf</td><td>SPDP / SEDP on UDP multicast</td></tr>
+<tr><td><strong>Entity creation</strong></td><td>Client creates directly</td><td>Client requests, agent creates</td><td>Client creates directly</td></tr>
+<tr><td><strong>Transport options</strong></td><td>TCP, UDP, TLS</td><td>UDP, serial, CAN FD</td><td>UDP unicast + multicast (RTPS)</td></tr>
+<tr><td><strong>Heap allocation</strong></td><td>Required (C-level)</td><td>None</td><td>Required (Rust <code>alloc</code> crate)</td></tr>
+<tr><td><strong>Platform symbols</strong></td><td>~55 via <code>zpico-platform-shim</code></td><td>~1 (<code>clock_gettime</code>) via <code>xrce-platform-shim</code></td><td><code>PlatformUdp</code> + <code>PlatformClock</code> + <code>PlatformSleep</code> (~7) via <code>nros-platform</code></td></tr>
+<tr><td><strong>ROS 2 interop</strong></td><td>Via <code>rmw_zenoh_cpp</code> + <code>zenohd</code></td><td>Via Agent + any DDS RMW</td><td>Direct (DDS↔DDS, any RMW)</td></tr>
+<tr><td><strong>Failure mode</strong></td><td>Router crash = lose routing</td><td>Agent crash = lose connectivity</td><td>Peer goes offline = its samples stop arriving (rest of net continues)</td></tr>
+<tr><td><strong>C source files</strong></td><td>~100+</td><td>28</td><td>0 — pure Rust</td></tr>
 </tbody>
 </table>
 </div>
@@ -245,6 +262,10 @@ nros = { features = ["rmw-zenoh", "platform-bare-metal"] }
 # XRCE-DDS backend
 [dependencies]
 nros = { features = ["rmw-xrce", "platform-bare-metal"] }
+
+# DDS backend (dust-dds)
+[dependencies]
+nros = { features = ["rmw-dds", "platform-zephyr"] }
 </code></pre>
 <h3 id="kconfig-zephyr"><a class="header" href="#kconfig-zephyr">Kconfig (Zephyr)</a></h3>
 <pre><code class="language-kconfig"># Zenoh backend
@@ -252,8 +273,86 @@ CONFIG_NROS_RMW_ZENOH=y
 
 # XRCE-DDS backend
 CONFIG_NROS_RMW_XRCE=y
+
+# DDS backend (dust-dds)
+CONFIG_NROS_RMW_DDS=y
 </code></pre>
-<p>Enabling both simultaneously produces a <code>compile_error!()</code>.</p>
+<p>Enabling more than one simultaneously produces a <code>compile_error!()</code>.</p>
+<h2 id="dds--per-platform-configuration-profile-phase-7123"><a class="header" href="#dds--per-platform-configuration-profile-phase-7123">DDS — per-platform configuration profile (Phase 71.23)</a></h2>
+<p>The DDS backend speaks raw RTPS over UDP multicast and unicast. The
+host networking stack on every RTOS needs IGMP enabled, adequate net-
+buffer pool sizing for the SPDP / SEDP discovery burst, and a way to
+join a multicast group. Concrete deltas per platform:</p>
+<h3 id="zephyr-platform-zephyr"><a class="header" href="#zephyr-platform-zephyr">Zephyr (<code>platform-zephyr</code>)</a></h3>
+<pre><code class="language-kconfig"># IGMP for SPDP multicast discovery (239.255.0.1:7400+).
+CONFIG_NET_IPV4_IGMP=y
+
+# Multicast group slots — RTPS uses up to 4 builtin groups per
+# participant (SPDP + SEDP pubs / subs / topics).
+CONFIG_NET_IF_MCAST_IPV4_ADDR_COUNT=4
+
+# Net-buffer pools — defaults of 14 / 36 are too small for the SEDP
+# burst when more than two service / action entities exist on each
+# participant. See Phase 71.29 for the runtime-starvation symptom
+# these prevent. Cortex_a9 has 512 MB SRAM; the cost is trivial.
+CONFIG_NET_PKT_RX_COUNT=256
+CONFIG_NET_PKT_TX_COUNT=128
+CONFIG_NET_BUF_RX_COUNT=512
+CONFIG_NET_BUF_TX_COUNT=256
+CONFIG_NET_BUF_DATA_SIZE=512
+
+# Heap — dust-dds + heapless mailboxes.
+CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE=4194304
+CONFIG_HEAP_MEM_POOL_SIZE=524288
+</code></pre>
+<p>On <code>qemu_cortex_a9</code>, additionally use a board overlay to bump the
+GEM driver’s RX / TX descriptor ring (default 32) so a brief drainer
+pause doesn’t immediately spill:</p>
+<pre><code class="language-dts">&amp;gem0 {
+    promiscuous-mode;
+    rx-buffer-descriptors = &lt;128&gt;;
+    tx-buffer-descriptors = &lt;64&gt;;
+};
+</code></pre>
+<p><code>native_sim</code> is not yet supported — Zephyr’s NSOS driver doesn’t
+forward <code>IP_ADD_MEMBERSHIP</code> to the host kernel
+(no <code>IPPROTO_IP</code> case in <code>nsos_adapt_setsockopt</code>). Use
+<code>qemu_cortex_a9</code> for DDS-on-Zephyr testing instead.</p>
+<h3 id="freertos--lwip-platform-freertos"><a class="header" href="#freertos--lwip-platform-freertos">FreeRTOS + lwIP (<code>platform-freertos</code>)</a></h3>
+<pre><code class="language-c">// FreeRTOSConfig.h / lwipopts.h
+#define LWIP_IGMP            1   // SPDP multicast
+#define LWIP_SO_RCVTIMEO     1   // dust-dds recv timeouts
+#define LWIP_BROADCAST       1
+#define IP_REASSEMBLY        1   // RTPS DATA_FRAG fragments
+#define MEMP_NUM_NETBUF      32  // discovery burst headroom
+</code></pre>
+<h3 id="nuttx-platform-nuttx"><a class="header" href="#nuttx-platform-nuttx">NuttX (<code>platform-nuttx</code>)</a></h3>
+<pre><code class="language-kconfig">CONFIG_NET_IGMP=y
+CONFIG_NET_BROADCAST=y
+CONFIG_NET_UDP_NRECVS=4
+CONFIG_NET_RECV_TIMEO=y
+</code></pre>
+<h3 id="threadx--netx-duo-platform-threadx"><a class="header" href="#threadx--netx-duo-platform-threadx">ThreadX + NetX Duo (<code>platform-threadx</code>)</a></h3>
+<p><code>tx_user.h</code> / <code>nx_user.h</code>:</p>
+<pre><code class="language-c">#define NX_ENABLE_IGMPV2          // IGMP v2 for RTPS multicast
+// NetX BSD layer init must call `bsd_initialize` early — required
+// for `setsockopt(SO_RCVTIMEO)` support.
+</code></pre>
+<h3 id="bare-metal-smoltcp-platform-mps2-an385-platform-stm32f4"><a class="header" href="#bare-metal-smoltcp-platform-mps2-an385-platform-stm32f4">Bare-metal smoltcp (<code>platform-mps2-an385</code>, <code>platform-stm32f4</code>,</a></h3>
+<p><code>platform-esp32-qemu</code>)</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Bridge config in the board crate.
+let mut config = smoltcp::iface::Config::new(...);
+config.multicast_groups = vec![Ipv4Address::new(239, 255, 0, 1)];
+// MulticastConfig::Strict in smoltcp 0.x; the bridge must expose
+// a `join_multicast_group` API. See Phase 71.26 for the smoltcp
+// audit work item.
+<span class="boring">}</span></code></pre>
+<h3 id="posix-platform-posix"><a class="header" href="#posix-platform-posix">POSIX (<code>platform-posix</code>)</a></h3>
+<p>No configuration needed — the kernel does IGMP and <code>setsockopt</code>
+support natively. Just ensure the loopback interface is up
+(default).</p>
 <h2 id="when-to-use-which"><a class="header" href="#when-to-use-which">When to Use Which</a></h2>
 <p><strong>Choose Zenoh when:</strong></p>
 <ul>
@@ -271,7 +370,14 @@ CONFIG_NROS_RMW_XRCE=y
 <li>You want zero heap allocation on the MCU side</li>
 <li>You need CAN FD transport</li>
 </ul>
-<p><strong>Either works well for:</strong></p>
+<p><strong>Choose DDS when:</strong></p>
+<ul>
+<li>You want direct, brokerless ROS 2 interop with no <code>zenohd</code> and no Agent</li>
+<li>Your MCU has at least ~32 KB RAM (heap for dust-dds futures + RTPS state) and a network stack with IGMP</li>
+<li>You’re integrating with a DDS-only ROS 2 deployment (Cyclone DDS, FastDDS) and want first-class interop without protocol translation</li>
+<li>Your tolerance for failure is “samples from peer X stop arriving” rather than “the whole router goes down”</li>
+</ul>
+<p><strong>Any of the three works well for:</strong></p>
 <ul>
 <li>Standard pub/sub and service patterns</li>
 <li>Integration with ROS 2 desktop nodes</li>
