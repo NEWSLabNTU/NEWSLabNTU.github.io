@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['init_0',['init',['../namespacenros.html#ac4812f9e216bdbb5b989b8aa5b53644a',1,'nros']]],
+  ['init_0',['init',['../namespacenros.html#ac4812f9e216bdbb5b989b8aa5b53644a',1,'nros::init(const char *locator=nullptr, uint8_t domain_id=0)'],['../namespacenros.html#a7909bec9bb6815684df7da432e465498',1,'nros::init(const char *locator, uint8_t domain_id, const char *session_name)']]],
   ['is_5fcancelled_1',['is_cancelled',['../classnros_1_1Timer.html#a0875d422a87defa6d2999880f84ada96',1,'nros::Timer']]],
   ['is_5fconsumed_2',['is_consumed',['../classnros_1_1Future.html#a6705329504c4def1522f0010f8d43cdb',1,'nros::Future']]],
   ['is_5fready_3',['is_ready',['../classnros_1_1Future.html#a53e226ce6c7bed56b55a089817a0e476',1,'nros::Future']]],
