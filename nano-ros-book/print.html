@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-71aea098.js";
+            window.path_to_searchindex_js = "searchindex-84e85b69.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-66bb880b.js"></script>
+        <script src="toc-c200a228.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -5305,6 +5305,225 @@ expands on.</li>
 shape the cooperative model.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="status-events"><a class="header" href="#status-events">Status Events</a></h1>
+<p>Transport-level status events let an application observe conditions
+the underlying middleware detects: a remote node going silent, a
+publisher missing its rate, a subscriber dropping samples. nano-ros
+exposes a Tier-1 subset useful for embedded RTOS deployments —
+liveliness changes, deadline misses, and message loss.</p>
+<p>This page describes the event surface, the dispatch model, and the
+patterns that motivate having events at all on RTOS targets.</p>
+<h2 id="the-tier-1-events"><a class="header" href="#the-tier-1-events">The Tier-1 events</a></h2>
+<p>Five event kinds. Three on subscribers, two on publishers.</p>
+<h3 id="subscriber-events"><a class="header" href="#subscriber-events">Subscriber events</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Kind</th><th>Fires when</th><th>Use</th></tr>
+</thead>
+<tbody>
+<tr><td><code>LivelinessChanged</code></td><td>A tracked publisher’s liveliness state changes (publisher started asserting / stopped)</td><td>Safety-island fail-over: trigger MRM when remote control node goes silent</td></tr>
+<tr><td><code>RequestedDeadlineMissed</code></td><td>An expected sample didn’t arrive within the configured deadline</td><td>Periodic-sensor pattern: 100 Hz topic with 15 ms deadline; fire alarm when late</td></tr>
+<tr><td><code>MessageLost</code></td><td>The backend dropped one or more samples (typically: ring-buffer overflow, slow consumer)</td><td>Diagnostic + adaptive: log, drop more aggressively, coalesce</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="publisher-events"><a class="header" href="#publisher-events">Publisher events</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Kind</th><th>Fires when</th><th>Use</th></tr>
+</thead>
+<tbody>
+<tr><td><code>LivelinessLost</code></td><td>This publisher missed its own liveliness assertion deadline</td><td>Self-monitoring: detect own task starvation</td></tr>
+<tr><td><code>OfferedDeadlineMissed</code></td><td>This publisher promised X Hz, fell behind</td><td>Self-monitoring: detect overrunning compute</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="registering-callbacks"><a class="header" href="#registering-callbacks">Registering callbacks</a></h2>
+<p>Same shape as message callbacks. Register at construction time;
+callback fires from inside <code>spin_once</code> when the backend detects the
+event.</p>
+<h3 id="rust-1"><a class="header" href="#rust-1">Rust</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use core::time::Duration;
+
+let mut sub = node.create_subscription::&lt;SensorReading&gt;("/sensor")?;
+
+// Liveliness — fires when the publisher comes / goes
+sub.on_liveliness_changed(|status| {
+    if status.alive_count == 0 {
+        log::warn!("sensor publisher went silent");
+        trigger_failover();
+    }
+})?;
+
+// Deadline — fires when no sample within 15 ms
+sub.on_requested_deadline_missed(Duration::from_millis(15), |status| {
+    metric_inc(&amp;LATE_SAMPLE_COUNT, status.total_count_change);
+})?;
+
+// Message lost — fires when backend drops a sample
+sub.on_message_lost(|status| {
+    log::warn!("dropped {} samples", status.total_count_change);
+})?;
+<span class="boring">}</span></code></pre>
+<p>Async equivalents (<code>spin_async</code> / Embassy / tokio):</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let status = sub.next_liveliness_change().await?;
+let status = sub.next_deadline_miss().await?;
+<span class="boring">}</span></code></pre>
+<h3 id="c-1"><a class="header" href="#c-1">C</a></h3>
+<pre><code class="language-c">static void on_liveliness_changed(
+        nros_subscription_t *sub,
+        nros_liveliness_changed_status_t status,
+        void *user_context) {
+    if (status.alive_count == 0) {
+        trigger_failover();
+    }
+}
+
+nros_subscription_set_liveliness_changed_callback(
+    sub, on_liveliness_changed, NULL);
+</code></pre>
+<p>Same shape on the four other event kinds. Each returns
+<code>NROS_RMW_RET_UNSUPPORTED</code> if the active backend doesn’t generate
+that event.</p>
+<h3 id="c-1-1"><a class="header" href="#c-1-1">C++</a></h3>
+<pre><code class="language-cpp">sub.on_liveliness_changed([&amp;](nros::LivelinessChangedStatus status) {
+    if (status.alive_count == 0) trigger_failover();
+});
+
+sub.on_requested_deadline_missed(
+    std::chrono::milliseconds(15),
+    [&amp;](nros::DeadlineMissedStatus status) {
+        late_count_ += status.total_count_change;
+    });
+</code></pre>
+<p><code>std::function</code> overloads available with <code>NROS_CPP_STD</code>; freestanding
+mode uses C function pointers + user-context.</p>
+<h2 id="how-dispatch-works"><a class="header" href="#how-dispatch-works">How dispatch works</a></h2>
+<p>Events fire from inside <code>drive_io</code> on the executor thread, the same
+way message callbacks do:</p>
+<pre><code class="language-text">spin_once(timeout)
+ └─ session.drive_io(...)
+       ├─ backend RX worker detects message → fires message callback
+       ├─ backend RX worker detects liveliness change → fires liveliness callback
+       ├─ backend timer expires (deadline) → fires deadline callback
+       └─ return
+</code></pre>
+<p>Same execution context, same priority, same constraints as message
+callbacks. The <code>max_callbacks_per_spin</code> knob (see
+<a href="#rtos-cooperation">RTOS Cooperation</a>) covers events too — an
+event callback counts as one against the cap.</p>
+<p>This means events get the same scheduling treatment as messages.
+<code>max_callbacks_per_spin = 1</code> will fire either one message OR one
+event per <code>spin_once</code>, whichever the backend has ready first.</p>
+<h2 id="why-a-callback-model-not-a-waitset"><a class="header" href="#why-a-callback-model-not-a-waitset">Why a callback model, not a waitset</a></h2>
+<p>Upstream <code>rmw.h</code> exposes events via a waitset — register an
+<code>rmw_event_t</code> handle in a waitset, call <code>rmw_wait</code>, then <code>rmw_take_event</code>
+to pull payload. nano-ros doesn’t have a waitset (see
+<a href="#rmw-api-differences-from-upstream-rmwh">RMW vs upstream</a> Section 4).</p>
+<p>Reusing the existing message-callback path avoids introducing the
+waitset. Trade-off: applications can’t bulk-poll for events. For the
+Tier-1 set this isn’t load-bearing — events are rare, callbacks
+are cheap.</p>
+<h2 id="backend-support-is-uneven"><a class="header" href="#backend-support-is-uneven">Backend support is uneven</a></h2>
+<p>Not every backend can generate every event. Apps must handle
+<code>Unsupported</code> errors when registering:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Backend</th><th><code>LivelinessChanged</code> / <code>Lost</code></th><th><code>DeadlineMissed</code></th><th><code>MessageLost</code></th></tr>
+</thead>
+<tbody>
+<tr><td>dust-DDS</td><td>✓ Native</td><td>✓ Native</td><td>✓ Native</td></tr>
+<tr><td>XRCE-DDS</td><td>✓ Native</td><td>✓ Native</td><td>✓ Native</td></tr>
+<tr><td>zenoh-pico</td><td>✓ Liveliness-token-tracked at shim</td><td>✓ Shim-side per-sub timer</td><td>✓ Sequence-gap detection at shim</td></tr>
+<tr><td>uORB</td><td>◯ Adapted (<code>orb_subscribers_count</code> polling)</td><td>✗ Not supported (no rate concept)</td><td>✓ Queue-overflow flag</td></tr>
+</tbody>
+</table>
+</div>
+<p>The <code>Subscriber::supports_event(kind)</code> query lets applications check
+support before registering:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>if sub.supports_event(EventKind::RequestedDeadlineMissed) {
+    sub.on_requested_deadline_missed(...)?;
+} else {
+    // fallback: app-side timeout monitoring
+}
+<span class="boring">}</span></code></pre>
+<p>Apps that need cross-backend portability code defensively. Apps
+pinned to one backend can call register-and-unwrap.</p>
+<h2 id="whats-deliberately-skipped"><a class="header" href="#whats-deliberately-skipped">What’s deliberately skipped</a></h2>
+<p>Three upstream event types are intentionally absent from the API:</p>
+<h3 id="_matched-publication--subscription-matched"><a class="header" href="#_matched-publication--subscription-matched"><code>*_MATCHED</code> (publication / subscription matched)</a></h3>
+<p>Fires when a remote endpoint appears or disappears. Useful for
+discovery-tracking dashboards and dynamic-topology apps. Static-
+topology embedded apps don’t benefit; if a use case appears, the
+event kind is additive.</p>
+<h3 id="_qos_incompatible"><a class="header" href="#_qos_incompatible"><code>*_QOS_INCOMPATIBLE</code></a></h3>
+<p>Fires when publisher and subscriber QoS profiles can’t be
+reconciled. nano-ros surfaces this synchronously at <code>create_publisher</code>
+/ <code>create_subscriber</code> time as <code>NROS_RMW_RET_INCOMPATIBLE_QOS</code>. No
+runtime event needed; the failure is visible at startup.</p>
+<h3 id="_incompatible_type"><a class="header" href="#_incompatible_type"><code>*_INCOMPATIBLE_TYPE</code></a></h3>
+<p>Type-hash mismatch. Same: surfaced synchronously as
+<code>NROS_RMW_RET_TOPIC_NAME_INVALID</code> (or a future
+<code>NROS_RMW_RET_INCOMPATIBLE_TYPE</code>) at creation. No runtime event.</p>
+<h2 id="patterns"><a class="header" href="#patterns">Patterns</a></h2>
+<h3 id="drone-bridge-fail-over-on-liveliness-loss"><a class="header" href="#drone-bridge-fail-over-on-liveliness-loss">Drone-bridge fail-over on liveliness loss</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let mut sub = node.create_subscription::&lt;VehicleAttitude&gt;("/vehicle_attitude")?;
+sub.on_liveliness_changed(|status| {
+    if status.alive_count == 0 {
+        // PX4 commander.cpp went silent — trigger MRM
+        request_minimum_risk_manoeuvre();
+    } else if status.alive_count_change &gt; 0 {
+        // commander came back online; clear MRM if appropriate
+        clear_failover();
+    }
+})?;
+<span class="boring">}</span></code></pre>
+<p>This pairs with <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/phase-104-multi-backend-bridges.md">Phase 104’s bridge example</a>.</p>
+<h3 id="100-hz-sensor-with-deadline-alarm"><a class="header" href="#100-hz-sensor-with-deadline-alarm">100 Hz sensor with deadline alarm</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let mut sub = node.create_subscription::&lt;SensorReading&gt;("/imu")?;
+sub.on_requested_deadline_missed(
+    Duration::from_millis(15),    // expected 100 Hz, allow 15 ms deadline
+    |status| {
+        if status.total_count_change &gt; 0 {
+            log::error!("IMU late: {} missed deadlines", status.total_count_change);
+            // Optional: enter degraded-mode controller
+        }
+    },
+)?;
+<span class="boring">}</span></code></pre>
+<h3 id="slow-consumer-logging"><a class="header" href="#slow-consumer-logging">Slow-consumer logging</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let mut sub = node.create_subscription::&lt;Pointcloud&gt;("/lidar")?;
+sub.on_message_lost(|status| {
+    log::warn!("dropped {} pointcloud frames (total: {})",
+               status.total_count_change, status.total_count);
+    // Tighten downstream filter, reduce work, coalesce, etc.
+})?;
+<span class="boring">}</span></code></pre>
+<h2 id="see-also-1"><a class="header" href="#see-also-1">See also</a></h2>
+<ul>
+<li><a href="#rmw-api-differences-from-upstream-rmwh">RMW API: Differences from upstream <code>rmw.h</code></a>
+Section 8 — the design comparison this page expands on.</li>
+<li><a href="#rtos-cooperation">RTOS Cooperation</a> — <code>max_callbacks_per_spin</code>
+treatment of event callbacks.</li>
+<li><a href="#differences-from-standard-ros-2">Differences from ROS 2</a> — broader surface
+comparison.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="porting-overview"><a class="header" href="#porting-overview">Porting Overview</a></h1>
 <p>nano-ros is designed for customization at three independent levels: <strong>RMW</strong> (transport protocol), <strong>Platform</strong> (OS or RTOS), and <strong>Board</strong> (hardware). The core crates define stable interfaces through Rust traits. You extend nano-ros by implementing those traits for your target – you never modify the core.</p>
 <h2 id="which-chapter-do-i-need"><a class="header" href="#which-chapter-do-i-need">Which chapter do I need?</a></h2>
@@ -6459,7 +6678,7 @@ compile_error!("Enable at least one transport: `ethernet` or `serial`");</code><
 </table>
 </div>
 <p>The bare-metal <code>nros-board-mps2-an385</code> is the simplest starting point. The FreeRTOS variant shows how to add RTOS task creation and lwIP networking.</p>
-<h2 id="see-also-1"><a class="header" href="#see-also-1">See also</a></h2>
+<h2 id="see-also-2"><a class="header" href="#see-also-2">See also</a></h2>
 <ul>
 <li><a href="#custom-platform">Custom Platform</a> – writing the platform crate that sits underneath a board crate</li>
 <li><a href="#porting-overview">Porting Overview</a> – the three customization axes (RMW, platform, board)</li>
@@ -7016,22 +7235,104 @@ backend besides DDS implements <code>deadline</code> enforcement. Promising QoS
 features that a backend can’t enforce is worse than not promising
 them; constraining the surface to four fields each backend actually
 honors makes the contract real.</p>
-<h2 id="8-no-dds-event-api"><a class="header" href="#8-no-dds-event-api">8. No DDS event API</a></h2>
-<p><strong>Upstream.</strong> Event APIs surface DDS notifications:</p>
-<pre><code class="language-c">rmw_ret_t rmw_take_event(
+<h2 id="8-status-events-callback-on-entity-tier-1-subset"><a class="header" href="#8-status-events-callback-on-entity-tier-1-subset">8. Status events: callback-on-entity, Tier-1 subset</a></h2>
+<p><strong>Upstream.</strong> Event APIs surface DDS-shaped notifications via a
+waitset-take pattern:</p>
+<pre><code class="language-c">rmw_ret_t rmw_subscription_event_init(
+  rmw_event_t * event, const rmw_subscription_t * sub,
+  rmw_event_type_t type);
+
+/* Add event_handle to a waitset alongside subscriptions. */
+rmw_ret_t rmw_wait(...);
+
+/* Poll fired events. */
+rmw_ret_t rmw_take_event(
   const rmw_event_t * event_handle,
-  void * event_info,
-  bool * taken);
+  void * event_info, bool * taken);
 </code></pre>
-<p><code>rmw_event_t</code> types include <code>RMW_EVENT_REQUESTED_DEADLINE_MISSED</code>,
-<code>RMW_EVENT_LIVELINESS_LOST</code>, <code>RMW_EVENT_OFFERED_DEADLINE_MISSED</code>, etc.</p>
-<p><strong>nano-ros.</strong> None of these. The vtable has no <code>take_event</code> or
-<code>event_handle</code>.</p>
-<p><strong>Why.</strong> Most events are DDS-only. Nano-ros backends include zenoh-pico,
-XRCE-DDS, dust-DDS, and uORB; only dust-DDS has native equivalents,
-and it surfaces them through its own callback registration outside the
-RMW. Adding the upstream event API to the vtable would force every
-non-DDS backend to stub it.</p>
+<p>Eleven event types covering liveliness, deadline, QoS-incompatibility,
+match, message-lost, type-incompatibility — all dispatched through
+the waitset.</p>
+<p><strong>nano-ros.</strong> Callback-on-entity for a Tier-1 subset (liveliness
+changes, deadline misses, message lost). Skips the waitset. Skips
+Tier-2 (<code>MATCHED</code>) and Tier-3 (<code>QOS_INCOMPATIBLE</code>,
+<code>INCOMPATIBLE_TYPE</code>) — see “What’s skipped” below.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>sub.on_liveliness_changed(|status| {
+    if status.alive_count == 0 { trigger_failover(); }
+})?;
+
+sub.on_requested_deadline_missed(
+    Duration::from_millis(15),
+    |status| metric_inc(&amp;LATE_SAMPLE_COUNT, status.total_count_change),
+)?;
+
+sub.on_message_lost(|status| log::warn!("dropped {}", status.total_count_change))?;
+<span class="boring">}</span></code></pre>
+<p>C side mirrors with <code>nros_subscription_set_*_callback</code> functions.</p>
+<h3 id="what-lands"><a class="header" href="#what-lands">What lands</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Event</th><th>Producer</th><th>Subscriber callback / Publisher callback</th></tr>
+</thead>
+<tbody>
+<tr><td>Liveliness changed</td><td>sub</td><td><code>on_liveliness_changed(LivelinessChangedStatus)</code></td></tr>
+<tr><td>Liveliness lost</td><td>pub</td><td><code>on_liveliness_lost(DeadlineMissedStatus)</code></td></tr>
+<tr><td>Requested deadline missed</td><td>sub</td><td><code>on_requested_deadline_missed(deadline, DeadlineMissedStatus)</code></td></tr>
+<tr><td>Offered deadline missed</td><td>pub</td><td><code>on_offered_deadline_missed(deadline, DeadlineMissedStatus)</code></td></tr>
+<tr><td>Message lost</td><td>sub</td><td><code>on_message_lost(MessageLostStatus)</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="whats-skipped"><a class="header" href="#whats-skipped">What’s skipped</a></h3>
+<ul>
+<li><strong><code>MATCHED</code></strong> — embedded apps usually have static topology;
+rarely load-bearing. Add the kind if a discovery-tracking app
+shows up; additive.</li>
+<li><strong><code>QOS_INCOMPATIBLE</code></strong> / <strong><code>INCOMPATIBLE_TYPE</code></strong> — these surface
+at create time, not as runtime events. The existing
+<code>nros_rmw_ret_t</code> codes (<code>NROS_RMW_RET_INCOMPATIBLE_QOS</code> from
+Phase 102.1) carry the diagnostic synchronously from
+<code>create_publisher</code> / <code>create_subscriber</code>. No event needed.</li>
+</ul>
+<h3 id="dispatch--callback-on-entity-not-waitset-take"><a class="header" href="#dispatch--callback-on-entity-not-waitset-take">Dispatch — callback-on-entity, not waitset-take</a></h3>
+<p>Events fire from inside the existing <code>drive_io</code> callback-dispatch
+path. The backend’s RX worker detects an event in the same place it
+detects messages; runs the registered callback; loops. No separate
+waitset, no per-call take.</p>
+<p>This reuses the message-callback dispatch model; events count
+against the <code>max_callbacks</code> cap from Section 4 the same way message
+callbacks do.</p>
+<p><strong>Why callback-on-entity instead of waitset-take.</strong> The waitset-take
+pattern requires a waitset abstraction nano-ros deliberately doesn’t
+have (see Section 4). Replacing it with per-entity callbacks reuses
+existing machinery, matches the message-callback ergonomics users
+already know, and keeps the bounded-storage property — each
+registered event-callback is a fixed-size struct embedded in the
+entity, no per-call allocation.</p>
+<p>The trade-off: users can’t bulk-poll all events at once. For the
+Tier-1 events this isn’t load-bearing — events are rare, callbacks
+are cheap.</p>
+<h3 id="backend-coverage"><a class="header" href="#backend-coverage">Backend coverage</a></h3>
+<p>Coverage is uneven and surfaces through <code>Subscriber::supports_event</code>
+(Rust) / <code>register_*_event</code> returning <code>NROS_RMW_RET_UNSUPPORTED</code>
+(C). Apps must handle “not supported” — not every backend will
+generate every event:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Backend</th><th>Liveliness</th><th>Deadline</th><th>Message lost</th></tr>
+</thead>
+<tbody>
+<tr><td>dust-DDS</td><td>Native (DDS spec)</td><td>Native</td><td>Native</td></tr>
+<tr><td>XRCE-DDS</td><td>Native via session listener</td><td>Native</td><td>Native</td></tr>
+<tr><td>zenoh-pico</td><td>Liveliness-token-tracked at shim</td><td>Shim-side timer per sub</td><td>Sequence-gap detection at shim</td></tr>
+<tr><td>uORB</td><td>Adapted: <code>orb_subscribers_count</code> polling</td><td>Not generated (uORB has no rate concept)</td><td>Native via queue-overflow flag</td></tr>
+</tbody>
+</table>
+</div>
 <h2 id="9-loaned-messages-first-class"><a class="header" href="#9-loaned-messages-first-class">9. Loaned messages first-class</a></h2>
 <p><strong>Upstream.</strong> Optional, often unimplemented:</p>
 <pre><code class="language-c">rmw_ret_t rmw_borrow_loaned_message(
@@ -7117,7 +7418,7 @@ Adding a code is a <code>&lt;nros/rmw_ret.h&gt;</code> header change only.</li>
 <p><strong>Why same style.</strong> Phase 102 deliberately moved closer to upstream
 on this point. Named constants make <code>switch</code> statements possible at
 call sites; bare negative ints don’t.</p>
-<h2 id="see-also-2"><a class="header" href="#see-also-2">See also</a></h2>
+<h2 id="see-also-3"><a class="header" href="#see-also-3">See also</a></h2>
 <ul>
 <li><a href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design</a> — deeper architectural rationale (heap,
 threading, dispatch model) shared across all the points above.</li>
@@ -9096,7 +9397,7 @@ header.</li>
 <p>Cross-target verification: the same probe runs for every target
 triple. There’s no per-platform branching — <code>size_of::&lt;T&gt;()</code> resolves
 to the right value at the target’s compile time.</p>
-<h2 id="see-also-3"><a class="header" href="#see-also-3">See also</a></h2>
+<h2 id="see-also-4"><a class="header" href="#see-also-4">See also</a></h2>
 <ul>
 <li><a href="https://github.com/jerry73204/nano-ros/blob/main/docs/roadmap/phase-87-nros-cpp-compile-time-sizes.md">Phase 87 roadmap</a> for the
 full design rationale and per-stage history.</li>
@@ -10022,7 +10323,7 @@ CONFIG_NET_SOCKETS=y
 </tbody>
 </table>
 </div>
-<h2 id="see-also-4"><a class="header" href="#see-also-4">See Also</a></h2>
+<h2 id="see-also-5"><a class="header" href="#see-also-5">See Also</a></h2>
 <ul>
 <li><a href="internals/message-generation.html">Message Generation</a> – Message generation details</li>
 <li><a href="#zephyr">Zephyr</a> – Zephyr workspace setup</li>

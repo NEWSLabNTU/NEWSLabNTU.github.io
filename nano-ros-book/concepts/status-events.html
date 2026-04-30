@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Overview - nano-ros Book</title>
+        <title>Status Events - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,31 +177,234 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="design-overview"><a class="header" href="#design-overview">Design Overview</a></h1>
-<p>This section explains <em>why</em> nano-ros has the shape it does. It is not a tutorial (see <a href="../getting-started/installation.html">Getting Started</a>) and not an API reference (see the <a href="../reference/rust-api.html">Reference</a> chapters). It is the rationale a contributor needs to evaluate proposed changes, and the context a porter needs to make judgment calls when the <a href="../porting/overview.html">Porting</a> guides don’t cover their case.</p>
-<p>Three design choices shape almost everything else:</p>
-<h2 id="1-the-rmw-layer-was-rewritten-not-adopted"><a class="header" href="#1-the-rmw-layer-was-rewritten-not-adopted">1. The RMW layer was rewritten, not adopted</a></h2>
-<p>ROS 2’s <code>rmw.h</code> assumes a libc heap, an OS scheduler with preemptable threads, dynamic loaders, and middleware-owned background dispatch. None of those hold on a Cortex-M3 with 64 KB of RAM. nano-ros defines its own RMW abstraction (<code>nros-rmw</code>) that pushes I/O buffers to the caller, replaces wait sets with explicit <code>drive_io()</code>, drops dynamic graph discovery, and selects the backend at compile time.</p>
-<p>→ <a href="rmw.html">RMW API Design</a></p>
-<h2 id="2-futurepromise-unifies-blocking-and-async-with-no-internal-spin"><a class="header" href="#2-futurepromise-unifies-blocking-and-async-with-no-internal-spin">2. Future/Promise unifies blocking and async, with no internal spin</a></h2>
-<p>rclcpp owns the spin loop (<code>rclcpp::spin(node)</code> blocks the thread it was called on); rclc has no future/promise type at all. Neither model works on a single-threaded MCU. nano-ros uses a single <code>Promise&lt;T&gt;</code> value that supports three patterns – callback-driven polling, blocking-with-timeout, and <code>.await</code> – and <em>never</em> owns the spin loop. Every blocking helper takes the executor as an argument and drives it internally.</p>
-<p>→ <a href="client-library.html">Client Library Model</a></p>
-<h2 id="3-platform-traits-are-independent-and-contract-first"><a class="header" href="#3-platform-traits-are-independent-and-contract-first">3. Platform traits are independent and contract-first</a></h2>
-<p>zenoh-pico needs a heap, threading, networking, and a clock. XRCE-DDS only needs a clock and four C function pointers. Bare-metal has no scheduler. Each capability is a separate trait the platform may stub if unsupported. Every method has an explicit behavior contract: blocking? may-fail? unsupported-fallback?</p>
-<p>→ <a href="platform-api.html">Platform API Design</a></p>
-<h2 id="how-to-read-this-section"><a class="header" href="#how-to-read-this-section">How to read this section</a></h2>
-<p>If you are evaluating a <em>new</em> feature: start with the design page closest to the change (RMW for transport-level changes, Client Library for executor or callback-shape changes, Platform API for OS-primitive changes). Each page lists the constraints the current shape satisfies; a new design must satisfy them or argue for relaxing one.</p>
-<p>If you are <em>porting</em> nano-ros to new hardware or a new transport: the <a href="../porting/overview.html">Porting</a> chapters tell you <em>what</em> to implement. Read the matching design page to understand <em>why</em> each trait exists, which is what you need when the porting guide leaves a judgment call to you.</p>
+                        <h1 id="status-events"><a class="header" href="#status-events">Status Events</a></h1>
+<p>Transport-level status events let an application observe conditions
+the underlying middleware detects: a remote node going silent, a
+publisher missing its rate, a subscriber dropping samples. nano-ros
+exposes a Tier-1 subset useful for embedded RTOS deployments —
+liveliness changes, deadline misses, and message loss.</p>
+<p>This page describes the event surface, the dispatch model, and the
+patterns that motivate having events at all on RTOS targets.</p>
+<h2 id="the-tier-1-events"><a class="header" href="#the-tier-1-events">The Tier-1 events</a></h2>
+<p>Five event kinds. Three on subscribers, two on publishers.</p>
+<h3 id="subscriber-events"><a class="header" href="#subscriber-events">Subscriber events</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Kind</th><th>Fires when</th><th>Use</th></tr>
+</thead>
+<tbody>
+<tr><td><code>LivelinessChanged</code></td><td>A tracked publisher’s liveliness state changes (publisher started asserting / stopped)</td><td>Safety-island fail-over: trigger MRM when remote control node goes silent</td></tr>
+<tr><td><code>RequestedDeadlineMissed</code></td><td>An expected sample didn’t arrive within the configured deadline</td><td>Periodic-sensor pattern: 100 Hz topic with 15 ms deadline; fire alarm when late</td></tr>
+<tr><td><code>MessageLost</code></td><td>The backend dropped one or more samples (typically: ring-buffer overflow, slow consumer)</td><td>Diagnostic + adaptive: log, drop more aggressively, coalesce</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="publisher-events"><a class="header" href="#publisher-events">Publisher events</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Kind</th><th>Fires when</th><th>Use</th></tr>
+</thead>
+<tbody>
+<tr><td><code>LivelinessLost</code></td><td>This publisher missed its own liveliness assertion deadline</td><td>Self-monitoring: detect own task starvation</td></tr>
+<tr><td><code>OfferedDeadlineMissed</code></td><td>This publisher promised X Hz, fell behind</td><td>Self-monitoring: detect overrunning compute</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="registering-callbacks"><a class="header" href="#registering-callbacks">Registering callbacks</a></h2>
+<p>Same shape as message callbacks. Register at construction time;
+callback fires from inside <code>spin_once</code> when the backend detects the
+event.</p>
+<h3 id="rust"><a class="header" href="#rust">Rust</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use core::time::Duration;
+
+let mut sub = node.create_subscription::&lt;SensorReading&gt;("/sensor")?;
+
+// Liveliness — fires when the publisher comes / goes
+sub.on_liveliness_changed(|status| {
+    if status.alive_count == 0 {
+        log::warn!("sensor publisher went silent");
+        trigger_failover();
+    }
+})?;
+
+// Deadline — fires when no sample within 15 ms
+sub.on_requested_deadline_missed(Duration::from_millis(15), |status| {
+    metric_inc(&amp;LATE_SAMPLE_COUNT, status.total_count_change);
+})?;
+
+// Message lost — fires when backend drops a sample
+sub.on_message_lost(|status| {
+    log::warn!("dropped {} samples", status.total_count_change);
+})?;
+<span class="boring">}</span></code></pre>
+<p>Async equivalents (<code>spin_async</code> / Embassy / tokio):</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let status = sub.next_liveliness_change().await?;
+let status = sub.next_deadline_miss().await?;
+<span class="boring">}</span></code></pre>
+<h3 id="c"><a class="header" href="#c">C</a></h3>
+<pre><code class="language-c">static void on_liveliness_changed(
+        nros_subscription_t *sub,
+        nros_liveliness_changed_status_t status,
+        void *user_context) {
+    if (status.alive_count == 0) {
+        trigger_failover();
+    }
+}
+
+nros_subscription_set_liveliness_changed_callback(
+    sub, on_liveliness_changed, NULL);
+</code></pre>
+<p>Same shape on the four other event kinds. Each returns
+<code>NROS_RMW_RET_UNSUPPORTED</code> if the active backend doesn’t generate
+that event.</p>
+<h3 id="c-1"><a class="header" href="#c-1">C++</a></h3>
+<pre><code class="language-cpp">sub.on_liveliness_changed([&amp;](nros::LivelinessChangedStatus status) {
+    if (status.alive_count == 0) trigger_failover();
+});
+
+sub.on_requested_deadline_missed(
+    std::chrono::milliseconds(15),
+    [&amp;](nros::DeadlineMissedStatus status) {
+        late_count_ += status.total_count_change;
+    });
+</code></pre>
+<p><code>std::function</code> overloads available with <code>NROS_CPP_STD</code>; freestanding
+mode uses C function pointers + user-context.</p>
+<h2 id="how-dispatch-works"><a class="header" href="#how-dispatch-works">How dispatch works</a></h2>
+<p>Events fire from inside <code>drive_io</code> on the executor thread, the same
+way message callbacks do:</p>
+<pre><code class="language-text">spin_once(timeout)
+ └─ session.drive_io(...)
+       ├─ backend RX worker detects message → fires message callback
+       ├─ backend RX worker detects liveliness change → fires liveliness callback
+       ├─ backend timer expires (deadline) → fires deadline callback
+       └─ return
+</code></pre>
+<p>Same execution context, same priority, same constraints as message
+callbacks. The <code>max_callbacks_per_spin</code> knob (see
+<a href="rtos-cooperation.html">RTOS Cooperation</a>) covers events too — an
+event callback counts as one against the cap.</p>
+<p>This means events get the same scheduling treatment as messages.
+<code>max_callbacks_per_spin = 1</code> will fire either one message OR one
+event per <code>spin_once</code>, whichever the backend has ready first.</p>
+<h2 id="why-a-callback-model-not-a-waitset"><a class="header" href="#why-a-callback-model-not-a-waitset">Why a callback model, not a waitset</a></h2>
+<p>Upstream <code>rmw.h</code> exposes events via a waitset — register an
+<code>rmw_event_t</code> handle in a waitset, call <code>rmw_wait</code>, then <code>rmw_take_event</code>
+to pull payload. nano-ros doesn’t have a waitset (see
+<a href="../design/rmw-vs-upstream.html">RMW vs upstream</a> Section 4).</p>
+<p>Reusing the existing message-callback path avoids introducing the
+waitset. Trade-off: applications can’t bulk-poll for events. For the
+Tier-1 set this isn’t load-bearing — events are rare, callbacks
+are cheap.</p>
+<h2 id="backend-support-is-uneven"><a class="header" href="#backend-support-is-uneven">Backend support is uneven</a></h2>
+<p>Not every backend can generate every event. Apps must handle
+<code>Unsupported</code> errors when registering:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Backend</th><th><code>LivelinessChanged</code> / <code>Lost</code></th><th><code>DeadlineMissed</code></th><th><code>MessageLost</code></th></tr>
+</thead>
+<tbody>
+<tr><td>dust-DDS</td><td>✓ Native</td><td>✓ Native</td><td>✓ Native</td></tr>
+<tr><td>XRCE-DDS</td><td>✓ Native</td><td>✓ Native</td><td>✓ Native</td></tr>
+<tr><td>zenoh-pico</td><td>✓ Liveliness-token-tracked at shim</td><td>✓ Shim-side per-sub timer</td><td>✓ Sequence-gap detection at shim</td></tr>
+<tr><td>uORB</td><td>◯ Adapted (<code>orb_subscribers_count</code> polling)</td><td>✗ Not supported (no rate concept)</td><td>✓ Queue-overflow flag</td></tr>
+</tbody>
+</table>
+</div>
+<p>The <code>Subscriber::supports_event(kind)</code> query lets applications check
+support before registering:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>if sub.supports_event(EventKind::RequestedDeadlineMissed) {
+    sub.on_requested_deadline_missed(...)?;
+} else {
+    // fallback: app-side timeout monitoring
+}
+<span class="boring">}</span></code></pre>
+<p>Apps that need cross-backend portability code defensively. Apps
+pinned to one backend can call register-and-unwrap.</p>
+<h2 id="whats-deliberately-skipped"><a class="header" href="#whats-deliberately-skipped">What’s deliberately skipped</a></h2>
+<p>Three upstream event types are intentionally absent from the API:</p>
+<h3 id="_matched-publication--subscription-matched"><a class="header" href="#_matched-publication--subscription-matched"><code>*_MATCHED</code> (publication / subscription matched)</a></h3>
+<p>Fires when a remote endpoint appears or disappears. Useful for
+discovery-tracking dashboards and dynamic-topology apps. Static-
+topology embedded apps don’t benefit; if a use case appears, the
+event kind is additive.</p>
+<h3 id="_qos_incompatible"><a class="header" href="#_qos_incompatible"><code>*_QOS_INCOMPATIBLE</code></a></h3>
+<p>Fires when publisher and subscriber QoS profiles can’t be
+reconciled. nano-ros surfaces this synchronously at <code>create_publisher</code>
+/ <code>create_subscriber</code> time as <code>NROS_RMW_RET_INCOMPATIBLE_QOS</code>. No
+runtime event needed; the failure is visible at startup.</p>
+<h3 id="_incompatible_type"><a class="header" href="#_incompatible_type"><code>*_INCOMPATIBLE_TYPE</code></a></h3>
+<p>Type-hash mismatch. Same: surfaced synchronously as
+<code>NROS_RMW_RET_TOPIC_NAME_INVALID</code> (or a future
+<code>NROS_RMW_RET_INCOMPATIBLE_TYPE</code>) at creation. No runtime event.</p>
+<h2 id="patterns"><a class="header" href="#patterns">Patterns</a></h2>
+<h3 id="drone-bridge-fail-over-on-liveliness-loss"><a class="header" href="#drone-bridge-fail-over-on-liveliness-loss">Drone-bridge fail-over on liveliness loss</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let mut sub = node.create_subscription::&lt;VehicleAttitude&gt;("/vehicle_attitude")?;
+sub.on_liveliness_changed(|status| {
+    if status.alive_count == 0 {
+        // PX4 commander.cpp went silent — trigger MRM
+        request_minimum_risk_manoeuvre();
+    } else if status.alive_count_change &gt; 0 {
+        // commander came back online; clear MRM if appropriate
+        clear_failover();
+    }
+})?;
+<span class="boring">}</span></code></pre>
+<p>This pairs with <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/phase-104-multi-backend-bridges.md">Phase 104’s bridge example</a>.</p>
+<h3 id="100-hz-sensor-with-deadline-alarm"><a class="header" href="#100-hz-sensor-with-deadline-alarm">100 Hz sensor with deadline alarm</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let mut sub = node.create_subscription::&lt;SensorReading&gt;("/imu")?;
+sub.on_requested_deadline_missed(
+    Duration::from_millis(15),    // expected 100 Hz, allow 15 ms deadline
+    |status| {
+        if status.total_count_change &gt; 0 {
+            log::error!("IMU late: {} missed deadlines", status.total_count_change);
+            // Optional: enter degraded-mode controller
+        }
+    },
+)?;
+<span class="boring">}</span></code></pre>
+<h3 id="slow-consumer-logging"><a class="header" href="#slow-consumer-logging">Slow-consumer logging</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let mut sub = node.create_subscription::&lt;Pointcloud&gt;("/lidar")?;
+sub.on_message_lost(|status| {
+    log::warn!("dropped {} pointcloud frames (total: {})",
+               status.total_count_change, status.total_count);
+    // Tighten downstream filter, reduce work, coalesce, etc.
+})?;
+<span class="boring">}</span></code></pre>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<ul>
+<li><a href="../design/rmw-vs-upstream.html">RMW API: Differences from upstream <code>rmw.h</code></a>
+Section 8 — the design comparison this page expands on.</li>
+<li><a href="rtos-cooperation.html">RTOS Cooperation</a> — <code>max_callbacks_per_spin</code>
+treatment of event callbacks.</li>
+<li><a href="ros2-comparison.html">Differences from ROS 2</a> — broader surface
+comparison.</li>
+</ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../porting/custom-board.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../concepts/rtos-cooperation.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../design/rmw.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../porting/overview.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -211,11 +414,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../porting/custom-board.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../concepts/rtos-cooperation.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../design/rmw.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../porting/overview.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
