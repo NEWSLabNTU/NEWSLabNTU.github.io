@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Opaque Storage Sizing - nano-ros Book</title>
+        <title>Differences from ROS 2 - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,191 +177,209 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="opaque-storage-sizing-phase-87"><a class="header" href="#opaque-storage-sizing-phase-87">Opaque Storage Sizing (Phase 87)</a></h1>
-<p><code>nano-ros</code> exposes a C and C++ API on top of Rust types whose layout is
-chosen by the Rust compiler. The C/C++ side has to allocate storage for
-those types — by value, on the user’s stack or BSS — without knowing
-their exact byte size. Phase 87 makes Rust the single source of truth
-for those sizes: the values flow from <code>core::mem::size_of</code> of the real
-Rust types into auto-generated C/C++ headers, with no hand-tuned
-constants.</p>
-<h2 id="the-pattern"><a class="header" href="#the-pattern">The pattern</a></h2>
-<p>Every size that crosses the Rust / C boundary follows the same path:</p>
-<ol>
-<li>
-<p><strong>Export from <code>nros::sizes</code></strong> — the <code>nros</code> umbrella crate defines a
-<code>pub const FOO_SIZE: usize = core::mem::size_of::&lt;T&gt;();</code> and emits a
-<code>#[used] static __NROS_SIZE_FOO: [u8; FOO_SIZE] = [0u8; FOO_SIZE]</code>
-with a <code>#[no_mangle]</code> symbol whose storage size in the rlib <em>is</em>
-<code>FOO_SIZE</code>. The two artefacts come from a single <code>export_size!</code> macro
-invocation:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// packages/core/nros/src/sizes.rs
-export_size!(pub PUBLISHER_SIZE = RmwPublisher);
-export_size!(pub SUBSCRIBER_SIZE = RmwSubscriber);
-export_size!(pub EXECUTOR_SIZE = nros_node::Executor);
-// ...etc
-<span class="boring">}</span></code></pre>
-</li>
-<li>
-<p><strong>Probe from consumer build scripts</strong> — <code>nros-c/build.rs</code> and
-<code>nros-cpp/build.rs</code> use the helper crate <code>nros-sizes-build</code> to find
-the compiled <code>nros</code> rlib (via <code>cargo metadata</code> + a glob over
-<code>target/&lt;triple&gt;/&lt;profile&gt;/deps/</code>) and read the <code>__NROS_SIZE_*</code>
-symbol storage sizes with the <a href="https://crates.io/crates/object"><code>object</code></a>
-crate. No subprocess, no llvm-nm; pure Rust.</p>
-</li>
-<li>
-<p><strong>Emit <code>#define NROS_FOO_SIZE</code> into a generated header</strong> —
-<code>nros_config_generated.h</code> (C) and <code>nros_cpp_config_generated.h</code> (C++)
-carry the probe values. <code>types.h</code> includes the generated config
-transitively, so every nros C header sees <code>NROS_*_SIZE</code> automatically.</p>
-</li>
-<li>
-<p><strong>C/C++ structs use the macros</strong> —</p>
-<pre><code class="language-c">typedef struct nros_publisher_t {
-    /* ... */
-    _Alignas(8) uint8_t _opaque[NROS_PUBLISHER_SIZE];
-} nros_publisher_t;
+                        <h1 id="differences-from-standard-ros-2"><a class="header" href="#differences-from-standard-ros-2">Differences from standard ROS 2</a></h1>
+<p>Coming from <code>rclcpp</code>, <code>rclrs</code>, or <code>rclc</code>? This page calls out where
+nano-ros looks the same, where it diverges, and the reason behind each
+choice. It is an <em>orientation</em> page — the per-language API references
+(<a href="../reference/rust-api.html">Rust</a> / <a href="../reference/c-api.html">C</a> /
+<a href="../reference/cpp-api.html">C++</a>) cover the surface itself.</p>
+<p>The short version: nano-ros keeps ROS 2’s vocabulary (Node, Publisher,
+Subscription, Service, Client, ActionServer, ActionClient, Timer,
+Executor, QoS, message codegen) so existing nodes port cleanly. The
+trade-offs that come from running on a Cortex-M3 with 64 KB of heap
+shape every place where the surface diverges.</p>
+<h2 id="same-vocabulary-same-wire-format"><a class="header" href="#same-vocabulary-same-wire-format">Same vocabulary, same wire format</a></h2>
+<ul>
+<li>ROS 2 entity model unchanged. A node owns publishers, subscriptions,
+services, clients, action servers, action clients, timers, and
+parameters.</li>
+<li>Topic / service / action names follow ROS 2 conventions
+(<code>/talker_node/chatter</code>, <code>/add_two_ints</code>, <code>/fibonacci</code>).</li>
+<li>Message types stay rosidl-shaped (<code>std_msgs/msg/Int32</code>,
+<code>geometry_msgs/msg/Twist</code>, …). CDR encoding on the wire.</li>
+<li>Default backend (<code>rmw-zenoh</code>) is bit-compatible with the upstream
+<a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh</code></a> ROS 2 RMW. A
+nano-ros publisher and an <code>rclcpp</code> subscriber on the same zenohd
+router exchange messages without a bridge — see
+<a href="../getting-started/ros2-interop.html">ROS 2 Interoperability</a>.</li>
+</ul>
+<h2 id="where-it-diverges-and-why"><a class="header" href="#where-it-diverges-and-why">Where it diverges, and why</a></h2>
+<h3 id="1-the-executor-is-the-entry-point"><a class="header" href="#1-the-executor-is-the-entry-point">1. The executor is the entry point</a></h3>
+<p>Standard ROS 2 starts with a global init (<code>rclcpp::init</code> /
+<code>rclrs::Context::default_from_env</code> / <code>rclc_support_init</code>) followed by
+node creation, then optionally an executor.</p>
+<p>nano-ros inverts this: an <code>Executor</code> opens the RMW session and owns the
+runtime budget. Every node, publisher, subscription, service, client,
+action handle, and timer is allocated <em>out of the executor’s arena</em>.</p>
+<pre><code class="language-text">Executor::open(&amp;config) → Node → Publisher / Subscription / Service / Client / Timer
 </code></pre>
-<pre><code class="language-cpp">class Publisher {
-    alignas(8) uint8_t storage_[NROS_PUBLISHER_SIZE];
-    /* ... */
-};
-</code></pre>
-<p>The Rust side reads/writes the same bytes via
-<code>&amp;mut *(opaque as *mut RmwPublisher)</code>. C and Rust agree on the size by
-construction.</p>
-</li>
-</ol>
-<h2 id="what-the-ssot-covers-today"><a class="header" href="#what-the-ssot-covers-today">What the SSoT covers today</a></h2>
-<p>The <code>nros::sizes</code> module exports:</p>
+<p><strong>Why.</strong> The arena is fixed-size and known at compile time
+(<code>NROS_EXECUTOR_ARENA_SIZE</code> / <code>NROS_EXECUTOR_MAX_CBS</code>). On a 64 KB
+heap MCU we cannot afford the indirection of a global allocator behind
+every <code>create_publisher</code> call. The executor-as-arena pattern moves the
+size negotiation up to the application’s startup code, where it
+belongs.</p>
+<h3 id="2-both-manual-poll-and-callback-paths-are-first-class"><a class="header" href="#2-both-manual-poll-and-callback-paths-are-first-class">2. Both manual-poll and callback paths are first-class</a></h3>
+<p><code>rclcpp</code> is callback-only — every subscription needs a callback, the
+executor dispatches them. <code>rclrs</code> &lt;0.7 was manual-poll only. <code>rclc</code>
+exposes both but treats manual-poll as the second-class path.</p>
+<p>nano-ros treats them as equals. A subscription created via
+<code>node.create_subscription(...)</code> exposes <code>try_recv()</code>. A subscription
+registered via <code>executor.add_subscription(callback)</code> runs the callback
+during <code>spin_once</code>. Pick whichever fits the control loop.</p>
+<p><strong>Why.</strong> Embedded apps often want the predictability of an explicit
+poll inside a real-time loop. Callback dispatch is great for
+event-driven services but adds indirection that real-time engineers
+have to bound by hand. Offering both means the application picks.</p>
+<h3 id="3-async-pubsubserviceaction"><a class="header" href="#3-async-pubsubserviceaction">3. Async pub/sub/service/action</a></h3>
+<p><code>rclcpp</code> has no real <code>async/await</code>. <code>rclrs</code> 0.7+ added async but it
+sits next to the synchronous executor, not in it. <code>rclc</code> has none.</p>
+<p>nano-ros has it as a first-class path: <code>Executor::spin_async()</code> wakes
+on RMW I/O, <code>Subscription::recv().await</code>, <code>Client::call().await</code>,
+<code>ActionClient::send_goal().await</code>, etc. Runs on tokio (POSIX),
+Embassy (FreeRTOS / RTIC), or any external <code>Future</code>-driver.</p>
+<p><strong>Why.</strong> Robotic control loops are stitched together from many
+concurrent waits — sensor data, service replies, action feedback,
+parameter updates. Async lets you write them as one straight-line
+function instead of hand-rolling state machines on top of a
+poll-based executor.</p>
+<h3 id="4-heap-is-optional"><a class="header" href="#4-heap-is-optional">4. Heap is optional</a></h3>
+<p>ROS 2 RMW implementations all assume <code>std</code> + a heap. Even rclrs’s
+<code>no_std</code> story is “soon”.</p>
+<p>nano-ros runs in three modes that map onto target capability:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Symbol</th><th>Type</th><th>Used by</th></tr>
+<tr><th>Mode</th><th>Cargo features</th><th>What works</th></tr>
 </thead>
 <tbody>
-<tr><td><code>SESSION_SIZE</code></td><td><code>RmwSession</code></td><td><code>nros_support_t._opaque</code></td></tr>
-<tr><td><code>PUBLISHER_SIZE</code></td><td><code>RmwPublisher</code></td><td><code>nros_publisher_t._opaque</code>, <code>nros::Publisher&lt;M&gt;::storage_</code></td></tr>
-<tr><td><code>SUBSCRIBER_SIZE</code></td><td><code>RmwSubscriber</code></td><td><code>nros::Subscription&lt;M&gt;::storage_</code></td></tr>
-<tr><td><code>SERVICE_CLIENT_SIZE</code></td><td><code>RmwServiceClient</code></td><td><code>nros::Client&lt;S&gt;::storage_</code></td></tr>
-<tr><td><code>SERVICE_SERVER_SIZE</code></td><td><code>RmwServiceServer</code></td><td><code>nros::Service&lt;S&gt;::storage_</code></td></tr>
-<tr><td><code>EXECUTOR_SIZE</code></td><td><code>nros_node::Executor</code></td><td><code>nros_executor_t._opaque</code>, <code>nros::Executor::storage_</code></td></tr>
-<tr><td><code>GUARD_CONDITION_SIZE</code></td><td><code>nros_node::GuardConditionHandle</code></td><td><code>nros_guard_condition_t._guard_opaque</code>, <code>nros::GuardCondition::storage_</code></td></tr>
-<tr><td><code>LIFECYCLE_CTX_SIZE</code></td><td><code>nros_node::lifecycle::LifecyclePollingNodeCtx</code></td><td><code>nros_lifecycle_state_machine_t._opaque_storage</code></td></tr>
-<tr><td><code>ACTION_SERVER_INTERNAL_SIZE</code></td><td><code>ActionServerInternalLayout</code></td><td><code>nros_action_server_t._internal</code></td></tr>
-<tr><td><code>CPP_ACTION_SERVER_SIZE</code></td><td><code>CppActionServerLayout</code></td><td><code>nros::ActionServer&lt;A&gt;::storage_</code></td></tr>
-<tr><td><code>CPP_ACTION_CLIENT_SIZE</code></td><td><code>CppActionClientLayout</code></td><td><code>nros::ActionClient&lt;A&gt;::storage_</code></td></tr>
+<tr><td><code>std</code></td><td><code>std</code> (default on POSIX)</td><td>Everything. POSIX threading, full async runtime.</td></tr>
+<tr><td><code>no_std + alloc</code></td><td><code>alloc</code> + a <code>#[global_allocator]</code></td><td>Everything except features that need <code>std::sync::Mutex</code>. Used by FreeRTOS / NuttX / ThreadX / Zephyr / ESP32.</td></tr>
+<tr><td><code>no_std + nostd-runtime</code> (cooperative)</td><td><code>nostd-runtime</code> on dust-DDS, RTIC apps</td><td>Cooperative single-task — no threading at all. Used by bare-metal MPS2-AN385, single-core RTIC.</td></tr>
 </tbody>
 </table>
 </div>
-<p>Plus three <code>*Internal</code> C-API shim structs (<code>ServiceServerInternal</code>,
-<code>ServiceClientInternal</code>, <code>ActionClientInternal</code>) that cbindgen now
-emits directly into <code>nros_generated.h</code> because they’re <code>#[repr(C)]</code> —
-the C side just embeds them as typed fields, no opaque storage at all.</p>
-<h2 id="layout-mirror-trick"><a class="header" href="#layout-mirror-trick">Layout-mirror trick</a></h2>
-<p>Some downstream types — <code>nros-c::ActionServerInternal</code>,
-<code>nros-cpp::CppActionServer</code>, <code>nros-cpp::CppActionClient</code> — embed C-API
-pointer types (<code>*mut nros_action_server_t</code>, <code>*const nros_goal_handle_t</code>)
-that aren’t visible from the <code>nros</code> umbrella crate. They can’t be
-referenced from <code>nros::sizes</code> directly, but their byte size only
-depends on the field shape: pointers are pointers, <code>Option&lt;extern "C" fn&gt;</code> collapses to a fn-pointer-sized slot via niche optimization, etc.</p>
-<p>The fix is a layout-mirror struct in <code>nros::sizes</code>:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// packages/core/nros/src/sizes.rs
-#[repr(C)]
-#[doc(hidden)]
-pub struct ActionServerInternalLayout {
-    pub handle: nros_node::ActionServerRawHandle,
-    pub executor_ptr: *mut c_void,
-    pub c_goal_callback: unsafe extern "C" fn(
-        *mut c_void, *const c_void, *const u8, usize, *mut c_void,
-    ) -&gt; i32,
-    // ...same field shape as the real `ActionServerInternal`,
-    // with C-API pointers replaced by `*mut c_void`...
-}
-export_size!(pub ACTION_SERVER_INTERNAL_SIZE = ActionServerInternalLayout);
-<span class="boring">}</span></code></pre>
-<p>Downstream then asserts byte-equivalence at compile time:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// packages/core/nros-c/src/opaque_sizes.rs
-const _: () = assert!(
-    size_of::&lt;crate::action::ActionServerInternal&gt;()
-        == size_of::&lt;nros::sizes::ActionServerInternalLayout&gt;(),
-    "ActionServerInternal size diverges from nros::sizes::ActionServerInternalLayout — \
-     update the layout mirror in `nros/src/sizes.rs`"
-);
-<span class="boring">}</span></code></pre>
-<p>The tripwire: any field-shape change in the real wrapper (adding a
-field, changing a pointer to a value, etc.) must be paired with an
-update to the mirror. The build fails immediately if they diverge.</p>
-<h2 id="whats-no-longer-hand-coded"><a class="header" href="#whats-no-longer-hand-coded">What’s no longer hand-coded</a></h2>
-<p>Pre-Phase 87, four places in the build hand-tuned storage sizes:</p>
+<p><strong>Why.</strong> Heap presence is not a binary “embedded yes/no” — it is a
+spectrum. Stm32-class boards have a heap; Cortex-M0+-class might not.
+The feature axis lets the same application code target both.</p>
+<h3 id="5-backend-selection-at-compile-time-not-runtime"><a class="header" href="#5-backend-selection-at-compile-time-not-runtime">5. Backend selection at compile time, not runtime</a></h3>
+<p>Standard ROS 2 uses an <code>RMW_IMPLEMENTATION</code> env var read at process
+start. The plugin loader pulls a shared library, dispatches calls
+through C function pointers.</p>
+<p>nano-ros bakes the backend in at compile time. Cargo features
+(<code>rmw-zenoh</code> / <code>rmw-xrce</code> / <code>rmw-dds</code> / <code>rmw-uorb</code>) or CMake options
+(<code>-DNROS_RMW=zenoh</code>) decide it.</p>
+<p><strong>Why.</strong></p>
 <ul>
-<li><code>nros-c/include/nros/types.h</code> — five <code>NROS_*_OPAQUE_U64S</code> literal
-macros (publisher, session, service-client, guard handle, lifecycle
-context).</li>
-<li><code>nros-c/build.rs</code> — pointer-width arithmetic for executor + action
-server/client storage.</li>
-<li><code>nros-cpp/build.rs</code> — pointer-width arithmetic for <em>every</em> C++
-wrapper (publisher, subscription, service, action server, action
-client, guard condition).</li>
-<li><code>nros-c/src/opaque_sizes.rs</code> — <code>u64s_for::&lt;T&gt;()</code> consts that cbindgen
-silently dropped (issue #252).</li>
+<li><strong>Dead-code elimination.</strong> A 32 KB Flash budget cannot afford to
+link every backend’s C client and pick at runtime. Linking only the
+selected backend cuts the binary by 60–80 %.</li>
+<li><strong>No plugin loader.</strong> Most embedded targets have no <code>dlopen</code>. The
+cost of the plugin abstraction is a permanent overhead with no
+payoff there.</li>
+<li><strong>Cross-compile sanity.</strong> <code>RMW_IMPLEMENTATION</code> baked into the binary
+means the build system already knows which backend’s C client to
+link — no separate “find shared library at runtime” step.</li>
 </ul>
-<p>After Phase 87:</p>
+<p>The trade-off is real: changing backends requires a rebuild. This is
+the right trade-off for the embedded use case; it would be the wrong
+trade-off for desktop ROS 2.</p>
+<h3 id="6-message-codegen-lands-inside-your-build-not-a-sibling-library"><a class="header" href="#6-message-codegen-lands-inside-your-build-not-a-sibling-library">6. Message codegen lands inside your build, not a sibling library</a></h3>
+<p>Standard ROS 2 uses <code>ament</code> + <code>rosidl</code> to compile message packages
+(<code>std_msgs</code>, <code>geometry_msgs</code>, …) into separate shared libraries that
+your application links against.</p>
+<p>nano-ros’s <code>cargo nano-ros generate-rust</code> (Rust) and
+<code>nano_ros_generate_interfaces()</code> (C / C++ via CMake) write message
+type definitions <em>into your build tree</em>. No <code>_msgs</code> library, no ament
+overlay, no colcon workspace required.</p>
+<p><strong>Why.</strong> Embedded cross-builds without a hosted ROS 2 install need to
+generate message types from <code>package.xml</code> + <code>.msg</code> files alone. The
+codegen tool ships its own bundled rosidl-flavoured files
+(<code>packages/codegen/interfaces/</code>) so you don’t even need the upstream
+message packages on disk.</p>
+<h3 id="7-qos-is-a-minimal-subset-not-full-dds-profiles"><a class="header" href="#7-qos-is-a-minimal-subset-not-full-dds-profiles">7. QoS is a minimal subset, not full DDS profiles</a></h3>
+<p>Standard ROS 2 supports the full DDS QoS profile family
+(<code>reliability</code>, <code>durability</code>, <code>history</code>, <code>depth</code>, <code>deadline</code>,
+<code>lifespan</code>, <code>liveliness</code>, <code>lifespan_*</code>, partition, ownership, …) and
+performs profile <em>matching</em> between endpoints.</p>
+<p>nano-ros only enforces the QoS subset its backends actually implement:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Backend</th><th>Reliability</th><th>Durability</th><th>History</th><th>Depth</th></tr>
+</thead>
+<tbody>
+<tr><td>zenoh-pico</td><td>reliable / best-effort</td><td>volatile / transient-local</td><td>keep-last</td><td>configurable</td></tr>
+<tr><td>XRCE-DDS</td><td>reliable / best-effort</td><td>volatile / transient-local</td><td>keep-last</td><td>configurable</td></tr>
+<tr><td>dust-DDS</td><td>reliable / best-effort</td><td>volatile / transient-local</td><td>keep-last / keep-all</td><td>configurable</td></tr>
+<tr><td>uORB</td><td>reliable (in-process)</td><td>n/a</td><td>last-N (uORB queue size)</td><td>configurable</td></tr>
+</tbody>
+</table>
+</div>
+<p>No profile matching, no deadline / lifespan / liveliness watchdogs.</p>
+<p><strong>Why.</strong> The QoS family is a DDS-shaped abstraction; not every
+backend can honour all of it (zenoh-pico has no concept of
+“liveliness lease” the way DDS does, for example). Promising QoS
+features that a backend can’t enforce is worse than not promising
+them.</p>
+<h3 id="8-no-runtime-backend-swap-no-runtime-introspection"><a class="header" href="#8-no-runtime-backend-swap-no-runtime-introspection">8. No runtime backend swap, no runtime introspection</a></h3>
+<p>Standard ROS 2 ships <code>ros2 topic list</code>, <code>ros2 node info</code>, dynamic
+endpoints discovery, <code>rmw_get_*</code> introspection.</p>
+<p>nano-ros has none of that at runtime. The backend is fixed at compile
+time, the wire-protocol introspection is whatever the backend natively
+exposes (zenoh-pico’s <code>z_query</code> for SPDP, dust-DDS’s discovery DB,
+…). Use the host-side ROS 2 tools for introspection and connect via
+the rmw_zenoh interop path.</p>
+<p><strong>Why.</strong> Every byte of “introspect what’s running” is overhead a
+microcontroller can’t justify when a host-side ROS 2 environment is
+one router-hop away.</p>
+<h2 id="what-this-means-in-practice"><a class="header" href="#what-this-means-in-practice">What this means in practice</a></h2>
+<p>If you are coming from <code>rclcpp</code>:</p>
 <ul>
-<li>All four <code>*Internal</code> shim types are <code>#[repr(C)]</code> and embedded as
-typed fields in their outer <code>nros_*_t</code> structs.</li>
-<li>All seven C++ wrappers (Publisher, Subscription, Service, Client,
-ActionServer, ActionClient, GuardCondition) use the
-<code>NROS_*_SIZE</code> / <code>NROS_CPP_*_STORAGE_SIZE</code> probe macros.</li>
-<li><code>types.h</code> ships zero <code>*_OPAQUE_U64S</code> macros; the four consumer
-module headers route through the probe.</li>
-<li>The remaining hand-coded “upper bound” assertions (e.g., the
-<code>EXECUTOR_OPAQUE_U64S</code> envelope check in <code>nros-c/build.rs</code>) are
-defence-in-depth: they fire if a Rust type accidentally exceeds a
-configured envelope (which would normally also be flagged by the
-config knobs).</li>
+<li>Open an <a href="../api/cpp/classnros_1_1Executor.html"><code>Executor</code></a>, then
+create the node from it.</li>
+<li>Decide poll vs. callback per subscription, not globally.</li>
+<li>If the platform has <code>std</code>, <code>nros::init()</code> looks identical; if it is
+RTOS / bare-metal, plan the executor arena up front.</li>
+<li>Pick <code>rmw-zenoh</code> for ROS 2 interop; everything else is a different
+trade-off.</li>
 </ul>
-<h2 id="adding-a-new-size-export"><a class="header" href="#adding-a-new-size-export">Adding a new size export</a></h2>
-<p>When a new Rust handle type needs to cross the FFI boundary:</p>
-<ol>
-<li>Add the <code>export_size!(pub FOO_SIZE = nros_node::Foo)</code> line to
-<code>nros/src/sizes.rs</code>. (If <code>Foo</code> lives in a downstream crate that
-<code>nros</code> can’t import, define a <code>FooLayout</code> mirror struct first and
-add a byte-equivalence assert in the owning crate.)</li>
-<li>Add a <code>let probe_foo = probed.get("FOO_SIZE").copied().unwrap_or(0)</code>
-line to <code>nros-c/build.rs</code> (and/or <code>nros-cpp/build.rs</code>), and emit
-<code>#define NROS_FOO_SIZE {probe_foo}</code> into the generated config
-header.</li>
-<li>Use <code>NROS_FOO_SIZE</code> in the C/C++ struct that needs the storage.</li>
-</ol>
-<p>Cross-target verification: the same probe runs for every target
-triple. There’s no per-platform branching — <code>size_of::&lt;T&gt;()</code> resolves
-to the right value at the target’s compile time.</p>
-<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<p>If you are coming from <code>rclrs</code>:</p>
 <ul>
-<li><a href="https://github.com/jerry73204/nano-ros/blob/main/docs/roadmap/phase-87-nros-cpp-compile-time-sizes.md">Phase 87 roadmap</a> for the
-full design rationale and per-stage history.</li>
-<li><code>packages/core/nros-sizes-build/src/lib.rs</code> for the rlib probe
-implementation.</li>
-<li><code>packages/core/nros/src/sizes.rs</code> for the canonical exports.</li>
+<li>The umbrella crate is <a href="../reference/rust-api.html"><code>nros</code></a>, not split
+into <code>rclrs_*</code>. <code>nros::prelude</code> gives you everything.</li>
+<li><code>Executor::open(&amp;config)</code> is the equivalent of
+<code>Context::default_from_env()</code> + <code>Executor::new(...)</code>.</li>
+<li>The async surface is in <code>nros::dds_async</code> (re-exported at the crate
+root). Compatible with tokio out of the box.</li>
+</ul>
+<p>If you are coming from <code>rclc</code>:</p>
+<ul>
+<li>Same C names where they map (<code>nros_node_init</code>, <code>nros_publisher_init</code>,
+<code>nros_subscription_init</code>). Memory ownership rules are the same — the
+caller owns storage, the API initialises it.</li>
+<li>See the <a href="../reference/c-api.html">C API reference</a> for the full
+surface.</li>
+</ul>
+<h2 id="going-deeper"><a class="header" href="#going-deeper">Going deeper</a></h2>
+<ul>
+<li>API surface, type by type → per-language references at
+<a href="../reference/rust-api.html">Rust</a> / <a href="../reference/c-api.html">C</a> /
+<a href="../reference/cpp-api.html">C++</a>.</li>
+<li>Why the executor / RMW / platform layers split this way →
+<a href="architecture.html">Architecture Overview</a>.</li>
+<li>Cooperative <code>no_std + nostd-runtime</code> model → <a href="no-std.html">no_std Support</a>.</li>
 </ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../internals/safety.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../reference/build-commands.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../internals/porting-platform/zenoh-pico.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../concepts/architecture.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -371,11 +389,11 @@ implementation.</li>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../internals/safety.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../reference/build-commands.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../internals/porting-platform/zenoh-pico.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../concepts/architecture.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

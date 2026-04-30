@@ -1,5 +1,4 @@
 var searchData=
 [
-  ['value_20conventions_0',['Return-value conventions',['../structNrosPlatformVtable.html#autotoc_md0',1,'']]],
-  ['vtable_20reference_1',['Vtable reference',['../index.html#autotoc_md5',1,'']]]
+  ['yield_5fnow_0',['yield_now',['../structNrosPlatformVtable.html#a3013fddf02d561d5402636944e11d617',1,'NrosPlatformVtable']]]
 ];

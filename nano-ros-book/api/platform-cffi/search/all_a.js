@@ -1,4 +1,5 @@
 var searchData=
 [
-  ['use_20this_0',['When to use this',['../index.html#autotoc_md3',1,'']]]
+  ['value_20conventions_0',['Return-value conventions',['../structNrosPlatformVtable.html#autotoc_md0',1,'']]],
+  ['vtable_20reference_1',['Vtable reference',['../index.html#autotoc_md4',1,'']]]
 ];

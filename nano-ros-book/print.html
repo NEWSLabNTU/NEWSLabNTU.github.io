@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-0b95f55a.js";
+            window.path_to_searchindex_js = "searchindex-25e16e9d.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-04bfab7e.js"></script>
+        <script src="toc-d54868c4.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -3894,6 +3894,200 @@ just test-zephyr-xrce
 <pre><code class="language-bash">ln -sfn /path/to/custom-workspace zephyr-workspace
 </code></pre>
 <p>See <a href="#zephyr">Zephyr</a> for full details.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="differences-from-standard-ros-2"><a class="header" href="#differences-from-standard-ros-2">Differences from standard ROS 2</a></h1>
+<p>Coming from <code>rclcpp</code>, <code>rclrs</code>, or <code>rclc</code>? This page calls out where
+nano-ros looks the same, where it diverges, and the reason behind each
+choice. It is an <em>orientation</em> page — the per-language API references
+(<a href="#rust-api">Rust</a> / <a href="#c-api-1">C</a> /
+<a href="#c-api-2">C++</a>) cover the surface itself.</p>
+<p>The short version: nano-ros keeps ROS 2’s vocabulary (Node, Publisher,
+Subscription, Service, Client, ActionServer, ActionClient, Timer,
+Executor, QoS, message codegen) so existing nodes port cleanly. The
+trade-offs that come from running on a Cortex-M3 with 64 KB of heap
+shape every place where the surface diverges.</p>
+<h2 id="same-vocabulary-same-wire-format"><a class="header" href="#same-vocabulary-same-wire-format">Same vocabulary, same wire format</a></h2>
+<ul>
+<li>ROS 2 entity model unchanged. A node owns publishers, subscriptions,
+services, clients, action servers, action clients, timers, and
+parameters.</li>
+<li>Topic / service / action names follow ROS 2 conventions
+(<code>/talker_node/chatter</code>, <code>/add_two_ints</code>, <code>/fibonacci</code>).</li>
+<li>Message types stay rosidl-shaped (<code>std_msgs/msg/Int32</code>,
+<code>geometry_msgs/msg/Twist</code>, …). CDR encoding on the wire.</li>
+<li>Default backend (<code>rmw-zenoh</code>) is bit-compatible with the upstream
+<a href="https://github.com/ros2/rmw_zenoh"><code>rmw_zenoh</code></a> ROS 2 RMW. A
+nano-ros publisher and an <code>rclcpp</code> subscriber on the same zenohd
+router exchange messages without a bridge — see
+<a href="#ros-2-interop">ROS 2 Interoperability</a>.</li>
+</ul>
+<h2 id="where-it-diverges-and-why"><a class="header" href="#where-it-diverges-and-why">Where it diverges, and why</a></h2>
+<h3 id="1-the-executor-is-the-entry-point"><a class="header" href="#1-the-executor-is-the-entry-point">1. The executor is the entry point</a></h3>
+<p>Standard ROS 2 starts with a global init (<code>rclcpp::init</code> /
+<code>rclrs::Context::default_from_env</code> / <code>rclc_support_init</code>) followed by
+node creation, then optionally an executor.</p>
+<p>nano-ros inverts this: an <code>Executor</code> opens the RMW session and owns the
+runtime budget. Every node, publisher, subscription, service, client,
+action handle, and timer is allocated <em>out of the executor’s arena</em>.</p>
+<pre><code class="language-text">Executor::open(&amp;config) → Node → Publisher / Subscription / Service / Client / Timer
+</code></pre>
+<p><strong>Why.</strong> The arena is fixed-size and known at compile time
+(<code>NROS_EXECUTOR_ARENA_SIZE</code> / <code>NROS_EXECUTOR_MAX_CBS</code>). On a 64 KB
+heap MCU we cannot afford the indirection of a global allocator behind
+every <code>create_publisher</code> call. The executor-as-arena pattern moves the
+size negotiation up to the application’s startup code, where it
+belongs.</p>
+<h3 id="2-both-manual-poll-and-callback-paths-are-first-class"><a class="header" href="#2-both-manual-poll-and-callback-paths-are-first-class">2. Both manual-poll and callback paths are first-class</a></h3>
+<p><code>rclcpp</code> is callback-only — every subscription needs a callback, the
+executor dispatches them. <code>rclrs</code> &lt;0.7 was manual-poll only. <code>rclc</code>
+exposes both but treats manual-poll as the second-class path.</p>
+<p>nano-ros treats them as equals. A subscription created via
+<code>node.create_subscription(...)</code> exposes <code>try_recv()</code>. A subscription
+registered via <code>executor.add_subscription(callback)</code> runs the callback
+during <code>spin_once</code>. Pick whichever fits the control loop.</p>
+<p><strong>Why.</strong> Embedded apps often want the predictability of an explicit
+poll inside a real-time loop. Callback dispatch is great for
+event-driven services but adds indirection that real-time engineers
+have to bound by hand. Offering both means the application picks.</p>
+<h3 id="3-async-pubsubserviceaction"><a class="header" href="#3-async-pubsubserviceaction">3. Async pub/sub/service/action</a></h3>
+<p><code>rclcpp</code> has no real <code>async/await</code>. <code>rclrs</code> 0.7+ added async but it
+sits next to the synchronous executor, not in it. <code>rclc</code> has none.</p>
+<p>nano-ros has it as a first-class path: <code>Executor::spin_async()</code> wakes
+on RMW I/O, <code>Subscription::recv().await</code>, <code>Client::call().await</code>,
+<code>ActionClient::send_goal().await</code>, etc. Runs on tokio (POSIX),
+Embassy (FreeRTOS / RTIC), or any external <code>Future</code>-driver.</p>
+<p><strong>Why.</strong> Robotic control loops are stitched together from many
+concurrent waits — sensor data, service replies, action feedback,
+parameter updates. Async lets you write them as one straight-line
+function instead of hand-rolling state machines on top of a
+poll-based executor.</p>
+<h3 id="4-heap-is-optional"><a class="header" href="#4-heap-is-optional">4. Heap is optional</a></h3>
+<p>ROS 2 RMW implementations all assume <code>std</code> + a heap. Even rclrs’s
+<code>no_std</code> story is “soon”.</p>
+<p>nano-ros runs in three modes that map onto target capability:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Mode</th><th>Cargo features</th><th>What works</th></tr>
+</thead>
+<tbody>
+<tr><td><code>std</code></td><td><code>std</code> (default on POSIX)</td><td>Everything. POSIX threading, full async runtime.</td></tr>
+<tr><td><code>no_std + alloc</code></td><td><code>alloc</code> + a <code>#[global_allocator]</code></td><td>Everything except features that need <code>std::sync::Mutex</code>. Used by FreeRTOS / NuttX / ThreadX / Zephyr / ESP32.</td></tr>
+<tr><td><code>no_std + nostd-runtime</code> (cooperative)</td><td><code>nostd-runtime</code> on dust-DDS, RTIC apps</td><td>Cooperative single-task — no threading at all. Used by bare-metal MPS2-AN385, single-core RTIC.</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Why.</strong> Heap presence is not a binary “embedded yes/no” — it is a
+spectrum. Stm32-class boards have a heap; Cortex-M0+-class might not.
+The feature axis lets the same application code target both.</p>
+<h3 id="5-backend-selection-at-compile-time-not-runtime"><a class="header" href="#5-backend-selection-at-compile-time-not-runtime">5. Backend selection at compile time, not runtime</a></h3>
+<p>Standard ROS 2 uses an <code>RMW_IMPLEMENTATION</code> env var read at process
+start. The plugin loader pulls a shared library, dispatches calls
+through C function pointers.</p>
+<p>nano-ros bakes the backend in at compile time. Cargo features
+(<code>rmw-zenoh</code> / <code>rmw-xrce</code> / <code>rmw-dds</code> / <code>rmw-uorb</code>) or CMake options
+(<code>-DNROS_RMW=zenoh</code>) decide it.</p>
+<p><strong>Why.</strong></p>
+<ul>
+<li><strong>Dead-code elimination.</strong> A 32 KB Flash budget cannot afford to
+link every backend’s C client and pick at runtime. Linking only the
+selected backend cuts the binary by 60–80 %.</li>
+<li><strong>No plugin loader.</strong> Most embedded targets have no <code>dlopen</code>. The
+cost of the plugin abstraction is a permanent overhead with no
+payoff there.</li>
+<li><strong>Cross-compile sanity.</strong> <code>RMW_IMPLEMENTATION</code> baked into the binary
+means the build system already knows which backend’s C client to
+link — no separate “find shared library at runtime” step.</li>
+</ul>
+<p>The trade-off is real: changing backends requires a rebuild. This is
+the right trade-off for the embedded use case; it would be the wrong
+trade-off for desktop ROS 2.</p>
+<h3 id="6-message-codegen-lands-inside-your-build-not-a-sibling-library"><a class="header" href="#6-message-codegen-lands-inside-your-build-not-a-sibling-library">6. Message codegen lands inside your build, not a sibling library</a></h3>
+<p>Standard ROS 2 uses <code>ament</code> + <code>rosidl</code> to compile message packages
+(<code>std_msgs</code>, <code>geometry_msgs</code>, …) into separate shared libraries that
+your application links against.</p>
+<p>nano-ros’s <code>cargo nano-ros generate-rust</code> (Rust) and
+<code>nano_ros_generate_interfaces()</code> (C / C++ via CMake) write message
+type definitions <em>into your build tree</em>. No <code>_msgs</code> library, no ament
+overlay, no colcon workspace required.</p>
+<p><strong>Why.</strong> Embedded cross-builds without a hosted ROS 2 install need to
+generate message types from <code>package.xml</code> + <code>.msg</code> files alone. The
+codegen tool ships its own bundled rosidl-flavoured files
+(<code>packages/codegen/interfaces/</code>) so you don’t even need the upstream
+message packages on disk.</p>
+<h3 id="7-qos-is-a-minimal-subset-not-full-dds-profiles"><a class="header" href="#7-qos-is-a-minimal-subset-not-full-dds-profiles">7. QoS is a minimal subset, not full DDS profiles</a></h3>
+<p>Standard ROS 2 supports the full DDS QoS profile family
+(<code>reliability</code>, <code>durability</code>, <code>history</code>, <code>depth</code>, <code>deadline</code>,
+<code>lifespan</code>, <code>liveliness</code>, <code>lifespan_*</code>, partition, ownership, …) and
+performs profile <em>matching</em> between endpoints.</p>
+<p>nano-ros only enforces the QoS subset its backends actually implement:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Backend</th><th>Reliability</th><th>Durability</th><th>History</th><th>Depth</th></tr>
+</thead>
+<tbody>
+<tr><td>zenoh-pico</td><td>reliable / best-effort</td><td>volatile / transient-local</td><td>keep-last</td><td>configurable</td></tr>
+<tr><td>XRCE-DDS</td><td>reliable / best-effort</td><td>volatile / transient-local</td><td>keep-last</td><td>configurable</td></tr>
+<tr><td>dust-DDS</td><td>reliable / best-effort</td><td>volatile / transient-local</td><td>keep-last / keep-all</td><td>configurable</td></tr>
+<tr><td>uORB</td><td>reliable (in-process)</td><td>n/a</td><td>last-N (uORB queue size)</td><td>configurable</td></tr>
+</tbody>
+</table>
+</div>
+<p>No profile matching, no deadline / lifespan / liveliness watchdogs.</p>
+<p><strong>Why.</strong> The QoS family is a DDS-shaped abstraction; not every
+backend can honour all of it (zenoh-pico has no concept of
+“liveliness lease” the way DDS does, for example). Promising QoS
+features that a backend can’t enforce is worse than not promising
+them.</p>
+<h3 id="8-no-runtime-backend-swap-no-runtime-introspection"><a class="header" href="#8-no-runtime-backend-swap-no-runtime-introspection">8. No runtime backend swap, no runtime introspection</a></h3>
+<p>Standard ROS 2 ships <code>ros2 topic list</code>, <code>ros2 node info</code>, dynamic
+endpoints discovery, <code>rmw_get_*</code> introspection.</p>
+<p>nano-ros has none of that at runtime. The backend is fixed at compile
+time, the wire-protocol introspection is whatever the backend natively
+exposes (zenoh-pico’s <code>z_query</code> for SPDP, dust-DDS’s discovery DB,
+…). Use the host-side ROS 2 tools for introspection and connect via
+the rmw_zenoh interop path.</p>
+<p><strong>Why.</strong> Every byte of “introspect what’s running” is overhead a
+microcontroller can’t justify when a host-side ROS 2 environment is
+one router-hop away.</p>
+<h2 id="what-this-means-in-practice"><a class="header" href="#what-this-means-in-practice">What this means in practice</a></h2>
+<p>If you are coming from <code>rclcpp</code>:</p>
+<ul>
+<li>Open an <a href="api/cpp/classnros_1_1Executor.html"><code>Executor</code></a>, then
+create the node from it.</li>
+<li>Decide poll vs. callback per subscription, not globally.</li>
+<li>If the platform has <code>std</code>, <code>nros::init()</code> looks identical; if it is
+RTOS / bare-metal, plan the executor arena up front.</li>
+<li>Pick <code>rmw-zenoh</code> for ROS 2 interop; everything else is a different
+trade-off.</li>
+</ul>
+<p>If you are coming from <code>rclrs</code>:</p>
+<ul>
+<li>The umbrella crate is <a href="#rust-api"><code>nros</code></a>, not split
+into <code>rclrs_*</code>. <code>nros::prelude</code> gives you everything.</li>
+<li><code>Executor::open(&amp;config)</code> is the equivalent of
+<code>Context::default_from_env()</code> + <code>Executor::new(...)</code>.</li>
+<li>The async surface is in <code>nros::dds_async</code> (re-exported at the crate
+root). Compatible with tokio out of the box.</li>
+</ul>
+<p>If you are coming from <code>rclc</code>:</p>
+<ul>
+<li>Same C names where they map (<code>nros_node_init</code>, <code>nros_publisher_init</code>,
+<code>nros_subscription_init</code>). Memory ownership rules are the same — the
+caller owns storage, the API initialises it.</li>
+<li>See the <a href="#c-api-1">C API reference</a> for the full
+surface.</li>
+</ul>
+<h2 id="going-deeper"><a class="header" href="#going-deeper">Going deeper</a></h2>
+<ul>
+<li>API surface, type by type → per-language references at
+<a href="#rust-api">Rust</a> / <a href="#c-api-1">C</a> /
+<a href="#c-api-2">C++</a>.</li>
+<li>Why the executor / RMW / platform layers split this way →
+<a href="#nano-ros-architecture-overview">Architecture Overview</a>.</li>
+<li>Cooperative <code>no_std + nostd-runtime</code> model → <a href="#std-and-alloc-requirements">no_std Support</a>.</li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="nano-ros-architecture-overview"><a class="header" href="#nano-ros-architecture-overview">nano-ros Architecture Overview</a></h1>
 <p>nano-ros is a lightweight ROS 2 client library for embedded real-time systems. It runs on bare-metal, FreeRTOS, NuttX, ThreadX, and Zephyr — as well as Linux/POSIX — with full <code>no_std</code> support throughout the core stack.</p>
