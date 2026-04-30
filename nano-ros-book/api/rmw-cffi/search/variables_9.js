@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['reliability_0',['reliability',['../structnros__rmw__qos__t.html#a23c693f9d82509ff7a74408358d8da19',1,'nros_rmw_qos_t']]]
+  ['publish_5fraw_0',['publish_raw',['../structnros__rmw__vtable__t.html#ade5f5a31bfca0102d22b13dac3c37bde',1,'nros_rmw_vtable_t']]]
 ];

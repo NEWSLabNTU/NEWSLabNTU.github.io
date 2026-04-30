@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['open_0',['open',['../structnros__rmw__vtable__t.html#af41b5d982b9a4e58e355525e48af9a32',1,'nros_rmw_vtable_t']]]
+  ['liveliness_5fchanged_0',['liveliness_changed',['../unionnros__rmw__event__payload__t.html#a91868fc6e7fe538a6494a5eeca799f0d',1,'nros_rmw_event_payload_t']]]
 ];

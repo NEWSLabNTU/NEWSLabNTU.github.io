@@ -1,4 +1,5 @@
 var searchData=
 [
-  ['backend_5fdata_0',['backend_data',['../structnros__rmw__session__t.html#acc2473e23f947e91535993a9c06f4c4a',1,'nros_rmw_session_t::backend_data'],['../structnros__rmw__publisher__t.html#ad99f6fe13fa88491668bd64a1473850d',1,'nros_rmw_publisher_t::backend_data'],['../structnros__rmw__subscriber__t.html#aaae6b43d61dc9f31ced1318316415599',1,'nros_rmw_subscriber_t::backend_data'],['../structnros__rmw__service__server__t.html#a89d5e3add754d69e8beb85fc1da1e28e',1,'nros_rmw_service_server_t::backend_data'],['../structnros__rmw__service__client__t.html#a451c511cf186cf8da4692c4dbf5d0d72',1,'nros_rmw_service_client_t::backend_data']]]
+  ['alive_5fcount_0',['alive_count',['../structnros__rmw__liveliness__changed__status__t.html#af163d987edb38e46d1e863af360b0c4e',1,'nros_rmw_liveliness_changed_status_t']]],
+  ['alive_5fcount_5fchange_1',['alive_count_change',['../structnros__rmw__liveliness__changed__status__t.html#a0b668da4b186e85c1ddf1c023a2f5cf8',1,'nros_rmw_liveliness_changed_status_t']]]
 ];
