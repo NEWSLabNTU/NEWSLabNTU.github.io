@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-9e3f70f7.js";
+            window.path_to_searchindex_js = "../searchindex-6328d5d5.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-9f840516.js"></script>
@@ -202,7 +202,7 @@ work in Rust; this page sticks to the C-vtable surface throughout.</p>
 <tr><td>QoS profiles</td><td>Full DDS profile match</td><td>Backend-defined minimal subset</td></tr>
 <tr><td>DDS events</td><td><code>rmw_event_t</code> (<code>rmw_take_event</code>)</td><td>None</td></tr>
 <tr><td>Loaned messages</td><td>Optional <code>rmw_borrow_loaned_message</code></td><td>First-class <code>loan_publish</code> / <code>loan_recv</code></td></tr>
-<tr><td>Error returns</td><td><code>rmw_ret_t</code> (<code>RMW_RET_OK</code>, …)</td><td>Negative <code>int32_t</code> for error, non-NULL handles for success</td></tr>
+<tr><td>Error returns</td><td><code>rmw_ret_t</code> (<code>RMW_RET_OK</code>, …)</td><td><code>nros_rmw_ret_t</code> (<code>NROS_RMW_RET_OK</code>, …) — same named-constant style</td></tr>
 </tbody>
 </table>
 </div>
@@ -432,26 +432,55 @@ publish.</p>
 </code></pre>
 <p>Pointer-returning calls indicate failure with <code>NULL</code> <em>and</em> set a
 thread-local error string via <code>rmw_set_error_string</code>.</p>
-<p><strong>nano-ros.</strong> Two conventions, picked by call shape:</p>
+<p><strong>nano-ros.</strong> Same named-constant style (<code>&lt;nros/rmw_ret.h&gt;</code>),
+different sign convention, no thread-local error string:</p>
+<pre><code class="language-c">typedef int32_t nros_rmw_ret_t;
+#define NROS_RMW_RET_OK                       0
+#define NROS_RMW_RET_ERROR                   -1
+#define NROS_RMW_RET_TIMEOUT                 -2
+#define NROS_RMW_RET_BAD_ALLOC               -3
+#define NROS_RMW_RET_INVALID_ARGUMENT        -4
+#define NROS_RMW_RET_UNSUPPORTED             -5
+#define NROS_RMW_RET_INCOMPATIBLE_QOS        -6
+#define NROS_RMW_RET_TOPIC_NAME_INVALID      -7
+#define NROS_RMW_RET_NODE_NAME_NON_EXISTENT  -8
+#define NROS_RMW_RET_LOAN_NOT_SUPPORTED      -9
+#define NROS_RMW_RET_NO_DATA                -10
+#define NROS_RMW_RET_WOULD_BLOCK            -11
+#define NROS_RMW_RET_BUFFER_TOO_SMALL       -12
+#define NROS_RMW_RET_MESSAGE_TOO_LARGE      -13
+</code></pre>
+<p>Two return-shape conventions, picked by call shape:</p>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Returns</th><th>Success</th><th>Failure</th></tr>
 </thead>
 <tbody>
-<tr><td><code>nros_rmw_handle_t</code> (<code>open</code>, <code>create_publisher</code>, …)</td><td>non-NULL</td><td>NULL</td></tr>
-<tr><td><code>int32_t</code> (<code>drive_io</code>, <code>publish_raw</code>, <code>try_recv_raw</code>, …)</td><td><code>0</code> (or positive byte count)</td><td>negative</td></tr>
+<tr><td><code>nros_rmw_handle_t</code> (<code>open</code>, <code>create_publisher</code>, …)</td><td>non-NULL</td><td><code>NULL</code></td></tr>
+<tr><td><code>nros_rmw_ret_t</code> (<code>drive_io</code>, <code>publish_raw</code>, <code>commit_slot</code>, …)</td><td><code>NROS_RMW_RET_OK</code></td><td>negative named constant</td></tr>
+<tr><td><code>int32_t</code> byte count (<code>try_recv_raw</code>, <code>try_recv_request</code>, <code>call_raw</code>)</td><td><code>&gt;= 0</code> (bytes received)</td><td>negative <code>nros_rmw_ret_t</code></td></tr>
 </tbody>
 </table>
 </div>
-<p>No thread-local error string. No <code>rmw_get_error_string</code>. Backends
-return one of a small set of negative codes; the runtime maps them
-into nano-ros’s own error type at the boundary.</p>
-<p><strong>Why.</strong> Thread-local error strings need a thread-local heap and
-implicit allocation on the error path. Embedded code paths can’t pay
-that. Returning a small set of negative codes per call is enough
-information for the runtime to act on; the backend logs verbose
-diagnostics through whatever printk-equivalent the platform provides.</p>
+<p><strong>Differences from upstream.</strong></p>
+<ul>
+<li><strong>Negative for error.</strong> Upstream uses positive integer codes
+(<code>RMW_RET_ERROR = 1</code>); nano-ros uses negative so the byte-count
+convention can be unified into the same <code>int32_t</code> return.</li>
+<li><strong>No thread-local error string.</strong> No <code>rmw_set_error_string</code>, no
+<code>rmw_get_error_string</code>. The thread-local heap allocation that
+pattern needs is unaffordable on embedded targets. Backends log
+verbose diagnostics at the failure site through the platform’s
+<code>printk</code> equivalent — never buffered, never thread-local.</li>
+<li><strong>Smaller code-set.</strong> 13 codes total (vs upstream’s ~25). Phase
+102.1 audit started from upstream’s set and dropped codes that
+don’t apply (e.g., DDS event codes, <code>RMW_RET_NODE_INVALID</code>).
+Adding a code is a <code>&lt;nros/rmw_ret.h&gt;</code> header change only.</li>
+</ul>
+<p><strong>Why same style.</strong> Phase 102 deliberately moved closer to upstream
+on this point. Named constants make <code>switch</code> statements possible at
+call sites; bare negative ints don’t.</p>
 <h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
 <ul>
 <li><a href="rmw.html">RMW API Design</a> — deeper architectural rationale (heap,
