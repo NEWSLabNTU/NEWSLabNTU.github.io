@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-84e85b69.js";
+            window.path_to_searchindex_js = "../searchindex-6c4b66b2.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c200a228.js"></script>
@@ -199,7 +199,7 @@ work in Rust; this page sticks to the C-vtable surface throughout.</p>
 <tr><td>Wait</td><td><code>rmw_wait(waitset, timeout)</code> blocks the caller</td><td><code>drive_io(session, timeout_ms)</code> drives I/O once</td></tr>
 <tr><td>Serialization</td><td>typesupport-driven (rosidl)</td><td>Pre-serialized CDR bytes only</td></tr>
 <tr><td>Graph queries</td><td><code>rmw_get_topic_names_and_types</code>, …</td><td>None</td></tr>
-<tr><td>QoS profiles</td><td>Full DDS profile match</td><td>Backend-defined minimal subset</td></tr>
+<tr><td>QoS profiles</td><td>Full DDS profile match between endpoints</td><td>Same field set; per-backend support advertised; synchronous <code>IncompatibleQos</code> on create instead of runtime mismatch event</td></tr>
 <tr><td>DDS events</td><td><code>rmw_event_t</code> (<code>rmw_take_event</code>)</td><td>None</td></tr>
 <tr><td>Loaned messages</td><td>Optional <code>rmw_borrow_loaned_message</code></td><td>First-class <code>loan_publish</code> / <code>loan_recv</code></td></tr>
 <tr><td>Error returns</td><td><code>rmw_ret_t</code> (<code>RMW_RET_OK</code>, …)</td><td><code>nros_rmw_ret_t</code> (<code>NROS_RMW_RET_OK</code>, …) — same named-constant style</td></tr>
@@ -508,7 +508,7 @@ need. An MCU has no terminal, no <code>ros2 topic list</code>. Wire-protocol
 interop with <code>rmw_zenoh_cpp</code> means standard ROS 2 tools running on a
 laptop can introspect the same domain as the MCU — at zero cost on
 the MCU.</p>
-<h2 id="7-qos-minimal-subset-no-profile-matching"><a class="header" href="#7-qos-minimal-subset-no-profile-matching">7. QoS: minimal subset, no profile matching</a></h2>
+<h2 id="7-qos-full-dds-shaped-profile-per-backend-support-advertised"><a class="header" href="#7-qos-full-dds-shaped-profile-per-backend-support-advertised">7. QoS: full DDS-shaped profile, per-backend support advertised</a></h2>
 <p><strong>Upstream.</strong> Full DDS QoS profile family with profile <em>matching</em>
 between endpoints:</p>
 <pre><code class="language-c">typedef struct RMW_PUBLIC_TYPE rmw_qos_profile_t {
@@ -523,27 +523,89 @@ between endpoints:</p>
   bool avoid_ros_namespace_conventions;
 } rmw_qos_profile_t;
 </code></pre>
-<p>The backend negotiates compatibility (<code>rmw_qos_profile_check_compatible</code>)
-and surfaces violations as events.</p>
-<p><strong>nano-ros.</strong> Each backend defines its own minimal subset; the vtable
-QoS struct is small:</p>
+<p>The backend negotiates compatibility
+(<code>rmw_qos_profile_check_compatible</code>) and surfaces mismatches as
+runtime events.</p>
+<p><strong>nano-ros.</strong> Same field set, packed into 24 bytes:</p>
 <pre><code class="language-c">typedef struct nros_rmw_qos_t {
-    uint8_t  reliability;   /* NROS_RMW_RELIABILITY_RELIABLE | _BEST_EFFORT */
-    uint8_t  durability;    /* NROS_RMW_DURABILITY_VOLATILE  | _TRANSIENT_LOCAL */
-    uint8_t  history;       /* NROS_RMW_HISTORY_KEEP_LAST    | _KEEP_ALL */
-    uint8_t  _reserved0;    /* forward-compat; must be zero */
+    uint8_t  reliability;
+    uint8_t  durability;
+    uint8_t  history;
+    uint8_t  liveliness_kind;
     uint16_t depth;
-    uint16_t _reserved1;    /* forward-compat; must be zero */
+    uint16_t _reserved0;
+    uint32_t deadline_ms;             /* 0 = infinite */
+    uint32_t lifespan_ms;             /* 0 = infinite */
+    uint32_t liveliness_lease_ms;     /* 0 = infinite */
+    bool     avoid_ros_namespace_conventions;
+    uint8_t  _reserved1[3];
 } nros_rmw_qos_t;
 </code></pre>
-<p>No deadline / lifespan / liveliness fields. No profile matching at the
-RMW layer — backends honor the subset they natively implement.</p>
-<p><strong>Why.</strong> <code>rmw_qos_profile_t</code> was DDS-shaped from day one. Zenoh-pico
-has no concept of “liveliness lease” the way DDS does, and no
-backend besides DDS implements <code>deadline</code> enforcement. Promising QoS
-features that a backend can’t enforce is worse than not promising
-them; constraining the surface to four fields each backend actually
-honors makes the contract real.</p>
+<p>Standard profile constants
+(<code>NROS_RMW_QOS_PROFILE_DEFAULT</code>, <code>_SENSOR_DATA</code>,
+<code>_SERVICES_DEFAULT</code>, <code>_SYSTEM_DEFAULT</code>, <code>_PARAMETERS</code>) match
+upstream <code>rmw_qos_profile_*</code> field-for-field, so applications
+porting from rclcpp / rclrs can pull the equivalent profile
+constant unchanged.</p>
+<h3 id="per-backend-support-no-silent-downgrade"><a class="header" href="#per-backend-support-no-silent-downgrade">Per-backend support, no silent downgrade</a></h3>
+<p>Each backend advertises which policies it can honour via
+<code>Session::supported_qos_policies()</code>, returning a <code>QosPolicyMask</code>
+bitfield. Policies a backend can’t enforce are explicit.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait Session {
+    fn supported_qos_policies(&amp;self) -&gt; QosPolicyMask {
+        QosPolicyMask::CORE     // reliability + durability VOLATILE + history + depth
+    }
+}
+<span class="boring">}</span></code></pre>
+<p>The runtime validates the requested QoS against the backend’s mask
+at entity-create time. Requesting a policy the backend doesn’t
+support returns <code>TransportError::IncompatibleQos</code>
+(<code>NROS_RMW_RET_INCOMPATIBLE_QOS</code> at the C boundary) <strong>synchronously</strong>.
+There is no silent degradation — applications either get the
+requested QoS or a hard error.</p>
+<p>Apps that need cross-backend portability check the mask at startup:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>if session.supported_qos_policies()
+    .contains(QosPolicyMask::DEADLINE)
+{
+    pub.create_with_qos(...deadline_ms = 100, ...);
+} else {
+    // app-side fallback: timeout monitoring in user code
+}
+<span class="boring">}</span></code></pre>
+<h3 id="manual-liveliness-assertion"><a class="header" href="#manual-liveliness-assertion">Manual liveliness assertion</a></h3>
+<p>For <code>LIVELINESS_MANUAL_BY_TOPIC</code> and <code>LIVELINESS_MANUAL_BY_NODE</code>,
+publishers call <code>assert_liveliness()</code> explicitly:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub.assert_liveliness()?;   // refresh this publisher's lease
+<span class="boring">}</span></code></pre>
+<p>C side: <code>nros_publisher_assert_liveliness(&amp;pub)</code>. C++ side:
+<code>pub.assert_liveliness()</code>. No-op for <code>AUTOMATIC</code> and <code>NONE</code> kinds.</p>
+<h3 id="differences-from-upstreams-matching"><a class="header" href="#differences-from-upstreams-matching">Differences from upstream’s matching</a></h3>
+<p>Upstream surfaces QoS mismatches via runtime events
+(<code>RMW_EVENT_REQUESTED_INCOMPATIBLE_QOS</code>). nano-ros surfaces them
+synchronously at create time as <code>IncompatibleQos</code>. The mismatch
+is a configuration error visible at startup; the runtime path
+doesn’t need to handle it.</p>
+<p>Two related choices:</p>
+<ul>
+<li><strong>No profile matching between publisher and subscriber.</strong> Each
+endpoint requests the QoS it wants from its backend; the backend
+enforces locally. Cross-endpoint compatibility is the wire
+protocol’s concern — DDS endpoints negotiate via DDS Discovery,
+zenoh endpoints communicate intent via the topic-key encoding,
+uORB endpoints share an in-process queue. nano-ros’s executor
+doesn’t run a profile-matching pass.</li>
+<li><strong>Wire metadata per backend.</strong> Lifespan needs per-sample
+timestamps; liveliness needs a keepalive mechanism. Each backend
+uses its native attachment / sample-info mechanism (Zenoh
+attachments, DDS RTPS sample-info, XRCE session pings) — no
+cross-backend metadata header.</li>
+</ul>
 <h2 id="8-status-events-callback-on-entity-tier-1-subset"><a class="header" href="#8-status-events-callback-on-entity-tier-1-subset">8. Status events: callback-on-entity, Tier-1 subset</a></h2>
 <p><strong>Upstream.</strong> Event APIs surface DDS-shaped notifications via a
 waitset-take pattern:</p>

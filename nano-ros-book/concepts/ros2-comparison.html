@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-84e85b69.js";
+            window.path_to_searchindex_js = "../searchindex-6c4b66b2.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c200a228.js"></script>
@@ -297,31 +297,45 @@ generate message types from <code>package.xml</code> + <code>.msg</code> files a
 codegen tool ships its own bundled rosidl-flavoured files
 (<code>packages/codegen/interfaces/</code>) so you don’t even need the upstream
 message packages on disk.</p>
-<h3 id="7-qos-is-a-minimal-subset-not-full-dds-profiles"><a class="header" href="#7-qos-is-a-minimal-subset-not-full-dds-profiles">7. QoS is a minimal subset, not full DDS profiles</a></h3>
+<h3 id="7-qos-profile-is-the-full-dds-field-set-backends-advertise-per-policy-support"><a class="header" href="#7-qos-profile-is-the-full-dds-field-set-backends-advertise-per-policy-support">7. QoS profile is the full DDS field set; backends advertise per-policy support</a></h3>
 <p>Standard ROS 2 supports the full DDS QoS profile family
 (<code>reliability</code>, <code>durability</code>, <code>history</code>, <code>depth</code>, <code>deadline</code>,
-<code>lifespan</code>, <code>liveliness</code>, <code>lifespan_*</code>, partition, ownership, …) and
-performs profile <em>matching</em> between endpoints.</p>
-<p>nano-ros only enforces the QoS subset its backends actually implement:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Backend</th><th>Reliability</th><th>Durability</th><th>History</th><th>Depth</th></tr>
-</thead>
-<tbody>
-<tr><td>zenoh-pico</td><td>reliable / best-effort</td><td>volatile / transient-local</td><td>keep-last</td><td>configurable</td></tr>
-<tr><td>XRCE-DDS</td><td>reliable / best-effort</td><td>volatile / transient-local</td><td>keep-last</td><td>configurable</td></tr>
-<tr><td>dust-DDS</td><td>reliable / best-effort</td><td>volatile / transient-local</td><td>keep-last / keep-all</td><td>configurable</td></tr>
-<tr><td>uORB</td><td>reliable (in-process)</td><td>n/a</td><td>last-N (uORB queue size)</td><td>configurable</td></tr>
-</tbody>
-</table>
-</div>
-<p>No profile matching, no deadline / lifespan / liveliness watchdogs.</p>
-<p><strong>Why.</strong> The QoS family is a DDS-shaped abstraction; not every
-backend can honour all of it (zenoh-pico has no concept of
-“liveliness lease” the way DDS does, for example). Promising QoS
-features that a backend can’t enforce is worse than not promising
-them.</p>
+<code>lifespan</code>, <code>liveliness</code>, <code>liveliness_lease_duration</code>,
+<code>avoid_ros_namespace_conventions</code>) and performs profile <em>matching</em>
+between endpoints.</p>
+<p>nano-ros’s <code>nros_rmw_qos_t</code> carries the same field set; standard
+profile constants (<code>NROS_RMW_QOS_PROFILE_DEFAULT</code>, <code>_SENSOR_DATA</code>,
+<code>_SERVICES_DEFAULT</code>, <code>_PARAMETERS</code>, <code>_SYSTEM_DEFAULT</code>) match
+upstream <code>rmw_qos_profile_*</code> field-for-field. ROS 2 apps porting
+across pull the equivalent constant unchanged.</p>
+<p>Each backend advertises which policies it can enforce via
+<code>Session::supported_qos_policies()</code>. The runtime validates the
+requested QoS at entity-create time and returns
+<code>IncompatibleQos</code> synchronously when the backend can’t honour
+a requested policy:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>if session.supported_qos_policies().contains(QosPolicyMask::DEADLINE) {
+    // backend honours deadline; safe to set deadline_ms
+} else {
+    // app handles deadline monitoring itself
+}
+<span class="boring">}</span></code></pre>
+<p><strong>No silent downgrade.</strong> The runtime never quietly drops a requested
+policy. Apps either get the QoS they asked for or a hard error.</p>
+<p><strong>Why upstream-shaped struct, not a smaller subset.</strong> ROS 2 QoS is
+the established vocabulary; mismatched APIs make porting painful.
+The field set is small (24 bytes); apps that don’t request a policy
+leave its field at zero (“off”). Per-backend implementation is a
+separate question — which policies actually fire — answered by
+the support mask.</p>
+<p><strong>Why synchronous error instead of runtime event.</strong> Upstream’s
+<code>RMW_EVENT_REQUESTED_INCOMPATIBLE_QOS</code> event surfaces mismatches
+at run time. Most QoS mismatches are configuration errors visible
+at startup; the runtime path doesn’t need to handle them. The few
+that aren’t (cross-process QoS-mismatched discovery) the wire
+protocol handles itself — DDS endpoints negotiate via DDS Discovery,
+zenoh endpoints communicate intent through the topic-key encoding.</p>
 <h3 id="8-no-runtime-backend-swap-no-runtime-introspection"><a class="header" href="#8-no-runtime-backend-swap-no-runtime-introspection">8. No runtime backend swap, no runtime introspection</a></h3>
 <p>Standard ROS 2 ships <code>ros2 topic list</code>, <code>ros2 node info</code>, dynamic
 endpoints discovery, <code>rmw_get_*</code> introspection.</p>
