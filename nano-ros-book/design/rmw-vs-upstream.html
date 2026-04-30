@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-06a2020a.js";
+            window.path_to_searchindex_js = "../searchindex-fbffc433.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-9f840516.js"></script>
@@ -266,11 +266,12 @@ actually reads (topic name, type name, QoS, lending capabilities)
 inline; backend-private state stays behind an opaque <code>backend_data</code>
 pointer.</p>
 <pre><code class="language-c">typedef struct nros_rmw_publisher_t {
-    const char *         topic_name;    /* borrowed; outlives the publisher */
-    const char *         type_name;     /* borrowed */
-    nros_rmw_qos_t       qos;
-    nros_rmw_loan_caps_t loan_caps;
-    void *               backend_data;  /* opaque */
+    const char *   topic_name;          /* borrowed; outlives the publisher */
+    const char *   type_name;           /* borrowed */
+    nros_rmw_qos_t qos;
+    bool           can_loan_messages;   /* matches upstream's field of the same name */
+    uint8_t        _reserved[7];        /* forward-compat; must be zero */
+    void *         backend_data;        /* opaque */
 } nros_rmw_publisher_t;
 
 nros_rmw_ret_t (*create_publisher)(
@@ -279,18 +280,25 @@ nros_rmw_ret_t (*create_publisher)(
     uint32_t domain_id, const nros_rmw_qos_t * qos,
     nros_rmw_publisher_t * out);   /* runtime-allocated; backend fills */
 </code></pre>
-<p>Same shape for <code>nros_rmw_session_t</code>, <code>nros_rmw_subscriber_t</code>,
-<code>nros_rmw_service_server_t</code>, <code>nros_rmw_service_client_t</code>. Service
-entities have no <code>qos</code> field — the
-<code>rmw_qos_profile_services_default</code> distinction does not generalise
-across non-DDS backends (see <a href="#7-qos-minimal-subset-not-full-dds-profiles">QoS, Section 7</a>).</p>
+<p>Same shape for <code>nros_rmw_subscriber_t</code>. Service entities
+(<code>nros_rmw_service_server_t</code>, <code>nros_rmw_service_client_t</code>) and
+<code>nros_rmw_session_t</code> have no <code>qos</code> and no <code>can_loan_messages</code> —
+service-level QoS doesn’t generalise across non-DDS backends
+(see <a href="#7-qos-minimal-subset-not-full-dds-profiles">QoS, Section 7</a>)
+and service request/reply uses the byte-buffer API rather than the
+loan primitive.</p>
+<p><strong>Forward-compat reserved bytes.</strong> Each entity carries an explicit
+<code>_reserved[N]</code> byte block (sized to fill the natural alignment slot
+before <code>backend_data</code>). New fields up to N bytes can be added later
+without changing struct size or the offset of any field after
+<code>backend_data</code>. Backends and runtime keep these bytes zero.</p>
 <p><strong>Storage ownership.</strong> The runtime allocates the entity-struct shell;
-the backend writes its <code>backend_data</code> (and optionally <code>loan_caps</code>)
-into the runtime-supplied out-parameter at <code>create_*</code> time. The
-backend never <code>malloc</code>s a struct shell — embedded targets cannot
-afford a per-entity heap allocation. <code>destroy_*</code> releases only the
-backend’s <code>backend_data</code>; the shell stays valid until the runtime
-drops its owner.</p>
+the backend writes its <code>backend_data</code> (plus <code>can_loan_messages</code> for
+publisher / subscriber entities) into the runtime-supplied
+out-parameter at <code>create_*</code> time. The backend never <code>malloc</code>s a
+struct shell — embedded targets cannot afford a per-entity heap
+allocation. <code>destroy_*</code> releases only the backend’s <code>backend_data</code>;
+the shell stays valid until the runtime drops its owner.</p>
 <p><strong>Differences from upstream’s <code>rmw_publisher_t</code>.</strong></p>
 <ul>
 <li><strong>Borrowed strings, not backend-owned copies.</strong> Upstream’s
@@ -301,13 +309,17 @@ that outlives the publisher — no allocation per entity.</li>
 compile-time (see <a href="#1-plugin-loading-vs-compile-time-backend">Section 1</a>);
 there’s no plugin loader to dispatch through, so no need to
 identify which backend owns a struct.</li>
-<li><strong><code>loan_caps</code> first-class.</strong> Upstream’s <code>can_loan_messages</code> is a
-single bool; ours is a 2-bit field (CDR loan + typed loan, the
-latter reserved for <a href="../../../docs/roadmap/phase-103-rmw-typed-loan.html">Phase 103</a>)
-the runtime checks once at create time and uses to dispatch the
-publish path with no per-call branch.</li>
+<li><strong><code>can_loan_messages</code> matches upstream.</strong> Same bool, same name,
+same semantics — <code>true</code> if the backend exposes the loan
+primitive (Phase 99 CDR-byte loan). The runtime reads it once
+at create time and dispatches the publish path with no per-call
+branch.</li>
 <li><strong><code>depth: uint16_t</code>.</strong> Upstream uses 32-bit; embedded queue depths
 are 1–100, the 16-bit width saves 2 bytes × N entities.</li>
+<li><strong>Explicit <code>_reserved[N]</code> bytes.</strong> Upstream uses an embedded
+<code>rmw_publisher_options_t</code> struct as the extension point; we
+reserve raw bytes inline. Same forward-compat property — new
+fields up to N bytes don’t break ABI — without the indirection.</li>
 </ul>
 <p><strong>Why this shape.</strong> Fully-opaque <code>void *</code> (the previous nano-ros
 design) forced every introspection through a vtable callback.
@@ -411,9 +423,9 @@ QoS struct is small:</p>
     uint8_t  reliability;   /* NROS_RMW_RELIABILITY_RELIABLE | _BEST_EFFORT */
     uint8_t  durability;    /* NROS_RMW_DURABILITY_VOLATILE  | _TRANSIENT_LOCAL */
     uint8_t  history;       /* NROS_RMW_HISTORY_KEEP_LAST    | _KEEP_ALL */
-    uint8_t  _pad0;
+    uint8_t  _reserved0;    /* forward-compat; must be zero */
     uint16_t depth;
-    uint16_t _pad1;
+    uint16_t _reserved1;    /* forward-compat; must be zero */
 } nros_rmw_qos_t;
 </code></pre>
 <p>No deadline / lifespan / liveliness fields. No profile matching at the

@@ -1,4 +1,5 @@
 var searchData=
 [
-  ['loan_5fcaps_0',['loan_caps',['../structnros__rmw__publisher__t.html#af91260f5086c5b27050506104b96c85b',1,'nros_rmw_publisher_t::loan_caps'],['../structnros__rmw__subscriber__t.html#a851351144dcd0141bd1a5b19f38fe25c',1,'nros_rmw_subscriber_t::loan_caps']]]
+  ['namespace_5f_0',['namespace_',['../structnros__rmw__session__t.html#ac65b6feeb26db694c258987ad284faab',1,'nros_rmw_session_t']]],
+  ['node_5fname_1',['node_name',['../structnros__rmw__session__t.html#a44d8085e04a5f16a2f1a8b0ce452c89a',1,'nros_rmw_session_t']]]
 ];

@@ -1,5 +1,9 @@
 var searchData=
 [
-  ['qos_0',['qos',['../structnros__rmw__publisher__t.html#afa0376806d9885c126fb74d8b6c42980',1,'nros_rmw_publisher_t::qos'],['../structnros__rmw__subscriber__t.html#af565764f92aa884bc324c0b851256760',1,'nros_rmw_subscriber_t::qos']]],
-  ['quick_20start_1',['Quick start',['../index.html#autotoc_md0',1,'']]]
+  ['reliability_0',['reliability',['../structnros__rmw__qos__t.html#a23c693f9d82509ff7a74408358d8da19',1,'nros_rmw_qos_t']]],
+  ['return_20value_20conventions_1',['Return-value conventions',['../index.html#autotoc_md2',1,'']]],
+  ['rmw_20cffi_2',['nros rmw-cffi',['../index.html',1,'']]],
+  ['rmw_5fentity_2eh_3',['rmw_entity.h',['../rmw__entity_8h.html',1,'']]],
+  ['rmw_5fret_2eh_4',['rmw_ret.h',['../rmw__ret_8h.html',1,'']]],
+  ['rmw_5fvtable_2eh_5',['rmw_vtable.h',['../rmw__vtable_8h.html',1,'']]]
 ];

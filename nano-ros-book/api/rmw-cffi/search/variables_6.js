@@ -1,5 +1,4 @@
 var searchData=
 [
-  ['namespace_5f_0',['namespace_',['../structnros__rmw__session__t.html#ac65b6feeb26db694c258987ad284faab',1,'nros_rmw_session_t']]],
-  ['node_5fname_1',['node_name',['../structnros__rmw__session__t.html#a44d8085e04a5f16a2f1a8b0ce452c89a',1,'nros_rmw_session_t']]]
+  ['open_0',['open',['../structnros__rmw__vtable__t.html#af41b5d982b9a4e58e355525e48af9a32',1,'nros_rmw_vtable_t']]]
 ];
