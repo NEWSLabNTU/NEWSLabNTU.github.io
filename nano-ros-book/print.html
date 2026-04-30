@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-fbffc433.js";
+            window.path_to_searchindex_js = "searchindex-71aea098.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-9f840516.js"></script>
+        <script src="toc-66bb880b.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -5130,6 +5130,181 @@ nros = { default-features = false, features = [
 <p>The default feature set is <code>std</code> only. No RMW backend or platform is selected by default – users must explicitly choose their configuration.</p>
 <p>For implementation details on how to add a new platform, see the <a href="internals/porting-platform/README.html">Porting Guide</a> and <a href="#platform-api">Platform API Reference</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="rtos-cooperation"><a class="header" href="#rtos-cooperation">RTOS Cooperation</a></h1>
+<p>nano-ros runs on platforms that span pure cooperative bare-metal
+through multi-task preemptive RTOS to fully async / Future-driven
+runtimes. The executor’s spin loop has to cooperate with each of
+these without imposing a single execution model on all of them.</p>
+<p>This page maps the common RTOS / runtime execution profiles to the
+configuration knobs the executor exposes. New apps pick a profile
+that matches their target’s scheduling discipline; the knobs
+translate that choice into bounded behaviour from <code>drive_io</code>.</p>
+<h2 id="the-execution-model-spectrum"><a class="header" href="#the-execution-model-spectrum">The execution model spectrum</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Model</th><th>Description</th><th>Example targets</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Cooperative single-task</strong></td><td>One task / thread does all ROS work. No preemption from other tasks (there are none, or they’re all lower priority). Yielding happens at task boundaries.</td><td>Bare-metal MPS2-AN385, single FreeRTOS task, single Zephyr thread</td></tr>
+<tr><td><strong>Preemptive priority</strong></td><td>ROS task runs at a fixed priority. Higher-priority tasks preempt mid-call by the kernel. ROS-internal entities (subs, timers, services, GCs) all share that priority — they don’t preempt each other.</td><td>Typical FreeRTOS / ThreadX / Zephyr deployment with worker tasks</td></tr>
+<tr><td><strong>WCET-bounded real-time</strong></td><td>Each “task” has a provable worst-case execution time. Tasks are dispatched directly from interrupts; no spin loops in the hot path.</td><td>RTIC, Embassy, avionics WCET-validated code</td></tr>
+<tr><td><strong>Time-triggered cyclic</strong></td><td>Fixed schedule. Each cycle does a fixed amount of work in a fixed time slot; ROS gets a fraction of the cycle and must yield.</td><td>DO-178C / IEC 61508 controller frames</td></tr>
+<tr><td><strong>Async runtime</strong></td><td>Futures registered with wakers; reactor drives. No spin loop visible to user code.</td><td>tokio, Embassy futures, custom async runtimes</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="how-drive_io-behaves-by-default"><a class="header" href="#how-drive_io-behaves-by-default">How <code>drive_io</code> behaves by default</a></h2>
+<p>The executor’s <code>spin_once(timeout_ms)</code> calls
+<code>session.drive_io(...)</code> and lets it drain all ready I/O before
+returning. After <code>drive_io</code> returns, the executor processes any
+expired timers and triggered guard conditions. If 10 messages
+arrived during the wait, all 10 callbacks fire in a single
+<code>spin_once</code>, then timer / GC dispatch happens once afterwards.</p>
+<p>This is the right default for <strong>cooperative single-task</strong> apps and
+for <strong>async-runtime</strong> apps using <code>spin_async</code>. Both want
+throughput; neither benefits from per-callback scheduling
+opportunities.</p>
+<p>For the other three models, the default has trade-offs the
+configuration knobs address.</p>
+<h2 id="configuration-knobs"><a class="header" href="#configuration-knobs">Configuration knobs</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Knob</th><th>Default</th><th>When to change</th></tr>
+</thead>
+<tbody>
+<tr><td><code>ExecutorConfig::max_callbacks_per_spin</code></td><td><code>usize::MAX</code> (drain all)</td><td>Set to <code>1</code> for upstream-<code>rclcpp</code>-style “one callback per <code>spin_once</code>” — gives the executor a chance to re-check timers / GCs / yield between callbacks</td></tr>
+<tr><td><code>ExecutorConfig::time_budget_per_spin_ms</code></td><td><code>None</code> (no budget)</td><td>Set to fixed wall-clock budget for time-triggered apps — <code>drive_io</code> returns when the budget expires regardless of pending work</td></tr>
+<tr><td><code>ExecutorConfig::spin_period_ms</code></td><td>platform-dependent</td><td>Tighten for lower worst-case latency; loosen for less CPU spent in the spin loop</td></tr>
+</tbody>
+</table>
+</div>
+<p>Backends opt into one additional behaviour automatically:
+<code>Session::next_deadline_ms()</code> tells the executor about the backend’s
+next internal event (lease keepalive, heartbeat). The executor caps
+<code>drive_io</code>’s timeout against it. No app configuration; transparent
+optimization.</p>
+<h2 id="per-model-recommended-configuration"><a class="header" href="#per-model-recommended-configuration">Per-model recommended configuration</a></h2>
+<h3 id="cooperative-single-task"><a class="header" href="#cooperative-single-task">Cooperative single-task</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>ExecutorConfig {
+    max_callbacks_per_spin: usize::MAX,    // default — drain all
+    time_budget_per_spin_ms: None,         // default — no budget
+    spin_period_ms: 1,                     // tight loop on the dedicated task
+    ..Default::default()
+}
+<span class="boring">}</span></code></pre>
+<p>Drain everything; one task, no fairness concern. Spin tightly to
+keep latency low.</p>
+<h3 id="preemptive-priority-rtos--recommended"><a class="header" href="#preemptive-priority-rtos--recommended">Preemptive priority RTOS — recommended</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>ExecutorConfig {
+    max_callbacks_per_spin: 1,             // one callback per spin_once
+    time_budget_per_spin_ms: None,
+    spin_period_ms: 1,
+    ..Default::default()
+}
+<span class="boring">}</span></code></pre>
+<p><code>max_callbacks_per_spin = 1</code> matches upstream’s <code>rclcpp</code>
+single-threaded executor pattern. Each <code>spin_once</code> fires one
+callback and then re-checks timers + GCs. ROS-internal entities
+share the task priority, but the spin-loop iteration is the
+scheduling unit; timer expiries are bounded by <em>one</em> callback’s
+WCET, not the sum across all ready callbacks.</p>
+<p>If max-callback dispatch latency is still too high in this profile
+(e.g., a single callback is slow), the next refinement is moving
+timer and guard-condition dispatch <em>into</em> <code>drive_io</code>’s loop so the
+<code>max_callbacks = 1</code> cap covers them too. This is the path where one
+slow sub callback no longer delays a timer that should have fired
+mid-callback. (Phase 106 work.)</p>
+<h3 id="wcet-bounded-real-time-rtic--embassy"><a class="header" href="#wcet-bounded-real-time-rtic--embassy">WCET-bounded real-time (RTIC / Embassy)</a></h3>
+<p>Don’t use the spin loop. Use the async path:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let executor = Executor::open_async(&amp;config)?;
+let sub = node.create_subscription_async::&lt;MyMsg&gt;("/topic")?;
+loop {
+    let msg = sub.recv().await?;        // suspends; waker integration
+    handle(msg);
+}
+<span class="boring">}</span></code></pre>
+<p>The async path doesn’t go through <code>drive_io</code> at all. Subscriptions
+register a <code>Waker</code>; the backend’s RX path wakes the waker; the
+async runtime schedules the receiving task. Per-task WCET analysis
+applies to each <code>recv().await</code> continuation, not to a spin loop.</p>
+<h3 id="time-triggered-cyclic"><a class="header" href="#time-triggered-cyclic">Time-triggered cyclic</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>ExecutorConfig {
+    max_callbacks_per_spin: usize::MAX,    // not the bottleneck here
+    time_budget_per_spin_ms: Some(5),      // 5 ms ROS budget per cycle
+    spin_period_ms: 5,                     // matches the cycle's ROS slot
+    ..Default::default()
+}
+<span class="boring">}</span></code></pre>
+<p>The cycle gives ROS a fixed wall-clock slot. <code>time_budget_per_spin_ms</code>
+bounds time spent in <code>drive_io</code> regardless of pending work. The
+backend respects the budget by checking elapsed wall-clock between
+callbacks and returning when exceeded. Pending work resumes next
+cycle.</p>
+<h3 id="async-runtime"><a class="header" href="#async-runtime">Async runtime</a></h3>
+<p><code>drive_io</code> not used in the hot path. The executor’s <code>spin_async</code>
+drives futures via wakers; <code>drive_io</code> becomes a polling tick
+internally with negligible overhead.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>executor.spin_async().await
+<span class="boring">}</span></code></pre>
+<p>No knobs apply.</p>
+<h2 id="trade-offs-at-a-glance"><a class="header" href="#trade-offs-at-a-glance">Trade-offs at a glance</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Configuration</th><th>Throughput</th><th>Per-callback latency</th><th>Timer-callback fairness</th><th>Code-size cost</th></tr>
+</thead>
+<tbody>
+<tr><td><code>max_callbacks = MAX</code> (default)</td><td>High</td><td>Bounded by ALL ready callbacks’ total WCET</td><td>Poor under load</td><td>Smallest</td></tr>
+<tr><td><code>max_callbacks = 1</code></td><td>Slightly lower (more spin loop iterations)</td><td>Bounded by ONE callback’s WCET</td><td>Good</td><td>Same — the cap is just an integer</td></tr>
+<tr><td><code>time_budget = Some(N)</code></td><td>Lower (clock reads per callback)</td><td>Bounded by N ms wall clock</td><td>Good if N tight, fair if N loose</td><td>One clock read per callback (~10–50 ns)</td></tr>
+<tr><td>async / <code>spin_async</code></td><td>Per-future</td><td>Per-future Future poll</td><td>Cooperative — futures yield voluntarily</td><td>Async runtime cost</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="backends-and-their-wait-primitives"><a class="header" href="#backends-and-their-wait-primitives">Backends and their wait primitives</a></h2>
+<p><code>drive_io</code>’s sleep behaviour is backend- and platform-dependent. The
+spin loop’s “where does the thread sleep” question maps as:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Platform</th><th>Sleep primitive in drive_io</th><th>When CPU is sleeping</th></tr>
+</thead>
+<tbody>
+<tr><td>POSIX</td><td><code>select</code> / <code>epoll_wait</code> with deadline</td><td>Inside drive_io</td></tr>
+<tr><td>Zephyr</td><td><code>k_poll</code> / condvar with deadline</td><td>Inside drive_io</td></tr>
+<tr><td>FreeRTOS</td><td><code>xSemaphoreTake(g_spin_sem, ticks)</code></td><td>Inside drive_io</td></tr>
+<tr><td>NuttX</td><td><code>sem_timedwait</code> with absolute deadline</td><td>Inside drive_io</td></tr>
+<tr><td>ThreadX</td><td><code>tx_event_flags_get(..., TX_OR, ..., ticks)</code></td><td>Inside drive_io</td></tr>
+<tr><td>Bare-metal smoltcp + <code>BoardIdle</code></td><td>smoltcp poll + <code>wfi()</code> between iterations</td><td>Outside drive_io (in the spin loop’s idle hook)</td></tr>
+<tr><td>Bare-metal smoltcp without <code>BoardIdle</code></td><td>smoltcp poll, busy loop</td><td>Nowhere — CPU spins</td></tr>
+</tbody>
+</table>
+</div>
+<p>In all cases the user-visible API is <code>Executor::spin_once(timeout)</code>;
+the platform-correct sleep happens transparently underneath.</p>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<ul>
+<li><a href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design</a> — the architectural reasons
+the runtime / RMW boundary is shaped the way it is.</li>
+<li><a href="#rmw-api-differences-from-upstream-rmwh">RMW API: Differences from upstream <code>rmw.h</code></a>
+Section 4 — the <code>drive_io</code> vs <code>rmw_wait</code> comparison this page
+expands on.</li>
+<li><a href="#std-and-alloc-requirements">no_std Support</a> — heap and threading constraints that
+shape the cooperative model.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="porting-overview"><a class="header" href="#porting-overview">Porting Overview</a></h1>
 <p>nano-ros is designed for customization at three independent levels: <strong>RMW</strong> (transport protocol), <strong>Platform</strong> (OS or RTOS), and <strong>Board</strong> (hardware). The core crates define stable interfaces through Rust traits. You extend nano-ros by implementing those traits for your target – you never modify the core.</p>
 <h2 id="which-chapter-do-i-need"><a class="header" href="#which-chapter-do-i-need">Which chapter do I need?</a></h2>
@@ -6284,7 +6459,7 @@ compile_error!("Enable at least one transport: `ethernet` or `serial`");</code><
 </table>
 </div>
 <p>The bare-metal <code>nros-board-mps2-an385</code> is the simplest starting point. The FreeRTOS variant shows how to add RTOS task creation and lwIP networking.</p>
-<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<h2 id="see-also-1"><a class="header" href="#see-also-1">See also</a></h2>
 <ul>
 <li><a href="#custom-platform">Custom Platform</a> – writing the platform crate that sits underneath a board crate</li>
 <li><a href="#porting-overview">Porting Overview</a> – the three customization axes (RMW, platform, board)</li>
@@ -6644,12 +6819,120 @@ callbacks asynchronously.</p>
 <p>The backend dispatches whatever receive / send / wakeup work is
 pending and returns within <code>timeout_ms</code>. There is no waitset, no
 guard-condition aggregation, no implicit middleware thread.</p>
-<p><strong>Why.</strong> Cooperative single-task runtimes (the bare-metal and
-RTOS variants of nano-ros) have only one execution context. A waitset
-abstraction doesn’t fit — the executor <em>is</em> the waitset. Replacing
-<code>rmw_wait</code> with <code>drive_io</code> makes the cooperative model explicit and
-removes the multi-thread complexity from every backend that doesn’t
-need it.</p>
+<h3 id="how-the-two-models-differ-in-practice"><a class="header" href="#how-the-two-models-differ-in-practice">How the two models differ in practice</a></h3>
+<p>The two designs distribute work across different layers:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Phase</th><th>Upstream <code>rmw_wait</code></th><th>nano-ros <code>drive_io</code></th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Build the wait set</strong></td><td>Executor rebuilds a waitset every <code>spin_once</code>, adds every entity</td><td>Executor registers entities once at construction; no per-spin rebuild</td></tr>
+<tr><td><strong>Block</strong></td><td><code>rmw_wait</code> blocks the thread on a kernel waitable (DDS WaitSet, condvar, kqueue) until any entity is ready or timeout</td><td><code>drive_io</code> blocks (sleep-model backends) or polls (poll-model backends) for up to <code>timeout_ms</code></td></tr>
+<tr><td><strong>Signal readiness</strong></td><td>Wait primitive raises per-entity ready flags; backend writes flags into the waitset’s status arrays</td><td>Backend’s RX worker pulls bytes; the data is “ready” by virtue of being received</td></tr>
+<tr><td><strong>Dispatch user callback</strong></td><td>Executor’s <code>spin_once</code> picks one ready entity, calls <code>rmw_take</code>, fires its user callback</td><td>Backend’s RX worker / drive_io loop fires user callbacks while it has work to do</td></tr>
+<tr><td><strong>Per <code>spin_once</code></strong></td><td>Exactly one user callback runs (single-threaded executor)</td><td>All ready callbacks run before drive_io returns</td></tr>
+</tbody>
+</table>
+</div>
+<p>The upstream model separates <strong>wait</strong> (kernel-blockable) from
+<strong>dispatch</strong> (executor-controlled). nano-ros today fuses them — the
+backend handles both inside one call.</p>
+<h3 id="what-this-buys-what-this-costs"><a class="header" href="#what-this-buys-what-this-costs">What this buys, what this costs</a></h3>
+<p>Fusing wins on:</p>
+<ul>
+<li><strong>No per-spin waitset rebuild.</strong> Upstream’s
+<code>add_handles_to_wait_set</code> allocates and walks every entity each
+iteration. On a 100-entity executor at 1 kHz that’s 100 000
+per-second add/remove operations plus heap churn. nano-ros
+registers entities once; the backend tracks them statically.</li>
+<li><strong>No kernel-waitable per entity.</strong> Upstream’s per-entity ready
+flags need a per-entity wakeable resource (DDS Condition, eventfd,
+pipe). nano-ros’s backend uses one wait primitive per session;
+per-entity tracking is in user-space backend state.</li>
+<li><strong>Backend RX worker fires callbacks directly.</strong> zenoh-pico’s
+<code>_z_session_read_task</code> invokes user callbacks during its read.
+nano-ros’s <code>drive_io</code> drains it; upstream’s
+<code>rmw_zenoh</code> would still have to round-trip through <code>rmw_take</code>.</li>
+</ul>
+<p>Fusing costs on <strong>scheduling control</strong>. Upstream’s “one callback per
+<code>spin_once</code>” rule gives the executor an opportunity between every
+two callbacks to:</p>
+<ul>
+<li>Re-check timer expirations</li>
+<li>Re-check guard conditions</li>
+<li>Yield to higher-priority work (multi-threaded executor)</li>
+<li>Apply per-callback priority ordering</li>
+</ul>
+<p>nano-ros’s <code>drive_io</code> runs all ready callbacks back-to-back, then
+the spin loop processes timers + GCs <em>between</em> <code>drive_io</code> calls.
+For a 100 ms <code>drive_io</code> call that fires 10 sub callbacks in 80 ms,
+a timer that should have fired 5 ms in is delayed 75 ms.</p>
+<h3 id="where-this-fits-each-rtos-execution-model"><a class="header" href="#where-this-fits-each-rtos-execution-model">Where this fits each RTOS execution model</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Execution model</th><th>Fits drive_io today?</th></tr>
+</thead>
+<tbody>
+<tr><td>Cooperative single-task (one task does ROS, no priority competition)</td><td>Yes — no other task to preempt; entity scheduling fairness is moot</td></tr>
+<tr><td>Async / tokio / Embassy (futures, wakers)</td><td>Yes — <code>spin_async</code> drives futures; <code>drive_io</code> not used in the hot path</td></tr>
+<tr><td>Preemptive priority RTOS, ROS at one priority (FreeRTOS / ThreadX / Zephyr typical)</td><td><strong>Partial</strong> — kernel preemption from higher-priority tasks works; ROS-internal entity scheduling is batch-FIFO, timer expiries can be delayed by long sub callbacks at the same priority</td></tr>
+<tr><td>WCET-bounded real-time (RTIC, DO-178C)</td><td><strong>No</strong> — <code>drive_io</code> has unbounded execution time; callers needing per-callback WCET use the async path with explicit Waker integration instead</td></tr>
+<tr><td>Time-triggered cyclic</td><td><strong>No</strong> — no way to bound <code>drive_io</code> to a fixed wall-clock budget</td></tr>
+</tbody>
+</table>
+</div>
+<p>The “Yes” rows are where nano-ros ships today. The “Partial” / “No”
+rows are addressed by the work below.</p>
+<h3 id="how-rtos-cooperation-will-improve"><a class="header" href="#how-rtos-cooperation-will-improve">How RTOS cooperation will improve</a></h3>
+<p>Three forward-looking knobs land incrementally as the
+<code>drive_io</code> interface is extended. None breaks the default behaviour;
+each is opt-in for apps that need it.</p>
+<ol>
+<li>
+<p><strong>Backend-internal-deadline visibility.</strong> <code>Session::next_deadline_ms()</code>
+tells the executor when the backend’s next internal event
+(lease keepalive, heartbeat, ACK retransmit) is due. The executor
+caps <code>drive_io</code>’s timeout against it so the call doesn’t return
+sooner than expected on otherwise-quiet links. Saves one round-trip
+per quiet period.</p>
+</li>
+<li>
+<p><strong>Per-call user-callback cap.</strong> <code>drive_io</code> accepts
+<code>max_callbacks</code>: an upper bound on user callbacks fired per call.
+Setting it to <code>1</code> reproduces upstream’s “one callback per
+<code>spin_once</code>” pattern. The runtime spin loop calls <code>drive_io</code> again
+to drain pending work, with timer / GC checks between iterations.
+Closes the priority-inversion footgun for preemptive priority RTOS.</p>
+</li>
+<li>
+<p><strong>Wall-clock budget per call.</strong> <code>drive_io</code> accepts
+<code>time_budget_ms</code>: a wall-clock cap that bounds total time spent
+firing callbacks. Time-triggered cyclic apps configure a fixed
+slot per cycle; <code>drive_io</code> yields when the slot expires even if
+<code>max_callbacks</code> isn’t reached.</p>
+</li>
+</ol>
+<p>Once the cap (knob 2) ships, an additional refinement moves timer
+and guard-condition dispatch <em>into</em> the backend’s <code>drive_io</code> loop so
+the cap applies uniformly across all callback sources, not just
+backend-RX-driven ones. This unifies the dispatch path and makes
+<code>max_callbacks = 1</code> mean “exactly one callback per <code>spin_once</code>,
+regardless of whether it’s a sub, service, timer, or guard
+condition.”</p>
+<p>For the per-RTOS-model recommendations (which knobs to set, which
+defaults to use), see the <a href="#rtos-cooperation">RTOS Cooperation</a>
+concepts page.</p>
+<p><strong>Why drive_io and not rmw_wait.</strong> Cooperative single-task runtimes
+(bare-metal, single-threaded RTOS) have one execution context. A
+waitset abstraction with kernel-blockable per-entity resources
+doesn’t fit — there is no kernel to provide them. <code>drive_io</code> makes
+the cooperative model explicit and lets backends pick the most
+efficient wait primitive available on their target (kernel block on
+multi-threaded; cooperative yield + WFI on bare-metal). The
+scheduling-control trade-off the upstream waitset gives up is
+recovered through the optional knobs above for apps that need it.</p>
 <h2 id="5-serialization-cdr-bytes-not-typesupport"><a class="header" href="#5-serialization-cdr-bytes-not-typesupport">5. Serialization: CDR bytes, not typesupport</a></h2>
 <p><strong>Upstream.</strong> Publish/take APIs accept <em>typed</em> messages plus
 typesupport pointers, and each backend implements
@@ -6834,7 +7117,7 @@ Adding a code is a <code>&lt;nros/rmw_ret.h&gt;</code> header change only.</li>
 <p><strong>Why same style.</strong> Phase 102 deliberately moved closer to upstream
 on this point. Named constants make <code>switch</code> statements possible at
 call sites; bare negative ints don’t.</p>
-<h2 id="see-also-1"><a class="header" href="#see-also-1">See also</a></h2>
+<h2 id="see-also-2"><a class="header" href="#see-also-2">See also</a></h2>
 <ul>
 <li><a href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design</a> — deeper architectural rationale (heap,
 threading, dispatch model) shared across all the points above.</li>
@@ -8813,7 +9096,7 @@ header.</li>
 <p>Cross-target verification: the same probe runs for every target
 triple. There’s no per-platform branching — <code>size_of::&lt;T&gt;()</code> resolves
 to the right value at the target’s compile time.</p>
-<h2 id="see-also-2"><a class="header" href="#see-also-2">See also</a></h2>
+<h2 id="see-also-3"><a class="header" href="#see-also-3">See also</a></h2>
 <ul>
 <li><a href="https://github.com/jerry73204/nano-ros/blob/main/docs/roadmap/phase-87-nros-cpp-compile-time-sizes.md">Phase 87 roadmap</a> for the
 full design rationale and per-stage history.</li>
@@ -9739,7 +10022,7 @@ CONFIG_NET_SOCKETS=y
 </tbody>
 </table>
 </div>
-<h2 id="see-also-3"><a class="header" href="#see-also-3">See Also</a></h2>
+<h2 id="see-also-4"><a class="header" href="#see-also-4">See Also</a></h2>
 <ul>
 <li><a href="internals/message-generation.html">Message Generation</a> – Message generation details</li>
 <li><a href="#zephyr">Zephyr</a> – Zephyr workspace setup</li>

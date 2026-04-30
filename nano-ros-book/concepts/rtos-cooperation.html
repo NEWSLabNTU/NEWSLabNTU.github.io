@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>ESP32 - nano-ros Book</title>
+        <title>RTOS Cooperation - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,244 +177,190 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="esp32-c3-development-setup"><a class="header" href="#esp32-c3-development-setup">ESP32-C3 Development Setup</a></h1>
-<p>Guide for setting up ESP32-C3 development with nros.</p>
-<h2 id="hardware"><a class="header" href="#hardware">Hardware</a></h2>
+                        <h1 id="rtos-cooperation"><a class="header" href="#rtos-cooperation">RTOS Cooperation</a></h1>
+<p>nano-ros runs on platforms that span pure cooperative bare-metal
+through multi-task preemptive RTOS to fully async / Future-driven
+runtimes. The executor’s spin loop has to cooperate with each of
+these without imposing a single execution model on all of them.</p>
+<p>This page maps the common RTOS / runtime execution profiles to the
+configuration knobs the executor exposes. New apps pick a profile
+that matches their target’s scheduling discipline; the knobs
+translate that choice into bounded behaviour from <code>drive_io</code>.</p>
+<h2 id="the-execution-model-spectrum"><a class="header" href="#the-execution-model-spectrum">The execution model spectrum</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Board</th><th>Chip</th><th>Arch</th><th>WiFi</th><th>Price</th></tr>
+<tr><th>Model</th><th>Description</th><th>Example targets</th></tr>
 </thead>
 <tbody>
-<tr><td>ESP32-C3-DevKitC</td><td>ESP32-C3</td><td>RISC-V (RV32IMC)</td><td>802.11 b/g/n</td><td>~$8</td></tr>
-<tr><td>ESP32-C6-DevKitC</td><td>ESP32-C6</td><td>RISC-V (RV32IMAC)</td><td>WiFi 6</td><td>~$12</td></tr>
+<tr><td><strong>Cooperative single-task</strong></td><td>One task / thread does all ROS work. No preemption from other tasks (there are none, or they’re all lower priority). Yielding happens at task boundaries.</td><td>Bare-metal MPS2-AN385, single FreeRTOS task, single Zephyr thread</td></tr>
+<tr><td><strong>Preemptive priority</strong></td><td>ROS task runs at a fixed priority. Higher-priority tasks preempt mid-call by the kernel. ROS-internal entities (subs, timers, services, GCs) all share that priority — they don’t preempt each other.</td><td>Typical FreeRTOS / ThreadX / Zephyr deployment with worker tasks</td></tr>
+<tr><td><strong>WCET-bounded real-time</strong></td><td>Each “task” has a provable worst-case execution time. Tasks are dispatched directly from interrupts; no spin loops in the hot path.</td><td>RTIC, Embassy, avionics WCET-validated code</td></tr>
+<tr><td><strong>Time-triggered cyclic</strong></td><td>Fixed schedule. Each cycle does a fixed amount of work in a fixed time slot; ROS gets a fraction of the cycle and must yield.</td><td>DO-178C / IEC 61508 controller frames</td></tr>
+<tr><td><strong>Async runtime</strong></td><td>Futures registered with wakers; reactor drives. No spin loop visible to user code.</td><td>tokio, Embassy futures, custom async runtimes</td></tr>
 </tbody>
 </table>
 </div>
-<p>ESP32-C3 is the primary target. It uses upstream Rust (no forked compiler).</p>
-<h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
-<h3 id="1-rust-toolchains"><a class="header" href="#1-rust-toolchains">1. Rust Toolchains</a></h3>
-<pre><code class="language-bash"># Stable (for workspace builds)
-rustup target add riscv32imc-unknown-none-elf
-
-# Nightly (required for ESP32 examples -- build-std)
-rustup toolchain install nightly
-rustup component add --toolchain nightly rust-src
-</code></pre>
-<p>Or use <code>just setup</code> which installs both automatically.</p>
-<h3 id="2-risc-v-gcc-cross-compiler"><a class="header" href="#2-risc-v-gcc-cross-compiler">2. RISC-V GCC Cross-Compiler</a></h3>
-<p>Required for building zenoh-pico C library for RISC-V.</p>
-<pre><code class="language-bash"># Ubuntu/Debian
-sudo apt install gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
-</code></pre>
-<p>The <code>picolibc</code> package provides C standard library headers (<code>stdint.h</code>, <code>stdlib.h</code>, etc.) for bare-metal RISC-V targets.</p>
-<h3 id="3-flashing-tool"><a class="header" href="#3-flashing-tool">3. Flashing Tool</a></h3>
-<pre><code class="language-bash">cargo install espflash --locked
-</code></pre>
-<p>Also installed by <code>just setup</code>.</p>
-<h3 id="4-usb-permissions-linux"><a class="header" href="#4-usb-permissions-linux">4. USB Permissions (Linux)</a></h3>
-<p>ESP32-C3 dev boards use USB-UART bridges. Add a udev rule to avoid needing <code>sudo</code> for flashing:</p>
-<pre><code class="language-bash">sudo tee /etc/udev/rules.d/99-esp32.rules &lt;&lt; 'EOF'
-# CP210x (Silicon Labs USB-UART)
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE="0666"
-# CH340/CH341
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE="0666"
-# FTDI
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="0403", MODE="0666"
-# ESP32-C3 built-in USB-JTAG
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", MODE="0666"
-EOF
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-</code></pre>
-<h2 id="quick-start"><a class="header" href="#quick-start">Quick Start</a></h2>
-<h3 id="build-hello-world"><a class="header" href="#build-hello-world">Build Hello World</a></h3>
-<pre><code class="language-bash">cd examples/esp32/hello-world
-cargo +nightly build --release
-</code></pre>
-<h3 id="flash-to-device"><a class="header" href="#flash-to-device">Flash to Device</a></h3>
-<p>Connect the ESP32-C3 board via USB, then:</p>
-<pre><code class="language-bash">cd examples/esp32/hello-world
-cargo +nightly run --release
-</code></pre>
-<p>This builds, flashes, and opens the serial monitor (<code>espflash flash --monitor</code> is configured as the cargo runner).</p>
-<h3 id="build-zenoh-pico-for-risc-v"><a class="header" href="#build-zenoh-pico-for-risc-v">Build zenoh-pico for RISC-V</a></h3>
-<p>Required for networked nros examples (WiFi + zenoh):</p>
-<pre><code class="language-bash">just build-zenoh-pico-riscv
-</code></pre>
-<p>Output: <code>build/esp32-zenoh-pico/libzenohpico.a</code></p>
-<h2 id="project-structure"><a class="header" href="#project-structure">Project Structure</a></h2>
-<p>ESP32 support spans three directories:</p>
-<pre><code>packages/boards/
-├── nros-board-esp32/            # WiFi BSP crate (esp-radio + smoltcp)
-└── nros-board-esp32-qemu/       # QEMU BSP crate (OpenETH + smoltcp, no WiFi deps)
-
-packages/drivers/
-└── openeth-smoltcp/       # OpenCores Ethernet MAC driver for smoltcp
-
-packages/core/
-├── nros-platform-esp32/       # WiFi platform primitives (clock, memory, sleep, random)
-└── nros-platform-esp32-qemu/  # QEMU platform primitives
-
-examples/esp32/rust/
-├── zenoh/
-│   ├── talker/            # WiFi publisher (nros-board-esp32 BSP)
-│   └── listener/          # WiFi subscriber (nros-board-esp32 BSP)
-└── standalone/
-    └── hello-world/       # Minimal UART print (no nros deps)
-
-examples/qemu-esp32-baremetal/rust/zenoh/
-├── talker/                # QEMU publisher (nros-board-esp32-qemu BSP)
-└── listener/              # QEMU subscriber (nros-board-esp32-qemu BSP)
-</code></pre>
-<p>All ESP32 examples are standalone packages (excluded from the workspace) because they require nightly + <code>build-std</code>.</p>
-<h2 id="esp-hal-crate-versions"><a class="header" href="#esp-hal-crate-versions">ESP-HAL Crate Versions</a></h2>
-<p>These are the crate versions used for ESP32-C3 support (pinned with <code>~</code> to avoid breaking updates):</p>
+<h2 id="how-drive_io-behaves-by-default"><a class="header" href="#how-drive_io-behaves-by-default">How <code>drive_io</code> behaves by default</a></h2>
+<p>The executor’s <code>spin_once(timeout_ms)</code> calls
+<code>session.drive_io(...)</code> and lets it drain all ready I/O before
+returning. After <code>drive_io</code> returns, the executor processes any
+expired timers and triggered guard conditions. If 10 messages
+arrived during the wait, all 10 callbacks fire in a single
+<code>spin_once</code>, then timer / GC dispatch happens once afterwards.</p>
+<p>This is the right default for <strong>cooperative single-task</strong> apps and
+for <strong>async-runtime</strong> apps using <code>spin_async</code>. Both want
+throughput; neither benefits from per-callback scheduling
+opportunities.</p>
+<p>For the other three models, the default has trade-offs the
+configuration knobs address.</p>
+<h2 id="configuration-knobs"><a class="header" href="#configuration-knobs">Configuration knobs</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Crate</th><th>Version</th><th>Purpose</th></tr>
+<tr><th>Knob</th><th>Default</th><th>When to change</th></tr>
 </thead>
 <tbody>
-<tr><td><code>esp-hal</code></td><td>~1.0.0</td><td>Hardware Abstraction Layer</td></tr>
-<tr><td><code>esp-backtrace</code></td><td>~0.18.0</td><td>Panic handler + backtrace</td></tr>
-<tr><td><code>esp-println</code></td><td>~0.16.0</td><td>UART print output</td></tr>
-<tr><td><code>esp-bootloader-esp-idf</code></td><td>~0.4.0</td><td>ESP-IDF bootloader compatibility</td></tr>
+<tr><td><code>ExecutorConfig::max_callbacks_per_spin</code></td><td><code>usize::MAX</code> (drain all)</td><td>Set to <code>1</code> for upstream-<code>rclcpp</code>-style “one callback per <code>spin_once</code>” — gives the executor a chance to re-check timers / GCs / yield between callbacks</td></tr>
+<tr><td><code>ExecutorConfig::time_budget_per_spin_ms</code></td><td><code>None</code> (no budget)</td><td>Set to fixed wall-clock budget for time-triggered apps — <code>drive_io</code> returns when the budget expires regardless of pending work</td></tr>
+<tr><td><code>ExecutorConfig::spin_period_ms</code></td><td>platform-dependent</td><td>Tighten for lower worst-case latency; loosen for less CPU spent in the spin loop</td></tr>
 </tbody>
 </table>
 </div>
-<p>All crates require the <code>esp32c3</code> feature flag. The <code>unstable</code> feature on <code>esp-hal</code> is needed for <code>delay</code> and other commonly-used modules.</p>
-<h2 id="cargo-configuration"><a class="header" href="#cargo-configuration">Cargo Configuration</a></h2>
-<p>Each ESP32 example needs <code>.cargo/config.toml</code>:</p>
-<pre><code class="language-toml">[target.riscv32imc-unknown-none-elf]
-runner = "espflash flash --monitor"
-rustflags = ["-C", "link-arg=-Tlinkall.x", "-C", "force-frame-pointers"]
-
-[build]
-target = "riscv32imc-unknown-none-elf"
-
-[unstable]
-build-std = ["core"]
-</code></pre>
-<p>Key points:</p>
-<ul>
-<li><code>build-std = ["core"]</code> requires nightly Rust</li>
-<li>Add <code>"alloc"</code> to <code>build-std</code> if heap allocation is needed (WiFi examples)</li>
-<li><code>-Tlinkall.x</code> is the RISC-V linker script from <code>esp-riscv-rt</code></li>
-</ul>
-<h2 id="qemu-esp32-c3-testing"><a class="header" href="#qemu-esp32-c3-testing">QEMU ESP32-C3 Testing</a></h2>
-<p>Espressif’s QEMU fork emulates ESP32-C3 with OpenCores Ethernet, enabling full E2E testing without physical hardware.</p>
-<h3 id="install-espressif-qemu"><a class="header" href="#install-espressif-qemu">Install Espressif QEMU</a></h3>
-<pre><code class="language-bash">just setup                                    # Includes QEMU check
-./scripts/esp32/install-espressif-qemu.sh     # Or install manually
-</code></pre>
-<p>Provides <code>qemu-system-riscv32</code> with the <code>-M esp32c3</code> machine type.</p>
-<h3 id="build-and-run-qemu-examples"><a class="header" href="#build-and-run-qemu-examples">Build and Run QEMU Examples</a></h3>
-<pre><code class="language-bash"># Cross-compile zenoh-pico for RISC-V (one-time)
-just build-zenoh-pico-riscv
-
-# Build QEMU examples + create flash images
-just build-examples-esp32-qemu
-
-# Boot test (no networking)
-just test-qemu-esp32-basic
-</code></pre>
-<h3 id="networked-e2e-tests"><a class="header" href="#networked-e2e-tests">Networked E2E Tests</a></h3>
-<p>The QEMU tests use TAP networking to connect ESP32-C3 instances through zenohd:</p>
-<pre><code>┌──────────────────┐         ┌─────────┐         ┌──────────────────┐
-│ QEMU ESP32-C3    │  TAP    │ zenohd  │  TAP    │ QEMU ESP32-C3    │
-│  talker          │◄───────►│ (host)  │◄───────►│  listener        │
-│  192.0.3.10      │  eth    │192.0.3.1│  eth    │  192.0.3.11      │
-│ OpenETH + smoltcp│         │         │         │ OpenETH + smoltcp│
-└──────────────────┘         └─────────┘         └──────────────────┘
-</code></pre>
-<p>Run the full test suite:</p>
-<pre><code class="language-bash"># Setup TAP network (one-time, requires sudo)
-sudo ./scripts/qemu/setup-network.sh
-
-# Run all ESP32-C3 QEMU tests (builds zenohd automatically)
-just test-qemu-esp32
-</code></pre>
-<p>Tests include boot verification, ESP32-to-ESP32 pub/sub, and ESP32-to-native interop.</p>
-<h3 id="key-notes"><a class="header" href="#key-notes">Key Notes</a></h3>
-<ul>
-<li>Requires <code>espflash</code> for flash image creation (<code>espflash save-image --merge</code>)</li>
-<li>Uses <code>-icount 3</code> for instruction timing (simulates 125MHz)</li>
-<li>Must use zenohd from submodule (<code>just build-zenohd</code>) – system zenohd may be incompatible</li>
-<li>Each QEMU peer uses a separate TAP device (<code>tap-qemu0</code>, <code>tap-qemu1</code>)</li>
-</ul>
-<h2 id="wifi-bsp-examples"><a class="header" href="#wifi-bsp-examples">WiFi BSP Examples</a></h2>
-<p>The WiFi examples use the <code>nros-board-esp32</code> BSP crate, which handles WiFi initialization, DHCP, and zenoh session setup.</p>
-<h3 id="build"><a class="header" href="#build">Build</a></h3>
-<p>WiFi credentials are passed as environment variables:</p>
-<pre><code class="language-bash">SSID=MyNetwork PASSWORD=secret just build-examples-esp32
-</code></pre>
-<h3 id="flash-and-monitor"><a class="header" href="#flash-and-monitor">Flash and Monitor</a></h3>
-<p>Connect the ESP32-C3 board via USB, then flash:</p>
-<pre><code class="language-bash">cd examples/esp32/rust/zenoh/talker
-espflash flash --monitor target/riscv32imc-unknown-none-elf/release/esp32-bsp-talker
-</code></pre>
-<h3 id="bsp-api"><a class="header" href="#bsp-api">BSP API</a></h3>
-<p>The <code>nros-board-esp32</code> crate provides <code>run_node()</code> for a minimal setup:</p>
+<p>Backends opt into one additional behaviour automatically:
+<code>Session::next_deadline_ms()</code> tells the executor about the backend’s
+next internal event (lease keepalive, heartbeat). The executor caps
+<code>drive_io</code>’s timeout against it. No app configuration; transparent
+optimization.</p>
+<h2 id="per-model-recommended-configuration"><a class="header" href="#per-model-recommended-configuration">Per-model recommended configuration</a></h2>
+<h3 id="cooperative-single-task"><a class="header" href="#cooperative-single-task">Cooperative single-task</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>use nros_board_esp32::prelude::*;
-
-run_node(
-    WifiConfig::new("MyNetwork", "password123"),
-    |node| {
-        let publisher = node.create_publisher("demo/esp32")?;
-        loop {
-            node.spin_once(1000);
-            publisher.publish(&amp;data)?;
-        }
-    },
-)
+</span>ExecutorConfig {
+    max_callbacks_per_spin: usize::MAX,    // default — drain all
+    time_budget_per_spin_ms: None,         // default — no budget
+    spin_period_ms: 1,                     // tight loop on the dedicated task
+    ..Default::default()
+}
 <span class="boring">}</span></code></pre>
-<p>For advanced configuration (static IP, custom zenoh locator):</p>
+<p>Drain everything; one task, no fairness concern. Spin tightly to
+keep latency low.</p>
+<h3 id="preemptive-priority-rtos--recommended"><a class="header" href="#preemptive-priority-rtos--recommended">Preemptive priority RTOS — recommended</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>run_node_with_config(
-    WifiConfig::new("MyNetwork", "password123"),
-    NodeConfig::new()
-        .zenoh_locator("tcp/192.168.1.1:7447")
-        .node_name("esp32_sensor")
-        .ip_mode(IpMode::Dhcp),
-    |node| { /* ... */ },
-)
+</span>ExecutorConfig {
+    max_callbacks_per_spin: 1,             // one callback per spin_once
+    time_budget_per_spin_ms: None,
+    spin_period_ms: 1,
+    ..Default::default()
+}
 <span class="boring">}</span></code></pre>
-<p>See <code>packages/boards/nros-board-esp32/</code> for full API documentation.</p>
-<h3 id="requirements"><a class="header" href="#requirements">Requirements</a></h3>
+<p><code>max_callbacks_per_spin = 1</code> matches upstream’s <code>rclcpp</code>
+single-threaded executor pattern. Each <code>spin_once</code> fires one
+callback and then re-checks timers + GCs. ROS-internal entities
+share the task priority, but the spin-loop iteration is the
+scheduling unit; timer expiries are bounded by <em>one</em> callback’s
+WCET, not the sum across all ready callbacks.</p>
+<p>If max-callback dispatch latency is still too high in this profile
+(e.g., a single callback is slow), the next refinement is moving
+timer and guard-condition dispatch <em>into</em> <code>drive_io</code>’s loop so the
+<code>max_callbacks = 1</code> cap covers them too. This is the path where one
+slow sub callback no longer delays a timer that should have fired
+mid-callback. (Phase 106 work.)</p>
+<h3 id="wcet-bounded-real-time-rtic--embassy"><a class="header" href="#wcet-bounded-real-time-rtic--embassy">WCET-bounded real-time (RTIC / Embassy)</a></h3>
+<p>Don’t use the spin loop. Use the async path:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let executor = Executor::open_async(&amp;config)?;
+let sub = node.create_subscription_async::&lt;MyMsg&gt;("/topic")?;
+loop {
+    let msg = sub.recv().await?;        // suspends; waker integration
+    handle(msg);
+}
+<span class="boring">}</span></code></pre>
+<p>The async path doesn’t go through <code>drive_io</code> at all. Subscriptions
+register a <code>Waker</code>; the backend’s RX path wakes the waker; the
+async runtime schedules the receiving task. Per-task WCET analysis
+applies to each <code>recv().await</code> continuation, not to a spin loop.</p>
+<h3 id="time-triggered-cyclic"><a class="header" href="#time-triggered-cyclic">Time-triggered cyclic</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>ExecutorConfig {
+    max_callbacks_per_spin: usize::MAX,    // not the bottleneck here
+    time_budget_per_spin_ms: Some(5),      // 5 ms ROS budget per cycle
+    spin_period_ms: 5,                     // matches the cycle's ROS slot
+    ..Default::default()
+}
+<span class="boring">}</span></code></pre>
+<p>The cycle gives ROS a fixed wall-clock slot. <code>time_budget_per_spin_ms</code>
+bounds time spent in <code>drive_io</code> regardless of pending work. The
+backend respects the budget by checking elapsed wall-clock between
+callbacks and returning when exceeded. Pending work resumes next
+cycle.</p>
+<h3 id="async-runtime"><a class="header" href="#async-runtime">Async runtime</a></h3>
+<p><code>drive_io</code> not used in the hot path. The executor’s <code>spin_async</code>
+drives futures via wakers; <code>drive_io</code> becomes a polling tick
+internally with negligible overhead.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>executor.spin_async().await
+<span class="boring">}</span></code></pre>
+<p>No knobs apply.</p>
+<h2 id="trade-offs-at-a-glance"><a class="header" href="#trade-offs-at-a-glance">Trade-offs at a glance</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Configuration</th><th>Throughput</th><th>Per-callback latency</th><th>Timer-callback fairness</th><th>Code-size cost</th></tr>
+</thead>
+<tbody>
+<tr><td><code>max_callbacks = MAX</code> (default)</td><td>High</td><td>Bounded by ALL ready callbacks’ total WCET</td><td>Poor under load</td><td>Smallest</td></tr>
+<tr><td><code>max_callbacks = 1</code></td><td>Slightly lower (more spin loop iterations)</td><td>Bounded by ONE callback’s WCET</td><td>Good</td><td>Same — the cap is just an integer</td></tr>
+<tr><td><code>time_budget = Some(N)</code></td><td>Lower (clock reads per callback)</td><td>Bounded by N ms wall clock</td><td>Good if N tight, fair if N loose</td><td>One clock read per callback (~10–50 ns)</td></tr>
+<tr><td>async / <code>spin_async</code></td><td>Per-future</td><td>Per-future Future poll</td><td>Cooperative — futures yield voluntarily</td><td>Async runtime cost</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="backends-and-their-wait-primitives"><a class="header" href="#backends-and-their-wait-primitives">Backends and their wait primitives</a></h2>
+<p><code>drive_io</code>’s sleep behaviour is backend- and platform-dependent. The
+spin loop’s “where does the thread sleep” question maps as:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Platform</th><th>Sleep primitive in drive_io</th><th>When CPU is sleeping</th></tr>
+</thead>
+<tbody>
+<tr><td>POSIX</td><td><code>select</code> / <code>epoll_wait</code> with deadline</td><td>Inside drive_io</td></tr>
+<tr><td>Zephyr</td><td><code>k_poll</code> / condvar with deadline</td><td>Inside drive_io</td></tr>
+<tr><td>FreeRTOS</td><td><code>xSemaphoreTake(g_spin_sem, ticks)</code></td><td>Inside drive_io</td></tr>
+<tr><td>NuttX</td><td><code>sem_timedwait</code> with absolute deadline</td><td>Inside drive_io</td></tr>
+<tr><td>ThreadX</td><td><code>tx_event_flags_get(..., TX_OR, ..., ticks)</code></td><td>Inside drive_io</td></tr>
+<tr><td>Bare-metal smoltcp + <code>BoardIdle</code></td><td>smoltcp poll + <code>wfi()</code> between iterations</td><td>Outside drive_io (in the spin loop’s idle hook)</td></tr>
+<tr><td>Bare-metal smoltcp without <code>BoardIdle</code></td><td>smoltcp poll, busy loop</td><td>Nowhere — CPU spins</td></tr>
+</tbody>
+</table>
+</div>
+<p>In all cases the user-visible API is <code>Executor::spin_once(timeout)</code>;
+the platform-correct sleep happens transparently underneath.</p>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
 <ul>
-<li>Physical ESP32-C3 board (WiFi testing is not available in QEMU)</li>
-<li>WiFi network reachable by both ESP32 and the zenohd router host</li>
-<li>zenohd running on a host the ESP32 can reach over WiFi</li>
+<li><a href="../design/rmw.html">RMW API Design</a> — the architectural reasons
+the runtime / RMW boundary is shaped the way it is.</li>
+<li><a href="../design/rmw-vs-upstream.html">RMW API: Differences from upstream <code>rmw.h</code></a>
+Section 4 — the <code>drive_io</code> vs <code>rmw_wait</code> comparison this page
+expands on.</li>
+<li><a href="no-std.html">no_std Support</a> — heap and threading constraints that
+shape the cooperative model.</li>
 </ul>
-<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
-<h3 id="error-no-matching-package-found-for-esp-hal"><a class="header" href="#error-no-matching-package-found-for-esp-hal"><code>error: no matching package found</code> for esp-hal</a></h3>
-<p>Ensure you’re using nightly: <code>cargo +nightly build --release</code></p>
-<h3 id="errore0463-cant-find-crate-for-core"><a class="header" href="#errore0463-cant-find-crate-for-core"><code>error[E0463]: can't find crate for core</code></a></h3>
-<p>The <code>build-std</code> config requires nightly and <code>rust-src</code>:</p>
-<pre><code class="language-bash">rustup component add --toolchain nightly rust-src
-</code></pre>
-<h3 id="permission-denied-when-flashing"><a class="header" href="#permission-denied-when-flashing"><code>Permission denied</code> when flashing</a></h3>
-<p>Add the udev rules listed above, or use <code>sudo</code> temporarily:</p>
-<pre><code class="language-bash">sudo cargo +nightly run --release
-</code></pre>
-<h3 id="zenoh-pico-build-fails-with-stdinth-no-such-file-or-directory"><a class="header" href="#zenoh-pico-build-fails-with-stdinth-no-such-file-or-directory">zenoh-pico build fails with <code>stdint.h: No such file or directory</code></a></h3>
-<p>Install the picolibc C library headers:</p>
-<pre><code class="language-bash">sudo apt install picolibc-riscv64-unknown-elf
-</code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../getting-started/bare-metal.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../concepts/platform-model.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../getting-started/ros2-interop.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../porting/overview.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -424,11 +370,11 @@ run_node(
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../getting-started/bare-metal.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../concepts/platform-model.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../getting-started/ros2-interop.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../porting/overview.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
