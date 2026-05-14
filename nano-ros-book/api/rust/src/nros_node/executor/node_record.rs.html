@@ -1,0 +1,303 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `/home/runner/work/nano-ros/nano-ros/packages/core/nros-node/src/executor/node_record.rs`."><title>node_record.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-b7b9f40b.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="nros_node" data-themes="" data-resource-suffix="" data-rustdoc-version="1.95.0 (59807616e 2026-04-14)" data-channel="1.95.0" data-search-js="search-63369b7b.js" data-stringdex-js="stringdex-b897f86f.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../../../static.files/src-script-813739b1.js"></script><script defer src="../../../src-files.js"></script><script defer src="../../../static.files/main-5013f961.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">nros_node/executor/</div>node_record.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-3"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! Phase 104.C.2 — multi-Node-per-Executor storage.
+<a href=#2 id=2 data-nosnippet>2</a>//!
+<a href=#3 id=3 data-nosnippet>3</a>//! Mirrors the `rclcpp` pattern where a single `Executor` holds N
+<a href=#4 id=4 data-nosnippet>4</a>//! `Node`s via `add_node(...)`. Each Node carries its own
+<a href=#5 id=5 data-nosnippet>5</a>//! name/namespace + a reference to the Session that backs it +
+<a href=#6 id=6 data-nosnippet>6</a>//! a default `SchedContext` (Phase 110) handles inherit unless
+<a href=#7 id=7 data-nosnippet>7</a>//! overridden.
+<a href=#8 id=8 data-nosnippet>8</a>//!
+<a href=#9 id=9 data-nosnippet>9</a>//! For Phase 104.C.2 we land the *storage scaffold* + the builder
+<a href=#10 id=10 data-nosnippet>10</a>//! API. Multi-Session-per-Executor dispatch is a follow-up
+<a href=#11 id=11 data-nosnippet>11</a>//! (Phase 104.C.3) — today every Node in this list resolves to the
+<a href=#12 id=12 data-nosnippet>12</a>//! Executor's primary session, which means `node_builder.rmw(name)`
+<a href=#13 id=13 data-nosnippet>13</a>//! only accepts the same backend the Executor was opened against.
+<a href=#14 id=14 data-nosnippet>14</a>//! Bridge use cases (two RMW backends concurrent in one Executor)
+<a href=#15 id=15 data-nosnippet>15</a>//! light up when 104.C.3 adds the per-Node session ref.
+<a href=#16 id=16 data-nosnippet>16</a>
+<a href=#17 id=17 data-nosnippet>17</a></span><span class="kw">use </span>super::{sched_context::SchedContextId, types::NodeError};
+<a href=#18 id=18 data-nosnippet>18</a>
+<a href=#19 id=19 data-nosnippet>19</a><span class="doccomment">/// Opaque handle returned by `Executor::node_builder(...).build()`.
+<a href=#20 id=20 data-nosnippet>20</a>/// Used in 104.C.3+ to disambiguate handle ownership when multiple
+<a href=#21 id=21 data-nosnippet>21</a>/// Nodes coexist in one Executor.
+<a href=#22 id=22 data-nosnippet>22</a></span><span class="attr">#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+<a href=#23 id=23 data-nosnippet>23</a></span><span class="kw">pub struct </span>NodeId(<span class="kw">pub</span>(<span class="kw">crate</span>) u8);
+<a href=#24 id=24 data-nosnippet>24</a>
+<a href=#25 id=25 data-nosnippet>25</a><span class="kw">impl </span>NodeId {
+<a href=#26 id=26 data-nosnippet>26</a>    <span class="doccomment">/// Reserved id for the implicit "primary" Node that mirrors the
+<a href=#27 id=27 data-nosnippet>27</a>    /// pre-Phase 104.C.2 single-Node Executor identity.
+<a href=#28 id=28 data-nosnippet>28</a>    </span><span class="kw">pub const </span>PRIMARY: NodeId = NodeId(<span class="number">0</span>);
+<a href=#29 id=29 data-nosnippet>29</a>
+<a href=#30 id=30 data-nosnippet>30</a>    <span class="doccomment">/// Numeric index into the Executor's node table.
+<a href=#31 id=31 data-nosnippet>31</a>    </span><span class="kw">pub fn </span>index(<span class="self">self</span>) -&gt; usize {
+<a href=#32 id=32 data-nosnippet>32</a>        <span class="self">self</span>.<span class="number">0 </span><span class="kw">as </span>usize
+<a href=#33 id=33 data-nosnippet>33</a>    }
+<a href=#34 id=34 data-nosnippet>34</a>
+<a href=#35 id=35 data-nosnippet>35</a>    <span class="doccomment">/// Phase 104.C.8.b / C.9.b — build a `NodeId` from a raw `u8` for
+<a href=#36 id=36 data-nosnippet>36</a>    /// FFI consumers that store the index in their own struct
+<a href=#37 id=37 data-nosnippet>37</a>    /// (`nros_node_t.node_id`, `nros_cpp_node_t.node_id`). The value
+<a href=#38 id=38 data-nosnippet>38</a>    /// is not validated against the executor's `nodes` table — the
+<a href=#39 id=39 data-nosnippet>39</a>    /// caller is responsible for only constructing ids that
+<a href=#40 id=40 data-nosnippet>40</a>    /// `node_builder(...).build()` previously returned. Out-of-range
+<a href=#41 id=41 data-nosnippet>41</a>    /// ids fail loudly at the next `with_node` / `_on(...)` call.
+<a href=#42 id=42 data-nosnippet>42</a>    </span><span class="kw">pub const fn </span>from_raw(raw: u8) -&gt; NodeId {
+<a href=#43 id=43 data-nosnippet>43</a>        NodeId(raw)
+<a href=#44 id=44 data-nosnippet>44</a>    }
+<a href=#45 id=45 data-nosnippet>45</a>
+<a href=#46 id=46 data-nosnippet>46</a>    <span class="doccomment">/// Raw u8 form for FFI persistence.
+<a href=#47 id=47 data-nosnippet>47</a>    </span><span class="kw">pub const fn </span>raw(<span class="self">self</span>) -&gt; u8 {
+<a href=#48 id=48 data-nosnippet>48</a>        <span class="self">self</span>.<span class="number">0
+<a href=#49 id=49 data-nosnippet>49</a>    </span>}
+<a href=#50 id=50 data-nosnippet>50</a>}
+<a href=#51 id=51 data-nosnippet>51</a>
+<a href=#52 id=52 data-nosnippet>52</a><span class="doccomment">/// Per-Node metadata stored inside the Executor.
+<a href=#53 id=53 data-nosnippet>53</a>///
+<a href=#54 id=54 data-nosnippet>54</a>/// Phase 104.C.2 keeps the shape minimal — name, namespace,
+<a href=#55 id=55 data-nosnippet>55</a>/// default SchedContext, optional rmw-name for diagnostics. Future
+<a href=#56 id=56 data-nosnippet>56</a>/// items: per-Node session reference (104.C.3), per-Node liveliness
+<a href=#57 id=57 data-nosnippet>57</a>/// state, per-Node parameter overrides.
+<a href=#58 id=58 data-nosnippet>58</a></span><span class="kw">pub struct </span>NodeRecord {
+<a href=#59 id=59 data-nosnippet>59</a>    <span class="kw">pub </span>name: heapless::String&lt;<span class="number">64</span>&gt;,
+<a href=#60 id=60 data-nosnippet>60</a>    <span class="kw">pub </span>namespace: heapless::String&lt;<span class="number">64</span>&gt;,
+<a href=#61 id=61 data-nosnippet>61</a>    <span class="doccomment">/// RMW backend the Node was created against. `None` for the
+<a href=#62 id=62 data-nosnippet>62</a>    /// implicit primary Node populated from `Executor::open`.
+<a href=#63 id=63 data-nosnippet>63</a>    </span><span class="kw">pub </span>rmw_name: <span class="prelude-ty">Option</span>&lt;heapless::String&lt;<span class="number">32</span>&gt;&gt;,
+<a href=#64 id=64 data-nosnippet>64</a>    <span class="doccomment">/// Per-Node locator override. `None` = use the Executor's
+<a href=#65 id=65 data-nosnippet>65</a>    /// session-level locator.
+<a href=#66 id=66 data-nosnippet>66</a>    </span><span class="kw">pub </span>locator: <span class="prelude-ty">Option</span>&lt;heapless::String&lt;<span class="number">128</span>&gt;&gt;,
+<a href=#67 id=67 data-nosnippet>67</a>    <span class="doccomment">/// Default `SchedContext` for handles created via this Node.
+<a href=#68 id=68 data-nosnippet>68</a>    /// Handles may override per-call. `SchedContextId::default()` =
+<a href=#69 id=69 data-nosnippet>69</a>    /// the executor's auto-created Fifo slot (slot 0).
+<a href=#70 id=70 data-nosnippet>70</a>    </span><span class="kw">pub </span>default_sched: SchedContextId,
+<a href=#71 id=71 data-nosnippet>71</a>    <span class="doccomment">/// Phase 104.C.3 — session-slot index. `0` resolves to the
+<a href=#72 id=72 data-nosnippet>72</a>    /// Executor's primary `session` field; `N &gt;= 1` resolves to
+<a href=#73 id=73 data-nosnippet>73</a>    /// `extra_sessions[N-1]`. Each Node may bind to a different
+<a href=#74 id=74 data-nosnippet>74</a>    /// session, enabling multi-RMW bridges in one Executor.
+<a href=#75 id=75 data-nosnippet>75</a>    </span><span class="kw">pub </span>session_idx: u8,
+<a href=#76 id=76 data-nosnippet>76</a>}
+<a href=#77 id=77 data-nosnippet>77</a>
+<a href=#78 id=78 data-nosnippet>78</a><span class="kw">impl </span>NodeRecord {
+<a href=#79 id=79 data-nosnippet>79</a>    <span class="doccomment">/// Construct the implicit "primary" NodeRecord that mirrors the
+<a href=#80 id=80 data-nosnippet>80</a>    /// Executor's pre-104.C.2 single-Node identity. Currently unused
+<a href=#81 id=81 data-nosnippet>81</a>    /// (the primary Node is implicit until 104.C.3 wires per-Node
+<a href=#82 id=82 data-nosnippet>82</a>    /// dispatch); kept here for the upcoming migration where every
+<a href=#83 id=83 data-nosnippet>83</a>    /// Executor will have an explicit entry at slot 0.
+<a href=#84 id=84 data-nosnippet>84</a>    </span><span class="attr">#[allow(dead_code)]
+<a href=#85 id=85 data-nosnippet>85</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>new_primary(name: heapless::String&lt;<span class="number">64</span>&gt;, namespace: heapless::String&lt;<span class="number">64</span>&gt;) -&gt; <span class="self">Self </span>{
+<a href=#86 id=86 data-nosnippet>86</a>        <span class="self">Self </span>{
+<a href=#87 id=87 data-nosnippet>87</a>            name,
+<a href=#88 id=88 data-nosnippet>88</a>            namespace,
+<a href=#89 id=89 data-nosnippet>89</a>            rmw_name: <span class="prelude-val">None</span>,
+<a href=#90 id=90 data-nosnippet>90</a>            locator: <span class="prelude-val">None</span>,
+<a href=#91 id=91 data-nosnippet>91</a>            default_sched: SchedContextId(<span class="number">0</span>),
+<a href=#92 id=92 data-nosnippet>92</a>            session_idx: <span class="number">0</span>,
+<a href=#93 id=93 data-nosnippet>93</a>        }
+<a href=#94 id=94 data-nosnippet>94</a>    }
+<a href=#95 id=95 data-nosnippet>95</a>}
+<a href=#96 id=96 data-nosnippet>96</a>
+<a href=#97 id=97 data-nosnippet>97</a><span class="doccomment">/// Builder returned by `Executor::node_builder(name)`. Chainable
+<a href=#98 id=98 data-nosnippet>98</a>/// configuration; `.build()` registers the Node with the Executor
+<a href=#99 id=99 data-nosnippet>99</a>/// and returns a [`NodeId`].
+<a href=#100 id=100 data-nosnippet>100</a>///
+<a href=#101 id=101 data-nosnippet>101</a>/// rclcpp-aligned API. Mirrors:
+<a href=#102 id=102 data-nosnippet>102</a>///
+<a href=#103 id=103 data-nosnippet>103</a>/// ```ignore
+<a href=#104 id=104 data-nosnippet>104</a>/// rclcpp::Node::make_shared("my_node",
+<a href=#105 id=105 data-nosnippet>105</a>///     rclcpp::NodeOptions().use_intra_process_comms(true))
+<a href=#106 id=106 data-nosnippet>106</a>/// ```
+<a href=#107 id=107 data-nosnippet>107</a>///
+<a href=#108 id=108 data-nosnippet>108</a>/// Where rclcpp uses a single `NodeOptions` struct, we expose the
+<a href=#109 id=109 data-nosnippet>109</a>/// individual setters directly on the builder — fewer cycles when
+<a href=#110 id=110 data-nosnippet>110</a>/// the user only needs one option.
+<a href=#111 id=111 data-nosnippet>111</a></span><span class="kw">pub struct </span>NodeBuilder&lt;<span class="lifetime">'a</span>, <span class="lifetime">'cfg</span>&gt; {
+<a href=#112 id=112 data-nosnippet>112</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) executor: <span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span><span class="kw">super</span>::spin::Executor,
+<a href=#113 id=113 data-nosnippet>113</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) name: <span class="kw-2">&amp;</span><span class="lifetime">'cfg </span>str,
+<a href=#114 id=114 data-nosnippet>114</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) namespace: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'cfg </span>str&gt;,
+<a href=#115 id=115 data-nosnippet>115</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) rmw_name: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'cfg </span>str&gt;,
+<a href=#116 id=116 data-nosnippet>116</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) locator: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'cfg </span>str&gt;,
+<a href=#117 id=117 data-nosnippet>117</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) domain_id: <span class="prelude-ty">Option</span>&lt;u32&gt;,
+<a href=#118 id=118 data-nosnippet>118</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) sched: <span class="prelude-ty">Option</span>&lt;SchedContextId&gt;,
+<a href=#119 id=119 data-nosnippet>119</a>}
+<a href=#120 id=120 data-nosnippet>120</a>
+<a href=#121 id=121 data-nosnippet>121</a><span class="kw">impl</span>&lt;<span class="lifetime">'a</span>, <span class="lifetime">'cfg</span>&gt; NodeBuilder&lt;<span class="lifetime">'a</span>, <span class="lifetime">'cfg</span>&gt; {
+<a href=#122 id=122 data-nosnippet>122</a>    <span class="doccomment">/// Select an RMW backend by name. `name` must match a backend
+<a href=#123 id=123 data-nosnippet>123</a>    /// registered via `nros_rmw_cffi_register_named` (Phase 104.B.2).
+<a href=#124 id=124 data-nosnippet>124</a>    ///
+<a href=#125 id=125 data-nosnippet>125</a>    /// In Phase 104.C.2 (current), the name must match the backend
+<a href=#126 id=126 data-nosnippet>126</a>    /// the Executor was opened against — bridge mode lands in
+<a href=#127 id=127 data-nosnippet>127</a>    /// 104.C.3 when per-Node sessions are wired. Passing a name
+<a href=#128 id=128 data-nosnippet>128</a>    /// that doesn't match the Executor's session returns
+<a href=#129 id=129 data-nosnippet>129</a>    /// `Err(NodeError::BackendMismatch)` from `.build()`.
+<a href=#130 id=130 data-nosnippet>130</a>    </span><span class="kw">pub fn </span>rmw(<span class="kw-2">mut </span><span class="self">self</span>, name: <span class="kw-2">&amp;</span><span class="lifetime">'cfg </span>str) -&gt; <span class="self">Self </span>{
+<a href=#131 id=131 data-nosnippet>131</a>        <span class="self">self</span>.rmw_name = <span class="prelude-val">Some</span>(name);
+<a href=#132 id=132 data-nosnippet>132</a>        <span class="self">self
+<a href=#133 id=133 data-nosnippet>133</a>    </span>}
+<a href=#134 id=134 data-nosnippet>134</a>
+<a href=#135 id=135 data-nosnippet>135</a>    <span class="doccomment">/// Override the locator for this Node's session. Empty / unset =
+<a href=#136 id=136 data-nosnippet>136</a>    /// use the Executor's locator.
+<a href=#137 id=137 data-nosnippet>137</a>    </span><span class="kw">pub fn </span>locator(<span class="kw-2">mut </span><span class="self">self</span>, locator: <span class="kw-2">&amp;</span><span class="lifetime">'cfg </span>str) -&gt; <span class="self">Self </span>{
+<a href=#138 id=138 data-nosnippet>138</a>        <span class="self">self</span>.locator = <span class="prelude-val">Some</span>(locator);
+<a href=#139 id=139 data-nosnippet>139</a>        <span class="self">self
+<a href=#140 id=140 data-nosnippet>140</a>    </span>}
+<a href=#141 id=141 data-nosnippet>141</a>
+<a href=#142 id=142 data-nosnippet>142</a>    <span class="doccomment">/// Override the domain id for this Node's session.
+<a href=#143 id=143 data-nosnippet>143</a>    </span><span class="kw">pub fn </span>domain_id(<span class="kw-2">mut </span><span class="self">self</span>, domain_id: u32) -&gt; <span class="self">Self </span>{
+<a href=#144 id=144 data-nosnippet>144</a>        <span class="self">self</span>.domain_id = <span class="prelude-val">Some</span>(domain_id);
+<a href=#145 id=145 data-nosnippet>145</a>        <span class="self">self
+<a href=#146 id=146 data-nosnippet>146</a>    </span>}
+<a href=#147 id=147 data-nosnippet>147</a>
+<a href=#148 id=148 data-nosnippet>148</a>    <span class="doccomment">/// Namespace for handles created via this Node. Empty = "/".
+<a href=#149 id=149 data-nosnippet>149</a>    </span><span class="kw">pub fn </span>namespace(<span class="kw-2">mut </span><span class="self">self</span>, namespace: <span class="kw-2">&amp;</span><span class="lifetime">'cfg </span>str) -&gt; <span class="self">Self </span>{
+<a href=#150 id=150 data-nosnippet>150</a>        <span class="self">self</span>.namespace = <span class="prelude-val">Some</span>(namespace);
+<a href=#151 id=151 data-nosnippet>151</a>        <span class="self">self
+<a href=#152 id=152 data-nosnippet>152</a>    </span>}
+<a href=#153 id=153 data-nosnippet>153</a>
+<a href=#154 id=154 data-nosnippet>154</a>    <span class="doccomment">/// Default [`SchedContext`](super::sched_context::SchedContext) for
+<a href=#155 id=155 data-nosnippet>155</a>    /// handles registered via this Node. Phase 110 integration —
+<a href=#156 id=156 data-nosnippet>156</a>    /// handles inherit this unless they pass their own SchedContext
+<a href=#157 id=157 data-nosnippet>157</a>    /// at registration time.
+<a href=#158 id=158 data-nosnippet>158</a>    </span><span class="kw">pub fn </span>sched(<span class="kw-2">mut </span><span class="self">self</span>, sched: SchedContextId) -&gt; <span class="self">Self </span>{
+<a href=#159 id=159 data-nosnippet>159</a>        <span class="self">self</span>.sched = <span class="prelude-val">Some</span>(sched);
+<a href=#160 id=160 data-nosnippet>160</a>        <span class="self">self
+<a href=#161 id=161 data-nosnippet>161</a>    </span>}
+<a href=#162 id=162 data-nosnippet>162</a>
+<a href=#163 id=163 data-nosnippet>163</a>    <span class="doccomment">/// Phase 104.C.3 — pick a session slot for the Node being
+<a href=#164 id=164 data-nosnippet>164</a>    /// built. Returns `0` for the primary session (no rmw override
+<a href=#165 id=165 data-nosnippet>165</a>    /// or rmw matches existing) and `N &gt;= 1` for an extra session
+<a href=#166 id=166 data-nosnippet>166</a>    /// just opened via `CffiRmw::open_with_rmw`.
+<a href=#167 id=167 data-nosnippet>167</a>    </span><span class="attr">#[cfg(feature = <span class="string">"rmw-cffi"</span>)]
+<a href=#168 id=168 data-nosnippet>168</a>    </span><span class="kw">fn </span>resolve_session_slot(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;u8, NodeError&gt; {
+<a href=#169 id=169 data-nosnippet>169</a>        <span class="kw">let </span><span class="prelude-val">Some</span>(rmw) = <span class="self">self</span>.rmw_name <span class="kw">else </span>{
+<a href=#170 id=170 data-nosnippet>170</a>            <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="number">0</span>);
+<a href=#171 id=171 data-nosnippet>171</a>        };
+<a href=#172 id=172 data-nosnippet>172</a>
+<a href=#173 id=173 data-nosnippet>173</a>        <span class="comment">// Reuse an extra session if one already opened against the
+<a href=#174 id=174 data-nosnippet>174</a>        // same rmw + locator. Slot 0 (primary) is opaque — we don't
+<a href=#175 id=175 data-nosnippet>175</a>        // know its rmw name today; treat the first-named-rmw Node
+<a href=#176 id=176 data-nosnippet>176</a>        // as the primary unless explicitly bridging.
+<a href=#177 id=177 data-nosnippet>177</a>        </span><span class="kw">for </span>(i, sess) <span class="kw">in </span><span class="self">self</span>.executor.extra_sessions.iter().enumerate() {
+<a href=#178 id=178 data-nosnippet>178</a>            <span class="kw">let _ </span>= sess;
+<a href=#179 id=179 data-nosnippet>179</a>            <span class="comment">// Phase 104.C.3 doesn't yet store rmw-name per session;
+<a href=#180 id=180 data-nosnippet>180</a>            // dedupe by NodeRecord's stored rmw_name + locator.
+<a href=#181 id=181 data-nosnippet>181</a>            </span><span class="kw">if let </span><span class="prelude-val">Some</span>(prev) = <span class="self">self</span>.executor.nodes.iter().find(|n| {
+<a href=#182 id=182 data-nosnippet>182</a>                n.session_idx <span class="kw">as </span>usize == i + <span class="number">1
+<a href=#183 id=183 data-nosnippet>183</a>                    </span>&amp;&amp; n.rmw_name.as_deref() == <span class="prelude-val">Some</span>(rmw)
+<a href=#184 id=184 data-nosnippet>184</a>                    &amp;&amp; n.locator.as_deref() == <span class="self">self</span>.locator
+<a href=#185 id=185 data-nosnippet>185</a>            }) {
+<a href=#186 id=186 data-nosnippet>186</a>                <span class="kw">let _ </span>= prev;
+<a href=#187 id=187 data-nosnippet>187</a>                <span class="kw">return </span><span class="prelude-val">Ok</span>((i + <span class="number">1</span>) <span class="kw">as </span>u8);
+<a href=#188 id=188 data-nosnippet>188</a>            }
+<a href=#189 id=189 data-nosnippet>189</a>        }
+<a href=#190 id=190 data-nosnippet>190</a>
+<a href=#191 id=191 data-nosnippet>191</a>        <span class="comment">// First Node naming this rmw → open a new session.
+<a href=#192 id=192 data-nosnippet>192</a>        </span><span class="kw">let </span>mode = nros_rmw::SessionMode::Client;
+<a href=#193 id=193 data-nosnippet>193</a>        <span class="kw">let </span>locator = <span class="self">self</span>.locator.unwrap_or(<span class="string">""</span>);
+<a href=#194 id=194 data-nosnippet>194</a>        <span class="kw">let </span>domain_id = <span class="self">self</span>.domain_id.unwrap_or(<span class="number">0</span>);
+<a href=#195 id=195 data-nosnippet>195</a>        <span class="kw">let </span>cfg = nros_rmw::RmwConfig {
+<a href=#196 id=196 data-nosnippet>196</a>            locator,
+<a href=#197 id=197 data-nosnippet>197</a>            mode,
+<a href=#198 id=198 data-nosnippet>198</a>            domain_id,
+<a href=#199 id=199 data-nosnippet>199</a>            node_name: <span class="self">self</span>.name,
+<a href=#200 id=200 data-nosnippet>200</a>            namespace: <span class="self">self</span>.namespace.unwrap_or(<span class="string">""</span>),
+<a href=#201 id=201 data-nosnippet>201</a>            properties: <span class="kw-2">&amp;</span>[],
+<a href=#202 id=202 data-nosnippet>202</a>        };
+<a href=#203 id=203 data-nosnippet>203</a>        <span class="kw">let </span>session = nros_rmw_cffi::CffiRmw::open_with_rmw(rmw, <span class="kw-2">&amp;</span>cfg)
+<a href=#204 id=204 data-nosnippet>204</a>            .map_err(<span class="kw">crate</span>::executor::types::NodeError::Transport)<span class="question-mark">?</span>;
+<a href=#205 id=205 data-nosnippet>205</a>        <span class="self">self</span>.executor
+<a href=#206 id=206 data-nosnippet>206</a>            .extra_sessions
+<a href=#207 id=207 data-nosnippet>207</a>            .push(session)
+<a href=#208 id=208 data-nosnippet>208</a>            .map_err(|<span class="kw">_</span>| NodeError::NodeTableFull)<span class="question-mark">?</span>;
+<a href=#209 id=209 data-nosnippet>209</a>        <span class="kw">let </span>idx = <span class="self">self</span>.executor.extra_sessions.len();
+<a href=#210 id=210 data-nosnippet>210</a>        <span class="kw">if </span>idx &gt; u8::MAX <span class="kw">as </span>usize {
+<a href=#211 id=211 data-nosnippet>211</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(NodeError::NodeTableFull);
+<a href=#212 id=212 data-nosnippet>212</a>        }
+<a href=#213 id=213 data-nosnippet>213</a>        <span class="comment">// Phase 104.C.6.b — install the shared wake flag on the
+<a href=#214 id=214 data-nosnippet>214</a>        // freshly opened extra session so its backend notifications
+<a href=#215 id=215 data-nosnippet>215</a>        // can short-circuit `spin_once`.
+<a href=#216 id=216 data-nosnippet>216</a>        </span><span class="attr">#[cfg(feature = <span class="string">"std"</span>)]
+<a href=#217 id=217 data-nosnippet>217</a>        </span><span class="self">self</span>.executor.install_wake_signal_on_extra(idx - <span class="number">1</span>);
+<a href=#218 id=218 data-nosnippet>218</a>        <span class="prelude-val">Ok</span>(idx <span class="kw">as </span>u8)
+<a href=#219 id=219 data-nosnippet>219</a>    }
+<a href=#220 id=220 data-nosnippet>220</a>
+<a href=#221 id=221 data-nosnippet>221</a>    <span class="attr">#[cfg(not(feature = <span class="string">"rmw-cffi"</span>))]
+<a href=#222 id=222 data-nosnippet>222</a>    </span><span class="kw">fn </span>resolve_session_slot(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;u8, NodeError&gt; {
+<a href=#223 id=223 data-nosnippet>223</a>        <span class="comment">// Without `rmw-cffi`, only the primary session exists. An
+<a href=#224 id=224 data-nosnippet>224</a>        // rmw-name override is meaningless; treat as the primary.
+<a href=#225 id=225 data-nosnippet>225</a>        </span><span class="prelude-val">Ok</span>(<span class="number">0</span>)
+<a href=#226 id=226 data-nosnippet>226</a>    }
+<a href=#227 id=227 data-nosnippet>227</a>
+<a href=#228 id=228 data-nosnippet>228</a>    <span class="doccomment">/// Register the Node with the Executor and return its
+<a href=#229 id=229 data-nosnippet>229</a>    /// [`NodeId`]. Bumps `Executor.nodes.len()`; fails if the table
+<a href=#230 id=230 data-nosnippet>230</a>    /// is full (`NROS_EXECUTOR_MAX_NODES` reached) or the name is
+<a href=#231 id=231 data-nosnippet>231</a>    /// too long.
+<a href=#232 id=232 data-nosnippet>232</a>    </span><span class="kw">pub fn </span>build(<span class="kw-2">mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;NodeId, NodeError&gt; {
+<a href=#233 id=233 data-nosnippet>233</a>        <span class="kw">if </span><span class="self">self</span>.name.len() &gt; <span class="number">64 </span>{
+<a href=#234 id=234 data-nosnippet>234</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(NodeError::NameTooLong);
+<a href=#235 id=235 data-nosnippet>235</a>        }
+<a href=#236 id=236 data-nosnippet>236</a>
+<a href=#237 id=237 data-nosnippet>237</a>        <span class="comment">// Phase 104.C.2 — single-session check. rmw mismatch is an
+<a href=#238 id=238 data-nosnippet>238</a>        // error today; 104.C.3 will accept and open a new session
+<a href=#239 id=239 data-nosnippet>239</a>        // via the session cache.
+<a href=#240 id=240 data-nosnippet>240</a>        </span><span class="kw">if let </span><span class="prelude-val">Some</span>(_requested) = <span class="self">self</span>.rmw_name {
+<a href=#241 id=241 data-nosnippet>241</a>            <span class="comment">// No accessor for the current session's rmw name yet —
+<a href=#242 id=242 data-nosnippet>242</a>            // the registry first-registered slot drives the
+<a href=#243 id=243 data-nosnippet>243</a>            // singleton. We accept any rmw name in C.2 (no
+<a href=#244 id=244 data-nosnippet>244</a>            // validation) so consumer code is forward-compatible.
+<a href=#245 id=245 data-nosnippet>245</a>            // C.3 adds the mismatch check + session-cache lookup.
+<a href=#246 id=246 data-nosnippet>246</a>        </span>}
+<a href=#247 id=247 data-nosnippet>247</a>
+<a href=#248 id=248 data-nosnippet>248</a>        <span class="kw">let </span><span class="kw-2">mut </span>name_buf = heapless::String::&lt;<span class="number">64</span>&gt;::new();
+<a href=#249 id=249 data-nosnippet>249</a>        name_buf
+<a href=#250 id=250 data-nosnippet>250</a>            .push_str(<span class="self">self</span>.name)
+<a href=#251 id=251 data-nosnippet>251</a>            .map_err(|<span class="kw">_</span>| NodeError::NameTooLong)<span class="question-mark">?</span>;
+<a href=#252 id=252 data-nosnippet>252</a>
+<a href=#253 id=253 data-nosnippet>253</a>        <span class="kw">let </span><span class="kw-2">mut </span>ns_buf = heapless::String::&lt;<span class="number">64</span>&gt;::new();
+<a href=#254 id=254 data-nosnippet>254</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(ns) = <span class="self">self</span>.namespace {
+<a href=#255 id=255 data-nosnippet>255</a>            ns_buf.push_str(ns).map_err(|<span class="kw">_</span>| NodeError::NameTooLong)<span class="question-mark">?</span>;
+<a href=#256 id=256 data-nosnippet>256</a>        } <span class="kw">else </span>{
+<a href=#257 id=257 data-nosnippet>257</a>            ns_buf
+<a href=#258 id=258 data-nosnippet>258</a>                .push_str(<span class="self">self</span>.executor.namespace.as_str())
+<a href=#259 id=259 data-nosnippet>259</a>                .map_err(|<span class="kw">_</span>| NodeError::NameTooLong)<span class="question-mark">?</span>;
+<a href=#260 id=260 data-nosnippet>260</a>        }
+<a href=#261 id=261 data-nosnippet>261</a>
+<a href=#262 id=262 data-nosnippet>262</a>        <span class="kw">let </span><span class="kw-2">mut </span>rmw_buf = <span class="prelude-val">None</span>;
+<a href=#263 id=263 data-nosnippet>263</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(rmw) = <span class="self">self</span>.rmw_name {
+<a href=#264 id=264 data-nosnippet>264</a>            <span class="kw">let </span><span class="kw-2">mut </span>s = heapless::String::&lt;<span class="number">32</span>&gt;::new();
+<a href=#265 id=265 data-nosnippet>265</a>            s.push_str(rmw).map_err(|<span class="kw">_</span>| NodeError::NameTooLong)<span class="question-mark">?</span>;
+<a href=#266 id=266 data-nosnippet>266</a>            rmw_buf = <span class="prelude-val">Some</span>(s);
+<a href=#267 id=267 data-nosnippet>267</a>        }
+<a href=#268 id=268 data-nosnippet>268</a>
+<a href=#269 id=269 data-nosnippet>269</a>        <span class="kw">let </span><span class="kw-2">mut </span>loc_buf = <span class="prelude-val">None</span>;
+<a href=#270 id=270 data-nosnippet>270</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(loc) = <span class="self">self</span>.locator {
+<a href=#271 id=271 data-nosnippet>271</a>            <span class="kw">let </span><span class="kw-2">mut </span>s = heapless::String::&lt;<span class="number">128</span>&gt;::new();
+<a href=#272 id=272 data-nosnippet>272</a>            s.push_str(loc).map_err(|<span class="kw">_</span>| NodeError::NameTooLong)<span class="question-mark">?</span>;
+<a href=#273 id=273 data-nosnippet>273</a>            loc_buf = <span class="prelude-val">Some</span>(s);
+<a href=#274 id=274 data-nosnippet>274</a>        }
+<a href=#275 id=275 data-nosnippet>275</a>
+<a href=#276 id=276 data-nosnippet>276</a>        <span class="comment">// Phase 104.C.3 — resolve session_idx. If no rmw was named,
+<a href=#277 id=277 data-nosnippet>277</a>        // or the rmw name matches the implicit primary backend, use
+<a href=#278 id=278 data-nosnippet>278</a>        // slot 0. Otherwise, open a fresh session via
+<a href=#279 id=279 data-nosnippet>279</a>        // `CffiRmw::open_with_rmw` and stash it in `extra_sessions`.
+<a href=#280 id=280 data-nosnippet>280</a>        </span><span class="kw">let </span>session_idx = <span class="self">self</span>.resolve_session_slot()<span class="question-mark">?</span>;
+<a href=#281 id=281 data-nosnippet>281</a>
+<a href=#282 id=282 data-nosnippet>282</a>        <span class="kw">let </span>record = NodeRecord {
+<a href=#283 id=283 data-nosnippet>283</a>            name: name_buf,
+<a href=#284 id=284 data-nosnippet>284</a>            namespace: ns_buf,
+<a href=#285 id=285 data-nosnippet>285</a>            rmw_name: rmw_buf,
+<a href=#286 id=286 data-nosnippet>286</a>            locator: loc_buf,
+<a href=#287 id=287 data-nosnippet>287</a>            default_sched: <span class="self">self</span>.sched.unwrap_or(SchedContextId(<span class="number">0</span>)),
+<a href=#288 id=288 data-nosnippet>288</a>            session_idx,
+<a href=#289 id=289 data-nosnippet>289</a>        };
+<a href=#290 id=290 data-nosnippet>290</a>
+<a href=#291 id=291 data-nosnippet>291</a>        <span class="self">self</span>.executor
+<a href=#292 id=292 data-nosnippet>292</a>            .nodes
+<a href=#293 id=293 data-nosnippet>293</a>            .push(record)
+<a href=#294 id=294 data-nosnippet>294</a>            .map_err(|<span class="kw">_</span>| NodeError::NodeTableFull)<span class="question-mark">?</span>;
+<a href=#295 id=295 data-nosnippet>295</a>        <span class="kw">let </span>idx = <span class="self">self</span>.executor.nodes.len() - <span class="number">1</span>;
+<a href=#296 id=296 data-nosnippet>296</a>        <span class="kw">if </span>idx &gt; u8::MAX <span class="kw">as </span>usize {
+<a href=#297 id=297 data-nosnippet>297</a>            <span class="comment">// heapless cap is far below u8::MAX; defensive only.
+<a href=#298 id=298 data-nosnippet>298</a>            </span><span class="kw">return </span><span class="prelude-val">Err</span>(NodeError::NodeTableFull);
+<a href=#299 id=299 data-nosnippet>299</a>        }
+<a href=#300 id=300 data-nosnippet>300</a>        <span class="prelude-val">Ok</span>(NodeId(idx <span class="kw">as </span>u8))
+<a href=#301 id=301 data-nosnippet>301</a>    }
+<a href=#302 id=302 data-nosnippet>302</a>}
+</code></pre></div></section></main></body></html>

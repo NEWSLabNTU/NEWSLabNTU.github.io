@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ParameterError"],"struct":["MandatoryParameter","OptionalParameter","ParameterBuilder","ReadOnlyParameter","UndeclaredParameters"],"trait":["RangeConvertible"]};

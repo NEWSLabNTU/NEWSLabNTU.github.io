@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["nros_rmw_zenoh_register","register"],"mod":["keyexpr","shim","zpico"],"struct":["RegisterError"]};

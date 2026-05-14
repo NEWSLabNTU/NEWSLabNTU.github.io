@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["make_waker"],"struct":["CWakeState"],"type":["CWakeFn"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DeserError","SerError"],"mod":["action","clock","error","lifecycle","logger","message_info","service","time","types"],"struct":["CdrReader","CdrWriter"],"trait":["Deserialize","Serialize"]};

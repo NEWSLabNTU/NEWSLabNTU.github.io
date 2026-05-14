@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["RMW_GID_SIZE","SERVICE_BUFFER_SIZE","SUBSCRIBER_BUFFER_SIZE","SUBSCRIBER_RING_DEPTH"],"mod":["publisher","service","session","subscriber","transport"],"struct":["MessageInfo","RmwAttachment","Ros2Liveliness"]};

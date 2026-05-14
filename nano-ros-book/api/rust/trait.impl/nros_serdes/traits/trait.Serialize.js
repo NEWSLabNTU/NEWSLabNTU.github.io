@@ -1,9 +1,9 @@
 (function() {
-    const implementors = Object.fromEntries([["nros",[]]]);
+    const implementors = Object.fromEntries([["nros",[]],["nros_core",[["impl <a class=\"trait\" href=\"nros_core/trait.Serialize.html\" title=\"trait nros_core::Serialize\">Serialize</a> for <a class=\"enum\" href=\"nros_core/action/enum.CancelResponse.html\" title=\"enum nros_core::action::CancelResponse\">CancelResponse</a>",0],["impl <a class=\"trait\" href=\"nros_core/trait.Serialize.html\" title=\"trait nros_core::Serialize\">Serialize</a> for <a class=\"enum\" href=\"nros_core/action/enum.GoalStatus.html\" title=\"enum nros_core::action::GoalStatus\">GoalStatus</a>",0],["impl <a class=\"trait\" href=\"nros_core/trait.Serialize.html\" title=\"trait nros_core::Serialize\">Serialize</a> for <a class=\"struct\" href=\"nros_core/action/struct.GoalId.html\" title=\"struct nros_core::action::GoalId\">GoalId</a>",0],["impl <a class=\"trait\" href=\"nros_core/trait.Serialize.html\" title=\"trait nros_core::Serialize\">Serialize</a> for <a class=\"struct\" href=\"nros_core/action/struct.GoalInfo.html\" title=\"struct nros_core::action::GoalInfo\">GoalInfo</a>",0],["impl <a class=\"trait\" href=\"nros_core/trait.Serialize.html\" title=\"trait nros_core::Serialize\">Serialize</a> for <a class=\"struct\" href=\"nros_core/action/struct.GoalStatusStamped.html\" title=\"struct nros_core::action::GoalStatusStamped\">GoalStatusStamped</a>",0],["impl <a class=\"trait\" href=\"nros_core/trait.Serialize.html\" title=\"trait nros_core::Serialize\">Serialize</a> for <a class=\"struct\" href=\"nros_core/time/struct.Duration.html\" title=\"struct nros_core::time::Duration\">Duration</a>",0],["impl <a class=\"trait\" href=\"nros_core/trait.Serialize.html\" title=\"trait nros_core::Serialize\">Serialize</a> for <a class=\"struct\" href=\"nros_core/time/struct.Time.html\" title=\"struct nros_core::time::Time\">Time</a>",0]]],["nros_serdes",[]]]);
     if (window.register_implementors) {
         window.register_implementors(implementors);
     } else {
         window.pending_implementors = implementors;
     }
 })()
-//{"start":59,"fragment_lengths":[11]}
+//{"start":59,"fragment_lengths":[11,1779,19]}

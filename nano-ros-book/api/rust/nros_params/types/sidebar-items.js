@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_ARRAY_LEN","MAX_BYTE_ARRAY_LEN","MAX_PARAMETERS","MAX_PARAM_NAME_LEN","MAX_STRING_VALUE_LEN"],"enum":["ParameterRange","ParameterType","ParameterValue","SetParameterResult"],"struct":["FloatingPointRange","IntegerRange","Parameter","ParameterDescriptor"],"trait":["ParameterVariant"]};

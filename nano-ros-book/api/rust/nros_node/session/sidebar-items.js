@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"type":["RmwPublisher","RmwServiceClient","RmwServiceServer","RmwSubscriber"]};

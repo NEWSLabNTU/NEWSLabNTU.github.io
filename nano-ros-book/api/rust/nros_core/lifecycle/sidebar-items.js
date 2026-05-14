@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["LifecycleState","LifecycleTransition","TransitionResult"],"fn":["apply_transition","can_transition"]};
