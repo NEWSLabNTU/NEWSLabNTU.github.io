@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8d24975c.js";
+            window.path_to_searchindex_js = "../searchindex-5d9eb107.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-5abd1df5.js"></script>
+        <script src="../toc-746adecc.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,688 +177,98 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="nano-ros-architecture-overview"><a class="header" href="#nano-ros-architecture-overview">nano-ros Architecture Overview</a></h1>
-<p>nano-ros is a lightweight ROS 2 client library for embedded real-time systems. It runs on bare-metal, FreeRTOS, NuttX, ThreadX, and Zephyr — as well as Linux/POSIX — with full <code>no_std</code> support throughout the core stack.</p>
-<p>This document presents the overall nano-ros architecture: the layered crate structure, RMW abstraction, executor model, board crates, and how everything composes at compile time.</p>
-<h2 id="high-level-layer-diagram"><a class="header" href="#high-level-layer-diagram">High-Level Layer Diagram</a></h2>
-<svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 620 476" font-family="system-ui, -apple-system, sans-serif" font-size="13">
-  <defs>
-    <style>
-      .layer  { fill: none; stroke: #444; stroke-width: 1.5; rx: 6; }
-      .board  { fill: none; stroke: #e08600; stroke-width: 1.5; stroke-dasharray: 4 3; rx: 6; }
-      .impl   { fill: #f0f4f8; stroke: #888; stroke-width: 1; rx: 4; }
-      .boardi { fill: #fff4e0; stroke: #e08600; stroke-width: 1; rx: 4; }
-      .iface  { fill: #e8f0fe; stroke: #5b8def; stroke-width: 1; rx: 4; }
-      .label  { font-weight: 600; fill: #333; }
-      .sub    { fill: #555; font-size: 11px; }
-      .group  { font-size: 11px; fill: #777; font-style: italic; }
-      .boardg { font-size: 11px; fill: #9c5d00; font-style: italic; font-weight: 600; }
-    </style>
-  </defs>
-  <!-- Application layer -->
-  <rect class="layer" x="10" y="8" width="600" height="52" />
-  <text class="group" x="20" y="24">Application</text>
-  <rect class="impl" x="20" y="30" width="580" height="24" />
-  <text class="label" x="310" y="46" text-anchor="middle">User code (Rust / C / C++)</text>
-  <!-- Board layer (optional wrapper) -->
-  <rect class="board" x="10" y="68" width="600" height="60" />
-  <text class="boardg" x="20" y="84">Board  (optional — bundles hardware init + drivers + re-exports nros)</text>
-  <rect class="boardi" x="20" y="90" width="285" height="32" />
-  <text class="label" x="162" y="104" text-anchor="middle">nros-board-mps2-an385-freertos</text>
-  <text class="sub" x="162" y="117" text-anchor="middle">MPS2-AN385 + FreeRTOS + lwIP + LAN9118</text>
-  <rect class="boardi" x="315" y="90" width="285" height="32" />
-  <text class="label" x="457" y="104" text-anchor="middle">nros-board-nuttx-qemu-arm / nros-threadx-* / ...</text>
-  <text class="sub" x="457" y="117" text-anchor="middle">one crate per (board + RTOS) combination</text>
-  <!-- Core layer -->
-  <rect class="layer" x="10" y="136" width="600" height="108" />
-  <text class="group" x="20" y="152">Core</text>
-  <rect class="iface" x="20" y="156" width="580" height="24" />
-  <text class="label" x="200" y="172">nros</text>
-  <text class="sub" x="240" y="172">(facade — re-exports + feature gates)</text>
-  <rect class="impl" x="20" y="186" width="186" height="50" />
-  <text class="label" x="113" y="204" text-anchor="middle">nros-node</text>
-  <text class="sub" x="113" y="220" text-anchor="middle">Executor, Node</text>
-  <rect class="impl" x="216" y="186" width="186" height="50" />
-  <text class="label" x="309" y="204" text-anchor="middle">nros-params</text>
-  <text class="sub" x="309" y="220" text-anchor="middle">ParameterServer</text>
-  <rect class="impl" x="412" y="186" width="188" height="50" />
-  <text class="label" x="506" y="204" text-anchor="middle">nros-core</text>
-  <text class="sub" x="506" y="220" text-anchor="middle">RosMessage, CDR</text>
-  <!-- RMW layer -->
-  <rect class="layer" x="10" y="252" width="600" height="100" />
-  <text class="group" x="20" y="268">RMW (middleware abstraction)</text>
-  <rect class="iface" x="20" y="272" width="580" height="24" />
-  <text class="label" x="200" y="288">nros-rmw</text>
-  <text class="sub" x="268" y="288">(Session, Publisher, Subscriber traits)</text>
-  <rect class="impl" x="20" y="302" width="193" height="42" />
-  <text class="label" x="116" y="320" text-anchor="middle">nros-rmw-zenoh</text>
-  <text class="sub" x="116" y="334" text-anchor="middle">zenoh-pico</text>
-  <rect class="impl" x="223" y="302" width="187" height="42" />
-  <text class="label" x="316" y="320" text-anchor="middle">nros-rmw-xrce</text>
-  <text class="sub" x="316" y="334" text-anchor="middle">XRCE-DDS</text>
-  <rect class="impl" x="420" y="302" width="180" height="42" />
-  <text class="label" x="510" y="320" text-anchor="middle">nros-rmw-cffi</text>
-  <text class="sub" x="510" y="334" text-anchor="middle">C vtable</text>
-  <!-- Platform layer -->
-  <rect class="layer" x="10" y="360" width="600" height="108" />
-  <text class="group" x="20" y="376">Platform (hardware + OS abstraction)</text>
-  <rect class="iface" x="20" y="380" width="580" height="24" />
-  <text class="label" x="200" y="396">nros-platform</text>
-  <text class="sub" x="300" y="396">(Clock, Alloc, Threading, TCP, …)</text>
-  <rect class="impl" x="20" y="410" width="112" height="42" />
-  <text class="label" x="76" y="435" text-anchor="middle">posix</text>
-  <rect class="impl" x="140" y="410" width="112" height="42" />
-  <text class="label" x="196" y="435" text-anchor="middle">freertos</text>
-  <rect class="impl" x="260" y="410" width="112" height="42" />
-  <text class="label" x="316" y="435" text-anchor="middle">zephyr</text>
-  <rect class="impl" x="380" y="410" width="112" height="42" />
-  <text class="label" x="436" y="435" text-anchor="middle">threadx</text>
-  <rect class="impl" x="500" y="410" width="100" height="42" />
-  <text class="label" x="550" y="435" text-anchor="middle">bare-metal</text>
-</svg>
-<p>Five conceptual layers. Arrows point downward — each layer depends on the one below:</p>
-<ul>
-<li><strong>Application</strong> — user code in Rust, C, or C++. Depends on either <code>nros</code> directly (if doing hardware init manually) or on a board package that handles setup.</li>
-<li><strong>Board</strong> <em>(optional)</em> — “batteries-included” wrapper crates like <code>nros-board-mps2-an385-freertos</code> that combine a platform crate + network drivers + hardware-init code + a <code>Config</code> struct + a <code>run()</code> entry point. They re-export <code>nros</code> so user code uses the same API either way. Most embedded users depend on a board package; POSIX users skip this layer. See <a href="../porting/custom-board.html">Custom Board Package</a> for what a board crate provides.</li>
-<li><strong>Core</strong> — the <code>nros</code> facade re-exports <code>nros-node</code> (executor, node, handles), <code>nros-params</code> (parameter server), and <code>nros-core</code> (message traits, CDR serialization). Middleware-agnostic — knows nothing about zenoh or XRCE.</li>
-<li><strong>RMW</strong> — <code>nros-rmw</code> defines the <code>Session</code>/<code>Publisher</code>/<code>Subscriber</code> trait interface. Backend crates (<code>nros-rmw-zenoh</code>, <code>nros-rmw-xrce</code>, <code>nros-rmw-cffi</code>) implement these traits using specific transport protocols. Selected at compile time via Cargo feature flags.</li>
-<li><strong>Platform</strong> — <code>nros-platform</code> defines traits for clock, memory, sleep, random, threading, and networking. Platform crates (<code>nros-platform-posix</code>, <code>nros-platform-freertos</code>, <code>nros-platform-zephyr</code>, etc.) implement these for each OS/RTOS. See the <a href="../reference/platform-api.html">Platform API Reference</a> for trait details and the <a href="../porting/custom-platform.html">Custom Platform</a> guide for porting.</li>
-</ul>
-<h2 id="crate-dependency-graph"><a class="header" href="#crate-dependency-graph">Crate Dependency Graph</a></h2>
-<pre class="mermaid">graph TD
-    subgraph "User Code"
-        APP[Application / Example]
-    end
+                        <h1 id="architecture-overview"><a class="header" href="#architecture-overview">Architecture Overview</a></h1>
+<p>nano-ros is a ROS 2 client stack for embedded and RTOS targets. The
+important architectural idea is separation by responsibility: user code
+talks to a ROS-shaped API, the core runtime owns entities and
+serialization, the RMW layer moves bytes, and the platform layer supplies
+OS or hardware primitives.</p>
+<h2 id="layers"><a class="header" href="#layers">Layers</a></h2>
+<pre><code class="language-text">Application
+  Rust / C / C++ node code
 
-    subgraph "Facade"
-        NROS["nros&lt;br/&gt;&lt;i&gt;re-exports + feature gates&lt;/i&gt;"]
-    end
+Board package (optional)
+  Hardware init, network drivers, config loading, entry point
 
-    subgraph "nano-ros Core Library Stack"
-        NODE["nros-node&lt;br/&gt;&lt;i&gt;Executor, Node, handles&lt;/i&gt;"]
-        PARAMS["nros-params&lt;br/&gt;&lt;i&gt;ParameterServer&lt;/i&gt;"]
-        CORE["nros-core&lt;br/&gt;&lt;i&gt;RosMessage, RosService, RosAction&lt;/i&gt;"]
-        SERDES["nros-serdes&lt;br/&gt;&lt;i&gt;CdrWriter, CdrReader&lt;/i&gt;"]
-        MACROS["nros-macros&lt;br/&gt;&lt;i&gt;#[derive(RosMessage)]&lt;/i&gt;"]
-        RMW["nros-rmw&lt;br/&gt;&lt;i&gt;Session, Publisher, Subscriber traits&lt;/i&gt;"]
-        CFFI["nros-rmw-cffi&lt;br/&gt;&lt;i&gt;C vtable adapter&lt;/i&gt;"]
-        C_API["nros-c&lt;br/&gt;&lt;i&gt;C FFI (rclc-style)&lt;/i&gt;"]
-    end
+Core runtime
+  Executor, Node, pub/sub/service/action handles, parameters,
+  message traits, CDR serialization
 
-    subgraph "Zenoh Backend"
-        RMW_Z["nros-rmw-zenoh&lt;br/&gt;&lt;i&gt;ZenohSession, keyexpr, liveliness&lt;/i&gt;"]
-        ZPICO["zpico-sys&lt;br/&gt;&lt;i&gt;C shim + zenoh-pico&lt;/i&gt;"]
-        NSMOL["nros-smoltcp&lt;br/&gt;&lt;i&gt;TCP/UDP via smoltcp&lt;/i&gt;"]
-        ZPSHIM["zpico-platform-shim&lt;br/&gt;&lt;i&gt;z_* → ConcretePlatform&lt;/i&gt;"]
-    end
+RMW backend
+  Zenoh, XRCE-DDS, DDS, Cyclone DDS, or a custom backend
 
-    subgraph "XRCE-DDS Backend"
-        RMW_X["nros-rmw-xrce&lt;br/&gt;&lt;i&gt;XrceSession, entity mgmt&lt;/i&gt;"]
-        XSYS["xrce-sys&lt;br/&gt;&lt;i&gt;Micro-XRCE-DDS FFI&lt;/i&gt;"]
-        XSMOL["xrce-smoltcp&lt;br/&gt;&lt;i&gt;UDP via smoltcp&lt;/i&gt;"]
-        XPSHIM["xrce-platform-shim&lt;br/&gt;&lt;i&gt;uxr_* → ConcretePlatform&lt;/i&gt;"]
-    end
-
-    subgraph "Platform Layer"
-        NPLAT["nros-platform&lt;br/&gt;&lt;i&gt;PlatformClock, PlatformTcp, PlatformUdp, ... traits&lt;br/&gt;+ ConcretePlatform alias&lt;/i&gt;"]
-        NPLATIMPL["nros-platform-posix / freertos / zephyr / threadx / nuttx&lt;br/&gt;nros-platform-mps2-an385 / stm32f4 / esp32&lt;br/&gt;&lt;i&gt;clock, memory, sleep, random, threading, networking&lt;/i&gt;"]
-    end
-
-    subgraph "Board Crates"
-        BOARD["nros-board-mps2-an385&lt;br/&gt;nros-board-mps2-an385-freertos&lt;br/&gt;nros-board-esp32 / nros-board-esp32-qemu&lt;br/&gt;nros-board-stm32f4&lt;br/&gt;nros-threadx-* / nros-nuttx-*"]
-    end
-
-    subgraph "Drivers"
-        DRV["lan9118-smoltcp&lt;br/&gt;lan9118-lwip&lt;br/&gt;openeth-smoltcp&lt;br/&gt;virtio-net-netx"]
-    end
-
-    subgraph "Interfaces"
-        IFACE["nros-rcl-interfaces&lt;br/&gt;nros-builtin-interfaces"]
-    end
-
-    APP --&gt; NROS
-    APP --&gt; BOARD
-
-    NROS --&gt; NODE
-    NROS --&gt; CORE
-    NROS --&gt; RMW
-    NROS --&gt; PARAMS
-    NROS -.-&gt;|rmw-zenoh| RMW_Z
-    NROS -.-&gt;|rmw-xrce| RMW_X
-    NROS -.-&gt;|rmw-cffi| CFFI
-
-    NODE --&gt; RMW
-    NODE --&gt; CORE
-    NODE --&gt; PARAMS
-    NODE -.-&gt;|param-services| IFACE
-    PARAMS --&gt; CORE
-    CORE --&gt; SERDES
-    CORE --&gt; MACROS
-    CFFI --&gt; RMW
-    C_API --&gt; NROS
-
-    RMW_Z --&gt; RMW
-    RMW_Z --&gt; ZPICO
-    ZPICO --&gt; NSMOL
-    ZPICO --&gt; ZPSHIM
-    ZPSHIM --&gt; NPLAT
-
-    RMW_X --&gt; RMW
-    RMW_X --&gt; XSYS
-    XSYS --&gt; XSMOL
-    XSYS --&gt; XPSHIM
-    XPSHIM --&gt; NPLAT
-
-    NPLAT --&gt; NPLATIMPL
-
-    BOARD --&gt; NROS
-    BOARD --&gt; NPLAT
-    BOARD --&gt; NPLATIMPL
-    BOARD --&gt; ZPSHIM
-    BOARD --&gt; NSMOL
-    BOARD --&gt; DRV
-
-    style NROS fill:#1864ab,color:#fff
-    style RMW fill:#c92a2a,color:#fff
-    style NODE fill:#2b8a3e,color:#fff
-    style RMW_Z fill:#d9480f,color:#fff
-    style RMW_X fill:#d9480f,color:#fff
-</pre>
-
-<p>Dashed arrows indicate feature-gated optional dependencies. Solid arrows are unconditional.</p>
-<h2 id="feature-axes"><a class="header" href="#feature-axes">Feature Axes</a></h2>
-<p>nano-ros uses three orthogonal compile-time axes. Each axis is mutually exclusive, enforced by <code>compile_error!()</code> in the nano-ros facade crate. Zero features on an axis is valid (reduced functionality).</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Axis</th><th>Rule</th><th>Options</th></tr>
-</thead>
-<tbody>
-<tr><td><strong>RMW Backend</strong></td><td>Pick one</td><td><code>rmw-zenoh</code>, <code>rmw-xrce</code>, <code>rmw-cffi</code></td></tr>
-<tr><td><strong>Platform</strong></td><td>Pick one</td><td><code>platform-posix</code>, <code>platform-zephyr</code>, <code>platform-bare-metal</code>, <code>platform-freertos</code>, <code>platform-nuttx</code>, <code>platform-threadx</code></td></tr>
-<tr><td><strong>ROS Edition</strong></td><td>Pick one</td><td><code>ros-humble</code>, <code>ros-iron</code></td></tr>
-<tr><td><strong>Cross-cutting</strong></td><td>Any combination</td><td><code>std</code>, <code>alloc</code>, <code>safety-e2e</code>, <code>param-services</code>, <code>ffi-sync</code></td></tr>
-</tbody>
-</table>
-</div>
-<p>The first three axes are mutually exclusive within each axis. Zero features on an axis is valid (reduced functionality). Cross-cutting features are independent and can be combined freely.</p>
-<p>A typical embedded configuration:</p>
-<pre><code class="language-toml">[dependencies]
-nros = { features = ["rmw-zenoh", "platform-bare-metal", "ros-humble"] }
+Platform
+  Clock, allocation, threading, sleep, random, sockets, libc,
+  and bare-metal network polling
 </code></pre>
-<p>A desktop/test configuration:</p>
-<pre><code class="language-toml">[dependencies]
-nros = { features = ["rmw-zenoh", "platform-posix", "ros-humble", "std"] }
+<p>POSIX applications usually depend directly on <code>nros</code>. Embedded
+applications often depend on a board package that initializes hardware,
+networking, and platform glue before running user code.</p>
+<h2 id="core-runtime"><a class="header" href="#core-runtime">Core Runtime</a></h2>
+<p>The core runtime is middleware-agnostic. <code>nros-node</code> owns the
+<code>Executor</code>, node creation, entity handles, timers, and the two API
+styles:</p>
+<ul>
+<li><code>Node::create_*</code> returns handles that the caller polls or awaits.</li>
+<li><code>Executor::register_*</code> installs callbacks dispatched by <code>spin_once</code>.</li>
+</ul>
+<p>Message and service types are ordinary generated Rust, C, or C++ types
+with CDR serialization. The RMW backend receives serialized bytes; it
+does not own rosidl typesupport.</p>
+<p>For the API split, see <a href="two-layer-api.html">Execution Model and Two-Layer API</a>.</p>
+<h2 id="rmw-layer"><a class="header" href="#rmw-layer">RMW Layer</a></h2>
+<p>The RMW layer is the transport boundary. It creates sessions,
+publishers, subscribers, services, clients, and action channels, then
+moves serialized samples over the selected wire protocol.</p>
+<p>Only one backend is selected for a build. That compile-time selection
+replaces standard ROS 2’s runtime <code>RMW_IMPLEMENTATION</code> plugin loader,
+which is not available on many embedded targets.</p>
+<p>For user-facing backend selection, see
+<a href="../user-guide/rmw-backends.html">Choosing an RMW Backend</a>. For design
+rationale, see <a href="../design/rmw.html">RMW API Design</a>.</p>
+<h2 id="platform-layer"><a class="header" href="#platform-layer">Platform Layer</a></h2>
+<p>The platform layer supplies the primitives that desktop ROS 2 normally
+gets from the operating system: monotonic time, memory allocation,
+threading, sleep, random IDs, TCP/UDP sockets, multicast, and libc
+helpers. Bare-metal ports may also expose a <code>network_poll()</code> hook so the
+runtime can advance smoltcp while waiting.</p>
+<p>The platform is selected at compile time together with the RMW backend
+and ROS edition. See <a href="platform-model.html">Platform Model</a> for the feature
+axes and <a href="../porting/custom-platform.html">Custom Platform</a> for porting.</p>
+<h2 id="board-packages"><a class="header" href="#board-packages">Board Packages</a></h2>
+<p>A board package combines a platform implementation with hardware setup
+and drivers. It typically provides:</p>
+<ul>
+<li>a <code>Config</code> type loaded from <code>config.toml</code> or target-specific build
+settings,</li>
+<li>network and clock initialization,</li>
+<li>driver setup for Ethernet, UART, WiFi, or simulator I/O,</li>
+<li>a <code>run()</code> entry point that starts the scheduler or main loop.</li>
+</ul>
+<p>Board packages are optional for POSIX but useful for RTOS and
+bare-metal targets. See <a href="../porting/custom-board.html">Custom Board Package</a>.</p>
+<h2 id="data-flow"><a class="header" href="#data-flow">Data Flow</a></h2>
+<p>Publishing follows this path:</p>
+<pre><code class="language-text">user message -&gt; CDR serializer -&gt; RMW publish bytes -&gt; transport
 </code></pre>
-<h2 id="rmw-abstraction"><a class="header" href="#rmw-abstraction">RMW Abstraction</a></h2>
-<p>The <code>nros-rmw</code> crate defines the middleware boundary as a trait hierarchy. All core logic (<code>nros-node</code>, <code>nros-c</code>) is generic over <code>S: Session</code> and knows nothing about Zenoh, XRCE-DDS, or any specific transport.</p>
-<pre class="mermaid">classDiagram
-    class Rmw {
-        &lt;&lt;trait&gt;&gt;
-        +open(config: &amp;RmwConfig) Result~Session~
-    }
-
-    class Session {
-        &lt;&lt;trait&gt;&gt;
-        +create_publisher(topic, qos) Result~PublisherHandle~
-        +create_subscriber(topic, qos) Result~SubscriberHandle~
-        +create_service_server(service) Result~ServiceServerHandle~
-        +create_service_client(service) Result~ServiceClientHandle~
-        +drive_io(timeout_ms)
-        +close()
-    }
-
-    class Publisher {
-        &lt;&lt;trait&gt;&gt;
-        +publish_raw(data: &amp;[u8])
-        +publish~M: RosMessage~(msg, buf)
-    }
-
-    class Subscriber {
-        &lt;&lt;trait&gt;&gt;
-        +has_data() bool
-        +try_recv_raw(buf) Option~usize~
-        +try_recv~M~(buf) Option~M~
-        +register_waker(waker: &amp;Waker)
-    }
-
-    class ServiceServerTrait {
-        &lt;&lt;trait&gt;&gt;
-        +has_request() bool
-        +handle_request~S: RosService~(req_buf, reply_buf)
-    }
-
-    class ServiceClientTrait {
-        &lt;&lt;trait&gt;&gt;
-        +send_request_raw(data)
-        +try_recv_reply_raw(buf) Option~usize~
-        +register_waker(waker: &amp;Waker)
-    }
-
-    Rmw --&gt; Session : creates
-    Session --&gt; Publisher : creates
-    Session --&gt; Subscriber : creates
-    Session --&gt; ServiceServerTrait : creates
-    Session --&gt; ServiceClientTrait : creates
-</pre>
-
-<h3 id="zenoh-backend"><a class="header" href="#zenoh-backend">Zenoh Backend</a></h3>
-<p><code>nros-rmw-zenoh</code> implements the RMW traits on top of zenoh-pico via a C shim (<code>zpico.c</code>). Key responsibilities:</p>
+<p>Receiving reverses it:</p>
+<pre><code class="language-text">transport -&gt; RMW receive bytes -&gt; CDR deserializer -&gt; user handle/callback
+</code></pre>
+<p>This boundary keeps the transport layer small and lets the same message
+types work across Rust, C, and C++ APIs.</p>
+<h2 id="where-to-go-next"><a class="header" href="#where-to-go-next">Where to Go Next</a></h2>
 <ul>
-<li><strong>Key expression formatting</strong> – maps ROS topic/service names to Zenoh keyexprs (<code>&lt;domain&gt;/&lt;topic&gt;/&lt;type&gt;/TypeHashNotSupported</code>)</li>
-<li><strong>Liveliness tokens</strong> – ROS 2 graph discovery (compatible with <code>rmw_zenoh_cpp</code>)</li>
-<li><strong>AtomicWaker</strong> – event-driven async waking from zenoh-pico C callbacks</li>
-<li><strong>FFI reentrancy guard</strong> (<code>ffi-sync</code> feature) – wraps zpico calls in <code>critical_section::with()</code> for mixed-priority RTOS tasks</li>
+<li>New user: <a href="../start-here/setup-compared-to-ros2.html">Setup Compared to Standard ROS 2</a>.</li>
+<li>Application author: <a href="../user-guide/configuration.html">Configuration</a>.</li>
+<li>Platform porter: <a href="../porting/overview.html">Porting Overview</a>.</li>
+<li>Contributor changing internals: <a href="../design/overview.html">Design Overview</a>.</li>
 </ul>
-<h3 id="xrce-dds-backend"><a class="header" href="#xrce-dds-backend">XRCE-DDS Backend</a></h3>
-<p><code>nros-rmw-xrce</code> implements the RMW traits on top of Micro-XRCE-DDS-Client. It uses an agent-based model: a lightweight client on the MCU communicates with an agent process on a gateway host that creates DDS entities.</p>
-<h3 id="c-ffi-backend"><a class="header" href="#c-ffi-backend">C FFI Backend</a></h3>
-<p><code>nros-rmw-cffi</code> provides a vtable-based adapter (<code>nros_rmw_vtable_t</code>) allowing non-Rust transports to implement the <code>Session</code> trait through a C function table. Third-party RTOS vendors can plug in their own transport without writing Rust.</p>
-<h2 id="executor-and-node"><a class="header" href="#executor-and-node">Executor and Node</a></h2>
-<p>The executor is the runtime core. It manages callback registration, network I/O, and dispatch – all on the stack with zero heap allocation in <code>no_std</code> mode.</p>
-<pre class="mermaid">graph LR
-    subgraph REG ["Registered Entities"]
-        SUB["Subscription\n+ callback"]
-        SVC["Service\n+ handler"]
-        TMR["Timer\n+ callback"]
-        ACT["ActionServer\n+ handlers"]
-        GC["GuardCondition"]
-    end
-
-    subgraph EXEC ["Executor (S, MAX_CBS, CB_ARENA)"]
-        ARENA["Callback Arena\nflat byte storage\nfor handles + closures"]
-        ENTRIES["Dispatch Table\noffset + fn pointers\n(type-erased)"]
-        SESSION["S: Session\nnetwork connection"]
-        TRIGGER["Trigger\nAny | All | One | Predicate"]
-    end
-
-    subgraph SPIN ["spin_once(timeout_ms)"]
-        IO["1. session.drive_io(timeout)"]
-        CHECK["2. Check has_data() per entry"]
-        DISPATCH["3. Call try_process() on ready"]
-    end
-
-    SUB --&gt; ARENA
-    SVC --&gt; ARENA
-    TMR --&gt; ARENA
-    ACT --&gt; ARENA
-    GC --&gt; ARENA
-
-    SESSION --&gt; IO
-    TRIGGER --&gt; CHECK
-    IO --&gt; CHECK --&gt; DISPATCH
-    ENTRIES --&gt; DISPATCH
-</pre>
-
-<h3 id="const-generic-zero-cost-opt-out"><a class="header" href="#const-generic-zero-cost-opt-out">Const-Generic Zero-Cost Opt-Out</a></h3>
-<p>When <code>MAX_CBS = 0</code> and <code>CB_ARENA = 0</code>, the arrays are zero-sized. This means manual-polling code (using <code>create_node()</code> + <code>try_recv()</code> without callbacks) pays zero overhead for the callback infrastructure.</p>
-<h3 id="spin-variants"><a class="header" href="#spin-variants">Spin Variants</a></h3>
-<p>The executor provides several spin strategies (<code>spin_once</code>, <code>spin_blocking</code>, <code>spin_period</code>, <code>spin_async</code>) for different deployment scenarios. See <a href="../reference/rust-api.html#spin-methods">Rust API Reference: Spin Methods</a> for the full list with signatures and <code>no_std</code> compatibility.</p>
-<h3 id="two-layer-api-phase-122"><a class="header" href="#two-layer-api-phase-122">Two-Layer API (Phase 122)</a></h3>
-<p>nano-ros exposes the same communication primitives through two
-parallel layers with disjoint verbs:</p>
-<ul>
-<li><strong>Layer 1 — <code>Node::create_*</code></strong> returns an owned, typed entity
-the caller polls itself (<code>try_recv</code> / <code>call</code> / <code>try_accept_goal</code>
-…). Good for RTIC / Embassy / single-task RTOS patterns where
-the application owns scheduling.</li>
-<li><strong>Layer 2 — <code>Executor::register_*</code></strong> registers a closure for
-the entity. The executor’s <code>spin_once</code> dispatches it on rx /
-reply / timer fire. Good for callback-style apps and for any
-caller that wants the executor’s wake source.</li>
-</ul>
-<pre class="mermaid">graph LR
-    EX["Executor::open(&amp;config)"] --&gt; NODE["executor.create_node(name)"]
-    EX --&gt; REG_T["executor.register_timer(...)"]
-    EX --&gt; REG_SUB["executor.register_subscription(...)"]
-    EX --&gt; REG_SVC["executor.register_service(...)"]
-    EX --&gt; REG_AS["executor.register_action_server(...)"]
-    EX --&gt; REG_AC["executor.register_action_client(...)"]
-    NODE --&gt; PUB["node.create_publisher&amp;lt;M&amp;gt;(topic)"]
-    NODE --&gt; SUB["node.create_subscription&amp;lt;M&amp;gt;(topic)"]
-    NODE --&gt; SRV["node.create_service&amp;lt;Svc&amp;gt;(name)"]
-    NODE --&gt; CLI["node.create_client&amp;lt;Svc&amp;gt;(name)"]
-    NODE --&gt; AS["node.create_action_server&amp;lt;A&amp;gt;(name)"]
-    NODE --&gt; AC["node.create_action_client&amp;lt;A&amp;gt;(name)"]
-</pre>
-
-<p>Both layers compose on the same session — a single executor can
-host L1 and L2 entities side-by-side. Picking between them per
-entity is a deployment choice, not a library configuration.</p>
-<p>For the verb discipline (L1 = <code>create_*</code> / L2 = <code>register_*</code>),
-the C / C++ FFI mirror, and the example migration tally, see
-<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/phase-122-unify-api-paths.md">Phase 122 — Unify API Paths</a>.</p>
-<h3 id="executor-semantics"><a class="header" href="#executor-semantics">Executor Semantics</a></h3>
-<p>Two dispatch strategies, selected at construction:</p>
-<ul>
-<li><strong>RclcppExecutor</strong> (default) – interleaved dispatch; each callback sees the latest data</li>
-<li><strong>LogicalExecutionTime (LET)</strong> – all subscriptions are pre-sampled at spin start before any callback runs; ensures deterministic snapshot semantics for safety-critical systems</li>
-</ul>
-<h3 id="async-integration"><a class="header" href="#async-integration">Async Integration</a></h3>
-<p>The executor integrates with external async runtimes (tokio, Embassy) without bundling one:</p>
-<pre class="mermaid">sequenceDiagram
-    participant RT as Async Runtime&lt;br/&gt;(tokio / Embassy)
-    participant EX as Executor::spin_async()
-    participant SUB as ZenohSubscriber
-    participant ZP as zenoh-pico callback
-
-    RT-&gt;&gt;EX: poll Future
-    EX-&gt;&gt;SUB: register_waker(cx.waker())
-    SUB--&gt;&gt;EX: Poll::Pending
-    EX--&gt;&gt;RT: Pending (yield)
-
-    ZP-&gt;&gt;SUB: data arrives (C callback)
-    SUB-&gt;&gt;SUB: AtomicWaker::wake()
-    SUB--&gt;&gt;RT: wake task
-
-    RT-&gt;&gt;EX: poll Future (re-poll)
-    EX-&gt;&gt;EX: drive_io() + dispatch callbacks
-    EX--&gt;&gt;RT: Poll::Pending (yield again)
-</pre>
-
-<p><code>AtomicWaker</code> bridges C-level zenoh-pico receive callbacks to Rust <code>Future</code> waking. No <code>block_on</code> is provided – users bring their own async runtime.</p>
-<h2 id="board-crates"><a class="header" href="#board-crates">Board Crates</a></h2>
-<p>Board crates provide a turn-key entry point for a specific hardware + RTOS combination. They initialize hardware, set up the network stack, and expose a <code>run(config, closure)</code> API.</p>
-<pre class="mermaid">graph TD
-    subgraph "Board Crate (e.g. nros-board-mps2-an385)"
-        RUN["run(config, |config| { ... })"]
-        HW["Hardware Init&lt;br/&gt;&lt;i&gt;Ethernet driver, clocks&lt;/i&gt;"]
-        NET["Network Stack&lt;br/&gt;&lt;i&gt;smoltcp / lwIP / NetX / NuttX sockets&lt;/i&gt;"]
-        PLAT["Platform Primitives&lt;br/&gt;&lt;i&gt;nros-platform-* (clock, memory, sleep, random, threading)&lt;/i&gt;"]
-        SEED["RNG Seed&lt;br/&gt;&lt;i&gt;IP-based for unique Zenoh session IDs&lt;/i&gt;"]
-    end
-
-    subgraph "User Application"
-        OPEN["Executor::open(&amp;config)"]
-        NODE2["executor.create_node(...)"]
-        SPIN["executor.spin_blocking(...)"]
-    end
-
-    RUN --&gt; HW --&gt; NET --&gt; PLAT --&gt; SEED
-    SEED --&gt; OPEN --&gt; NODE2 --&gt; SPIN
-</pre>
-
-<h3 id="supported-boards"><a class="header" href="#supported-boards">Supported Boards</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Board Crate</th><th>Target</th><th>RTOS</th><th>Network Stack</th><th>Ethernet Driver</th></tr>
-</thead>
-<tbody>
-<tr><td><code>nros-board-mps2-an385</code></td><td>QEMU Cortex-M3</td><td>Bare-metal</td><td>smoltcp</td><td>lan9118-smoltcp</td></tr>
-<tr><td><code>nros-board-mps2-an385-freertos</code></td><td>QEMU Cortex-M3</td><td>FreeRTOS</td><td>lwIP</td><td>lan9118-lwip</td></tr>
-<tr><td><code>nros-board-esp32</code></td><td>ESP32-C3</td><td>Bare-metal</td><td>smoltcp</td><td>WiFi (esp-hal)</td></tr>
-<tr><td><code>nros-board-esp32-qemu</code></td><td>QEMU ESP32-C3</td><td>Bare-metal</td><td>smoltcp</td><td>openeth-smoltcp</td></tr>
-<tr><td><code>nros-board-stm32f4</code></td><td>STM32F4</td><td>Bare-metal</td><td>smoltcp</td><td>STM32 Ethernet</td></tr>
-<tr><td><code>nros-board-nuttx-qemu-arm</code></td><td>QEMU Cortex-A7</td><td>NuttX</td><td>NuttX sockets</td><td>virtio-net (built-in)</td></tr>
-<tr><td><code>nros-board-threadx-qemu-riscv64</code></td><td>QEMU RISC-V</td><td>ThreadX</td><td>NetX Duo</td><td>virtio-net-netx</td></tr>
-<tr><td><code>nros-board-threadx-linux</code></td><td>Linux (x86_64)</td><td>ThreadX</td><td>NetX Duo</td><td>veth (bridge)</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="platform-primitives"><a class="header" href="#platform-primitives">Platform Primitives</a></h3>
-<p>Each platform provides OS-level primitives (clock, memory, sleep, random, threading, networking) that the transport libraries require at link time. See the <a href="../reference/platform-api.html">Platform API Reference</a> for the full trait definitions and per-platform implementation details.</p>
-<h2 id="c-api"><a class="header" href="#c-api">C API</a></h2>
-<p><code>nros-c</code> is a thin FFI wrapper over <code>nros-node</code>, following the rclc naming convention. C headers are auto-generated by cbindgen from <code>#[repr(C)]</code> types.</p>
-<pre class="mermaid">graph TD
-    subgraph "C Application"
-        CMAIN["main.c&lt;br/&gt;nros_init(), nros_create_node(), ..."]
-    end
-
-    subgraph "nros-c (staticlib)"
-        CAPI["C FFI functions&lt;br/&gt;#[unsafe(no_mangle)]"]
-        CEXEC["CExecutor = Executor&amp;lt;RmwSession, MAX, ARENA&amp;gt;"]
-    end
-
-    subgraph "Rust Core"
-        RNODE["nros-node"]
-        RNROS["nros (facade)"]
-    end
-
-    CMAIN --&gt;|"nros_init()&lt;br/&gt;nros_publish()"| CAPI
-    CAPI --&gt; CEXEC
-    CEXEC --&gt; RNODE
-    CAPI --&gt; RNROS
-</pre>
-
-<p>The C API resolves the generic <code>S: Session</code> parameter to the concrete backend type via the nano-ros internals module. All C structs (<code>nros_publisher_t</code>, <code>nros_subscription_t</code>, etc.) are <code>#[repr(C)]</code> with <code>pub</code> fields for cbindgen visibility.</p>
-<h2 id="message-codegen"><a class="header" href="#message-codegen">Message Codegen</a></h2>
-<p>Message types are generated from <code>.msg</code>/<code>.srv</code>/<code>.action</code> files – never hand-written.</p>
-<pre class="mermaid">graph LR
-    MSG[".msg / .srv / .action files&lt;br/&gt;(bundled in packages/codegen/interfaces/)"]
-    PARSER["rosidl-parser&lt;br/&gt;&lt;i&gt;logos lexer + chumsky parser&lt;/i&gt;"]
-    CODEGEN["rosidl-codegen&lt;br/&gt;&lt;i&gt;askama templates&lt;/i&gt;"]
-    BINDGEN["rosidl-bindgen&lt;br/&gt;&lt;i&gt;orchestrator&lt;/i&gt;"]
-    CLI["cargo nano-ros generate-rust"]
-    OUTPUT["generated/&lt;br/&gt;Serialize + Deserialize + RosMessage impls"]
-
-    MSG --&gt; PARSER --&gt; CODEGEN --&gt; BINDGEN
-    CLI --&gt; BINDGEN --&gt; OUTPUT
-</pre>
-
-<p>No ROS 2 installation is required – bundled <code>.msg</code> files in <code>packages/codegen/interfaces/</code> provide all standard message definitions. Generated crate names use the <code>nros-</code> code prefix (e.g., <code>nros-std-msgs</code>).</p>
-<h2 id="data-flow-publish"><a class="header" href="#data-flow-publish">Data Flow: Publish</a></h2>
-<pre class="mermaid">sequenceDiagram
-    participant App as Application
-    participant Pub as EmbeddedPublisher
-    participant CDR as CdrWriter
-    participant RMW as ZenohPublisher
-    participant ZP as zenoh-pico
-
-    App-&gt;&gt;Pub: publish(&amp;msg)
-    Pub-&gt;&gt;CDR: new_with_header(buf)
-    Note right of CDR: writes [0x00, 0x01, 0x00, 0x00]
-    Pub-&gt;&gt;CDR: msg.serialize(&amp;mut writer)
-    CDR--&gt;&gt;Pub: serialized bytes
-    Pub-&gt;&gt;RMW: publish_raw(&amp;buf[..len])
-    RMW-&gt;&gt;ZP: zpico_publish(handle, data, len)
-    ZP--&gt;&gt;ZP: z_publisher_put(...)
-</pre>
-
-<h2 id="data-flow-subscribe-callback-mode"><a class="header" href="#data-flow-subscribe-callback-mode">Data Flow: Subscribe (Callback Mode)</a></h2>
-<pre class="mermaid">sequenceDiagram
-    participant ZP as zenoh-pico
-    participant SUB as ZenohSubscriber
-    participant EX as Executor::spin_once()
-    participant ARENA as Arena Entry
-    participant CB as User Callback
-
-    ZP-&gt;&gt;SUB: C receive callback&lt;br/&gt;atomic_store(data, READY)
-
-    Note over EX: spin_once(timeout_ms)
-    EX-&gt;&gt;SUB: session.drive_io(timeout)
-    EX-&gt;&gt;ARENA: entries[i].has_data()?
-    ARENA-&gt;&gt;SUB: has_data() == true
-    EX-&gt;&gt;ARENA: entries[i].try_process()
-    ARENA-&gt;&gt;SUB: try_recv_raw(buf) == Some(len)
-    ARENA-&gt;&gt;ARENA: CdrReader::new(buf)&lt;br/&gt;M::deserialize(reader)
-    ARENA-&gt;&gt;CB: callback(&amp;msg)
-</pre>
-
-<h2 id="formal-verification"><a class="header" href="#formal-verification">Formal Verification</a></h2>
-<p>nano-ros includes two verification approaches, both running in CI:</p>
-<ul>
-<li><strong>Kani</strong> – bounded model checking (160 harnesses, ~3 min). Checks memory safety, integer overflow, and panic freedom for CDR serialization, scheduling, and protocol logic.</li>
-<li><strong>Verus</strong> – unbounded deductive proofs (102 proofs, ~1 sec). Proves functional correctness of algorithms, CDR roundtrips, and E2E safety properties.</li>
-</ul>
-<p>Verification crates live in <code>packages/verification/</code> and are excluded from the main workspace to avoid Verus limitations with closures and function pointers in production code.</p>
-<h2 id="safety-features"><a class="header" href="#safety-features">Safety Features</a></h2>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Description</th><th>Compile Flag</th></tr>
-</thead>
-<tbody>
-<tr><td>E2E Safety</td><td>CRC-32/ISO-HDLC integrity + sequence tracking (AUTOSAR E2E / EN 50159)</td><td><code>safety-e2e</code></td></tr>
-<tr><td>FFI Reentrancy Guard</td><td>Wraps transport FFI calls in <code>critical_section::with()</code></td><td><code>ffi-sync</code></td></tr>
-<tr><td>LET Semantics</td><td>Logical Execution Time – deterministic snapshot dispatch</td><td><code>ExecutorSemantics::LogicalExecutionTime</code></td></tr>
-<tr><td>Mutex Backends</td><td><code>sync-spin</code> (default), <code>sync-critical-section</code> (RTIC/Embassy), or <code>RefCell</code> (single-threaded)</td><td><code>sync-spin</code> / <code>sync-critical-section</code></td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="tsn-time-sensitive-networking"><a class="header" href="#tsn-time-sensitive-networking">TSN (Time-Sensitive Networking)</a></h2>
-<p>nano-ros is designed to integrate with IEEE 802.1 TSN for deterministic real-time Ethernet in automotive and industrial deployments. TSN and nano-ros form complementary safety layers – TSN provides network-level guarantees (bounded latency, jitter, fault containment), while nano-ros’s E2E protocol provides application-level guarantees (data integrity, freshness).</p>
-<h3 id="safety-layer-model"><a class="header" href="#safety-layer-model">Safety Layer Model</a></h3>
-<pre class="mermaid">block-beta
-  columns 1
-
-  block:L5:1
-    A["Layer 5 -- Application Safety\nnano-ros heartbeat, watchdog"]
-  end
-  block:L4:1
-    B["Layer 4 -- E2E Data Safety\nCRC-32, sequence counter, freshness (safety-e2e feature)"]
-  end
-  block:L3:1
-    C["Layer 3 -- Transport\nzenoh-pico / XRCE-DDS pub/sub, QoS"]
-  end
-  block:L2:1
-    D["Layer 2 -- Network Safety (TSN)\n802.1Qbv TAS, 802.1Qav CBS, 802.1Qci PSFP, 802.1CB FRER"]
-  end
-  block:L1:1
-    E["Layer 1 -- Physical\nEthernet CRC, link integrity"]
-  end
-
-  style L4 fill:#2b8a3e,color:#fff
-  style L2 fill:#1864ab,color:#fff
-</pre>
-
-<p>Layers 4 (E2E) and 2 (TSN) are the two safety-critical layers. Layer 4 is implemented today via the <code>safety-e2e</code> feature. Layer 2 is available through RTOS-native TSN stacks.</p>
-<h3 id="tsn-standards"><a class="header" href="#tsn-standards">TSN Standards</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Standard</th><th>Name</th><th>Guarantee</th></tr>
-</thead>
-<tbody>
-<tr><td>802.1AS-2020</td><td>Generalized Precision Time Protocol (gPTP)</td><td>Sub-microsecond clock sync</td></tr>
-<tr><td>802.1Qbv</td><td>Time-Aware Shaper (TAS)</td><td>Hard real-time bounded latency via gate control lists</td></tr>
-<tr><td>802.1Qav</td><td>Credit-Based Shaper (CBS)</td><td>Statistical bounded latency (Class A: 2 ms, Class B: 50 ms)</td></tr>
-<tr><td>802.1Qci</td><td>Per-Stream Filtering and Policing (PSFP)</td><td>Ingress policing, babbling idiot protection</td></tr>
-<tr><td>802.1CB</td><td>Frame Replication and Elimination (FRER)</td><td>Zero-delay failover, redundant paths</td></tr>
-<tr><td>802.1Qbu</td><td>Frame Preemption (FPE)</td><td>Preempt low-priority frames for express traffic</td></tr>
-<tr><td>802.1DG-2025</td><td>Automotive TSN Profile</td><td>OEM reference profile for in-vehicle Ethernet</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="rtos-tsn-support"><a class="header" href="#rtos-tsn-support">RTOS TSN Support</a></h3>
-<p>TSN capabilities are accessed through the platform’s native networking stack, not through nano-ros directly. Each RTOS provides different levels of TSN support:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>RTOS</th><th>TSN Stack</th><th>gPTP</th><th>TAS (Qbv)</th><th>CBS (Qav)</th><th>FPE (Qbu)</th><th>Certification</th></tr>
-</thead>
-<tbody>
-<tr><td>ThreadX</td><td>NetX Duo TSN</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td><td>IEC 61508 SIL 4</td></tr>
-<tr><td>FreeRTOS</td><td>NXP GenAVB/TSN</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td><td>–</td></tr>
-<tr><td>Zephyr</td><td>Native gPTP + drivers</td><td>Yes</td><td>Partial</td><td>Partial</td><td>No</td><td>–</td></tr>
-<tr><td>NuttX</td><td>–</td><td>No</td><td>No</td><td>No</td><td>No</td><td>–</td></tr>
-</tbody>
-</table>
-</div>
-<p>ThreadX + NetX Duo provides the most complete TSN support with safety certification. The NetX Duo TSN APIs (<code>nx_shaper_cbs_*</code>, <code>nx_shaper_tas_*</code>, <code>nx_shaper_fpe_*</code>) are available in <code>third-party/threadx/netxduo/tsn/</code>.</p>
-<h3 id="tsn-hardware-platforms"><a class="header" href="#tsn-hardware-platforms">TSN Hardware Platforms</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Platform</th><th>MCU</th><th>TSN Features</th><th>RTOS Path</th></tr>
-</thead>
-<tbody>
-<tr><td>NXP MIMXRT1180-EVK</td><td>i.MX RT1180</td><td>Integrated 5-port GbE TSN switch</td><td>FreeRTOS + GenAVB/TSN</td></tr>
-<tr><td>NXP FRDM-MCXE31B</td><td>MCX E31</td><td>10/100M Ethernet + TSN</td><td>ThreadX + NetX Duo</td></tr>
-<tr><td>TI AM243x LaunchPad</td><td>Sitara AM243x</td><td>PRU-ICSSG with gPTP, TAS, CBS</td><td>FreeRTOS (enet-tsn-stack)</td></tr>
-<tr><td>Microchip SAM E70 Xplained</td><td>SAME70</td><td>QAV (CBS) via GMAC</td><td>Zephyr</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="integration-architecture"><a class="header" href="#integration-architecture">Integration Architecture</a></h3>
-<p>TSN operates below the nano-ros transport layer. The RTOS network stack configures TSN shapers and filters on the Ethernet MAC, providing deterministic delivery guarantees to all traffic – including zenoh-pico sessions – without any changes to nano-ros application code.</p>
-<pre class="mermaid">graph TD
-    subgraph "nano-ros application"
-        APP["Executor + Node&lt;br/&gt;publish / subscribe"]
-    end
-
-    subgraph "nano-ros transport"
-        E2E["E2E Safety&lt;br/&gt;CRC-32 + sequence (optional)"]
-        RMW_BACK["RMW Backend&lt;br/&gt;zenoh-pico / XRCE-DDS"]
-    end
-
-    subgraph "RTOS Network Stack"
-        SOCK["Sockets / lwIP / NetX Duo"]
-        TSN_SHAPER["TSN Shapers&lt;br/&gt;TAS (Qbv) - CBS (Qav) - FPE (Qbu)"]
-        PTP["gPTP Clock Sync&lt;br/&gt;802.1AS"]
-    end
-
-    subgraph "Hardware"
-        MAC["TSN-capable Ethernet MAC"]
-        PHY["Ethernet PHY"]
-    end
-
-    APP --&gt; E2E --&gt; RMW_BACK
-    RMW_BACK --&gt; SOCK
-    SOCK --&gt; TSN_SHAPER
-    PTP --&gt; TSN_SHAPER
-    TSN_SHAPER --&gt; MAC --&gt; PHY
-
-    style E2E fill:#2b8a3e,color:#fff
-    style TSN_SHAPER fill:#1864ab,color:#fff
-    style PTP fill:#1864ab,color:#fff
-</pre>
-
-<h2 id="summary"><a class="header" href="#summary">Summary</a></h2>
-<pre class="mermaid">block-beta
-  columns 3
-
-  block:row1:3
-    A1["Application Code"]
-  end
-
-  block:row2:3
-    B1["nano-ros facade -- re-exports + feature-axis gates"]
-  end
-
-  block:row3:3
-    C1["nros-node\nExecutor, Node"]
-    C2["nros-params\nParameterServer"]
-    C3["nros-c\nC FFI (rclc)"]
-  end
-
-  block:row4:3
-    D1["nros-core -- RosMessage, RosService, RosAction\nnros-serdes -- CDR serialization"]
-  end
-
-  block:row5:3
-    E1["nros-rmw -- Session, Publisher, Subscriber traits"]
-  end
-
-  block:row6:3
-    F1["rmw-zenoh\nzenoh-pico"]
-    F2["rmw-xrce\nXRCE-DDS"]
-    F3["rmw-cffi\nC vtable"]
-  end
-
-  block:row7:3
-    G1["nros-platform -- PlatformOps traits + ConcretePlatform\nnros-platform-* -- clock, memory, sleep, random, threading"]
-  end
-
-  block:row8:3
-    H1["Board Crates -- HW init, network stack, run() API\nDrivers -- lan9118, openeth, virtio-net"]
-  end
-
-  row1 --&gt; row2
-  row2 --&gt; row3
-  row3 --&gt; row4
-  row4 --&gt; row5
-  row5 --&gt; row6
-  row6 --&gt; row7
-  row7 --&gt; row8
-</pre>
-
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../concepts/ros2-comparison.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../getting-started/px4.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -872,7 +282,7 @@ the C / C++ FFI mirror, and the example migration tally, see
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../concepts/ros2-comparison.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../getting-started/px4.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 

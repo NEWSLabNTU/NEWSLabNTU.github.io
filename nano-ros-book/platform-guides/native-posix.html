@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Message Generation - nano-ros Book</title>
+        <title>Native POSIX - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,224 +177,52 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="message-binding-generation"><a class="header" href="#message-binding-generation">Message Binding Generation</a></h1>
-<p>nros uses generated Rust bindings for ROS 2 message types. The <code>nros generate-rust</code> (or <code>cargo nano-ros generate-rust</code>) command generates <code>no_std</code> compatible bindings from <code>package.xml</code> dependencies.</p>
-<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
-<p>The binding generator lives in <code>packages/codegen/packages/cargo-nano-ros/</code> and provides:</p>
+                        <h1 id="native-posix"><a class="header" href="#native-posix">Native POSIX</a></h1>
+<p>Use the native POSIX target for first experiments, CI smoke tests, and
+ROS 2 interoperability checks on Linux or macOS. It uses OS sockets,
+the host process environment, and the same source checkout layout as the
+embedded targets.</p>
+<h2 id="when-to-use-it"><a class="header" href="#when-to-use-it">When to Use It</a></h2>
 <ul>
-<li><code>nros</code> standalone binary and <code>cargo nano-ros</code> subcommand</li>
-<li>Pure Rust, <code>no_std</code> compatible output using <code>heapless</code> types</li>
-<li>Automatic dependency resolution via ament index or bundled interfaces</li>
-<li><code>.cargo/config.toml</code> generation for crate patches</li>
+<li>You want the shortest path to a working nano-ros publisher or
+subscriber.</li>
+<li>You are validating message generation, CMake integration, or ROS 2
+interop before moving to an RTOS.</li>
+<li>Your deployment target is Linux, macOS, or an embedded Linux system.</li>
 </ul>
-<h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
-<ol>
-<li>
-<p><strong>package.xml in project root</strong> - Declares ROS interface dependencies</p>
-<pre><code class="language-xml">&lt;?xml version="1.0"?&gt;
-&lt;package format="3"&gt;
-  &lt;name&gt;my_package&lt;/name&gt;
-  &lt;version&gt;0.1.0&lt;/version&gt;
-  &lt;description&gt;My nros package&lt;/description&gt;
-  &lt;maintainer email="dev@example.com"&gt;Developer&lt;/maintainer&gt;
-  &lt;license&gt;Apache-2.0&lt;/license&gt;
-  &lt;depend&gt;std_msgs&lt;/depend&gt;
-  &lt;depend&gt;geometry_msgs&lt;/depend&gt;
-  &lt;export&gt;
-    &lt;build_type&gt;ament_cargo&lt;/build_type&gt;
-  &lt;/export&gt;
-&lt;/package&gt;
+<h2 id="setup"><a class="header" href="#setup">Setup</a></h2>
+<p>From a ROS 2 workspace root:</p>
+<pre><code class="language-bash">./src/nano-ros/tools/setup.sh --target=posix-zenoh
+colcon build
+source install/setup.bash
 </code></pre>
-</li>
-<li>
-<p><strong>nros tool installed</strong></p>
-<pre><code class="language-bash"># From the nros repository root
-just install-cargo-nano-ros
-
-# Or manually:
-cargo install --path packages/codegen/packages/cargo-nano-ros --locked
-
-# Or from git (external users):
-cargo install --git https://github.com/jerry73204/nano-ros --path packages/codegen/packages/cargo-nano-ros
+<p>For direct repository development, use:</p>
+<pre><code class="language-bash">just setup posix-zenoh
+just build
 </code></pre>
-</li>
-<li>
-<p><strong>ROS 2 environment</strong> (optional for standard types)</p>
-<p>Standard interfaces (<code>std_msgs</code>, <code>builtin_interfaces</code>) are bundled with nros
-and work without ROS 2. For additional packages (e.g., <code>geometry_msgs</code>, <code>sensor_msgs</code>),
-source a ROS 2 environment:</p>
-<pre><code class="language-bash">source /opt/ros/humble/setup.bash
+<h2 id="run-a-first-node"><a class="header" href="#run-a-first-node">Run a First Node</a></h2>
+<p>Follow <a href="../getting-started/native.html">First Native Rust Node</a> for a
+publisher/listener walkthrough. For ROS 2 interop, run
+<a href="../getting-started/ros2-interop.html">ROS 2 Interoperability</a> and set
+the ROS side to <code>rmw_zenoh_cpp</code>.</p>
+<h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
+<p>Native examples can read runtime settings from the shell:</p>
+<pre><code class="language-bash">export ROS_DOMAIN_ID=0
+export NROS_LOCATOR=tcp/127.0.0.1:7447
 </code></pre>
-</li>
-</ol>
-<h2 id="workflow"><a class="header" href="#workflow">Workflow</a></h2>
-<p><strong>Step 1: Create package.xml</strong></p>
-<p>Declare your ROS interface dependencies in <code>&lt;depend&gt;</code> tags:</p>
-<pre><code class="language-xml">&lt;depend&gt;std_msgs&lt;/depend&gt;      &lt;!-- For std_msgs::msg::Int32, String, etc. --&gt;
-&lt;depend&gt;example_interfaces&lt;/depend&gt;  &lt;!-- For service types --&gt;
-</code></pre>
-<p><strong>Step 2: Generate bindings</strong></p>
-<pre><code class="language-bash">cd my_project
-nros generate-rust              # standalone binary
-# or: cargo nano-ros generate-rust  # cargo subcommand (equivalent)
-</code></pre>
-<p>This will:</p>
-<ol>
-<li>Parse <code>package.xml</code> to find dependencies</li>
-<li>Resolve transitive dependencies (ament index + bundled interfaces)</li>
-<li>Filter to interface packages (those with msg/srv/action)</li>
-<li>Generate bindings to <code>generated/</code> directory</li>
-</ol>
-<p><strong>Step 3: Add dependencies to Cargo.toml</strong></p>
-<p>Reference the generated crates using crates.io version specifiers:</p>
-<pre><code class="language-toml">[dependencies]
-std_msgs = { version = "*", default-features = false }
-example_interfaces = { version = "*", default-features = false }
-</code></pre>
-<p>The <code>.cargo/config.toml</code> patches redirect these to local paths.</p>
-<h2 id="git-dependency-workflow"><a class="header" href="#git-dependency-workflow">Git Dependency Workflow</a></h2>
-<p>For projects that consume nros as a <strong>git dependency</strong> (not from within the nros repo), use <code>--nano-ros-git</code> instead of <code>--nano-ros-path</code>:</p>
-<p><strong>Step 1:</strong> Add git dependency to <code>Cargo.toml</code>:</p>
-<pre><code class="language-toml">[dependencies]
-nros = { git = "https://github.com/jerry73204/nano-ros", default-features = false, features = ["std"] }
-std_msgs = { version = "*", default-features = false }
-</code></pre>
-<p><strong>Step 2:</strong> Create <code>package.xml</code> (same as above).</p>
-<p><strong>Step 3:</strong> Generate bindings with git patches:</p>
-<pre><code class="language-bash">source /opt/ros/humble/setup.bash
-cargo nano-ros generate-rust --config --nano-ros-git
-</code></pre>
-<p>This generates <code>.cargo/config.toml</code> with git-based patches:</p>
-<pre><code class="language-toml">[patch.crates-io]
-nros-core = { git = "https://github.com/jerry73204/nano-ros" }
-nros-serdes = { git = "https://github.com/jerry73204/nano-ros" }
-std_msgs = { path = "generated/std_msgs" }
-builtin_interfaces = { path = "generated/builtin_interfaces" }
-</code></pre>
-<p><strong>Step 4: Use in code</strong></p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>use std_msgs::msg::Int32;
-use example_interfaces::srv::{AddTwoInts, AddTwoIntsRequest, AddTwoIntsResponse};
-
-let msg = Int32 { data: 42 };
-<span class="boring">}</span></code></pre>
-<h2 id="command-options"><a class="header" href="#command-options">Command Options</a></h2>
-<pre><code class="language-bash">nros generate-rust [OPTIONS]
-# or: cargo nano-ros generate-rust [OPTIONS]
-
-Options:
-      --manifest-path &lt;PATH&gt;  Path to package.xml [default: package.xml]
-  -o, --output &lt;DIR&gt;          Output directory [default: generated]
-      --config                Generate .cargo/config.toml with [patch.crates-io] entries
-      --nano-ros-path &lt;PATH&gt;  Path to nros crates (for config patches, local dev)
-      --nano-ros-git          Use nros git repo for config patches (external users)
-      --force                 Overwrite existing bindings
-  -v, --verbose               Enable verbose output
-</code></pre>
-<h2 id="generated-output-structure"><a class="header" href="#generated-output-structure">Generated Output Structure</a></h2>
-<pre><code>my_project/
-├── package.xml              # Your dependency declarations
-├── Cargo.toml               # Your package manifest
-├── src/
-│   └── main.rs              # Your code using generated types
-├── generated/               # Generated bindings (do not edit)
-│   ├── std_msgs/
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs       # #![no_std]
-│   │       └── msg/
-│   │           ├── mod.rs
-│   │           └── int32.rs
-│   └── builtin_interfaces/  # Transitive dependency
-│       └── ...
-└── .cargo/
-    └── config.toml          # [patch.crates-io] entries
-</code></pre>
-<h2 id="generated-code-features"><a class="header" href="#generated-code-features">Generated Code Features</a></h2>
-<p><strong>no_std by default:</strong></p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span>#![no_std]
-
-<span class="boring">fn main() {
-</span>pub mod msg;
-<span class="boring">}</span></code></pre>
-<p><strong>std feature for optional std support:</strong></p>
-<pre><code class="language-toml">[features]
-default = []
-std = ["nros-core/std", "nros-serdes/std"]
-</code></pre>
-<p><strong>heapless types for embedded:</strong></p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct String {
-    pub data: heapless::String&lt;256&gt;,
-}
-
-pub struct Arrays {
-    pub data: heapless::Vec&lt;i32, 64&gt;,
-}
-<span class="boring">}</span></code></pre>
-<p><strong>Service types with Request/Response:</strong></p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub struct AddTwoInts;
-pub struct AddTwoIntsRequest { pub a: i64, pub b: i64 }
-pub struct AddTwoIntsResponse { pub sum: i64 }
-
-impl RosService for AddTwoInts {
-    type Request = AddTwoIntsRequest;
-    type Reply = AddTwoIntsResponse;
-}
-<span class="boring">}</span></code></pre>
-<h2 id="standalone-package-mode"><a class="header" href="#standalone-package-mode">Standalone Package Mode</a></h2>
-<p>Examples are configured as standalone packages (excluded from workspace) because each has its own <code>.cargo/config.toml</code> patches. Build each example from its own directory:</p>
-<pre><code class="language-bash">cd examples/native/rust/zenoh/talker &amp;&amp; cargo build --features zenoh
-cd examples/native/rust/zenoh/service-client &amp;&amp; cargo build --features zenoh
-</code></pre>
-<h2 id="regenerating-bindings"><a class="header" href="#regenerating-bindings">Regenerating Bindings</a></h2>
-<p>To regenerate after ROS package updates or dependency changes:</p>
-<pre><code class="language-bash">cargo nano-ros generate-rust --force
-</code></pre>
-<h2 id="bundled-interfaces"><a class="header" href="#bundled-interfaces">Bundled Interfaces</a></h2>
-<p>nros ships standard <code>.msg</code> files for common packages so codegen works without a
-ROS 2 environment:</p>
-<ul>
-<li><code>std_msgs</code> (Bool, Int32, String, Header, etc.)</li>
-<li><code>builtin_interfaces</code> (Time, Duration)</li>
-</ul>
-<p>These are located at <code>packages/codegen/interfaces/</code>. When a ROS 2 environment is sourced,
-the ament index takes precedence over bundled files.</p>
-<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
-<p><strong>“Package ‘X’ not found in ament index or bundled interfaces”</strong></p>
-<ul>
-<li>For standard types (<code>std_msgs</code>, <code>builtin_interfaces</code>): should work without ROS 2</li>
-<li>For other packages: source ROS 2 environment: <code>source /opt/ros/humble/setup.bash</code></li>
-<li>Check package is installed: <code>ros2 pkg list | grep X</code></li>
-<li>Install if missing: <code>sudo apt install ros-humble-X</code></li>
-</ul>
-<p><strong>Build errors with generated code</strong></p>
-<ul>
-<li>Regenerate with <code>--force</code> flag</li>
-<li>Check nros crate compatibility</li>
-</ul>
-<h2 id="c-code-generation-cmake"><a class="header" href="#c-code-generation-cmake">C Code Generation (CMake)</a></h2>
-<p>The <code>nano_ros_generate_interfaces()</code> CMake function generates C bindings for <code>.msg</code>, <code>.srv</code>,
-and <code>.action</code> files. It uses a bundled codegen library — no external <code>nros</code> binary needed.</p>
-<h3 id="prerequisites-1"><a class="header" href="#prerequisites-1">Prerequisites</a></h3>
-<p>Run <code>just install-local</code> to build and install the codegen tool and C libraries.</p>
-<h3 id="usage"><a class="header" href="#usage">Usage</a></h3>
-<p>See <code>examples/native/c/zenoh/custom-msg/CMakeLists.txt</code> for a complete example.</p>
+<p>The same fields are compiled into embedded targets through their
+platform-specific configuration files. See
+<a href="../user-guide/configuration.html">Configuration</a> for the full layering.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../user-guide/configuration.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../user-guide/troubleshooting.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../concepts/status-events.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../getting-started/zephyr.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -404,11 +232,11 @@ and <code>.action</code> files. It uses a bundled codegen library — no externa
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../user-guide/configuration.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../user-guide/troubleshooting.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../concepts/status-events.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../getting-started/zephyr.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
