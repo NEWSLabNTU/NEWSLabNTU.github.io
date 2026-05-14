@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-6778dc1c.js";
+            window.path_to_searchindex_js = "../searchindex-8d24975c.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-c200a228.js"></script>
+        <script src="../toc-5abd1df5.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -606,6 +606,32 @@ uses its native attachment / sample-info mechanism (Zenoh
 attachments, DDS RTPS sample-info, XRCE session pings) — no
 cross-backend metadata header.</li>
 </ul>
+<h3 id="per-backend-qos-coverage"><a class="header" href="#per-backend-qos-coverage">Per-backend QoS coverage</a></h3>
+<p>The mask actually advertised by each backend’s
+<code>Session::supported_qos_policies()</code> (Phase 108):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Backend</th><th>Reliability + Durability + History/Depth</th><th>Deadline</th><th>Lifespan</th><th>Liveliness Automatic</th><th>Liveliness Manual</th><th>Liveliness Lease</th><th><code>avoid_ros_namespace_conventions</code></th></tr>
+</thead>
+<tbody>
+<tr><td>dust-DDS</td><td>✅ Native</td><td>✅ Native</td><td>✅ Native</td><td>✅ Native</td><td>✅ Native</td><td>✅ Native</td><td>✅ honoured</td></tr>
+<tr><td>XRCE-DDS</td><td>✅ Native (binary <code>uxrQoS_t</code>)</td><td>✅ Shim-side clock check (sub: <code>RequestedDeadlineMissed</code>; pub: <code>OfferedDeadlineMissed</code>) + agent-side via FastDDS XML profile</td><td>✅ Agent-side via FastDDS XML profile</td><td>✅ Native</td><td>✅ Configured via XML</td><td>✅ Configured via XML</td><td>✅ honoured</td></tr>
+<tr><td>zenoh-pico</td><td>✅ Shim-emulated</td><td>✅ Clock-based check (sub + pub)</td><td>✅ Subscriber-side filter using attachment timestamp</td><td>✅ Trivial via session keepalive</td><td>✅ Shim-side keepalive timer at pub publish path</td><td>✅ Honoured</td><td>n/a (no <code>/rt/</code> prefix)</td></tr>
+<tr><td>uORB</td><td>✅ CORE only (intra-process, no wire)</td><td>❌ No rate concept</td><td>❌ No expiry concept</td><td>❌ No wire-level liveliness</td><td>❌</td><td>❌</td><td>n/a</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Key takeaways</strong>:</p>
+<ul>
+<li>The default QoS profile (RELIABLE + VOLATILE + KEEP_LAST(10) + AUTOMATIC) works on every backend.</li>
+<li>Apps that need extended QoS but want to stay backend-portable: check <code>supported_qos_policies()</code> at startup and degrade gracefully.</li>
+<li>For full DDS QoS: dust-DDS (native) and XRCE-DDS (auto-routes through FastDDS XML profile when extended policies are set) are equivalent. Zenoh-pico fills the gap with shim-side emulation. uORB is intra-process only.</li>
+</ul>
+<p>See <a href="../concepts/status-events.html">Status events</a> for how the
+deadline / liveliness / message-lost policies translate into
+runtime events, and <a href="../user-guide/configuration.html">User guide → Configuration</a>
+for code examples.</p>
 <h2 id="8-status-events-callback-on-entity-tier-1-subset"><a class="header" href="#8-status-events-callback-on-entity-tier-1-subset">8. Status events: callback-on-entity, Tier-1 subset</a></h2>
 <p><strong>Upstream.</strong> Event APIs surface DDS-shaped notifications via a
 waitset-take pattern:</p>
@@ -697,13 +723,16 @@ generate every event:</p>
 <tr><th>Backend</th><th>Liveliness</th><th>Deadline</th><th>Message lost</th></tr>
 </thead>
 <tbody>
-<tr><td>dust-DDS</td><td>Native (DDS spec)</td><td>Native</td><td>Native</td></tr>
-<tr><td>XRCE-DDS</td><td>Native via session listener</td><td>Native</td><td>Native</td></tr>
-<tr><td>zenoh-pico</td><td>Liveliness-token-tracked at shim</td><td>Shim-side timer per sub</td><td>Sequence-gap detection at shim</td></tr>
-<tr><td>uORB</td><td>Adapted: <code>orb_subscribers_count</code> polling</td><td>Not generated (uORB has no rate concept)</td><td>Native via queue-overflow flag</td></tr>
+<tr><td>dust-DDS</td><td>✅ Native (<code>DataReaderListener</code> / <code>DataWriterListener</code> bridges)</td><td>✅ Native</td><td>✅ Native (<code>SampleLost</code>)</td></tr>
+<tr><td>XRCE-DDS</td><td>❌ XRCE protocol carries no session→client liveliness callback</td><td>🟡 Sub: shim-side clock check on <code>try_recv_raw</code>; pub: shim-side check on <code>publish_raw</code>. <code>LivelinessChanged</code> / <code>LivelinessLost</code> not feasible.</td><td>❌ <code>topic_callback</code> carries no per-sample sequence</td></tr>
+<tr><td>zenoh-pico</td><td>✅ Sub: per-publisher count via <code>zpico_liveliness_get_count</code> + wildcard keyexpr query; pub: shim-side keepalive timer fires <code>LivelinessLost</code> from <code>publish_raw</code> when <code>MANUAL_BY_*</code> lease expires.</td><td>✅ Clock-based check at sub + pub, rate-limited to ≤ 1 fire per deadline period</td><td>✅ Sequence-gap detection from RMW attachment</td></tr>
+<tr><td>uORB</td><td>❌ No wire-level liveliness</td><td>❌ No rate concept</td><td>✅ Native: <code>RustSubscriptionCallback</code> publish-counter delta on host mock + real PX4</td></tr>
 </tbody>
 </table>
 </div>
+<p><code>assert_liveliness()</code> (manual): only dust-DDS implements it natively.
+Other backends’ default is <code>Ok(())</code> (no-op) since they don’t honour
+<code>MANUAL_BY_TOPIC</code> / <code>MANUAL_BY_NODE</code> liveliness kinds.</p>
 <h2 id="9-loaned-messages-first-class"><a class="header" href="#9-loaned-messages-first-class">9. Loaned messages first-class</a></h2>
 <p><strong>Upstream.</strong> Optional, often unimplemented:</p>
 <pre><code class="language-c">rmw_ret_t rmw_borrow_loaned_message(

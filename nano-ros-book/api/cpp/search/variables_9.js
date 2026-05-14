@@ -1,5 +1,6 @@
 var searchData=
 [
-  ['ptr_0',['ptr',['../structnros_1_1Span.html#a6d936b9e33d8196a429f3314e9431396',1,'nros::Span::ptr'],['../structnros_1_1StringView.html#a3b1b06c40b6c389c2e1809b17f7c0d58',1,'nros::StringView::ptr']]],
-  ['publisher_5ftopic_5fname_5fmax_1',['PUBLISHER_TOPIC_NAME_MAX',['../namespacenros.html#a402f430635d567ed8d545d570f4d8306',1,'nros']]]
+  ['serialized_5fsize_5fmax_0',['SERIALIZED_SIZE_MAX',['../structnros_1_1ActionClient_1_1GoalAccept.html#a2693f5b2b341b3dc81a934daf0009a5e',1,'nros::ActionClient::GoalAccept']]],
+  ['size_1',['size',['../structnros_1_1FixedSequence.html#a3b38e1a3d066bd0b6d0b146f13a7b4f7',1,'nros::FixedSequence']]],
+  ['subscription_5ftopic_5fname_5fmax_2',['SUBSCRIPTION_TOPIC_NAME_MAX',['../namespacenros.html#ab4e446fafb49b0be4e4a76a0757a1484',1,'nros']]]
 ];

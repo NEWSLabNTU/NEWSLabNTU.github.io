@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-6778dc1c.js";
+            window.path_to_searchindex_js = "../searchindex-8d24975c.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-c200a228.js"></script>
+        <script src="../toc-5abd1df5.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -231,29 +231,48 @@ is propagated through the feature chain but does not add any API surface.</p>
 <li><code>executor.create_node(name)</code> – create a node</li>
 <li><code>executor.spin_once(timeout_ms)</code> – single spin iteration</li>
 <li><code>executor.spin_period_polling(period_ms)</code> – periodic spin without <code>std::thread::sleep</code></li>
-<li><code>executor.add_subscription()</code>, <code>add_service()</code>, <code>add_timer()</code>, <code>add_action_server()</code>, <code>add_action_client()</code> – arena-based callbacks</li>
 </ul>
+<p><strong>Two-layer API.</strong> Phase 122 unified the verb discipline:</p>
+<ul>
+<li><strong>Layer 1 (caller polls)</strong> – <code>Node::create_*</code> returns an owned
+handle. Caller drives <code>try_recv</code> / <code>call</code> / <code>try_accept_goal</code> /
+<code>try_recv_request_raw</code> itself. Good for RTIC, Embassy,
+task-per-entity FreeRTOS.</li>
+<li><strong>Layer 2 (executor dispatches)</strong> – <code>Executor::register_*</code>
+takes a closure; <code>spin_once</code> fires it on rx / reply / timer.
+Good for callback-shaped applications.</li>
+</ul>
+<p>Both layers share the same session; mix per entity. See
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/phase-122-unify-api-paths.md">Phase 122</a>
+for the rationale and the example migration tally.</p>
 <p><strong>Publish/Subscribe:</strong></p>
 <ul>
-<li><code>node.create_publisher::&lt;M&gt;(topic)</code> – typed publisher</li>
-<li><code>node.create_subscription::&lt;M&gt;(topic)</code> – typed subscription (poll with <code>try_recv()</code>)</li>
-<li><code>publisher.publish(&amp;msg)</code> / <code>publish_raw(&amp;bytes)</code> – publish messages</li>
+<li>L1 — <code>node.create_publisher::&lt;M&gt;(topic)</code>,
+<code>node.create_subscription::&lt;M&gt;(topic)</code> (poll with <code>try_recv()</code>)</li>
+<li>L2 — <code>executor.register_timer(period, || publisher.publish(...))</code>,
+<code>executor.register_subscription::&lt;M, _&gt;(topic, |msg| { ... })</code></li>
+<li><code>publisher.publish(&amp;msg)</code> / <code>publish_raw(&amp;bytes)</code> — publish messages</li>
 </ul>
 <p><strong>Services:</strong></p>
 <ul>
-<li><code>node.create_service::&lt;S&gt;(name)</code> – service server (poll with <code>handle_request()</code>)</li>
-<li><code>node.create_client::&lt;S&gt;(name)</code> – service client</li>
-<li><code>client.call(&amp;request)</code> – non-blocking, returns <code>Promise&lt;Reply&gt;</code></li>
-<li><code>promise.try_recv()</code> – poll for reply (returns <code>Ok(Some(reply))</code> or <code>Ok(None)</code>)</li>
-<li><code>promise.await</code> – async poll (implements <code>core::future::Future</code>)</li>
+<li>L1 — <code>node.create_service::&lt;S&gt;(name)</code> (poll with
+<code>handle_request()</code>), <code>node.create_client::&lt;S&gt;(name)</code> +
+<code>client.call(&amp;request)</code> → <code>Promise&lt;Reply&gt;</code> (poll with
+<code>promise.try_recv()</code> or <code>.await</code>).</li>
+<li>L2 — <code>executor.register_service::&lt;S, _&gt;(name, |req| reply)</code>.
+Service clients keep the L1 <code>Promise</code> shape; the typed
+callback API isn’t surfaced (only <code>register_service_client_raw</code>
+exists for byte-level use).</li>
 </ul>
 <p><strong>Actions:</strong></p>
 <ul>
-<li><code>node.create_action_server::&lt;A&gt;(name)</code> / <code>node.create_action_client::&lt;A&gt;(name)</code></li>
-<li><code>action_client.send_goal(&amp;goal)</code> – returns <code>Promise&lt;GoalId&gt;</code></li>
-<li><code>action_client.cancel_goal(&amp;goal_id)</code> – returns <code>Promise&lt;CancelResponse&gt;</code></li>
-<li><code>action_client.get_result(&amp;goal_id)</code> – returns <code>Promise&lt;(GoalStatus, Result)&gt;</code></li>
-<li>Full goal lifecycle: send, cancel, get result, feedback, status</li>
+<li>L1 — <code>node.create_action_server::&lt;A&gt;(name)</code> +
+<code>try_accept_goal</code> / <code>complete_goal</code>, or
+<code>node.create_action_client::&lt;A&gt;(name)</code> + <code>send_goal</code> →
+<code>Promise&lt;GoalId&gt;</code> / <code>get_result</code> → <code>Promise&lt;(GoalStatus, Result)&gt;</code>.</li>
+<li>L2 — <code>executor.register_action_server::&lt;A, _, _&gt;(name, goal_cb, cancel_cb)</code> returns a handle for publishing feedback
+and completing goals. Action clients keep the L1 <code>Promise</code>
+shape for the same reason as service clients.</li>
 </ul>
 <p><strong>Async:</strong></p>
 <ul>
@@ -383,7 +402,7 @@ containers, etc.) and is orthogonal to C-level memory management.</p>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../concepts/architecture.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../concepts/two-layer-api.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -397,7 +416,7 @@ containers, etc.) and is orthogonal to C-level memory management.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../concepts/architecture.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../concepts/two-layer-api.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 

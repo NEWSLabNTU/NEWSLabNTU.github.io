@@ -1,0 +1,1056 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `packages/core/nros-rmw-cffi/src/rust_adapter.rs`."><title>rust_adapter.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-b7b9f40b.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="nros_rmw_cffi" data-themes="" data-resource-suffix="" data-rustdoc-version="1.95.0 (59807616e 2026-04-14)" data-channel="1.95.0" data-search-js="search-63369b7b.js" data-stringdex-js="stringdex-b897f86f.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-5013f961.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">nros_rmw_cffi/</div>rust_adapter.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-4"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! Phase 115.L.0 — Generic Rust-trait → C-vtable adapter.
+<a href=#2 id=2 data-nosnippet>2</a>//!
+<a href=#3 id=3 data-nosnippet>3</a>//! `RustBackendAdapter&lt;R&gt;` converts any `R: nros_rmw::Rmw` whose
+<a href=#4 id=4 data-nosnippet>4</a>//! associated types implement the matching `Session` / `Publisher` /
+<a href=#5 id=5 data-nosnippet>5</a>//! `Subscriber` / `ServiceServerTrait` / `ServiceClientTrait` traits
+<a href=#6 id=6 data-nosnippet>6</a>//! into a `static NrosRmwVtable`. Each per-backend cffi crate then
+<a href=#7 id=7 data-nosnippet>7</a>//! collapses to ~10 LOC:
+<a href=#8 id=8 data-nosnippet>8</a>//!
+<a href=#9 id=9 data-nosnippet>9</a>//! ```ignore
+<a href=#10 id=10 data-nosnippet>10</a>//! #[unsafe(no_mangle)]
+<a href=#11 id=11 data-nosnippet>11</a>//! pub extern "C" fn nros_rmw_dds_register() -&gt; nros_rmw_cffi::NrosRmwRet {
+<a href=#12 id=12 data-nosnippet>12</a>//!     nros_rmw_cffi::RustBackendAdapter::&lt;nros_rmw_dds::DdsRmw&gt;::register()
+<a href=#13 id=13 data-nosnippet>13</a>//! }
+<a href=#14 id=14 data-nosnippet>14</a>//! ```
+<a href=#15 id=15 data-nosnippet>15</a>//!
+<a href=#16 id=16 data-nosnippet>16</a>//! # Storage discipline
+<a href=#17 id=17 data-nosnippet>17</a>//!
+<a href=#18 id=18 data-nosnippet>18</a>//! - Session: `Box::into_raw(Box::new(session))` is stashed in
+<a href=#19 id=19 data-nosnippet>19</a>//!   `NrosRmwSession::backend_data`. `close` reclaims via
+<a href=#20 id=20 data-nosnippet>20</a>//!   `Box::from_raw` (drops the box, runs `Drop`, frees the alloc).
+<a href=#21 id=21 data-nosnippet>21</a>//! - Publisher / Subscriber / ServiceServer / ServiceClient: same
+<a href=#22 id=22 data-nosnippet>22</a>//!   pattern with their respective handle types.
+<a href=#23 id=23 data-nosnippet>23</a>//!
+<a href=#24 id=24 data-nosnippet>24</a>//! # 'static
+<a href=#25 id=25 data-nosnippet>25</a>//!
+<a href=#26 id=26 data-nosnippet>26</a>//! Every handle must be `'static` (the `Box` outlives the call). We
+<a href=#27 id=27 data-nosnippet>27</a>//! deliberately do **not** require `Send`: the C runtime hands the
+<a href=#28 id=28 data-nosnippet>28</a>//! `backend_data` pointer back to the same caller that minted it,
+<a href=#29 id=29 data-nosnippet>29</a>//! and the executor's single-thread-per-session invariant matches
+<a href=#30 id=30 data-nosnippet>30</a>//! the Rust trait surface. Zenoh-pico's `ZenohSession`, for
+<a href=#31 id=31 data-nosnippet>31</a>//! instance, holds an unmovable `*const Context` which the
+<a href=#32 id=32 data-nosnippet>32</a>//! upstream library does not mark `Send`.
+<a href=#33 id=33 data-nosnippet>33</a>//!
+<a href=#34 id=34 data-nosnippet>34</a>//! # Bounds
+<a href=#35 id=35 data-nosnippet>35</a>//!
+<a href=#36 id=36 data-nosnippet>36</a>//! All error types must be `TransportError` (or `Into&lt;TransportError&gt;`).
+<a href=#37 id=37 data-nosnippet>37</a>//! This matches every in-tree backend today.
+<a href=#38 id=38 data-nosnippet>38</a>
+<a href=#39 id=39 data-nosnippet>39</a></span><span class="kw">extern crate </span>alloc;
+<a href=#40 id=40 data-nosnippet>40</a>
+<a href=#41 id=41 data-nosnippet>41</a><span class="kw">use </span>alloc::boxed::Box;
+<a href=#42 id=42 data-nosnippet>42</a><span class="kw">use </span>core::{ffi::c_void, marker::PhantomData};
+<a href=#43 id=43 data-nosnippet>43</a>
+<a href=#44 id=44 data-nosnippet>44</a><span class="kw">use </span>nros_rmw::{
+<a href=#45 id=45 data-nosnippet>45</a>    Publisher, QosSettings, Rmw, RmwConfig, ServiceClientTrait, ServiceServerTrait, Session,
+<a href=#46 id=46 data-nosnippet>46</a>    SessionMode, Subscriber, TopicInfo, TransportError,
+<a href=#47 id=47 data-nosnippet>47</a>};
+<a href=#48 id=48 data-nosnippet>48</a>
+<a href=#49 id=49 data-nosnippet>49</a><span class="kw">use </span>crate::{
+<a href=#50 id=50 data-nosnippet>50</a>    NROS_RMW_RET_INVALID_ARGUMENT, NROS_RMW_RET_NO_DATA, NROS_RMW_RET_OK, NROS_RMW_RET_UNSUPPORTED,
+<a href=#51 id=51 data-nosnippet>51</a>    NrosRmwEventCallback, NrosRmwEventKind, NrosRmwPublisher, NrosRmwQos, NrosRmwRet,
+<a href=#52 id=52 data-nosnippet>52</a>    NrosRmwServiceClient, NrosRmwServiceServer, NrosRmwSession, NrosRmwSubscriber, NrosRmwVtable,
+<a href=#53 id=53 data-nosnippet>53</a>    nros_rmw_cffi_register, ret_from_error,
+<a href=#54 id=54 data-nosnippet>54</a>};
+<a href=#55 id=55 data-nosnippet>55</a>
+<a href=#56 id=56 data-nosnippet>56</a><span class="comment">// ============================================================================
+<a href=#57 id=57 data-nosnippet>57</a>// Trait alias bundle
+<a href=#58 id=58 data-nosnippet>58</a>// ============================================================================
+<a href=#59 id=59 data-nosnippet>59</a>//
+<a href=#60 id=60 data-nosnippet>60</a>// `RustBackend` ties together every constraint the adapter needs. The
+<a href=#61 id=61 data-nosnippet>61</a>// alternative — long `where` clauses on every fn — is unreadable. This
+<a href=#62 id=62 data-nosnippet>62</a>// trait is sealed: backends don't impl it directly; the blanket impl
+<a href=#63 id=63 data-nosnippet>63</a>// below picks it up automatically for any `R: Rmw` whose associated
+<a href=#64 id=64 data-nosnippet>64</a>// types line up.
+<a href=#65 id=65 data-nosnippet>65</a>
+<a href=#66 id=66 data-nosnippet>66</a></span><span class="doccomment">/// Bundle of trait bounds an `Rmw` backend must satisfy to be exposed
+<a href=#67 id=67 data-nosnippet>67</a>/// through [`RustBackendAdapter`]. Implemented automatically for any
+<a href=#68 id=68 data-nosnippet>68</a>/// `R: Rmw` whose handle types use `TransportError` and are
+<a href=#69 id=69 data-nosnippet>69</a>/// `'static`.
+<a href=#70 id=70 data-nosnippet>70</a></span><span class="kw">pub trait </span>RustBackend: Sized {
+<a href=#71 id=71 data-nosnippet>71</a>    <span class="kw">type </span>Session: Session&lt;
+<a href=#72 id=72 data-nosnippet>72</a>            Error = TransportError,
+<a href=#73 id=73 data-nosnippet>73</a>            PublisherHandle = <span class="self">Self</span>::Publisher,
+<a href=#74 id=74 data-nosnippet>74</a>            SubscriberHandle = <span class="self">Self</span>::Subscriber,
+<a href=#75 id=75 data-nosnippet>75</a>            ServiceServerHandle = <span class="self">Self</span>::ServiceServer,
+<a href=#76 id=76 data-nosnippet>76</a>            ServiceClientHandle = <span class="self">Self</span>::ServiceClient,
+<a href=#77 id=77 data-nosnippet>77</a>        &gt; + <span class="lifetime">'static</span>;
+<a href=#78 id=78 data-nosnippet>78</a>    <span class="kw">type </span>Publisher: Publisher&lt;Error = TransportError&gt; + <span class="lifetime">'static</span>;
+<a href=#79 id=79 data-nosnippet>79</a>    <span class="kw">type </span>Subscriber: Subscriber&lt;Error = TransportError&gt; + <span class="lifetime">'static</span>;
+<a href=#80 id=80 data-nosnippet>80</a>    <span class="kw">type </span>ServiceServer: ServiceServerTrait&lt;Error = TransportError&gt; + <span class="lifetime">'static</span>;
+<a href=#81 id=81 data-nosnippet>81</a>    <span class="kw">type </span>ServiceClient: ServiceClientTrait&lt;Error = TransportError&gt; + <span class="lifetime">'static</span>;
+<a href=#82 id=82 data-nosnippet>82</a>
+<a href=#83 id=83 data-nosnippet>83</a>    <span class="doccomment">/// Construct a fresh factory instance. Called inside the `open`
+<a href=#84 id=84 data-nosnippet>84</a>    /// trampoline. Equivalent to `R::default()` for backends that
+<a href=#85 id=85 data-nosnippet>85</a>    /// `derive(Default)`; the indirection keeps the door open for
+<a href=#86 id=86 data-nosnippet>86</a>    /// future per-backend registration knobs.
+<a href=#87 id=87 data-nosnippet>87</a>    </span><span class="kw">fn </span>factory() -&gt; <span class="self">Self</span>;
+<a href=#88 id=88 data-nosnippet>88</a>
+<a href=#89 id=89 data-nosnippet>89</a>    <span class="doccomment">/// Move the factory into a session per the `Rmw::open` contract.
+<a href=#90 id=90 data-nosnippet>90</a>    </span><span class="kw">fn </span>open(<span class="self">self</span>, config: <span class="kw-2">&amp;</span>RmwConfig) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Session, TransportError&gt;;
+<a href=#91 id=91 data-nosnippet>91</a>}
+<a href=#92 id=92 data-nosnippet>92</a>
+<a href=#93 id=93 data-nosnippet>93</a><span class="kw">impl</span>&lt;R&gt; RustBackend <span class="kw">for </span>R
+<a href=#94 id=94 data-nosnippet>94</a><span class="kw">where
+<a href=#95 id=95 data-nosnippet>95</a>    </span>R: Rmw&lt;Error = TransportError&gt; + Default + Sized,
+<a href=#96 id=96 data-nosnippet>96</a>    R::Session: Session&lt;Error = TransportError&gt; + <span class="lifetime">'static</span>,
+<a href=#97 id=97 data-nosnippet>97</a>    &lt;R::Session <span class="kw">as </span>Session&gt;::PublisherHandle: Publisher&lt;Error = TransportError&gt; + <span class="lifetime">'static</span>,
+<a href=#98 id=98 data-nosnippet>98</a>    &lt;R::Session <span class="kw">as </span>Session&gt;::SubscriberHandle: Subscriber&lt;Error = TransportError&gt; + <span class="lifetime">'static</span>,
+<a href=#99 id=99 data-nosnippet>99</a>    &lt;R::Session <span class="kw">as </span>Session&gt;::ServiceServerHandle:
+<a href=#100 id=100 data-nosnippet>100</a>        ServiceServerTrait&lt;Error = TransportError&gt; + <span class="lifetime">'static</span>,
+<a href=#101 id=101 data-nosnippet>101</a>    &lt;R::Session <span class="kw">as </span>Session&gt;::ServiceClientHandle:
+<a href=#102 id=102 data-nosnippet>102</a>        ServiceClientTrait&lt;Error = TransportError&gt; + <span class="lifetime">'static</span>,
+<a href=#103 id=103 data-nosnippet>103</a>{
+<a href=#104 id=104 data-nosnippet>104</a>    <span class="kw">type </span>Session = R::Session;
+<a href=#105 id=105 data-nosnippet>105</a>    <span class="kw">type </span>Publisher = &lt;R::Session <span class="kw">as </span>Session&gt;::PublisherHandle;
+<a href=#106 id=106 data-nosnippet>106</a>    <span class="kw">type </span>Subscriber = &lt;R::Session <span class="kw">as </span>Session&gt;::SubscriberHandle;
+<a href=#107 id=107 data-nosnippet>107</a>    <span class="kw">type </span>ServiceServer = &lt;R::Session <span class="kw">as </span>Session&gt;::ServiceServerHandle;
+<a href=#108 id=108 data-nosnippet>108</a>    <span class="kw">type </span>ServiceClient = &lt;R::Session <span class="kw">as </span>Session&gt;::ServiceClientHandle;
+<a href=#109 id=109 data-nosnippet>109</a>
+<a href=#110 id=110 data-nosnippet>110</a>    <span class="kw">fn </span>factory() -&gt; <span class="self">Self </span>{
+<a href=#111 id=111 data-nosnippet>111</a>        R::default()
+<a href=#112 id=112 data-nosnippet>112</a>    }
+<a href=#113 id=113 data-nosnippet>113</a>
+<a href=#114 id=114 data-nosnippet>114</a>    <span class="kw">fn </span>open(<span class="self">self</span>, config: <span class="kw-2">&amp;</span>RmwConfig) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>::Session, TransportError&gt; {
+<a href=#115 id=115 data-nosnippet>115</a>        Rmw::open(<span class="self">self</span>, config)
+<a href=#116 id=116 data-nosnippet>116</a>    }
+<a href=#117 id=117 data-nosnippet>117</a>}
+<a href=#118 id=118 data-nosnippet>118</a>
+<a href=#119 id=119 data-nosnippet>119</a><span class="comment">// ============================================================================
+<a href=#120 id=120 data-nosnippet>120</a>// Helpers: C-string &lt;-&gt; &amp;str
+<a href=#121 id=121 data-nosnippet>121</a>// ============================================================================
+<a href=#122 id=122 data-nosnippet>122</a>
+<a href=#123 id=123 data-nosnippet>123</a></span><span class="doccomment">/// Read a null-terminated C string into a Rust `&amp;str`. Returns the
+<a href=#124 id=124 data-nosnippet>124</a>/// empty string if `ptr` is null or contains invalid UTF-8.
+<a href=#125 id=125 data-nosnippet>125</a>///
+<a href=#126 id=126 data-nosnippet>126</a>/// # Safety
+<a href=#127 id=127 data-nosnippet>127</a>///
+<a href=#128 id=128 data-nosnippet>128</a>/// `ptr`, if non-null, must point to a valid null-terminated byte
+<a href=#129 id=129 data-nosnippet>129</a>/// sequence that outlives the returned borrow.
+<a href=#130 id=130 data-nosnippet>130</a></span><span class="kw">unsafe fn </span>cstr_to_str&lt;<span class="lifetime">'a</span>&gt;(ptr: <span class="kw-2">*const </span>u8) -&gt; <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str {
+<a href=#131 id=131 data-nosnippet>131</a>    <span class="kw">if </span>ptr.is_null() {
+<a href=#132 id=132 data-nosnippet>132</a>        <span class="kw">return </span><span class="string">""</span>;
+<a href=#133 id=133 data-nosnippet>133</a>    }
+<a href=#134 id=134 data-nosnippet>134</a>    <span class="kw">let </span><span class="kw-2">mut </span>len = <span class="number">0usize</span>;
+<a href=#135 id=135 data-nosnippet>135</a>    <span class="comment">// Bound the scan so a missing terminator can't read off the end of
+<a href=#136 id=136 data-nosnippet>136</a>    // a small caller buffer. 1 KiB matches the typical NAME_BUF_LEN
+<a href=#137 id=137 data-nosnippet>137</a>    // (256) plus headroom for type-name / hash strings.
+<a href=#138 id=138 data-nosnippet>138</a>    </span><span class="kw">while </span>len &lt; <span class="number">4096 </span>&amp;&amp; <span class="kw">unsafe </span>{ <span class="kw-2">*</span>ptr.add(len) } != <span class="number">0 </span>{
+<a href=#139 id=139 data-nosnippet>139</a>        len += <span class="number">1</span>;
+<a href=#140 id=140 data-nosnippet>140</a>    }
+<a href=#141 id=141 data-nosnippet>141</a>    <span class="kw">let </span>slice = <span class="kw">unsafe </span>{ core::slice::from_raw_parts(ptr, len) };
+<a href=#142 id=142 data-nosnippet>142</a>    core::str::from_utf8(slice).unwrap_or(<span class="string">""</span>)
+<a href=#143 id=143 data-nosnippet>143</a>}
+<a href=#144 id=144 data-nosnippet>144</a>
+<a href=#145 id=145 data-nosnippet>145</a><span class="doccomment">/// Convert the cffi QoS view back into a `nros_rmw::QosSettings`. The
+<a href=#146 id=146 data-nosnippet>146</a>/// adapter trampolines call this when forwarding `create_publisher` /
+<a href=#147 id=147 data-nosnippet>147</a>/// `create_subscriber` into the Rust trait.
+<a href=#148 id=148 data-nosnippet>148</a></span><span class="kw">fn </span>qos_from_cffi(q: <span class="kw-2">&amp;</span>NrosRmwQos) -&gt; QosSettings {
+<a href=#149 id=149 data-nosnippet>149</a>    <span class="kw">use </span>nros_rmw::{
+<a href=#150 id=150 data-nosnippet>150</a>        QosDurabilityPolicy, QosHistoryPolicy, QosLivelinessPolicy, QosReliabilityPolicy,
+<a href=#151 id=151 data-nosnippet>151</a>    };
+<a href=#152 id=152 data-nosnippet>152</a>    QosSettings {
+<a href=#153 id=153 data-nosnippet>153</a>        reliability: <span class="kw">if </span>q.reliability == <span class="number">0 </span>{
+<a href=#154 id=154 data-nosnippet>154</a>            QosReliabilityPolicy::BestEffort
+<a href=#155 id=155 data-nosnippet>155</a>        } <span class="kw">else </span>{
+<a href=#156 id=156 data-nosnippet>156</a>            QosReliabilityPolicy::Reliable
+<a href=#157 id=157 data-nosnippet>157</a>        },
+<a href=#158 id=158 data-nosnippet>158</a>        durability: <span class="kw">if </span>q.durability == <span class="number">0 </span>{
+<a href=#159 id=159 data-nosnippet>159</a>            QosDurabilityPolicy::Volatile
+<a href=#160 id=160 data-nosnippet>160</a>        } <span class="kw">else </span>{
+<a href=#161 id=161 data-nosnippet>161</a>            QosDurabilityPolicy::TransientLocal
+<a href=#162 id=162 data-nosnippet>162</a>        },
+<a href=#163 id=163 data-nosnippet>163</a>        history: <span class="kw">if </span>q.history == <span class="number">0 </span>{
+<a href=#164 id=164 data-nosnippet>164</a>            QosHistoryPolicy::KeepLast
+<a href=#165 id=165 data-nosnippet>165</a>        } <span class="kw">else </span>{
+<a href=#166 id=166 data-nosnippet>166</a>            QosHistoryPolicy::KeepAll
+<a href=#167 id=167 data-nosnippet>167</a>        },
+<a href=#168 id=168 data-nosnippet>168</a>        depth: q.depth <span class="kw">as </span>u32,
+<a href=#169 id=169 data-nosnippet>169</a>        deadline_ms: q.deadline_ms,
+<a href=#170 id=170 data-nosnippet>170</a>        lifespan_ms: q.lifespan_ms,
+<a href=#171 id=171 data-nosnippet>171</a>        liveliness_kind: <span class="kw">match </span>q.liveliness_kind {
+<a href=#172 id=172 data-nosnippet>172</a>            <span class="number">1 </span>=&gt; QosLivelinessPolicy::Automatic,
+<a href=#173 id=173 data-nosnippet>173</a>            <span class="number">2 </span>=&gt; QosLivelinessPolicy::ManualByTopic,
+<a href=#174 id=174 data-nosnippet>174</a>            <span class="number">3 </span>=&gt; QosLivelinessPolicy::ManualByNode,
+<a href=#175 id=175 data-nosnippet>175</a>            <span class="kw">_ </span>=&gt; QosLivelinessPolicy::None,
+<a href=#176 id=176 data-nosnippet>176</a>        },
+<a href=#177 id=177 data-nosnippet>177</a>        liveliness_lease_ms: q.liveliness_lease_ms,
+<a href=#178 id=178 data-nosnippet>178</a>        avoid_ros_namespace_conventions: q.avoid_ros_namespace_conventions != <span class="number">0</span>,
+<a href=#179 id=179 data-nosnippet>179</a>    }
+<a href=#180 id=180 data-nosnippet>180</a>}
+<a href=#181 id=181 data-nosnippet>181</a>
+<a href=#182 id=182 data-nosnippet>182</a><span class="comment">// ============================================================================
+<a href=#183 id=183 data-nosnippet>183</a>// Adapter
+<a href=#184 id=184 data-nosnippet>184</a>// ============================================================================
+<a href=#185 id=185 data-nosnippet>185</a>
+<a href=#186 id=186 data-nosnippet>186</a></span><span class="doccomment">/// Wraps a Rust `Rmw` backend behind the canonical
+<a href=#187 id=187 data-nosnippet>187</a>/// [`NrosRmwVtable`] C ABI. See module docs.
+<a href=#188 id=188 data-nosnippet>188</a></span><span class="kw">pub struct </span>RustBackendAdapter&lt;R&gt;(PhantomData&lt;R&gt;);
+<a href=#189 id=189 data-nosnippet>189</a>
+<a href=#190 id=190 data-nosnippet>190</a><span class="kw">impl</span>&lt;R: RustBackend&gt; RustBackendAdapter&lt;R&gt; {
+<a href=#191 id=191 data-nosnippet>191</a>    <span class="doccomment">/// Monomorphised vtable for backend `R`. The `const` is promoted
+<a href=#192 id=192 data-nosnippet>192</a>    /// to per-type static storage, so `&amp;Self::VTABLE` has `'static`
+<a href=#193 id=193 data-nosnippet>193</a>    /// lifetime — safe to hand to `nros_rmw_cffi_register`.
+<a href=#194 id=194 data-nosnippet>194</a>    </span><span class="kw">pub const </span>VTABLE: NrosRmwVtable = NrosRmwVtable {
+<a href=#195 id=195 data-nosnippet>195</a>        open: open_trampoline::&lt;R&gt;,
+<a href=#196 id=196 data-nosnippet>196</a>        close: close_trampoline::&lt;R&gt;,
+<a href=#197 id=197 data-nosnippet>197</a>        drive_io: drive_io_trampoline::&lt;R&gt;,
+<a href=#198 id=198 data-nosnippet>198</a>        create_publisher: create_publisher_trampoline::&lt;R&gt;,
+<a href=#199 id=199 data-nosnippet>199</a>        destroy_publisher: destroy_publisher_trampoline::&lt;R&gt;,
+<a href=#200 id=200 data-nosnippet>200</a>        publish_raw: publish_raw_trampoline::&lt;R&gt;,
+<a href=#201 id=201 data-nosnippet>201</a>        create_subscriber: create_subscriber_trampoline::&lt;R&gt;,
+<a href=#202 id=202 data-nosnippet>202</a>        destroy_subscriber: destroy_subscriber_trampoline::&lt;R&gt;,
+<a href=#203 id=203 data-nosnippet>203</a>        try_recv_raw: try_recv_raw_trampoline::&lt;R&gt;,
+<a href=#204 id=204 data-nosnippet>204</a>        has_data: has_data_trampoline::&lt;R&gt;,
+<a href=#205 id=205 data-nosnippet>205</a>        create_service_server: create_service_server_trampoline::&lt;R&gt;,
+<a href=#206 id=206 data-nosnippet>206</a>        destroy_service_server: destroy_service_server_trampoline::&lt;R&gt;,
+<a href=#207 id=207 data-nosnippet>207</a>        try_recv_request: try_recv_request_trampoline::&lt;R&gt;,
+<a href=#208 id=208 data-nosnippet>208</a>        has_request: has_request_trampoline::&lt;R&gt;,
+<a href=#209 id=209 data-nosnippet>209</a>        send_reply: send_reply_trampoline::&lt;R&gt;,
+<a href=#210 id=210 data-nosnippet>210</a>        create_service_client: create_service_client_trampoline::&lt;R&gt;,
+<a href=#211 id=211 data-nosnippet>211</a>        destroy_service_client: destroy_service_client_trampoline::&lt;R&gt;,
+<a href=#212 id=212 data-nosnippet>212</a>        call_raw: call_raw_trampoline::&lt;R&gt;,
+<a href=#213 id=213 data-nosnippet>213</a>        register_subscriber_event: register_subscriber_event_trampoline::&lt;R&gt;,
+<a href=#214 id=214 data-nosnippet>214</a>        register_publisher_event: register_publisher_event_trampoline::&lt;R&gt;,
+<a href=#215 id=215 data-nosnippet>215</a>        assert_publisher_liveliness: assert_publisher_liveliness_trampoline::&lt;R&gt;,
+<a href=#216 id=216 data-nosnippet>216</a>        next_deadline_ms: <span class="prelude-val">Some</span>(next_deadline_ms_trampoline::&lt;R&gt;),
+<a href=#217 id=217 data-nosnippet>217</a>        set_wake_callback: <span class="prelude-val">Some</span>(set_wake_callback_trampoline::&lt;R&gt;),
+<a href=#218 id=218 data-nosnippet>218</a>        <span class="comment">// Phase 124.A — zero-copy slots default to NULL on the
+<a href=#219 id=219 data-nosnippet>219</a>        // generic adapter; per-backend opt-in via dedicated trampolines
+<a href=#220 id=220 data-nosnippet>220</a>        // (see `nros-rmw-zenoh` for the first implementation in 124.A.4).
+<a href=#221 id=221 data-nosnippet>221</a>        // Runtime falls back to the arena path when these are NULL.
+<a href=#222 id=222 data-nosnippet>222</a>        </span>pub_loan: <span class="prelude-val">None</span>,
+<a href=#223 id=223 data-nosnippet>223</a>        pub_commit: <span class="prelude-val">None</span>,
+<a href=#224 id=224 data-nosnippet>224</a>        pub_discard: <span class="prelude-val">None</span>,
+<a href=#225 id=225 data-nosnippet>225</a>        sub_borrow: <span class="prelude-val">None</span>,
+<a href=#226 id=226 data-nosnippet>226</a>        sub_release: <span class="prelude-val">None</span>,
+<a href=#227 id=227 data-nosnippet>227</a>        service_server_available: <span class="prelude-val">Some</span>(service_server_available_trampoline::&lt;R&gt;),
+<a href=#228 id=228 data-nosnippet>228</a>        try_recv_sequence: <span class="prelude-val">Some</span>(try_recv_sequence_trampoline::&lt;R&gt;),
+<a href=#229 id=229 data-nosnippet>229</a>        publish_streamed: <span class="prelude-val">Some</span>(publish_streamed_trampoline::&lt;R&gt;),
+<a href=#230 id=230 data-nosnippet>230</a>        ping_session: <span class="prelude-val">Some</span>(ping_session_trampoline::&lt;R&gt;),
+<a href=#231 id=231 data-nosnippet>231</a>    };
+<a href=#232 id=232 data-nosnippet>232</a>
+<a href=#233 id=233 data-nosnippet>233</a>    <span class="doccomment">/// Install the per-`R` vtable into the cffi registry under the
+<a href=#234 id=234 data-nosnippet>234</a>    /// implicit name `"default"`. Equivalent to calling
+<a href=#235 id=235 data-nosnippet>235</a>    /// `nros_rmw_cffi_register(&amp;Self::VTABLE)`. Idempotent — re-
+<a href=#236 id=236 data-nosnippet>236</a>    /// registering the same vtable is a no-op from the runtime's
+<a href=#237 id=237 data-nosnippet>237</a>    /// perspective.
+<a href=#238 id=238 data-nosnippet>238</a>    ///
+<a href=#239 id=239 data-nosnippet>239</a>    /// Most backends should use [`register_named`](Self::register_named)
+<a href=#240 id=240 data-nosnippet>240</a>    /// instead so they show up in the registry under their canonical
+<a href=#241 id=241 data-nosnippet>241</a>    /// name (`"zenoh"`, `"dds"`, `"xrce"`, …).
+<a href=#242 id=242 data-nosnippet>242</a>    </span><span class="kw">pub fn </span>register() -&gt; NrosRmwRet {
+<a href=#243 id=243 data-nosnippet>243</a>        <span class="comment">// SAFETY: `&amp;Self::VTABLE` is a reference to a const-promoted
+<a href=#244 id=244 data-nosnippet>244</a>        // static; the address is stable for the life of the program.
+<a href=#245 id=245 data-nosnippet>245</a>        </span><span class="kw">unsafe </span>{ nros_rmw_cffi_register(<span class="kw-2">&amp;</span><span class="self">Self</span>::VTABLE) }
+<a href=#246 id=246 data-nosnippet>246</a>    }
+<a href=#247 id=247 data-nosnippet>247</a>
+<a href=#248 id=248 data-nosnippet>248</a>    <span class="doccomment">/// Phase 104.B.2 — install the per-`R` vtable under a stable
+<a href=#249 id=249 data-nosnippet>249</a>    /// name. Multiple backends can coexist via this entry point.
+<a href=#250 id=250 data-nosnippet>250</a>    ///
+<a href=#251 id=251 data-nosnippet>251</a>    /// # Safety
+<a href=#252 id=252 data-nosnippet>252</a>    /// `name` must be a valid NUL-terminated UTF-8 string.
+<a href=#253 id=253 data-nosnippet>253</a>    </span><span class="kw">pub unsafe fn </span>register_named(name: <span class="kw-2">*const </span>core::ffi::c_char) -&gt; NrosRmwRet {
+<a href=#254 id=254 data-nosnippet>254</a>        <span class="comment">// SAFETY: `&amp;Self::VTABLE` is a reference to a const-promoted
+<a href=#255 id=255 data-nosnippet>255</a>        // static; address stable for the program's lifetime.
+<a href=#256 id=256 data-nosnippet>256</a>        </span><span class="kw">unsafe </span>{ <span class="kw">crate</span>::nros_rmw_cffi_register_named(name, <span class="kw-2">&amp;</span><span class="self">Self</span>::VTABLE) }
+<a href=#257 id=257 data-nosnippet>257</a>    }
+<a href=#258 id=258 data-nosnippet>258</a>}
+<a href=#259 id=259 data-nosnippet>259</a>
+<a href=#260 id=260 data-nosnippet>260</a><span class="comment">// ============================================================================
+<a href=#261 id=261 data-nosnippet>261</a>// Trampolines — session lifecycle
+<a href=#262 id=262 data-nosnippet>262</a>// ============================================================================
+<a href=#263 id=263 data-nosnippet>263</a>
+<a href=#264 id=264 data-nosnippet>264</a></span><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>open_trampoline&lt;R: RustBackend&gt;(
+<a href=#265 id=265 data-nosnippet>265</a>    locator: <span class="kw-2">*const </span>u8,
+<a href=#266 id=266 data-nosnippet>266</a>    mode: u8,
+<a href=#267 id=267 data-nosnippet>267</a>    domain_id: u32,
+<a href=#268 id=268 data-nosnippet>268</a>    node_name: <span class="kw-2">*const </span>u8,
+<a href=#269 id=269 data-nosnippet>269</a>    out: <span class="kw-2">*mut </span>NrosRmwSession,
+<a href=#270 id=270 data-nosnippet>270</a>) -&gt; NrosRmwRet {
+<a href=#271 id=271 data-nosnippet>271</a>    <span class="kw">if </span>out.is_null() {
+<a href=#272 id=272 data-nosnippet>272</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#273 id=273 data-nosnippet>273</a>    }
+<a href=#274 id=274 data-nosnippet>274</a>    <span class="kw">let </span>cfg = RmwConfig {
+<a href=#275 id=275 data-nosnippet>275</a>        locator: <span class="kw">unsafe </span>{ cstr_to_str(locator) },
+<a href=#276 id=276 data-nosnippet>276</a>        mode: <span class="kw">if </span>mode == <span class="number">0 </span>{
+<a href=#277 id=277 data-nosnippet>277</a>            SessionMode::Client
+<a href=#278 id=278 data-nosnippet>278</a>        } <span class="kw">else </span>{
+<a href=#279 id=279 data-nosnippet>279</a>            SessionMode::Peer
+<a href=#280 id=280 data-nosnippet>280</a>        },
+<a href=#281 id=281 data-nosnippet>281</a>        domain_id,
+<a href=#282 id=282 data-nosnippet>282</a>        node_name: <span class="kw">unsafe </span>{ cstr_to_str(node_name) },
+<a href=#283 id=283 data-nosnippet>283</a>        namespace: <span class="string">""</span>,
+<a href=#284 id=284 data-nosnippet>284</a>        properties: <span class="kw-2">&amp;</span>[],
+<a href=#285 id=285 data-nosnippet>285</a>    };
+<a href=#286 id=286 data-nosnippet>286</a>    <span class="kw">let </span>factory = R::factory();
+<a href=#287 id=287 data-nosnippet>287</a>    <span class="kw">match </span>factory.open(<span class="kw-2">&amp;</span>cfg) {
+<a href=#288 id=288 data-nosnippet>288</a>        <span class="prelude-val">Ok</span>(session) =&gt; {
+<a href=#289 id=289 data-nosnippet>289</a>            <span class="kw">let </span>boxed = Box::into_raw(Box::new(session));
+<a href=#290 id=290 data-nosnippet>290</a>            <span class="kw">unsafe </span>{
+<a href=#291 id=291 data-nosnippet>291</a>                (<span class="kw-2">*</span>out).backend_data = boxed <span class="kw">as </span><span class="kw-2">*mut </span>c_void;
+<a href=#292 id=292 data-nosnippet>292</a>            }
+<a href=#293 id=293 data-nosnippet>293</a>            NROS_RMW_RET_OK
+<a href=#294 id=294 data-nosnippet>294</a>        }
+<a href=#295 id=295 data-nosnippet>295</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#296 id=296 data-nosnippet>296</a>    }
+<a href=#297 id=297 data-nosnippet>297</a>}
+<a href=#298 id=298 data-nosnippet>298</a>
+<a href=#299 id=299 data-nosnippet>299</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>close_trampoline&lt;R: RustBackend&gt;(session: <span class="kw-2">*mut </span>NrosRmwSession) -&gt; NrosRmwRet {
+<a href=#300 id=300 data-nosnippet>300</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(boxed) = (<span class="kw">unsafe </span>{ take_box::&lt;R::Session&gt;(session_data_mut(session)) }) <span class="kw">else </span>{
+<a href=#301 id=301 data-nosnippet>301</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#302 id=302 data-nosnippet>302</a>    };
+<a href=#303 id=303 data-nosnippet>303</a>    <span class="kw">let </span><span class="kw-2">mut </span>s = boxed;
+<a href=#304 id=304 data-nosnippet>304</a>    <span class="kw">let </span>ret = <span class="kw">match </span>Session::close(<span class="kw-2">&amp;mut *</span>s) {
+<a href=#305 id=305 data-nosnippet>305</a>        <span class="prelude-val">Ok</span>(()) =&gt; NROS_RMW_RET_OK,
+<a href=#306 id=306 data-nosnippet>306</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#307 id=307 data-nosnippet>307</a>    };
+<a href=#308 id=308 data-nosnippet>308</a>    drop(s);
+<a href=#309 id=309 data-nosnippet>309</a>    ret
+<a href=#310 id=310 data-nosnippet>310</a>}
+<a href=#311 id=311 data-nosnippet>311</a>
+<a href=#312 id=312 data-nosnippet>312</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>drive_io_trampoline&lt;R: RustBackend&gt;(
+<a href=#313 id=313 data-nosnippet>313</a>    session: <span class="kw-2">*mut </span>NrosRmwSession,
+<a href=#314 id=314 data-nosnippet>314</a>    timeout_ms: i32,
+<a href=#315 id=315 data-nosnippet>315</a>) -&gt; NrosRmwRet {
+<a href=#316 id=316 data-nosnippet>316</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ session_mut::&lt;R::Session&gt;(session) }) <span class="kw">else </span>{
+<a href=#317 id=317 data-nosnippet>317</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#318 id=318 data-nosnippet>318</a>    };
+<a href=#319 id=319 data-nosnippet>319</a>    <span class="kw">match </span>Session::drive_io(s, timeout_ms) {
+<a href=#320 id=320 data-nosnippet>320</a>        <span class="prelude-val">Ok</span>(()) =&gt; NROS_RMW_RET_OK,
+<a href=#321 id=321 data-nosnippet>321</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#322 id=322 data-nosnippet>322</a>    }
+<a href=#323 id=323 data-nosnippet>323</a>}
+<a href=#324 id=324 data-nosnippet>324</a>
+<a href=#325 id=325 data-nosnippet>325</a><span class="comment">// ============================================================================
+<a href=#326 id=326 data-nosnippet>326</a>// Trampolines — publisher
+<a href=#327 id=327 data-nosnippet>327</a>// ============================================================================
+<a href=#328 id=328 data-nosnippet>328</a>
+<a href=#329 id=329 data-nosnippet>329</a></span><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>create_publisher_trampoline&lt;R: RustBackend&gt;(
+<a href=#330 id=330 data-nosnippet>330</a>    session: <span class="kw-2">*mut </span>NrosRmwSession,
+<a href=#331 id=331 data-nosnippet>331</a>    topic_name: <span class="kw-2">*const </span>u8,
+<a href=#332 id=332 data-nosnippet>332</a>    type_name: <span class="kw-2">*const </span>u8,
+<a href=#333 id=333 data-nosnippet>333</a>    type_hash: <span class="kw-2">*const </span>u8,
+<a href=#334 id=334 data-nosnippet>334</a>    domain_id: u32,
+<a href=#335 id=335 data-nosnippet>335</a>    qos: <span class="kw-2">*const </span>NrosRmwQos,
+<a href=#336 id=336 data-nosnippet>336</a>    out: <span class="kw-2">*mut </span>NrosRmwPublisher,
+<a href=#337 id=337 data-nosnippet>337</a>) -&gt; NrosRmwRet {
+<a href=#338 id=338 data-nosnippet>338</a>    <span class="kw">if </span>out.is_null() || qos.is_null() {
+<a href=#339 id=339 data-nosnippet>339</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#340 id=340 data-nosnippet>340</a>    }
+<a href=#341 id=341 data-nosnippet>341</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ session_mut::&lt;R::Session&gt;(session) }) <span class="kw">else </span>{
+<a href=#342 id=342 data-nosnippet>342</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#343 id=343 data-nosnippet>343</a>    };
+<a href=#344 id=344 data-nosnippet>344</a>    <span class="kw">let </span>topic = TopicInfo {
+<a href=#345 id=345 data-nosnippet>345</a>        name: <span class="kw">unsafe </span>{ cstr_to_str(topic_name) },
+<a href=#346 id=346 data-nosnippet>346</a>        type_name: <span class="kw">unsafe </span>{ cstr_to_str(type_name) },
+<a href=#347 id=347 data-nosnippet>347</a>        type_hash: <span class="kw">unsafe </span>{ cstr_to_str(type_hash) },
+<a href=#348 id=348 data-nosnippet>348</a>        domain_id,
+<a href=#349 id=349 data-nosnippet>349</a>        node_name: <span class="prelude-val">None</span>,
+<a href=#350 id=350 data-nosnippet>350</a>        namespace: <span class="string">"/"</span>,
+<a href=#351 id=351 data-nosnippet>351</a>    };
+<a href=#352 id=352 data-nosnippet>352</a>    <span class="kw">let </span>qos_settings = qos_from_cffi(<span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>qos });
+<a href=#353 id=353 data-nosnippet>353</a>    <span class="kw">match </span>Session::create_publisher(s, <span class="kw-2">&amp;</span>topic, qos_settings) {
+<a href=#354 id=354 data-nosnippet>354</a>        <span class="prelude-val">Ok</span>(pub_handle) =&gt; {
+<a href=#355 id=355 data-nosnippet>355</a>            <span class="kw">let </span>boxed = Box::into_raw(Box::new(pub_handle));
+<a href=#356 id=356 data-nosnippet>356</a>            <span class="kw">unsafe </span>{
+<a href=#357 id=357 data-nosnippet>357</a>                (<span class="kw-2">*</span>out).backend_data = boxed <span class="kw">as </span><span class="kw-2">*mut </span>c_void;
+<a href=#358 id=358 data-nosnippet>358</a>            }
+<a href=#359 id=359 data-nosnippet>359</a>            NROS_RMW_RET_OK
+<a href=#360 id=360 data-nosnippet>360</a>        }
+<a href=#361 id=361 data-nosnippet>361</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#362 id=362 data-nosnippet>362</a>    }
+<a href=#363 id=363 data-nosnippet>363</a>}
+<a href=#364 id=364 data-nosnippet>364</a>
+<a href=#365 id=365 data-nosnippet>365</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>destroy_publisher_trampoline&lt;R: RustBackend&gt;(
+<a href=#366 id=366 data-nosnippet>366</a>    publisher: <span class="kw-2">*mut </span>NrosRmwPublisher,
+<a href=#367 id=367 data-nosnippet>367</a>) {
+<a href=#368 id=368 data-nosnippet>368</a>    <span class="kw">let _ </span>= <span class="kw">unsafe </span>{ take_box::&lt;R::Publisher&gt;(publisher_data_mut(publisher)) };
+<a href=#369 id=369 data-nosnippet>369</a>}
+<a href=#370 id=370 data-nosnippet>370</a>
+<a href=#371 id=371 data-nosnippet>371</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>publish_raw_trampoline&lt;R: RustBackend&gt;(
+<a href=#372 id=372 data-nosnippet>372</a>    publisher: <span class="kw-2">*mut </span>NrosRmwPublisher,
+<a href=#373 id=373 data-nosnippet>373</a>    data: <span class="kw-2">*const </span>u8,
+<a href=#374 id=374 data-nosnippet>374</a>    len: usize,
+<a href=#375 id=375 data-nosnippet>375</a>) -&gt; NrosRmwRet {
+<a href=#376 id=376 data-nosnippet>376</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(p) = (<span class="kw">unsafe </span>{ publisher_ref::&lt;R::Publisher&gt;(publisher) }) <span class="kw">else </span>{
+<a href=#377 id=377 data-nosnippet>377</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#378 id=378 data-nosnippet>378</a>    };
+<a href=#379 id=379 data-nosnippet>379</a>    <span class="kw">if </span>data.is_null() &amp;&amp; len != <span class="number">0 </span>{
+<a href=#380 id=380 data-nosnippet>380</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#381 id=381 data-nosnippet>381</a>    }
+<a href=#382 id=382 data-nosnippet>382</a>    <span class="kw">let </span>slice = <span class="kw">unsafe </span>{ core::slice::from_raw_parts(data, len) };
+<a href=#383 id=383 data-nosnippet>383</a>    <span class="kw">match </span>Publisher::publish_raw(p, slice) {
+<a href=#384 id=384 data-nosnippet>384</a>        <span class="prelude-val">Ok</span>(()) =&gt; NROS_RMW_RET_OK,
+<a href=#385 id=385 data-nosnippet>385</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#386 id=386 data-nosnippet>386</a>    }
+<a href=#387 id=387 data-nosnippet>387</a>}
+<a href=#388 id=388 data-nosnippet>388</a>
+<a href=#389 id=389 data-nosnippet>389</a><span class="comment">// ============================================================================
+<a href=#390 id=390 data-nosnippet>390</a>// Trampolines — subscriber
+<a href=#391 id=391 data-nosnippet>391</a>// ============================================================================
+<a href=#392 id=392 data-nosnippet>392</a>
+<a href=#393 id=393 data-nosnippet>393</a></span><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>create_subscriber_trampoline&lt;R: RustBackend&gt;(
+<a href=#394 id=394 data-nosnippet>394</a>    session: <span class="kw-2">*mut </span>NrosRmwSession,
+<a href=#395 id=395 data-nosnippet>395</a>    topic_name: <span class="kw-2">*const </span>u8,
+<a href=#396 id=396 data-nosnippet>396</a>    type_name: <span class="kw-2">*const </span>u8,
+<a href=#397 id=397 data-nosnippet>397</a>    type_hash: <span class="kw-2">*const </span>u8,
+<a href=#398 id=398 data-nosnippet>398</a>    domain_id: u32,
+<a href=#399 id=399 data-nosnippet>399</a>    qos: <span class="kw-2">*const </span>NrosRmwQos,
+<a href=#400 id=400 data-nosnippet>400</a>    out: <span class="kw-2">*mut </span>NrosRmwSubscriber,
+<a href=#401 id=401 data-nosnippet>401</a>) -&gt; NrosRmwRet {
+<a href=#402 id=402 data-nosnippet>402</a>    <span class="kw">if </span>out.is_null() || qos.is_null() {
+<a href=#403 id=403 data-nosnippet>403</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#404 id=404 data-nosnippet>404</a>    }
+<a href=#405 id=405 data-nosnippet>405</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ session_mut::&lt;R::Session&gt;(session) }) <span class="kw">else </span>{
+<a href=#406 id=406 data-nosnippet>406</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#407 id=407 data-nosnippet>407</a>    };
+<a href=#408 id=408 data-nosnippet>408</a>    <span class="kw">let </span>topic = TopicInfo {
+<a href=#409 id=409 data-nosnippet>409</a>        name: <span class="kw">unsafe </span>{ cstr_to_str(topic_name) },
+<a href=#410 id=410 data-nosnippet>410</a>        type_name: <span class="kw">unsafe </span>{ cstr_to_str(type_name) },
+<a href=#411 id=411 data-nosnippet>411</a>        type_hash: <span class="kw">unsafe </span>{ cstr_to_str(type_hash) },
+<a href=#412 id=412 data-nosnippet>412</a>        domain_id,
+<a href=#413 id=413 data-nosnippet>413</a>        node_name: <span class="prelude-val">None</span>,
+<a href=#414 id=414 data-nosnippet>414</a>        namespace: <span class="string">"/"</span>,
+<a href=#415 id=415 data-nosnippet>415</a>    };
+<a href=#416 id=416 data-nosnippet>416</a>    <span class="kw">let </span>qos_settings = qos_from_cffi(<span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>qos });
+<a href=#417 id=417 data-nosnippet>417</a>    <span class="kw">match </span>Session::create_subscriber(s, <span class="kw-2">&amp;</span>topic, qos_settings) {
+<a href=#418 id=418 data-nosnippet>418</a>        <span class="prelude-val">Ok</span>(sub_handle) =&gt; {
+<a href=#419 id=419 data-nosnippet>419</a>            <span class="kw">let </span>boxed = Box::into_raw(Box::new(sub_handle));
+<a href=#420 id=420 data-nosnippet>420</a>            <span class="kw">unsafe </span>{
+<a href=#421 id=421 data-nosnippet>421</a>                (<span class="kw-2">*</span>out).backend_data = boxed <span class="kw">as </span><span class="kw-2">*mut </span>c_void;
+<a href=#422 id=422 data-nosnippet>422</a>            }
+<a href=#423 id=423 data-nosnippet>423</a>            NROS_RMW_RET_OK
+<a href=#424 id=424 data-nosnippet>424</a>        }
+<a href=#425 id=425 data-nosnippet>425</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#426 id=426 data-nosnippet>426</a>    }
+<a href=#427 id=427 data-nosnippet>427</a>}
+<a href=#428 id=428 data-nosnippet>428</a>
+<a href=#429 id=429 data-nosnippet>429</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>destroy_subscriber_trampoline&lt;R: RustBackend&gt;(
+<a href=#430 id=430 data-nosnippet>430</a>    subscriber: <span class="kw-2">*mut </span>NrosRmwSubscriber,
+<a href=#431 id=431 data-nosnippet>431</a>) {
+<a href=#432 id=432 data-nosnippet>432</a>    <span class="kw">let _ </span>= <span class="kw">unsafe </span>{ take_box::&lt;R::Subscriber&gt;(subscriber_data_mut(subscriber)) };
+<a href=#433 id=433 data-nosnippet>433</a>}
+<a href=#434 id=434 data-nosnippet>434</a>
+<a href=#435 id=435 data-nosnippet>435</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>try_recv_raw_trampoline&lt;R: RustBackend&gt;(
+<a href=#436 id=436 data-nosnippet>436</a>    subscriber: <span class="kw-2">*mut </span>NrosRmwSubscriber,
+<a href=#437 id=437 data-nosnippet>437</a>    buf: <span class="kw-2">*mut </span>u8,
+<a href=#438 id=438 data-nosnippet>438</a>    buf_len: usize,
+<a href=#439 id=439 data-nosnippet>439</a>) -&gt; i32 {
+<a href=#440 id=440 data-nosnippet>440</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ subscriber_mut::&lt;R::Subscriber&gt;(subscriber) }) <span class="kw">else </span>{
+<a href=#441 id=441 data-nosnippet>441</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#442 id=442 data-nosnippet>442</a>    };
+<a href=#443 id=443 data-nosnippet>443</a>    <span class="kw">if </span>buf.is_null() &amp;&amp; buf_len != <span class="number">0 </span>{
+<a href=#444 id=444 data-nosnippet>444</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#445 id=445 data-nosnippet>445</a>    }
+<a href=#446 id=446 data-nosnippet>446</a>    <span class="kw">let </span>slice = <span class="kw">unsafe </span>{ core::slice::from_raw_parts_mut(buf, buf_len) };
+<a href=#447 id=447 data-nosnippet>447</a>    <span class="kw">match </span>Subscriber::try_recv_raw(s, slice) {
+<a href=#448 id=448 data-nosnippet>448</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(n)) =&gt; n <span class="kw">as </span>i32,
+<a href=#449 id=449 data-nosnippet>449</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>) =&gt; NROS_RMW_RET_NO_DATA,
+<a href=#450 id=450 data-nosnippet>450</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#451 id=451 data-nosnippet>451</a>    }
+<a href=#452 id=452 data-nosnippet>452</a>}
+<a href=#453 id=453 data-nosnippet>453</a>
+<a href=#454 id=454 data-nosnippet>454</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>has_data_trampoline&lt;R: RustBackend&gt;(
+<a href=#455 id=455 data-nosnippet>455</a>    subscriber: <span class="kw-2">*mut </span>NrosRmwSubscriber,
+<a href=#456 id=456 data-nosnippet>456</a>) -&gt; i32 {
+<a href=#457 id=457 data-nosnippet>457</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ subscriber_ref::&lt;R::Subscriber&gt;(subscriber) }) <span class="kw">else </span>{
+<a href=#458 id=458 data-nosnippet>458</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#459 id=459 data-nosnippet>459</a>    };
+<a href=#460 id=460 data-nosnippet>460</a>    <span class="kw">if </span>Subscriber::has_data(s) { <span class="number">1 </span>} <span class="kw">else </span>{ <span class="number">0 </span>}
+<a href=#461 id=461 data-nosnippet>461</a>}
+<a href=#462 id=462 data-nosnippet>462</a>
+<a href=#463 id=463 data-nosnippet>463</a><span class="comment">// ============================================================================
+<a href=#464 id=464 data-nosnippet>464</a>// Trampolines — service server
+<a href=#465 id=465 data-nosnippet>465</a>// ============================================================================
+<a href=#466 id=466 data-nosnippet>466</a>
+<a href=#467 id=467 data-nosnippet>467</a></span><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>create_service_server_trampoline&lt;R: RustBackend&gt;(
+<a href=#468 id=468 data-nosnippet>468</a>    session: <span class="kw-2">*mut </span>NrosRmwSession,
+<a href=#469 id=469 data-nosnippet>469</a>    service_name: <span class="kw-2">*const </span>u8,
+<a href=#470 id=470 data-nosnippet>470</a>    type_name: <span class="kw-2">*const </span>u8,
+<a href=#471 id=471 data-nosnippet>471</a>    type_hash: <span class="kw-2">*const </span>u8,
+<a href=#472 id=472 data-nosnippet>472</a>    domain_id: u32,
+<a href=#473 id=473 data-nosnippet>473</a>    out: <span class="kw-2">*mut </span>NrosRmwServiceServer,
+<a href=#474 id=474 data-nosnippet>474</a>) -&gt; NrosRmwRet {
+<a href=#475 id=475 data-nosnippet>475</a>    <span class="kw">if </span>out.is_null() {
+<a href=#476 id=476 data-nosnippet>476</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#477 id=477 data-nosnippet>477</a>    }
+<a href=#478 id=478 data-nosnippet>478</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ session_mut::&lt;R::Session&gt;(session) }) <span class="kw">else </span>{
+<a href=#479 id=479 data-nosnippet>479</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#480 id=480 data-nosnippet>480</a>    };
+<a href=#481 id=481 data-nosnippet>481</a>    <span class="kw">let </span>info = nros_rmw::ServiceInfo {
+<a href=#482 id=482 data-nosnippet>482</a>        name: <span class="kw">unsafe </span>{ cstr_to_str(service_name) },
+<a href=#483 id=483 data-nosnippet>483</a>        type_name: <span class="kw">unsafe </span>{ cstr_to_str(type_name) },
+<a href=#484 id=484 data-nosnippet>484</a>        type_hash: <span class="kw">unsafe </span>{ cstr_to_str(type_hash) },
+<a href=#485 id=485 data-nosnippet>485</a>        domain_id,
+<a href=#486 id=486 data-nosnippet>486</a>        node_name: <span class="prelude-val">None</span>,
+<a href=#487 id=487 data-nosnippet>487</a>        namespace: <span class="string">"/"</span>,
+<a href=#488 id=488 data-nosnippet>488</a>    };
+<a href=#489 id=489 data-nosnippet>489</a>    <span class="kw">match </span>Session::create_service_server(s, <span class="kw-2">&amp;</span>info) {
+<a href=#490 id=490 data-nosnippet>490</a>        <span class="prelude-val">Ok</span>(server) =&gt; {
+<a href=#491 id=491 data-nosnippet>491</a>            <span class="kw">let </span>boxed = Box::into_raw(Box::new(server));
+<a href=#492 id=492 data-nosnippet>492</a>            <span class="kw">unsafe </span>{
+<a href=#493 id=493 data-nosnippet>493</a>                (<span class="kw-2">*</span>out).backend_data = boxed <span class="kw">as </span><span class="kw-2">*mut </span>c_void;
+<a href=#494 id=494 data-nosnippet>494</a>            }
+<a href=#495 id=495 data-nosnippet>495</a>            NROS_RMW_RET_OK
+<a href=#496 id=496 data-nosnippet>496</a>        }
+<a href=#497 id=497 data-nosnippet>497</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#498 id=498 data-nosnippet>498</a>    }
+<a href=#499 id=499 data-nosnippet>499</a>}
+<a href=#500 id=500 data-nosnippet>500</a>
+<a href=#501 id=501 data-nosnippet>501</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>destroy_service_server_trampoline&lt;R: RustBackend&gt;(
+<a href=#502 id=502 data-nosnippet>502</a>    server: <span class="kw-2">*mut </span>NrosRmwServiceServer,
+<a href=#503 id=503 data-nosnippet>503</a>) {
+<a href=#504 id=504 data-nosnippet>504</a>    <span class="kw">let _ </span>= <span class="kw">unsafe </span>{ take_box::&lt;R::ServiceServer&gt;(service_server_data_mut(server)) };
+<a href=#505 id=505 data-nosnippet>505</a>}
+<a href=#506 id=506 data-nosnippet>506</a>
+<a href=#507 id=507 data-nosnippet>507</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>try_recv_request_trampoline&lt;R: RustBackend&gt;(
+<a href=#508 id=508 data-nosnippet>508</a>    server: <span class="kw-2">*mut </span>NrosRmwServiceServer,
+<a href=#509 id=509 data-nosnippet>509</a>    buf: <span class="kw-2">*mut </span>u8,
+<a href=#510 id=510 data-nosnippet>510</a>    buf_len: usize,
+<a href=#511 id=511 data-nosnippet>511</a>    seq_out: <span class="kw-2">*mut </span>i64,
+<a href=#512 id=512 data-nosnippet>512</a>) -&gt; i32 {
+<a href=#513 id=513 data-nosnippet>513</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ service_server_mut::&lt;R::ServiceServer&gt;(server) }) <span class="kw">else </span>{
+<a href=#514 id=514 data-nosnippet>514</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#515 id=515 data-nosnippet>515</a>    };
+<a href=#516 id=516 data-nosnippet>516</a>    <span class="kw">if </span>(buf.is_null() &amp;&amp; buf_len != <span class="number">0</span>) || seq_out.is_null() {
+<a href=#517 id=517 data-nosnippet>517</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#518 id=518 data-nosnippet>518</a>    }
+<a href=#519 id=519 data-nosnippet>519</a>    <span class="kw">let </span>slice = <span class="kw">unsafe </span>{ core::slice::from_raw_parts_mut(buf, buf_len) };
+<a href=#520 id=520 data-nosnippet>520</a>    <span class="kw">let </span>buf_start = slice.as_ptr() <span class="kw">as </span>usize;
+<a href=#521 id=521 data-nosnippet>521</a>    <span class="kw">match </span>ServiceServerTrait::try_recv_request(s, slice) {
+<a href=#522 id=522 data-nosnippet>522</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">Some</span>(req)) =&gt; {
+<a href=#523 id=523 data-nosnippet>523</a>            <span class="comment">// The handle's `data` slice borrows from `buf`. Use its
+<a href=#524 id=524 data-nosnippet>524</a>            // offset within the caller's buffer to compute the payload
+<a href=#525 id=525 data-nosnippet>525</a>            // length; some backends prepend an envelope header so the
+<a href=#526 id=526 data-nosnippet>526</a>            // payload doesn't start at offset 0.
+<a href=#527 id=527 data-nosnippet>527</a>            </span><span class="kw">let </span>offset = (req.data.as_ptr() <span class="kw">as </span>usize).saturating_sub(buf_start);
+<a href=#528 id=528 data-nosnippet>528</a>            <span class="kw">let </span>len = req.data.len();
+<a href=#529 id=529 data-nosnippet>529</a>            <span class="kw">unsafe </span>{
+<a href=#530 id=530 data-nosnippet>530</a>                <span class="kw-2">*</span>seq_out = req.sequence_number;
+<a href=#531 id=531 data-nosnippet>531</a>            }
+<a href=#532 id=532 data-nosnippet>532</a>            <span class="comment">// Move the payload to the start of the buffer so the C
+<a href=#533 id=533 data-nosnippet>533</a>            // caller sees a `(buf, len)` pair starting at offset 0,
+<a href=#534 id=534 data-nosnippet>534</a>            // matching the cyclonedds backend's contract.
+<a href=#535 id=535 data-nosnippet>535</a>            </span><span class="kw">if </span>offset != <span class="number">0 </span>{
+<a href=#536 id=536 data-nosnippet>536</a>                <span class="kw">let </span>total = offset + len;
+<a href=#537 id=537 data-nosnippet>537</a>                <span class="comment">// SAFETY: `slice[..total]` is initialised by the
+<a href=#538 id=538 data-nosnippet>538</a>                // backend; copy_within respects overlapping ranges.
+<a href=#539 id=539 data-nosnippet>539</a>                </span>slice.copy_within(offset..total, <span class="number">0</span>);
+<a href=#540 id=540 data-nosnippet>540</a>            }
+<a href=#541 id=541 data-nosnippet>541</a>            len <span class="kw">as </span>i32
+<a href=#542 id=542 data-nosnippet>542</a>        }
+<a href=#543 id=543 data-nosnippet>543</a>        <span class="prelude-val">Ok</span>(<span class="prelude-val">None</span>) =&gt; NROS_RMW_RET_NO_DATA,
+<a href=#544 id=544 data-nosnippet>544</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#545 id=545 data-nosnippet>545</a>    }
+<a href=#546 id=546 data-nosnippet>546</a>}
+<a href=#547 id=547 data-nosnippet>547</a>
+<a href=#548 id=548 data-nosnippet>548</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>has_request_trampoline&lt;R: RustBackend&gt;(
+<a href=#549 id=549 data-nosnippet>549</a>    server: <span class="kw-2">*mut </span>NrosRmwServiceServer,
+<a href=#550 id=550 data-nosnippet>550</a>) -&gt; i32 {
+<a href=#551 id=551 data-nosnippet>551</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ service_server_ref::&lt;R::ServiceServer&gt;(server) }) <span class="kw">else </span>{
+<a href=#552 id=552 data-nosnippet>552</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#553 id=553 data-nosnippet>553</a>    };
+<a href=#554 id=554 data-nosnippet>554</a>    <span class="kw">if </span>ServiceServerTrait::has_request(s) {
+<a href=#555 id=555 data-nosnippet>555</a>        <span class="number">1
+<a href=#556 id=556 data-nosnippet>556</a>    </span>} <span class="kw">else </span>{
+<a href=#557 id=557 data-nosnippet>557</a>        <span class="number">0
+<a href=#558 id=558 data-nosnippet>558</a>    </span>}
+<a href=#559 id=559 data-nosnippet>559</a>}
+<a href=#560 id=560 data-nosnippet>560</a>
+<a href=#561 id=561 data-nosnippet>561</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>send_reply_trampoline&lt;R: RustBackend&gt;(
+<a href=#562 id=562 data-nosnippet>562</a>    server: <span class="kw-2">*mut </span>NrosRmwServiceServer,
+<a href=#563 id=563 data-nosnippet>563</a>    seq: i64,
+<a href=#564 id=564 data-nosnippet>564</a>    data: <span class="kw-2">*const </span>u8,
+<a href=#565 id=565 data-nosnippet>565</a>    len: usize,
+<a href=#566 id=566 data-nosnippet>566</a>) -&gt; NrosRmwRet {
+<a href=#567 id=567 data-nosnippet>567</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ service_server_mut::&lt;R::ServiceServer&gt;(server) }) <span class="kw">else </span>{
+<a href=#568 id=568 data-nosnippet>568</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#569 id=569 data-nosnippet>569</a>    };
+<a href=#570 id=570 data-nosnippet>570</a>    <span class="kw">if </span>data.is_null() &amp;&amp; len != <span class="number">0 </span>{
+<a href=#571 id=571 data-nosnippet>571</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#572 id=572 data-nosnippet>572</a>    }
+<a href=#573 id=573 data-nosnippet>573</a>    <span class="kw">let </span>slice = <span class="kw">unsafe </span>{ core::slice::from_raw_parts(data, len) };
+<a href=#574 id=574 data-nosnippet>574</a>    <span class="kw">match </span>ServiceServerTrait::send_reply(s, seq, slice) {
+<a href=#575 id=575 data-nosnippet>575</a>        <span class="prelude-val">Ok</span>(()) =&gt; NROS_RMW_RET_OK,
+<a href=#576 id=576 data-nosnippet>576</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#577 id=577 data-nosnippet>577</a>    }
+<a href=#578 id=578 data-nosnippet>578</a>}
+<a href=#579 id=579 data-nosnippet>579</a>
+<a href=#580 id=580 data-nosnippet>580</a><span class="comment">// ============================================================================
+<a href=#581 id=581 data-nosnippet>581</a>// Trampolines — service client
+<a href=#582 id=582 data-nosnippet>582</a>// ============================================================================
+<a href=#583 id=583 data-nosnippet>583</a>
+<a href=#584 id=584 data-nosnippet>584</a></span><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>create_service_client_trampoline&lt;R: RustBackend&gt;(
+<a href=#585 id=585 data-nosnippet>585</a>    session: <span class="kw-2">*mut </span>NrosRmwSession,
+<a href=#586 id=586 data-nosnippet>586</a>    service_name: <span class="kw-2">*const </span>u8,
+<a href=#587 id=587 data-nosnippet>587</a>    type_name: <span class="kw-2">*const </span>u8,
+<a href=#588 id=588 data-nosnippet>588</a>    type_hash: <span class="kw-2">*const </span>u8,
+<a href=#589 id=589 data-nosnippet>589</a>    domain_id: u32,
+<a href=#590 id=590 data-nosnippet>590</a>    out: <span class="kw-2">*mut </span>NrosRmwServiceClient,
+<a href=#591 id=591 data-nosnippet>591</a>) -&gt; NrosRmwRet {
+<a href=#592 id=592 data-nosnippet>592</a>    <span class="kw">if </span>out.is_null() {
+<a href=#593 id=593 data-nosnippet>593</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#594 id=594 data-nosnippet>594</a>    }
+<a href=#595 id=595 data-nosnippet>595</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ session_mut::&lt;R::Session&gt;(session) }) <span class="kw">else </span>{
+<a href=#596 id=596 data-nosnippet>596</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#597 id=597 data-nosnippet>597</a>    };
+<a href=#598 id=598 data-nosnippet>598</a>    <span class="kw">let </span>info = nros_rmw::ServiceInfo {
+<a href=#599 id=599 data-nosnippet>599</a>        name: <span class="kw">unsafe </span>{ cstr_to_str(service_name) },
+<a href=#600 id=600 data-nosnippet>600</a>        type_name: <span class="kw">unsafe </span>{ cstr_to_str(type_name) },
+<a href=#601 id=601 data-nosnippet>601</a>        type_hash: <span class="kw">unsafe </span>{ cstr_to_str(type_hash) },
+<a href=#602 id=602 data-nosnippet>602</a>        domain_id,
+<a href=#603 id=603 data-nosnippet>603</a>        node_name: <span class="prelude-val">None</span>,
+<a href=#604 id=604 data-nosnippet>604</a>        namespace: <span class="string">"/"</span>,
+<a href=#605 id=605 data-nosnippet>605</a>    };
+<a href=#606 id=606 data-nosnippet>606</a>    <span class="kw">match </span>Session::create_service_client(s, <span class="kw-2">&amp;</span>info) {
+<a href=#607 id=607 data-nosnippet>607</a>        <span class="prelude-val">Ok</span>(client) =&gt; {
+<a href=#608 id=608 data-nosnippet>608</a>            <span class="kw">let </span>boxed = Box::into_raw(Box::new(client));
+<a href=#609 id=609 data-nosnippet>609</a>            <span class="kw">unsafe </span>{
+<a href=#610 id=610 data-nosnippet>610</a>                (<span class="kw-2">*</span>out).backend_data = boxed <span class="kw">as </span><span class="kw-2">*mut </span>c_void;
+<a href=#611 id=611 data-nosnippet>611</a>            }
+<a href=#612 id=612 data-nosnippet>612</a>            NROS_RMW_RET_OK
+<a href=#613 id=613 data-nosnippet>613</a>        }
+<a href=#614 id=614 data-nosnippet>614</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#615 id=615 data-nosnippet>615</a>    }
+<a href=#616 id=616 data-nosnippet>616</a>}
+<a href=#617 id=617 data-nosnippet>617</a>
+<a href=#618 id=618 data-nosnippet>618</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>destroy_service_client_trampoline&lt;R: RustBackend&gt;(
+<a href=#619 id=619 data-nosnippet>619</a>    client: <span class="kw-2">*mut </span>NrosRmwServiceClient,
+<a href=#620 id=620 data-nosnippet>620</a>) {
+<a href=#621 id=621 data-nosnippet>621</a>    <span class="kw">let _ </span>= <span class="kw">unsafe </span>{ take_box::&lt;R::ServiceClient&gt;(service_client_data_mut(client)) };
+<a href=#622 id=622 data-nosnippet>622</a>}
+<a href=#623 id=623 data-nosnippet>623</a>
+<a href=#624 id=624 data-nosnippet>624</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>call_raw_trampoline&lt;R: RustBackend&gt;(
+<a href=#625 id=625 data-nosnippet>625</a>    client: <span class="kw-2">*mut </span>NrosRmwServiceClient,
+<a href=#626 id=626 data-nosnippet>626</a>    request: <span class="kw-2">*const </span>u8,
+<a href=#627 id=627 data-nosnippet>627</a>    req_len: usize,
+<a href=#628 id=628 data-nosnippet>628</a>    reply_buf: <span class="kw-2">*mut </span>u8,
+<a href=#629 id=629 data-nosnippet>629</a>    reply_buf_len: usize,
+<a href=#630 id=630 data-nosnippet>630</a>) -&gt; i32 {
+<a href=#631 id=631 data-nosnippet>631</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(c) = (<span class="kw">unsafe </span>{ service_client_mut::&lt;R::ServiceClient&gt;(client) }) <span class="kw">else </span>{
+<a href=#632 id=632 data-nosnippet>632</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#633 id=633 data-nosnippet>633</a>    };
+<a href=#634 id=634 data-nosnippet>634</a>    <span class="kw">if </span>(request.is_null() &amp;&amp; req_len != <span class="number">0</span>) || (reply_buf.is_null() &amp;&amp; reply_buf_len != <span class="number">0</span>) {
+<a href=#635 id=635 data-nosnippet>635</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#636 id=636 data-nosnippet>636</a>    }
+<a href=#637 id=637 data-nosnippet>637</a>    <span class="kw">let </span>req = <span class="kw">unsafe </span>{ core::slice::from_raw_parts(request, req_len) };
+<a href=#638 id=638 data-nosnippet>638</a>    <span class="kw">let </span>reply = <span class="kw">unsafe </span>{ core::slice::from_raw_parts_mut(reply_buf, reply_buf_len) };
+<a href=#639 id=639 data-nosnippet>639</a>    <span class="comment">// `call_raw` is marked deprecated on the trait (the executor-driven
+<a href=#640 id=640 data-nosnippet>640</a>    // `Client::call` → `Promise::wait` path is the supported flow), but
+<a href=#641 id=641 data-nosnippet>641</a>    // the cffi vtable still exposes a blocking call entry point for C
+<a href=#642 id=642 data-nosnippet>642</a>    // consumers that don't have an executor handle. The deprecation is
+<a href=#643 id=643 data-nosnippet>643</a>    // about API ergonomics, not correctness, so the adapter forwards
+<a href=#644 id=644 data-nosnippet>644</a>    // through unchanged.
+<a href=#645 id=645 data-nosnippet>645</a>    </span><span class="attr">#[allow(deprecated)]
+<a href=#646 id=646 data-nosnippet>646</a>    </span><span class="kw">match </span>ServiceClientTrait::call_raw(c, req, reply) {
+<a href=#647 id=647 data-nosnippet>647</a>        <span class="prelude-val">Ok</span>(n) =&gt; n <span class="kw">as </span>i32,
+<a href=#648 id=648 data-nosnippet>648</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#649 id=649 data-nosnippet>649</a>    }
+<a href=#650 id=650 data-nosnippet>650</a>}
+<a href=#651 id=651 data-nosnippet>651</a>
+<a href=#652 id=652 data-nosnippet>652</a><span class="comment">// ============================================================================
+<a href=#653 id=653 data-nosnippet>653</a>// Trampolines — events / liveliness / deadline (TODO: wire through)
+<a href=#654 id=654 data-nosnippet>654</a>// ============================================================================
+<a href=#655 id=655 data-nosnippet>655</a>
+<a href=#656 id=656 data-nosnippet>656</a>// ============================================================================
+<a href=#657 id=657 data-nosnippet>657</a>// Event-callback bridge (Phase 115.L.0.events)
+<a href=#658 id=658 data-nosnippet>658</a>// ============================================================================
+<a href=#659 id=659 data-nosnippet>659</a>//
+<a href=#660 id=660 data-nosnippet>660</a>// `NrosRmwEventCallback` (cffi shape) and `nros_rmw::EventCallback`
+<a href=#661 id=661 data-nosnippet>661</a>// (trait shape) have *layout-identical* arguments:
+<a href=#662 id=662 data-nosnippet>662</a>//
+<a href=#663 id=663 data-nosnippet>663</a>//   * NrosRmwEventKind  ↔ EventKind     — both `#[repr(u8)]`, same variant ids.
+<a href=#664 id=664 data-nosnippet>664</a>//   * *const NrosRmwEventPayload ↔ *const c_void  — fn-ptr-width pointer; the
+<a href=#665 id=665 data-nosnippet>665</a>//     trait callback dereferences as `*const LivelinessChangedStatus` /
+<a href=#666 id=666 data-nosnippet>666</a>//     `*const CountStatus`, the cffi callback dereferences as the matching
+<a href=#667 id=667 data-nosnippet>667</a>//     union member. The field-by-field layout matches today (see the
+<a href=#668 id=668 data-nosnippet>668</a>//     `_event_payload_layout_match` const-asserts below).
+<a href=#669 id=669 data-nosnippet>669</a>//   * *mut c_void       ↔ *mut c_void   — identical.
+<a href=#670 id=670 data-nosnippet>670</a>//
+<a href=#671 id=671 data-nosnippet>671</a>// Therefore the cffi callback can be transmuted into a trait callback
+<a href=#672 id=672 data-nosnippet>672</a>// pointer; the receiving Rust trait code calls it via the trait
+<a href=#673 id=673 data-nosnippet>673</a>// signature, but the bytes on the wire are the cffi struct.
+<a href=#674 id=674 data-nosnippet>674</a>
+<a href=#675 id=675 data-nosnippet>675</a></span><span class="kw">const _</span>: () = {
+<a href=#676 id=676 data-nosnippet>676</a>    <span class="kw">use </span>core::mem::{align_of, size_of};
+<a href=#677 id=677 data-nosnippet>677</a>    <span class="macro">assert!</span>(
+<a href=#678 id=678 data-nosnippet>678</a>        size_of::&lt;<span class="kw">crate</span>::NrosRmwLivelinessChangedStatus&gt;()
+<a href=#679 id=679 data-nosnippet>679</a>            == size_of::&lt;nros_rmw::LivelinessChangedStatus&gt;()
+<a href=#680 id=680 data-nosnippet>680</a>    );
+<a href=#681 id=681 data-nosnippet>681</a>    <span class="macro">assert!</span>(
+<a href=#682 id=682 data-nosnippet>682</a>        align_of::&lt;<span class="kw">crate</span>::NrosRmwLivelinessChangedStatus&gt;()
+<a href=#683 id=683 data-nosnippet>683</a>            == align_of::&lt;nros_rmw::LivelinessChangedStatus&gt;()
+<a href=#684 id=684 data-nosnippet>684</a>    );
+<a href=#685 id=685 data-nosnippet>685</a>    <span class="macro">assert!</span>(size_of::&lt;<span class="kw">crate</span>::NrosRmwCountStatus&gt;() == size_of::&lt;nros_rmw::CountStatus&gt;());
+<a href=#686 id=686 data-nosnippet>686</a>    <span class="macro">assert!</span>(align_of::&lt;<span class="kw">crate</span>::NrosRmwCountStatus&gt;() == align_of::&lt;nros_rmw::CountStatus&gt;());
+<a href=#687 id=687 data-nosnippet>687</a>    <span class="comment">// EventKind enum tags must round-trip 0..=4 between the two
+<a href=#688 id=688 data-nosnippet>688</a>    // `#[repr(u8)]` definitions.
+<a href=#689 id=689 data-nosnippet>689</a>    </span><span class="macro">assert!</span>(
+<a href=#690 id=690 data-nosnippet>690</a>        NrosRmwEventKind::LivelinessChanged <span class="kw">as </span>u8 == nros_rmw::EventKind::LivelinessChanged <span class="kw">as </span>u8
+<a href=#691 id=691 data-nosnippet>691</a>    );
+<a href=#692 id=692 data-nosnippet>692</a>    <span class="macro">assert!</span>(
+<a href=#693 id=693 data-nosnippet>693</a>        NrosRmwEventKind::RequestedDeadlineMissed <span class="kw">as </span>u8
+<a href=#694 id=694 data-nosnippet>694</a>            == nros_rmw::EventKind::RequestedDeadlineMissed <span class="kw">as </span>u8
+<a href=#695 id=695 data-nosnippet>695</a>    );
+<a href=#696 id=696 data-nosnippet>696</a>    <span class="macro">assert!</span>(NrosRmwEventKind::MessageLost <span class="kw">as </span>u8 == nros_rmw::EventKind::MessageLost <span class="kw">as </span>u8);
+<a href=#697 id=697 data-nosnippet>697</a>    <span class="macro">assert!</span>(NrosRmwEventKind::LivelinessLost <span class="kw">as </span>u8 == nros_rmw::EventKind::LivelinessLost <span class="kw">as </span>u8);
+<a href=#698 id=698 data-nosnippet>698</a>    <span class="macro">assert!</span>(
+<a href=#699 id=699 data-nosnippet>699</a>        NrosRmwEventKind::OfferedDeadlineMissed <span class="kw">as </span>u8
+<a href=#700 id=700 data-nosnippet>700</a>            == nros_rmw::EventKind::OfferedDeadlineMissed <span class="kw">as </span>u8
+<a href=#701 id=701 data-nosnippet>701</a>    );
+<a href=#702 id=702 data-nosnippet>702</a>};
+<a href=#703 id=703 data-nosnippet>703</a>
+<a href=#704 id=704 data-nosnippet>704</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>register_subscriber_event_trampoline&lt;R: RustBackend&gt;(
+<a href=#705 id=705 data-nosnippet>705</a>    subscriber: <span class="kw-2">*mut </span>NrosRmwSubscriber,
+<a href=#706 id=706 data-nosnippet>706</a>    kind: NrosRmwEventKind,
+<a href=#707 id=707 data-nosnippet>707</a>    deadline_ms: u32,
+<a href=#708 id=708 data-nosnippet>708</a>    cb: NrosRmwEventCallback,
+<a href=#709 id=709 data-nosnippet>709</a>    user_context: <span class="kw-2">*mut </span>c_void,
+<a href=#710 id=710 data-nosnippet>710</a>) -&gt; NrosRmwRet {
+<a href=#711 id=711 data-nosnippet>711</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ subscriber_mut::&lt;R::Subscriber&gt;(subscriber) }) <span class="kw">else </span>{
+<a href=#712 id=712 data-nosnippet>712</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#713 id=713 data-nosnippet>713</a>    };
+<a href=#714 id=714 data-nosnippet>714</a>    <span class="comment">// SAFETY: cffi `NrosRmwEventKind` and trait `EventKind` are both
+<a href=#715 id=715 data-nosnippet>715</a>    // `#[repr(u8)]` with identical variant numbering (asserted at
+<a href=#716 id=716 data-nosnippet>716</a>    // compile time above).
+<a href=#717 id=717 data-nosnippet>717</a>    </span><span class="kw">let </span>trait_kind: nros_rmw::EventKind = <span class="kw">unsafe </span>{ core::mem::transmute(kind) };
+<a href=#718 id=718 data-nosnippet>718</a>    <span class="comment">// SAFETY: see module-level note. `cb`'s parameter types
+<a href=#719 id=719 data-nosnippet>719</a>    // `(NrosRmwEventKind, *const NrosRmwEventPayload, *mut c_void)` are
+<a href=#720 id=720 data-nosnippet>720</a>    // ABI-compatible with the trait's `(EventKind, *const c_void, *mut c_void)`.
+<a href=#721 id=721 data-nosnippet>721</a>    </span><span class="kw">let </span>trait_cb: nros_rmw::EventCallback = <span class="kw">unsafe </span>{ core::mem::transmute(cb) };
+<a href=#722 id=722 data-nosnippet>722</a>    <span class="kw">let </span>res = <span class="kw">unsafe </span>{
+<a href=#723 id=723 data-nosnippet>723</a>        Subscriber::register_event_callback(s, trait_kind, deadline_ms, trait_cb, user_context)
+<a href=#724 id=724 data-nosnippet>724</a>    };
+<a href=#725 id=725 data-nosnippet>725</a>    <span class="kw">match </span>res {
+<a href=#726 id=726 data-nosnippet>726</a>        <span class="prelude-val">Ok</span>(()) =&gt; NROS_RMW_RET_OK,
+<a href=#727 id=727 data-nosnippet>727</a>        <span class="prelude-val">Err</span>(e) =&gt; {
+<a href=#728 id=728 data-nosnippet>728</a>            <span class="comment">// Backend's `Unsupported` mapping for events is its
+<a href=#729 id=729 data-nosnippet>729</a>            // `serialization_error()` by trait-doc default; the cffi
+<a href=#730 id=730 data-nosnippet>730</a>            // contract for "this event kind unsupported" is its own
+<a href=#731 id=731 data-nosnippet>731</a>            // ret code, so map any error here to UNSUPPORTED rather
+<a href=#732 id=732 data-nosnippet>732</a>            // than e.g. SERIALIZATION_ERROR — the caller's mental
+<a href=#733 id=733 data-nosnippet>733</a>            // model is "vtable said no events," not "marshalling
+<a href=#734 id=734 data-nosnippet>734</a>            // failed."
+<a href=#735 id=735 data-nosnippet>735</a>            </span><span class="kw">let _ </span>= e;
+<a href=#736 id=736 data-nosnippet>736</a>            NROS_RMW_RET_UNSUPPORTED
+<a href=#737 id=737 data-nosnippet>737</a>        }
+<a href=#738 id=738 data-nosnippet>738</a>    }
+<a href=#739 id=739 data-nosnippet>739</a>}
+<a href=#740 id=740 data-nosnippet>740</a>
+<a href=#741 id=741 data-nosnippet>741</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>register_publisher_event_trampoline&lt;R: RustBackend&gt;(
+<a href=#742 id=742 data-nosnippet>742</a>    publisher: <span class="kw-2">*mut </span>NrosRmwPublisher,
+<a href=#743 id=743 data-nosnippet>743</a>    kind: NrosRmwEventKind,
+<a href=#744 id=744 data-nosnippet>744</a>    deadline_ms: u32,
+<a href=#745 id=745 data-nosnippet>745</a>    cb: NrosRmwEventCallback,
+<a href=#746 id=746 data-nosnippet>746</a>    user_context: <span class="kw-2">*mut </span>c_void,
+<a href=#747 id=747 data-nosnippet>747</a>) -&gt; NrosRmwRet {
+<a href=#748 id=748 data-nosnippet>748</a>    <span class="comment">// Publisher::register_event_callback takes `&amp;mut self`. Need a
+<a href=#749 id=749 data-nosnippet>749</a>    // mut-ptr to the boxed handle.
+<a href=#750 id=750 data-nosnippet>750</a>    </span><span class="kw">if </span>publisher.is_null() {
+<a href=#751 id=751 data-nosnippet>751</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#752 id=752 data-nosnippet>752</a>    }
+<a href=#753 id=753 data-nosnippet>753</a>    <span class="kw">let </span>p_ptr = <span class="kw">unsafe </span>{ (<span class="kw-2">*</span>publisher).backend_data } <span class="kw">as </span><span class="kw-2">*mut </span>R::Publisher;
+<a href=#754 id=754 data-nosnippet>754</a>    <span class="kw">if </span>p_ptr.is_null() {
+<a href=#755 id=755 data-nosnippet>755</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#756 id=756 data-nosnippet>756</a>    }
+<a href=#757 id=757 data-nosnippet>757</a>    <span class="kw">let </span>p = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>p_ptr };
+<a href=#758 id=758 data-nosnippet>758</a>    <span class="kw">let </span>trait_kind: nros_rmw::EventKind = <span class="kw">unsafe </span>{ core::mem::transmute(kind) };
+<a href=#759 id=759 data-nosnippet>759</a>    <span class="kw">let </span>trait_cb: nros_rmw::EventCallback = <span class="kw">unsafe </span>{ core::mem::transmute(cb) };
+<a href=#760 id=760 data-nosnippet>760</a>    <span class="kw">let </span>res = <span class="kw">unsafe </span>{
+<a href=#761 id=761 data-nosnippet>761</a>        Publisher::register_event_callback(p, trait_kind, deadline_ms, trait_cb, user_context)
+<a href=#762 id=762 data-nosnippet>762</a>    };
+<a href=#763 id=763 data-nosnippet>763</a>    <span class="kw">match </span>res {
+<a href=#764 id=764 data-nosnippet>764</a>        <span class="prelude-val">Ok</span>(()) =&gt; NROS_RMW_RET_OK,
+<a href=#765 id=765 data-nosnippet>765</a>        <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; NROS_RMW_RET_UNSUPPORTED,
+<a href=#766 id=766 data-nosnippet>766</a>    }
+<a href=#767 id=767 data-nosnippet>767</a>}
+<a href=#768 id=768 data-nosnippet>768</a>
+<a href=#769 id=769 data-nosnippet>769</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>assert_publisher_liveliness_trampoline&lt;R: RustBackend&gt;(
+<a href=#770 id=770 data-nosnippet>770</a>    publisher: <span class="kw-2">*mut </span>NrosRmwPublisher,
+<a href=#771 id=771 data-nosnippet>771</a>) -&gt; NrosRmwRet {
+<a href=#772 id=772 data-nosnippet>772</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(p) = (<span class="kw">unsafe </span>{ publisher_ref::&lt;R::Publisher&gt;(publisher) }) <span class="kw">else </span>{
+<a href=#773 id=773 data-nosnippet>773</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#774 id=774 data-nosnippet>774</a>    };
+<a href=#775 id=775 data-nosnippet>775</a>    <span class="kw">match </span>Publisher::assert_liveliness(p) {
+<a href=#776 id=776 data-nosnippet>776</a>        <span class="prelude-val">Ok</span>(()) =&gt; NROS_RMW_RET_OK,
+<a href=#777 id=777 data-nosnippet>777</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#778 id=778 data-nosnippet>778</a>    }
+<a href=#779 id=779 data-nosnippet>779</a>}
+<a href=#780 id=780 data-nosnippet>780</a>
+<a href=#781 id=781 data-nosnippet>781</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>next_deadline_ms_trampoline&lt;R: RustBackend&gt;(
+<a href=#782 id=782 data-nosnippet>782</a>    session: <span class="kw-2">*const </span>NrosRmwSession,
+<a href=#783 id=783 data-nosnippet>783</a>) -&gt; i32 {
+<a href=#784 id=784 data-nosnippet>784</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ session_ref::&lt;R::Session&gt;(session) }) <span class="kw">else </span>{
+<a href=#785 id=785 data-nosnippet>785</a>        <span class="kw">return </span>-<span class="number">1</span>;
+<a href=#786 id=786 data-nosnippet>786</a>    };
+<a href=#787 id=787 data-nosnippet>787</a>    Session::next_deadline_ms(s).map(|v| v <span class="kw">as </span>i32).unwrap_or(-<span class="number">1</span>)
+<a href=#788 id=788 data-nosnippet>788</a>}
+<a href=#789 id=789 data-nosnippet>789</a>
+<a href=#790 id=790 data-nosnippet>790</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>set_wake_callback_trampoline&lt;R: RustBackend&gt;(
+<a href=#791 id=791 data-nosnippet>791</a>    session: <span class="kw-2">*mut </span>NrosRmwSession,
+<a href=#792 id=792 data-nosnippet>792</a>    cb: <span class="prelude-ty">Option</span>&lt;<span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn</span>(ctx: <span class="kw-2">*mut </span>core::ffi::c_void)&gt;,
+<a href=#793 id=793 data-nosnippet>793</a>    ctx: <span class="kw-2">*mut </span>core::ffi::c_void,
+<a href=#794 id=794 data-nosnippet>794</a>) -&gt; NrosRmwRet {
+<a href=#795 id=795 data-nosnippet>795</a>    <span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ session_mut::&lt;R::Session&gt;(session) }) <span class="kw">else </span>{
+<a href=#796 id=796 data-nosnippet>796</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#797 id=797 data-nosnippet>797</a>    };
+<a href=#798 id=798 data-nosnippet>798</a>    <span class="comment">// Phase 124.B.1 — delegate to the Rust backend. Default trait
+<a href=#799 id=799 data-nosnippet>799</a>    // body ignores; concrete backends opt in.
+<a href=#800 id=800 data-nosnippet>800</a>    </span>Session::set_wake_callback(s, cb, ctx);
+<a href=#801 id=801 data-nosnippet>801</a>    NROS_RMW_RET_OK
+<a href=#802 id=802 data-nosnippet>802</a>}
+<a href=#803 id=803 data-nosnippet>803</a>
+<a href=#804 id=804 data-nosnippet>804</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>service_server_available_trampoline&lt;R: RustBackend&gt;(
+<a href=#805 id=805 data-nosnippet>805</a>    client: <span class="kw-2">*mut </span>NrosRmwServiceClient,
+<a href=#806 id=806 data-nosnippet>806</a>) -&gt; i32 {
+<a href=#807 id=807 data-nosnippet>807</a>    <span class="comment">// Phase 124.C.1 — delegate to the Rust backend's
+<a href=#808 id=808 data-nosnippet>808</a>    // `ServiceClientTrait::server_available` impl. Default trait
+<a href=#809 id=809 data-nosnippet>809</a>    // body returns `Err(TransportError::Unsupported)`; concrete
+<a href=#810 id=810 data-nosnippet>810</a>    // backends opt in by overriding.
+<a href=#811 id=811 data-nosnippet>811</a>    </span><span class="kw">let </span><span class="prelude-val">Some</span>(c) = (<span class="kw">unsafe </span>{ service_client_mut::&lt;R::ServiceClient&gt;(client) }) <span class="kw">else </span>{
+<a href=#812 id=812 data-nosnippet>812</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#813 id=813 data-nosnippet>813</a>    };
+<a href=#814 id=814 data-nosnippet>814</a>    <span class="kw">match </span>ServiceClientTrait::server_available(c) {
+<a href=#815 id=815 data-nosnippet>815</a>        <span class="prelude-val">Ok</span>(<span class="bool-val">true</span>) =&gt; <span class="number">1</span>,
+<a href=#816 id=816 data-nosnippet>816</a>        <span class="prelude-val">Ok</span>(<span class="bool-val">false</span>) =&gt; <span class="number">0</span>,
+<a href=#817 id=817 data-nosnippet>817</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#818 id=818 data-nosnippet>818</a>    }
+<a href=#819 id=819 data-nosnippet>819</a>}
+<a href=#820 id=820 data-nosnippet>820</a>
+<a href=#821 id=821 data-nosnippet>821</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>ping_session_trampoline&lt;R: RustBackend&gt;(
+<a href=#822 id=822 data-nosnippet>822</a>    session: <span class="kw-2">*mut </span>NrosRmwSession,
+<a href=#823 id=823 data-nosnippet>823</a>    timeout_ms: i32,
+<a href=#824 id=824 data-nosnippet>824</a>) -&gt; NrosRmwRet {
+<a href=#825 id=825 data-nosnippet>825</a>    <span class="comment">// Phase 124.F.1 — delegate to the Rust backend's
+<a href=#826 id=826 data-nosnippet>826</a>    // `Session::ping_session` impl. Default trait body returns
+<a href=#827 id=827 data-nosnippet>827</a>    // `Err(TransportError::Unsupported)`; concrete backends opt in
+<a href=#828 id=828 data-nosnippet>828</a>    // by overriding.
+<a href=#829 id=829 data-nosnippet>829</a>    </span><span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ session_mut::&lt;R::Session&gt;(session) }) <span class="kw">else </span>{
+<a href=#830 id=830 data-nosnippet>830</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#831 id=831 data-nosnippet>831</a>    };
+<a href=#832 id=832 data-nosnippet>832</a>    <span class="kw">match </span>Session::ping_session(s, timeout_ms) {
+<a href=#833 id=833 data-nosnippet>833</a>        <span class="prelude-val">Ok</span>(()) =&gt; NROS_RMW_RET_OK,
+<a href=#834 id=834 data-nosnippet>834</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#835 id=835 data-nosnippet>835</a>    }
+<a href=#836 id=836 data-nosnippet>836</a>}
+<a href=#837 id=837 data-nosnippet>837</a>
+<a href=#838 id=838 data-nosnippet>838</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>publish_streamed_trampoline&lt;R: RustBackend&gt;(
+<a href=#839 id=839 data-nosnippet>839</a>    publisher: <span class="kw-2">*mut </span>NrosRmwPublisher,
+<a href=#840 id=840 data-nosnippet>840</a>    size_cb: <span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn</span>(out_total_len: <span class="kw-2">*mut </span>usize, user_ctx: <span class="kw-2">*mut </span>c_void),
+<a href=#841 id=841 data-nosnippet>841</a>    chunk_cb: <span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn</span>(
+<a href=#842 id=842 data-nosnippet>842</a>        out_buf: <span class="kw-2">*mut </span>u8,
+<a href=#843 id=843 data-nosnippet>843</a>        cap: usize,
+<a href=#844 id=844 data-nosnippet>844</a>        out_written: <span class="kw-2">*mut </span>usize,
+<a href=#845 id=845 data-nosnippet>845</a>        user_ctx: <span class="kw-2">*mut </span>c_void,
+<a href=#846 id=846 data-nosnippet>846</a>    ),
+<a href=#847 id=847 data-nosnippet>847</a>    user_ctx: <span class="kw-2">*mut </span>c_void,
+<a href=#848 id=848 data-nosnippet>848</a>) -&gt; NrosRmwRet {
+<a href=#849 id=849 data-nosnippet>849</a>    <span class="comment">// Phase 124.E.1 — delegate to the Rust backend's
+<a href=#850 id=850 data-nosnippet>850</a>    // `Publisher::publish_streamed` impl. Default trait body fires
+<a href=#851 id=851 data-nosnippet>851</a>    // the staging-buffer fallback (124.E.2); concrete backends opt
+<a href=#852 id=852 data-nosnippet>852</a>    // in by overriding for true streamed publish into the network
+<a href=#853 id=853 data-nosnippet>853</a>    // buffer.
+<a href=#854 id=854 data-nosnippet>854</a>    </span><span class="kw">let </span><span class="prelude-val">Some</span>(p) = (<span class="kw">unsafe </span>{ publisher_ref::&lt;R::Publisher&gt;(publisher) }) <span class="kw">else </span>{
+<a href=#855 id=855 data-nosnippet>855</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#856 id=856 data-nosnippet>856</a>    };
+<a href=#857 id=857 data-nosnippet>857</a>    <span class="kw">match </span>Publisher::publish_streamed(p, size_cb, chunk_cb, user_ctx) {
+<a href=#858 id=858 data-nosnippet>858</a>        <span class="prelude-val">Ok</span>(()) =&gt; NROS_RMW_RET_OK,
+<a href=#859 id=859 data-nosnippet>859</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#860 id=860 data-nosnippet>860</a>    }
+<a href=#861 id=861 data-nosnippet>861</a>}
+<a href=#862 id=862 data-nosnippet>862</a>
+<a href=#863 id=863 data-nosnippet>863</a><span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>try_recv_sequence_trampoline&lt;R: RustBackend&gt;(
+<a href=#864 id=864 data-nosnippet>864</a>    subscriber: <span class="kw-2">*mut </span>NrosRmwSubscriber,
+<a href=#865 id=865 data-nosnippet>865</a>    buf: <span class="kw-2">*mut </span>u8,
+<a href=#866 id=866 data-nosnippet>866</a>    per_msg_cap: usize,
+<a href=#867 id=867 data-nosnippet>867</a>    max_msgs: usize,
+<a href=#868 id=868 data-nosnippet>868</a>    out_lens: <span class="kw-2">*mut </span>usize,
+<a href=#869 id=869 data-nosnippet>869</a>) -&gt; i32 {
+<a href=#870 id=870 data-nosnippet>870</a>    <span class="comment">// Phase 124.D.1 — delegate to the Rust backend's
+<a href=#871 id=871 data-nosnippet>871</a>    // `Subscriber::try_recv_sequence` impl. Default trait body
+<a href=#872 id=872 data-nosnippet>872</a>    // loop-drives `try_recv_raw`; concrete backends opt in by
+<a href=#873 id=873 data-nosnippet>873</a>    // overriding for a native batch take.
+<a href=#874 id=874 data-nosnippet>874</a>    </span><span class="kw">let </span><span class="prelude-val">Some</span>(s) = (<span class="kw">unsafe </span>{ subscriber_mut::&lt;R::Subscriber&gt;(subscriber) }) <span class="kw">else </span>{
+<a href=#875 id=875 data-nosnippet>875</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#876 id=876 data-nosnippet>876</a>    };
+<a href=#877 id=877 data-nosnippet>877</a>    <span class="kw">if </span>buf.is_null() || out_lens.is_null() || per_msg_cap == <span class="number">0 </span>{
+<a href=#878 id=878 data-nosnippet>878</a>        <span class="kw">return </span>NROS_RMW_RET_INVALID_ARGUMENT;
+<a href=#879 id=879 data-nosnippet>879</a>    }
+<a href=#880 id=880 data-nosnippet>880</a>    <span class="comment">// SAFETY: caller pinky-promised a contiguous block of
+<a href=#881 id=881 data-nosnippet>881</a>    // `max_msgs * per_msg_cap` bytes at `buf` and at least
+<a href=#882 id=882 data-nosnippet>882</a>    // `max_msgs` `usize` slots at `out_lens`. The buffer is
+<a href=#883 id=883 data-nosnippet>883</a>    // exclusively borrowed for the duration of this call.
+<a href=#884 id=884 data-nosnippet>884</a>    </span><span class="kw">let </span>buf_slice =
+<a href=#885 id=885 data-nosnippet>885</a>        <span class="kw">unsafe </span>{ core::slice::from_raw_parts_mut(buf, max_msgs.saturating_mul(per_msg_cap)) };
+<a href=#886 id=886 data-nosnippet>886</a>    <span class="kw">let </span>lens_slice = <span class="kw">unsafe </span>{ core::slice::from_raw_parts_mut(out_lens, max_msgs) };
+<a href=#887 id=887 data-nosnippet>887</a>    <span class="kw">match </span>Subscriber::try_recv_sequence(s, buf_slice, per_msg_cap, max_msgs, lens_slice) {
+<a href=#888 id=888 data-nosnippet>888</a>        <span class="prelude-val">Ok</span>(count) =&gt; count <span class="kw">as </span>i32,
+<a href=#889 id=889 data-nosnippet>889</a>        <span class="prelude-val">Err</span>(e) =&gt; ret_from_error(<span class="kw-2">&amp;</span>e),
+<a href=#890 id=890 data-nosnippet>890</a>    }
+<a href=#891 id=891 data-nosnippet>891</a>}
+<a href=#892 id=892 data-nosnippet>892</a>
+<a href=#893 id=893 data-nosnippet>893</a><span class="comment">// ============================================================================
+<a href=#894 id=894 data-nosnippet>894</a>// Pointer plumbing — keep one place where each entity's
+<a href=#895 id=895 data-nosnippet>895</a>// `backend_data` is dereferenced.
+<a href=#896 id=896 data-nosnippet>896</a>// ============================================================================
+<a href=#897 id=897 data-nosnippet>897</a>//
+<a href=#898 id=898 data-nosnippet>898</a>// Validity contract:
+<a href=#899 id=899 data-nosnippet>899</a>//
+<a href=#900 id=900 data-nosnippet>900</a>//   - The C-side wrappers (`CffiSession`, `CffiPublisher`, …) hand
+<a href=#901 id=901 data-nosnippet>901</a>//     each trampoline an entity-struct pointer whose `backend_data`
+<a href=#902 id=902 data-nosnippet>902</a>//     was last written by *this* adapter's create-trampoline. That
+<a href=#903 id=903 data-nosnippet>903</a>//     write is `Box::into_raw(Box::new(handle))` of `R::Session` /
+<a href=#904 id=904 data-nosnippet>904</a>//     `R::Publisher` / … so the pointer aliases a valid Box&lt;T&gt;.
+<a href=#905 id=905 data-nosnippet>905</a>//   - `_mut` variants give `&amp;mut T`; the runtime serialises access
+<a href=#906 id=906 data-nosnippet>906</a>//     per the executor's single-thread invariant.
+<a href=#907 id=907 data-nosnippet>907</a>//   - `take_box` reclaims ownership; subsequent calls see a null
+<a href=#908 id=908 data-nosnippet>908</a>//     `backend_data` and return `INVALID_ARGUMENT`.
+<a href=#909 id=909 data-nosnippet>909</a>
+<a href=#910 id=910 data-nosnippet>910</a></span><span class="attr">#[inline]
+<a href=#911 id=911 data-nosnippet>911</a></span><span class="kw">unsafe fn </span>session_data_mut(session: <span class="kw-2">*mut </span>NrosRmwSession) -&gt; <span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw-2">mut *mut </span>c_void {
+<a href=#912 id=912 data-nosnippet>912</a>    <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut </span>(<span class="kw-2">*</span>session).backend_data }
+<a href=#913 id=913 data-nosnippet>913</a>}
+<a href=#914 id=914 data-nosnippet>914</a>
+<a href=#915 id=915 data-nosnippet>915</a><span class="attr">#[inline]
+<a href=#916 id=916 data-nosnippet>916</a></span><span class="kw">unsafe fn </span>publisher_data_mut(publisher: <span class="kw-2">*mut </span>NrosRmwPublisher) -&gt; <span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw-2">mut *mut </span>c_void {
+<a href=#917 id=917 data-nosnippet>917</a>    <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut </span>(<span class="kw-2">*</span>publisher).backend_data }
+<a href=#918 id=918 data-nosnippet>918</a>}
+<a href=#919 id=919 data-nosnippet>919</a>
+<a href=#920 id=920 data-nosnippet>920</a><span class="attr">#[inline]
+<a href=#921 id=921 data-nosnippet>921</a></span><span class="kw">unsafe fn </span>subscriber_data_mut(subscriber: <span class="kw-2">*mut </span>NrosRmwSubscriber) -&gt; <span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw-2">mut *mut </span>c_void {
+<a href=#922 id=922 data-nosnippet>922</a>    <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut </span>(<span class="kw-2">*</span>subscriber).backend_data }
+<a href=#923 id=923 data-nosnippet>923</a>}
+<a href=#924 id=924 data-nosnippet>924</a>
+<a href=#925 id=925 data-nosnippet>925</a><span class="attr">#[inline]
+<a href=#926 id=926 data-nosnippet>926</a></span><span class="kw">unsafe fn </span>service_server_data_mut(server: <span class="kw-2">*mut </span>NrosRmwServiceServer) -&gt; <span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw-2">mut *mut </span>c_void {
+<a href=#927 id=927 data-nosnippet>927</a>    <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut </span>(<span class="kw-2">*</span>server).backend_data }
+<a href=#928 id=928 data-nosnippet>928</a>}
+<a href=#929 id=929 data-nosnippet>929</a>
+<a href=#930 id=930 data-nosnippet>930</a><span class="attr">#[inline]
+<a href=#931 id=931 data-nosnippet>931</a></span><span class="kw">unsafe fn </span>service_client_data_mut(client: <span class="kw-2">*mut </span>NrosRmwServiceClient) -&gt; <span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw-2">mut *mut </span>c_void {
+<a href=#932 id=932 data-nosnippet>932</a>    <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut </span>(<span class="kw-2">*</span>client).backend_data }
+<a href=#933 id=933 data-nosnippet>933</a>}
+<a href=#934 id=934 data-nosnippet>934</a>
+<a href=#935 id=935 data-nosnippet>935</a><span class="attr">#[inline]
+<a href=#936 id=936 data-nosnippet>936</a></span><span class="kw">unsafe fn </span>session_mut&lt;<span class="lifetime">'a</span>, T&gt;(session: <span class="kw-2">*mut </span>NrosRmwSession) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span>T&gt; {
+<a href=#937 id=937 data-nosnippet>937</a>    <span class="kw">if </span>session.is_null() {
+<a href=#938 id=938 data-nosnippet>938</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#939 id=939 data-nosnippet>939</a>    }
+<a href=#940 id=940 data-nosnippet>940</a>    <span class="kw">let </span>p = <span class="kw">unsafe </span>{ (<span class="kw-2">*</span>session).backend_data } <span class="kw">as </span><span class="kw-2">*mut </span>T;
+<a href=#941 id=941 data-nosnippet>941</a>    <span class="kw">if </span>p.is_null() {
+<a href=#942 id=942 data-nosnippet>942</a>        <span class="prelude-val">None
+<a href=#943 id=943 data-nosnippet>943</a>    </span>} <span class="kw">else </span>{
+<a href=#944 id=944 data-nosnippet>944</a>        <span class="prelude-val">Some</span>(<span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>p })
+<a href=#945 id=945 data-nosnippet>945</a>    }
+<a href=#946 id=946 data-nosnippet>946</a>}
+<a href=#947 id=947 data-nosnippet>947</a>
+<a href=#948 id=948 data-nosnippet>948</a><span class="attr">#[inline]
+<a href=#949 id=949 data-nosnippet>949</a></span><span class="kw">unsafe fn </span>session_ref&lt;<span class="lifetime">'a</span>, T&gt;(session: <span class="kw-2">*const </span>NrosRmwSession) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>T&gt; {
+<a href=#950 id=950 data-nosnippet>950</a>    <span class="kw">if </span>session.is_null() {
+<a href=#951 id=951 data-nosnippet>951</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#952 id=952 data-nosnippet>952</a>    }
+<a href=#953 id=953 data-nosnippet>953</a>    <span class="kw">let </span>p = <span class="kw">unsafe </span>{ (<span class="kw-2">*</span>session).backend_data } <span class="kw">as </span><span class="kw-2">*const </span>T;
+<a href=#954 id=954 data-nosnippet>954</a>    <span class="kw">if </span>p.is_null() {
+<a href=#955 id=955 data-nosnippet>955</a>        <span class="prelude-val">None
+<a href=#956 id=956 data-nosnippet>956</a>    </span>} <span class="kw">else </span>{
+<a href=#957 id=957 data-nosnippet>957</a>        <span class="prelude-val">Some</span>(<span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>p })
+<a href=#958 id=958 data-nosnippet>958</a>    }
+<a href=#959 id=959 data-nosnippet>959</a>}
+<a href=#960 id=960 data-nosnippet>960</a>
+<a href=#961 id=961 data-nosnippet>961</a><span class="attr">#[inline]
+<a href=#962 id=962 data-nosnippet>962</a></span><span class="kw">unsafe fn </span>publisher_ref&lt;<span class="lifetime">'a</span>, T&gt;(publisher: <span class="kw-2">*mut </span>NrosRmwPublisher) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>T&gt; {
+<a href=#963 id=963 data-nosnippet>963</a>    <span class="kw">if </span>publisher.is_null() {
+<a href=#964 id=964 data-nosnippet>964</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#965 id=965 data-nosnippet>965</a>    }
+<a href=#966 id=966 data-nosnippet>966</a>    <span class="kw">let </span>p = <span class="kw">unsafe </span>{ (<span class="kw-2">*</span>publisher).backend_data } <span class="kw">as </span><span class="kw-2">*const </span>T;
+<a href=#967 id=967 data-nosnippet>967</a>    <span class="kw">if </span>p.is_null() {
+<a href=#968 id=968 data-nosnippet>968</a>        <span class="prelude-val">None
+<a href=#969 id=969 data-nosnippet>969</a>    </span>} <span class="kw">else </span>{
+<a href=#970 id=970 data-nosnippet>970</a>        <span class="prelude-val">Some</span>(<span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>p })
+<a href=#971 id=971 data-nosnippet>971</a>    }
+<a href=#972 id=972 data-nosnippet>972</a>}
+<a href=#973 id=973 data-nosnippet>973</a>
+<a href=#974 id=974 data-nosnippet>974</a><span class="attr">#[inline]
+<a href=#975 id=975 data-nosnippet>975</a></span><span class="kw">unsafe fn </span>subscriber_mut&lt;<span class="lifetime">'a</span>, T&gt;(subscriber: <span class="kw-2">*mut </span>NrosRmwSubscriber) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span>T&gt; {
+<a href=#976 id=976 data-nosnippet>976</a>    <span class="kw">if </span>subscriber.is_null() {
+<a href=#977 id=977 data-nosnippet>977</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#978 id=978 data-nosnippet>978</a>    }
+<a href=#979 id=979 data-nosnippet>979</a>    <span class="kw">let </span>p = <span class="kw">unsafe </span>{ (<span class="kw-2">*</span>subscriber).backend_data } <span class="kw">as </span><span class="kw-2">*mut </span>T;
+<a href=#980 id=980 data-nosnippet>980</a>    <span class="kw">if </span>p.is_null() {
+<a href=#981 id=981 data-nosnippet>981</a>        <span class="prelude-val">None
+<a href=#982 id=982 data-nosnippet>982</a>    </span>} <span class="kw">else </span>{
+<a href=#983 id=983 data-nosnippet>983</a>        <span class="prelude-val">Some</span>(<span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>p })
+<a href=#984 id=984 data-nosnippet>984</a>    }
+<a href=#985 id=985 data-nosnippet>985</a>}
+<a href=#986 id=986 data-nosnippet>986</a>
+<a href=#987 id=987 data-nosnippet>987</a><span class="attr">#[inline]
+<a href=#988 id=988 data-nosnippet>988</a></span><span class="kw">unsafe fn </span>subscriber_ref&lt;<span class="lifetime">'a</span>, T&gt;(subscriber: <span class="kw-2">*mut </span>NrosRmwSubscriber) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>T&gt; {
+<a href=#989 id=989 data-nosnippet>989</a>    <span class="kw">if </span>subscriber.is_null() {
+<a href=#990 id=990 data-nosnippet>990</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#991 id=991 data-nosnippet>991</a>    }
+<a href=#992 id=992 data-nosnippet>992</a>    <span class="kw">let </span>p = <span class="kw">unsafe </span>{ (<span class="kw-2">*</span>subscriber).backend_data } <span class="kw">as </span><span class="kw-2">*const </span>T;
+<a href=#993 id=993 data-nosnippet>993</a>    <span class="kw">if </span>p.is_null() {
+<a href=#994 id=994 data-nosnippet>994</a>        <span class="prelude-val">None
+<a href=#995 id=995 data-nosnippet>995</a>    </span>} <span class="kw">else </span>{
+<a href=#996 id=996 data-nosnippet>996</a>        <span class="prelude-val">Some</span>(<span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>p })
+<a href=#997 id=997 data-nosnippet>997</a>    }
+<a href=#998 id=998 data-nosnippet>998</a>}
+<a href=#999 id=999 data-nosnippet>999</a>
+<a href=#1000 id=1000 data-nosnippet>1000</a><span class="attr">#[inline]
+<a href=#1001 id=1001 data-nosnippet>1001</a></span><span class="kw">unsafe fn </span>service_server_mut&lt;<span class="lifetime">'a</span>, T&gt;(server: <span class="kw-2">*mut </span>NrosRmwServiceServer) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span>T&gt; {
+<a href=#1002 id=1002 data-nosnippet>1002</a>    <span class="kw">if </span>server.is_null() {
+<a href=#1003 id=1003 data-nosnippet>1003</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#1004 id=1004 data-nosnippet>1004</a>    }
+<a href=#1005 id=1005 data-nosnippet>1005</a>    <span class="kw">let </span>p = <span class="kw">unsafe </span>{ (<span class="kw-2">*</span>server).backend_data } <span class="kw">as </span><span class="kw-2">*mut </span>T;
+<a href=#1006 id=1006 data-nosnippet>1006</a>    <span class="kw">if </span>p.is_null() {
+<a href=#1007 id=1007 data-nosnippet>1007</a>        <span class="prelude-val">None
+<a href=#1008 id=1008 data-nosnippet>1008</a>    </span>} <span class="kw">else </span>{
+<a href=#1009 id=1009 data-nosnippet>1009</a>        <span class="prelude-val">Some</span>(<span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>p })
+<a href=#1010 id=1010 data-nosnippet>1010</a>    }
+<a href=#1011 id=1011 data-nosnippet>1011</a>}
+<a href=#1012 id=1012 data-nosnippet>1012</a>
+<a href=#1013 id=1013 data-nosnippet>1013</a><span class="attr">#[inline]
+<a href=#1014 id=1014 data-nosnippet>1014</a></span><span class="kw">unsafe fn </span>service_server_ref&lt;<span class="lifetime">'a</span>, T&gt;(server: <span class="kw-2">*mut </span>NrosRmwServiceServer) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>T&gt; {
+<a href=#1015 id=1015 data-nosnippet>1015</a>    <span class="kw">if </span>server.is_null() {
+<a href=#1016 id=1016 data-nosnippet>1016</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#1017 id=1017 data-nosnippet>1017</a>    }
+<a href=#1018 id=1018 data-nosnippet>1018</a>    <span class="kw">let </span>p = <span class="kw">unsafe </span>{ (<span class="kw-2">*</span>server).backend_data } <span class="kw">as </span><span class="kw-2">*const </span>T;
+<a href=#1019 id=1019 data-nosnippet>1019</a>    <span class="kw">if </span>p.is_null() {
+<a href=#1020 id=1020 data-nosnippet>1020</a>        <span class="prelude-val">None
+<a href=#1021 id=1021 data-nosnippet>1021</a>    </span>} <span class="kw">else </span>{
+<a href=#1022 id=1022 data-nosnippet>1022</a>        <span class="prelude-val">Some</span>(<span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>p })
+<a href=#1023 id=1023 data-nosnippet>1023</a>    }
+<a href=#1024 id=1024 data-nosnippet>1024</a>}
+<a href=#1025 id=1025 data-nosnippet>1025</a>
+<a href=#1026 id=1026 data-nosnippet>1026</a><span class="attr">#[inline]
+<a href=#1027 id=1027 data-nosnippet>1027</a></span><span class="kw">unsafe fn </span>service_client_mut&lt;<span class="lifetime">'a</span>, T&gt;(client: <span class="kw-2">*mut </span>NrosRmwServiceClient) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span>T&gt; {
+<a href=#1028 id=1028 data-nosnippet>1028</a>    <span class="kw">if </span>client.is_null() {
+<a href=#1029 id=1029 data-nosnippet>1029</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#1030 id=1030 data-nosnippet>1030</a>    }
+<a href=#1031 id=1031 data-nosnippet>1031</a>    <span class="kw">let </span>p = <span class="kw">unsafe </span>{ (<span class="kw-2">*</span>client).backend_data } <span class="kw">as </span><span class="kw-2">*mut </span>T;
+<a href=#1032 id=1032 data-nosnippet>1032</a>    <span class="kw">if </span>p.is_null() {
+<a href=#1033 id=1033 data-nosnippet>1033</a>        <span class="prelude-val">None
+<a href=#1034 id=1034 data-nosnippet>1034</a>    </span>} <span class="kw">else </span>{
+<a href=#1035 id=1035 data-nosnippet>1035</a>        <span class="prelude-val">Some</span>(<span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>p })
+<a href=#1036 id=1036 data-nosnippet>1036</a>    }
+<a href=#1037 id=1037 data-nosnippet>1037</a>}
+<a href=#1038 id=1038 data-nosnippet>1038</a>
+<a href=#1039 id=1039 data-nosnippet>1039</a><span class="attr">#[inline]
+<a href=#1040 id=1040 data-nosnippet>1040</a></span><span class="kw">unsafe fn </span>take_box&lt;T&gt;(slot: <span class="kw-2">&amp;mut *mut </span>c_void) -&gt; <span class="prelude-ty">Option</span>&lt;Box&lt;T&gt;&gt; {
+<a href=#1041 id=1041 data-nosnippet>1041</a>    <span class="kw">if </span>slot.is_null() {
+<a href=#1042 id=1042 data-nosnippet>1042</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#1043 id=1043 data-nosnippet>1043</a>    }
+<a href=#1044 id=1044 data-nosnippet>1044</a>    <span class="kw">let </span>ptr = <span class="kw-2">*</span>slot <span class="kw">as </span><span class="kw-2">*mut </span>T;
+<a href=#1045 id=1045 data-nosnippet>1045</a>    <span class="kw-2">*</span>slot = core::ptr::null_mut();
+<a href=#1046 id=1046 data-nosnippet>1046</a>    <span class="kw">if </span>ptr.is_null() {
+<a href=#1047 id=1047 data-nosnippet>1047</a>        <span class="prelude-val">None
+<a href=#1048 id=1048 data-nosnippet>1048</a>    </span>} <span class="kw">else </span>{
+<a href=#1049 id=1049 data-nosnippet>1049</a>        <span class="comment">// SAFETY: this pointer was minted by `Box::into_raw` in the
+<a href=#1050 id=1050 data-nosnippet>1050</a>        // corresponding create-trampoline; we are taking ownership
+<a href=#1051 id=1051 data-nosnippet>1051</a>        // back and the slot has been cleared so no second take is
+<a href=#1052 id=1052 data-nosnippet>1052</a>        // possible.
+<a href=#1053 id=1053 data-nosnippet>1053</a>        </span><span class="prelude-val">Some</span>(<span class="kw">unsafe </span>{ Box::from_raw(ptr) })
+<a href=#1054 id=1054 data-nosnippet>1054</a>    }
+<a href=#1055 id=1055 data-nosnippet>1055</a>}
+</code></pre></div></section></main></body></html>

@@ -1,6 +1,4 @@
 var searchData=
 [
-  ['nros_5fcpp_5fqos_5fdurability_5ft_0',['nros_cpp_qos_durability_t',['../node_8hpp.html#aecf88356fcb340b82dfcc3cee1d61793',1,'node.hpp']]],
-  ['nros_5fcpp_5fqos_5fhistory_5ft_1',['nros_cpp_qos_history_t',['../node_8hpp.html#a37328630d5b2562bb561db9c9de23a13',1,'node.hpp']]],
-  ['nros_5fcpp_5fqos_5freliability_5ft_2',['nros_cpp_qos_reliability_t',['../node_8hpp.html#af1e83843f2c82235a84b25cb9bdde7f3',1,'node.hpp']]]
+  ['liveliness_0',['Liveliness',['../classnros_1_1QoS.html#a497f4d113a1a0ab61027aadda17bd0f7',1,'nros::QoS']]]
 ];

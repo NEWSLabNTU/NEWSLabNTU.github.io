@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['wait_0',['wait',['../classnros_1_1Future.html#a59f025c551c519ca22f71440edbe81f6',1,'nros::Future']]],
-  ['wait_5fnext_1',['wait_next',['../classnros_1_1Stream.html#a0febe2a16316421f06431a87f904bb56',1,'nros::Stream']]]
+  ['value_0',['value',['../classnros_1_1Expected.html#a5af2f110d1b4dbd34ed79e35654fdf7e',1,'nros::Expected::value() &amp;'],['../classnros_1_1Expected.html#a621159086c75df48680efb03fde69524',1,'nros::Expected::value() const &amp;'],['../classnros_1_1Expected.html#ad77c786a5b959900cdaab4ec82d0c009',1,'nros::Expected::value() &amp;&amp;']]],
+  ['view_1',['view',['../classnros_1_1Subscription_1_1View.html#a46c61b2fa46ebcd2af866d9a1e2f57f7',1,'nros::Subscription::View::View()'],['../classnros_1_1Subscription_1_1View.html#a27954a4d590cc81062557d058326ac09',1,'nros::Subscription::View::View(View &amp;&amp;o)'],['../classnros_1_1Subscription_1_1View.html#a1451ed23eb337cdf9e0bb54d33cf1227',1,'nros::Subscription::View::View(const View &amp;)=delete'],['../classnros_1_1Subscription_1_1View.html#a9872a6a028570b0ad3936e38883c73a5',1,'nros::Subscription::View::View(void *sub, const uint8_t *buf, size_t len, void *token)']]]
 ];

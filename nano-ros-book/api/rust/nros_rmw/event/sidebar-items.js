@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["EventKind","EventPayload"],"struct":["CountStatus","LivelinessChangedStatus"],"type":["DeadlineMissedStatus","EventCallback","MessageLostStatus"]};
+window.SIDEBAR_ITEMS = {"enum":["EventKind","EventPayload"],"fn":["payload_from_raw"],"struct":["CountStatus","LivelinessChangedStatus"],"type":["DeadlineMissedStatus","EventCallback","MessageLostStatus"]};

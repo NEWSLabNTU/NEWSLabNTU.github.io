@@ -6,7 +6,8 @@ var searchData=
   ['best_5feffort_3',['best_effort',['../classnros_1_1QoS.html#a08cb1736137e8e903aa1192d3f5bfcba',1,'nros::QoS']]],
   ['buffer_20tuning_4',['Transport Buffer Tuning',['../configuration.html#autotoc_md18',1,'']]],
   ['buffer_20tuning_20nros_5f_5',['C++ API Buffer Tuning (NROS_*)',['../configuration.html#autotoc_md16',1,'']]],
-  ['build_20and_20install_20nros_6',['1. Build and Install nros',['../getting_started.html#autotoc_md7',1,'']]],
-  ['build_20and_20run_7',['5. Build and Run',['../getting_started.html#autotoc_md11',1,'']]],
-  ['build_20issues_8',['Build Issues',['../troubleshooting.html#autotoc_md28',1,'']]]
+  ['build_6',['build',['../classnros_1_1NodeBuilder.html#ae6b220defabd1ee57ceb5f9a0f541c25',1,'nros::NodeBuilder']]],
+  ['build_20and_20install_20nros_7',['1. Build and Install nros',['../getting_started.html#autotoc_md7',1,'']]],
+  ['build_20and_20run_8',['5. Build and Run',['../getting_started.html#autotoc_md11',1,'']]],
+  ['build_20issues_9',['Build Issues',['../troubleshooting.html#autotoc_md28',1,'']]]
 ];

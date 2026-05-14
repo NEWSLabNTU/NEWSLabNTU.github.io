@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["net","serial"],"struct":["PosixPlatform"]};

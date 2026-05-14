@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['result_0',['Result',['../classnros_1_1Result.html',1,'nros']]]
+  ['qos_0',['QoS',['../classnros_1_1QoS.html',1,'nros']]]
 ];

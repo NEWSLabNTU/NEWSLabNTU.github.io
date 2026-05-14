@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["RMW_GID_SIZE"],"fn":["drive_session_io","open_session"],"struct":["LivelinessToken","RmwAttachment","Ros2Liveliness","ZenohId","ZenohPublisher","ZenohServiceClient","ZenohServiceServer","ZenohSession","ZenohSubscriber","ZenohTransport"],"type":["RmwPublisher","RmwServiceClient","RmwServiceServer","RmwSession","RmwSubscriber"]};
+window.SIDEBAR_ITEMS = {"fn":["drive_session_io","open_session"],"type":["RmwPublisher","RmwServiceClient","RmwServiceServer","RmwSession","RmwSubscriber"]};
