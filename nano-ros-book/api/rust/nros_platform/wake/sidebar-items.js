@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["WAKE_STORAGE_ALIGN","WAKE_STORAGE_BYTES"],"enum":["WakeInitError","WakeReason"],"struct":["Wake"]};
