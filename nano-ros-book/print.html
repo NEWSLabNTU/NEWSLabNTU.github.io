@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b74208a3.js";
+            window.path_to_searchindex_js = "searchindex-68bbd615.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-06d31aac.js"></script>
+        <script src="toc-2d4edb34.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -4514,6 +4514,32 @@ compile_error!("`ros-humble` and `ros-iron` are mutually exclusive.");</code></p
 <p>The RMW axis is not enforced this way — it is the consuming crate’s
 choice of which <code>nros-rmw-*</code> dependency to add (one, or several for
 bridge nodes).</p>
+<h2 id="boards-vs-platforms"><a class="header" href="#boards-vs-platforms">Boards vs Platforms</a></h2>
+<p>Above the platform axis, <strong>board crates</strong> select a concrete chip + RTOS
+combination on top of one of the platform features. A board owns the
+linker layout, the vendor HAL wiring, the boot path, and any chip-specific
+peripherals (Ethernet PHY, IVC mailboxes, RTC). It does <strong>not</strong> carry its
+own platform axis — it pulls in one of the rows above.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Board crate</th><th>Underlying platform</th><th>CPU</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros-board-mps2-an385</code></td><td><code>bare-metal</code></td><td>Cortex-M3</td><td>QEMU MPS2-AN385 + LAN9118 + smoltcp</td></tr>
+<tr><td><code>nros-board-stm32f4</code></td><td><code>bare-metal</code></td><td>Cortex-M4</td><td>STM32F4-Discovery</td></tr>
+<tr><td><code>nros-board-esp32</code></td><td><code>bare-metal</code></td><td>Xtensa LX6</td><td>ESP-IDF-compatible UART/WiFi bring-up</td></tr>
+<tr><td><code>nros-board-esp32-qemu</code></td><td><code>bare-metal</code></td><td>Xtensa LX6</td><td>QEMU ESP32</td></tr>
+<tr><td><code>nros-board-orin-spe</code></td><td><code>freertos</code></td><td>Cortex-R5F</td><td>NVIDIA Jetson AGX Orin SPE + FreeRTOS-FSP</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>nros-board-orin-spe</code> is the canonical example of the board-over-RTOS
+pattern: a Cortex-R5F SPE running NVIDIA’s FreeRTOS V10.4.3 FSP, with
+critical-section provided by the canonical
+<code>nros_platform_critical_section_{acquire,release}</code> C symbols (Cortex-R
+CPSR I-bit body inside the port) — not by a per-CPU Rust feature flag.
+See <code>docs/roadmap/phase-100-orin-spe-infra.md</code> for the wiring.</p>
 <h2 id="example-configurations"><a class="header" href="#example-configurations">Example Configurations</a></h2>
 <p>Each config lists <code>nros</code> (with <code>rmw-cffi</code> + one <code>platform-*</code>) plus
 the chosen backend crate. POSIX additionally needs
@@ -7929,6 +7955,178 @@ writing a new port, see <a href="#custom-platform">Custom Platform</a>.</p>
 <p><strong>No panics across the FFI boundary.</strong> All trait methods are exposed to C through the shim crates. Panicking through C is undefined behavior. Implementations return error codes (or <code>usize::MAX</code> for byte counts) instead of panicking. The exception is <code>PlatformClock</code> – if the clock cannot be read, the system is fundamentally broken and there is nothing useful to return.</p>
 </li>
 </ol>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="canonical-platform-c-abi"><a class="header" href="#canonical-platform-c-abi">Canonical Platform C ABI</a></h1>
+<p>nano-ros separates the platform layer (clock, sleep, allocator,
+threading, critical section, network, timer, …) from the rest of the
+code via a <strong>single canonical C ABI</strong> of free <code>extern "C"</code> symbols.
+Every supported port — POSIX, FreeRTOS, NuttX, ThreadX, Zephyr,
+ESP-IDF, bare-metal Cortex-M — implements the same symbols against
+its host kernel. RMW backends, codegen output, and the
+<code>nros-node</code> runtime all link against the ABI; nobody links against a
+specific port’s Rust crate.</p>
+<p>This page is the contract: what the surface looks like, how to add a
+port, and why the shape is what it is. It is the implementation
+companion to <a href="#platform-model">Platform Model</a> (user-
+facing axis description) and
+<a href="../docs/design/portable-rmw-platform-interface.html"><code>docs/design/portable-rmw-platform-interface.md</code></a>
+(L0/L1/L2 design rationale across RMW + platform).</p>
+<h2 id="surface"><a class="header" href="#surface">Surface</a></h2>
+<p>Three hand-written headers under
+<code>packages/core/nros-platform-cffi/include/nros/</code>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Header</th><th>Purpose</th><th>Symbol count</th></tr>
+</thead>
+<tbody>
+<tr><td><code>platform.h</code></td><td>Core kernel surface: clock, sleep, alloc, threading, scheduler, time, yield, random, critical section, opaque wake primitive.</td><td>57</td></tr>
+<tr><td><code>platform_net.h</code></td><td>Network surface: TCP/UDP/multicast socket helpers, endpoint resolution, IVC.</td><td>29</td></tr>
+<tr><td><code>platform_timer.h</code></td><td>Periodic timer surface (<code>nros_platform_timer_*</code>).</td><td>8</td></tr>
+</tbody>
+</table>
+</div>
+<p>Every symbol has the prefix <code>nros_platform_</code>. A drift gate
+(<code>scripts/check-platform-abi-mirror.sh</code>) walks each header and asserts
+that the <code>unsafe extern "C" {}</code> mirror block in
+<code>packages/core/nros-platform-cffi/src/lib.rs</code> declares the same set —
+no symbol can land in C without its Rust mirror, no Rust mirror can
+declare a symbol without a C header decl. <code>just check</code> runs the gate
+on every CI build.</p>
+<h2 id="why-free-symbols-not-a-vtable-struct"><a class="header" href="#why-free-symbols-not-a-vtable-struct">Why free symbols (not a vtable struct)</a></h2>
+<p>The RMW layer uses a <code>NrosRmwVtable</code> fn-ptr struct because a single
+binary registers multiple backends at runtime (bridge nodes). Platforms
+are different: <strong>one platform per binary, resolved at link time</strong>. A
+vtable would add an indirection on every clock read, every mutex lock,
+every socket send — overhead with no upside, because there is nobody to
+swap. Free symbols let the linker resolve calls direct, let LTO inline
+across the boundary, and let static analysis treat them like any other
+extern.</p>
+<p>The full rationale is in
+<a href="../docs/design/portable-rmw-platform-interface.html"><code>docs/design/portable-rmw-platform-interface.md</code></a>
+under “Platform ABI: free symbols (no vtable)”.</p>
+<h2 id="how-a-port-is-built"><a class="header" href="#how-a-port-is-built">How a port is built</a></h2>
+<p>A port can be written in either of two ways. The choice is per-port
+and not visible to consumers — both shapes resolve to the same
+symbols.</p>
+<h3 id="path-a--rust-trait--macro-export"><a class="header" href="#path-a--rust-trait--macro-export">Path A — Rust trait + macro export</a></h3>
+<p>The Rust crate implements <code>PlatformClock</code>, <code>PlatformAlloc</code>,
+<code>PlatformThreading</code>, … on a marker type, then invokes one of the
+export macros:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use nros_platform_api::{
+    PlatformClock, PlatformSleep, PlatformAlloc, PlatformThreading,
+    PlatformCriticalSection,
+    nros_platform_export, nros_platform_export_net, nros_platform_export_timer,
+};
+
+pub struct PosixPlatform;
+impl PlatformClock for PosixPlatform { /* … */ }
+impl PlatformSleep for PosixPlatform { /* … */ }
+// … etc.
+
+nros_platform_export!(PosixPlatform);
+nros_platform_export_net!(PosixPlatform);
+nros_platform_export_timer!(PosixPlatform);
+<span class="boring">}</span></code></pre>
+<p>The macros expand to the full set of <code>#[unsafe(no_mangle)] pub extern "C" fn nros_platform_*</code> bodies forwarding to the trait calls.
+This is what <code>nros-platform-posix</code> does today. It is also what the
+bare-metal board crates (<code>nros-platform-mps2-an385</code>,
+<code>nros-platform-stm32f4</code>, <code>nros-platform-esp32</code>, <code>nros-platform-esp32-qemu</code>)
+use: there is no host kernel to write idiomatic C against, so the
+single-task stub impls are written in Rust and exported via the macro.</p>
+<h3 id="path-b--pure-c-port"><a class="header" href="#path-b--pure-c-port">Path B — pure C port</a></h3>
+<p>The kernel-side ports (FreeRTOS, NuttX, ThreadX, Zephyr, ESP-IDF) write
+the bodies directly in <code>src/platform.c</code>, <code>src/net.c</code>, <code>src/timer.c</code>
+inside each <code>packages/core/nros-platform-&lt;rtos&gt;/</code> directory. The Rust
+side has no implementation file — the build script (or parent build
+system: NuttX make, Zephyr west module, ESP-IDF cmake) compiles the C
+sources against the kernel’s headers.</p>
+<p>Pure-C bodies are the more natural fit when the kernel already speaks
+C and ships C headers (<code>xSemaphoreCreate*</code>, <code>k_sem_*</code>, <code>tx_thread_*</code>):
+the impl is one-to-one with the kernel call, no FFI dance through
+Rust’s calling convention. The shared crate
+<code>nros-platform-critical-section</code> is the canonical example for a
+single-symbol shim: the Rust side just calls the externs and registers
+the result with <code>critical_section::set_impl!</code>.</p>
+<h2 id="adding-a-new-port--checklist"><a class="header" href="#adding-a-new-port--checklist">Adding a new port — checklist</a></h2>
+<ol>
+<li><strong>Decide A vs B.</strong> Greenfield host build with a Rust crate
+available? Path A. Vendor RTOS with a C SDK and no Rust toolchain
+on the build machine? Path B.</li>
+<li><strong>Mirror, don’t extend.</strong> Implement every symbol in the three
+headers. The drift gate fails the build otherwise. If the kernel
+genuinely cannot provide a primitive, return the documented
+sentinel value (<code>-1</code> for <code>task_init</code> on single-task RTOS, <code>0</code> for
+<code>mutex_*</code> on single-core no-preempt hardware) rather than skipping
+the symbol.</li>
+<li><strong>Write the smoke test.</strong> Land a <code>tests/&lt;port&gt;-c-smoke/</code> mini-app
+that links the new C port against the canonical headers and calls
+a representative symbol from each capability group. Wire it into
+<code>just &lt;port&gt; test-c-port</code>. The smoke tests are the runtime
+parity layer that the drift gate cannot enforce.</li>
+<li><strong>For platforms that emit <code>critical_section::Impl</code></strong> (i.e. anything
+that consumes <code>dust-dds</code> or other <code>critical-section</code>-using crates),
+make sure the binary pulls
+<code>nros-platform-critical-section</code> once — it does the
+<code>critical_section::set_impl!(PlatformCs)</code> registration against the
+canonical externs. Binaries that don’t need the global registration
+don’t pay for it.</li>
+<li><strong>Update the drift gate’s smoke list</strong> (the
+<code>HEADERS_REQUIRE_MACRO</code> array in
+<code>scripts/check-platform-abi-mirror.sh</code>) if you add a new header.
+Adding a symbol to an existing header needs no script change — the
+grep is generic.</li>
+</ol>
+<h2 id="capability-groups"><a class="header" href="#capability-groups">Capability groups</a></h2>
+<p>Within <code>platform.h</code>, the symbols are grouped by trait. Each group is
+exported by one Rust trait + one C-port section + one drift-gate
+match. Adding a capability means adding a row to <strong>every</strong> column.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Capability</th><th>Rust trait</th><th>C section</th><th>Symbols</th></tr>
+</thead>
+<tbody>
+<tr><td>Clock</td><td><code>PlatformClock</code></td><td><code>clock_ms</code></td><td><code>nros_platform_clock_ms</code></td></tr>
+<tr><td>Sleep</td><td><code>PlatformSleep</code></td><td><code>sleep_ms</code></td><td><code>nros_platform_sleep_ms</code></td></tr>
+<tr><td>Alloc</td><td><code>PlatformAlloc</code></td><td><code>malloc/realloc/free</code></td><td><code>nros_platform_alloc{,_realloc,_free}</code></td></tr>
+<tr><td>Threading</td><td><code>PlatformThreading</code></td><td>mutex/condvar/task</td><td><code>nros_platform_{mutex,condvar,task}_*</code></td></tr>
+<tr><td>Critical section</td><td><code>PlatformCriticalSection</code></td><td>per-CPU interrupt mask</td><td><code>nros_platform_critical_section_{acquire,release}</code></td></tr>
+<tr><td>Scheduler</td><td><code>PlatformScheduler</code></td><td>task hints</td><td><code>nros_platform_scheduler_*</code></td></tr>
+<tr><td>Time</td><td><code>PlatformTime</code></td><td>wall-clock</td><td><code>nros_platform_time_ns</code></td></tr>
+<tr><td>Yield</td><td><code>PlatformYield</code></td><td>cooperative yield</td><td><code>nros_platform_yield</code></td></tr>
+<tr><td>Random</td><td><code>PlatformRandom</code></td><td>best-effort RNG</td><td><code>nros_platform_random_*</code></td></tr>
+<tr><td>Wake</td><td><code>PlatformThreading</code> (wake methods)</td><td>opaque binary-semaphore</td><td><code>nros_platform_wake_{init,drop,wait_ms,signal,signal_from_isr,storage_size,storage_align}</code></td></tr>
+</tbody>
+</table>
+</div>
+<p><code>platform_net.h</code> covers TCP/UDP/multicast/IVC, and <code>platform_timer.h</code>
+covers periodic timers. The shapes follow the same pattern: trait →
+macro → header → drift gate.</p>
+<h2 id="status-and-historical-context"><a class="header" href="#status-and-historical-context">Status and historical context</a></h2>
+<ul>
+<li><strong>Phase 115</strong> introduced the C-vtable RMW shape and the dual
+Rust-trait / C-vtable model.</li>
+<li><strong>Phase 121</strong> lifted the same pattern down into the platform tier:
+one canonical header, every port mirrors it, the drift gate fails
+the build on divergence.</li>
+<li><strong>Phase 121.3</strong> retired the per-RTOS Rust platform crates
+(<code>nros-platform-{freertos,nuttx,threadx,zephyr}</code>) in favour of the
+pure-C ports under the same directory names.</li>
+<li><strong>Phase 121.9</strong> promoted <code>critical_section</code> from a per-FreeRTOS
+Cortex-M feature flag to a canonical platform capability owned by
+every port’s C body, with <code>nros-platform-critical-section</code> as the
+global-registration shim.</li>
+<li><strong>Phase 130</strong> added the opaque-storage wake primitive
+(<code>nros_platform_wake_*</code>) — a binary semaphore that lets the executor
+block on RMW activity without burning a thread.</li>
+</ul>
+<p>The current canonical surface is 57 + 29 + 8 = <strong>94 symbols</strong> across
+three headers, mirrored exactly by the Rust extern block, exported by
+six ports plus four bare-metal board crates, and gated by one drift
+script. Adding a capability touches all four columns in one PR.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="rmw-backends--host-language-policy"><a class="header" href="#rmw-backends--host-language-policy">RMW Backends — Host-Language Policy</a></h1>
 <p>This page documents which language each RMW backend is implemented in,

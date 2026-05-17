@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>nros CLI - nano-ros Book</title>
+        <title>Canonical Platform C ABI - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,154 +177,187 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="nros-cli-reference"><a class="header" href="#nros-cli-reference"><code>nros</code> CLI reference</a></h1>
-<p>The <code>nros</code> binary is the canonical user entry point for nano-ros. It
-wraps scaffolding, message codegen, configuration, build, run, and
-diagnostics into a single command. Phase 111 (Pillar A) ships the
-verbs documented below; Pillar B (release pipeline) is a follow-up.</p>
-<p>The <code>cargo nano-ros …</code> cargo subcommand keeps working — it dispatches
-through the same <code>nros-cli-core</code> library, so the two front-ends stay
-in lockstep.</p>
-<h2 id="install"><a class="header" href="#install">Install</a></h2>
-<p><code>nros</code> is a workspace binary; until the crates.io release pipeline
-lands (Phase 111 Pillar B), build it from a clone:</p>
-<pre><code class="language-sh">cd packages/codegen/packages
-cargo install --path nros-cli
-</code></pre>
-<p>Once installed, run <code>nros --help</code> to list every verb.</p>
-<h2 id="verbs"><a class="header" href="#verbs">Verbs</a></h2>
-<h3 id="nros-new-name---platform-plat---rmw-rmw---lang-lang---use-case-case---force"><a class="header" href="#nros-new-name---platform-plat---rmw-rmw---lang-lang---use-case-case---force"><code>nros new &lt;name&gt; --platform &lt;plat&gt; [--rmw &lt;rmw&gt;] [--lang &lt;lang&gt;] [--use-case &lt;case&gt;] [--force]</code></a></h3>
-<p>Scaffold a new nano-ros project. Emits a colcon-compatible
-<code>package.xml</code> plus a hello-world Rust / C / C++ skeleton tuned for the
-chosen platform.</p>
+                        <h1 id="canonical-platform-c-abi"><a class="header" href="#canonical-platform-c-abi">Canonical Platform C ABI</a></h1>
+<p>nano-ros separates the platform layer (clock, sleep, allocator,
+threading, critical section, network, timer, …) from the rest of the
+code via a <strong>single canonical C ABI</strong> of free <code>extern "C"</code> symbols.
+Every supported port — POSIX, FreeRTOS, NuttX, ThreadX, Zephyr,
+ESP-IDF, bare-metal Cortex-M — implements the same symbols against
+its host kernel. RMW backends, codegen output, and the
+<code>nros-node</code> runtime all link against the ABI; nobody links against a
+specific port’s Rust crate.</p>
+<p>This page is the contract: what the surface looks like, how to add a
+port, and why the shape is what it is. It is the implementation
+companion to <a href="../concepts/platform-model.html">Platform Model</a> (user-
+facing axis description) and
+<a href="../../docs/design/portable-rmw-platform-interface.html"><code>docs/design/portable-rmw-platform-interface.md</code></a>
+(L0/L1/L2 design rationale across RMW + platform).</p>
+<h2 id="surface"><a class="header" href="#surface">Surface</a></h2>
+<p>Three hand-written headers under
+<code>packages/core/nros-platform-cffi/include/nros/</code>:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Flag</th><th>Values</th><th>Default</th></tr>
+<tr><th>Header</th><th>Purpose</th><th>Symbol count</th></tr>
 </thead>
 <tbody>
-<tr><td><code>--platform</code></td><td><code>native</code>, <code>freertos</code>, <code>nuttx</code>, <code>threadx</code>, <code>zephyr</code>, <code>esp32</code>, <code>posix</code>, <code>baremetal</code></td><td>(required)</td></tr>
-<tr><td><code>--rmw</code></td><td><code>zenoh</code>, <code>xrce</code>, <code>dds</code></td><td><code>zenoh</code></td></tr>
-<tr><td><code>--lang</code></td><td><code>rust</code>, <code>c</code>, <code>cpp</code></td><td><code>rust</code></td></tr>
-<tr><td><code>--use-case</code></td><td><code>talker</code>, <code>listener</code>, <code>service</code>, <code>action</code></td><td><code>talker</code></td></tr>
-<tr><td><code>--force</code></td><td>overwrite an existing directory</td><td>off</td></tr>
+<tr><td><code>platform.h</code></td><td>Core kernel surface: clock, sleep, alloc, threading, scheduler, time, yield, random, critical section, opaque wake primitive.</td><td>57</td></tr>
+<tr><td><code>platform_net.h</code></td><td>Network surface: TCP/UDP/multicast socket helpers, endpoint resolution, IVC.</td><td>29</td></tr>
+<tr><td><code>platform_timer.h</code></td><td>Periodic timer surface (<code>nros_platform_timer_*</code>).</td><td>8</td></tr>
 </tbody>
 </table>
 </div>
-<blockquote>
-<p>RMW choice + use-case template diversification surface in the
-“Next steps” banner today; full per-use-case template trees land
-alongside the Phase 112 example sweep.</p>
-</blockquote>
-<h3 id="nros-generate-lang---manifest-path---output-dir---ros-edition-edition---force---verbose---generate-config"><a class="header" href="#nros-generate-lang---manifest-path---output-dir---ros-edition-edition---force---verbose---generate-config"><code>nros generate &lt;lang&gt; [--manifest &lt;path&gt;] [--output &lt;dir&gt;] [--ros-edition &lt;edition&gt;] [--force] [--verbose] [--generate-config]</code></a></h3>
-<p>Generate ROS 2 message bindings from a <code>package.xml</code>. Wraps the
-existing <code>cargo nano-ros generate-{rust,c}</code> surface byte-for-byte.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Argument</th><th>Values</th><th>Default</th></tr>
-</thead>
-<tbody>
-<tr><td><code>&lt;lang&gt;</code></td><td><code>rust</code>, <code>c</code>, <code>cpp</code>, <code>all</code></td><td>(required)</td></tr>
-<tr><td><code>--manifest</code></td><td>path to <code>package.xml</code></td><td><code>package.xml</code></td></tr>
-<tr><td><code>--output</code></td><td>output directory</td><td><code>generated</code></td></tr>
-<tr><td><code>--ros-edition</code></td><td><code>humble</code>, <code>iron</code></td><td><code>humble</code></td></tr>
-<tr><td><code>--generate-config</code></td><td>emit <code>.cargo/config.toml</code> patches (Rust only)</td><td>off</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="nros-config-show---config-path--nros-config-check---config-path"><a class="header" href="#nros-config-show---config-path--nros-config-check---config-path"><code>nros config show [--config &lt;path&gt;]</code> / <code>nros config check [--config &lt;path&gt;]</code></a></h3>
-<p><code>show</code> parses the project’s <code>config.toml</code> and pretty-prints it,
-plus reports any <code>ROS_DOMAIN_ID</code> env override.</p>
-<p><code>check</code> validates <code>config.toml</code> syntactically and warns when
-<code>zenoh.locator</code> or <code>zenoh.domain_id</code> are missing. Exits non-zero on
-warnings.</p>
-<blockquote>
-<p>Kconfig (Zephyr) values + the auto-generated <code>nros_app_config.h</code>
-struct land with Phase 112.D.</p>
-</blockquote>
-<h3 id="nros-build---project-path----"><a class="header" href="#nros-build---project-path----"><code>nros build [--project &lt;path&gt;] [-- ...]</code></a></h3>
-<p>Auto-detect the project flavor and delegate. Detection precedence:</p>
+<p>Every symbol has the prefix <code>nros_platform_</code>. A drift gate
+(<code>scripts/check-platform-abi-mirror.sh</code>) walks each header and asserts
+that the <code>unsafe extern "C" {}</code> mirror block in
+<code>packages/core/nros-platform-cffi/src/lib.rs</code> declares the same set —
+no symbol can land in C without its Rust mirror, no Rust mirror can
+declare a symbol without a C header decl. <code>just check</code> runs the gate
+on every CI build.</p>
+<h2 id="why-free-symbols-not-a-vtable-struct"><a class="header" href="#why-free-symbols-not-a-vtable-struct">Why free symbols (not a vtable struct)</a></h2>
+<p>The RMW layer uses a <code>NrosRmwVtable</code> fn-ptr struct because a single
+binary registers multiple backends at runtime (bridge nodes). Platforms
+are different: <strong>one platform per binary, resolved at link time</strong>. A
+vtable would add an indirection on every clock read, every mutex lock,
+every socket send — overhead with no upside, because there is nobody to
+swap. Free symbols let the linker resolve calls direct, let LTO inline
+across the boundary, and let static analysis treat them like any other
+extern.</p>
+<p>The full rationale is in
+<a href="../../docs/design/portable-rmw-platform-interface.html"><code>docs/design/portable-rmw-platform-interface.md</code></a>
+under “Platform ABI: free symbols (no vtable)”.</p>
+<h2 id="how-a-port-is-built"><a class="header" href="#how-a-port-is-built">How a port is built</a></h2>
+<p>A port can be written in either of two ways. The choice is per-port
+and not visible to consumers — both shapes resolve to the same
+symbols.</p>
+<h3 id="path-a--rust-trait--macro-export"><a class="header" href="#path-a--rust-trait--macro-export">Path A — Rust trait + macro export</a></h3>
+<p>The Rust crate implements <code>PlatformClock</code>, <code>PlatformAlloc</code>,
+<code>PlatformThreading</code>, … on a marker type, then invokes one of the
+export macros:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use nros_platform_api::{
+    PlatformClock, PlatformSleep, PlatformAlloc, PlatformThreading,
+    PlatformCriticalSection,
+    nros_platform_export, nros_platform_export_net, nros_platform_export_timer,
+};
+
+pub struct PosixPlatform;
+impl PlatformClock for PosixPlatform { /* … */ }
+impl PlatformSleep for PosixPlatform { /* … */ }
+// … etc.
+
+nros_platform_export!(PosixPlatform);
+nros_platform_export_net!(PosixPlatform);
+nros_platform_export_timer!(PosixPlatform);
+<span class="boring">}</span></code></pre>
+<p>The macros expand to the full set of <code>#[unsafe(no_mangle)] pub extern "C" fn nros_platform_*</code> bodies forwarding to the trait calls.
+This is what <code>nros-platform-posix</code> does today. It is also what the
+bare-metal board crates (<code>nros-platform-mps2-an385</code>,
+<code>nros-platform-stm32f4</code>, <code>nros-platform-esp32</code>, <code>nros-platform-esp32-qemu</code>)
+use: there is no host kernel to write idiomatic C against, so the
+single-task stub impls are written in Rust and exported via the macro.</p>
+<h3 id="path-b--pure-c-port"><a class="header" href="#path-b--pure-c-port">Path B — pure C port</a></h3>
+<p>The kernel-side ports (FreeRTOS, NuttX, ThreadX, Zephyr, ESP-IDF) write
+the bodies directly in <code>src/platform.c</code>, <code>src/net.c</code>, <code>src/timer.c</code>
+inside each <code>packages/core/nros-platform-&lt;rtos&gt;/</code> directory. The Rust
+side has no implementation file — the build script (or parent build
+system: NuttX make, Zephyr west module, ESP-IDF cmake) compiles the C
+sources against the kernel’s headers.</p>
+<p>Pure-C bodies are the more natural fit when the kernel already speaks
+C and ships C headers (<code>xSemaphoreCreate*</code>, <code>k_sem_*</code>, <code>tx_thread_*</code>):
+the impl is one-to-one with the kernel call, no FFI dance through
+Rust’s calling convention. The shared crate
+<code>nros-platform-critical-section</code> is the canonical example for a
+single-symbol shim: the Rust side just calls the externs and registers
+the result with <code>critical_section::set_impl!</code>.</p>
+<h2 id="adding-a-new-port--checklist"><a class="header" href="#adding-a-new-port--checklist">Adding a new port — checklist</a></h2>
 <ol>
-<li><code>prj.conf</code> present → Zephyr → <code>west build</code></li>
-<li><code>CMakeLists.txt</code> + Cargo <code>staticlib</code> → cmake configure + build</li>
-<li><code>Cargo.toml</code> present → <code>cargo build</code></li>
-<li>plain <code>CMakeLists.txt</code> → <code>cmake -B build &amp;&amp; cmake --build build</code></li>
+<li><strong>Decide A vs B.</strong> Greenfield host build with a Rust crate
+available? Path A. Vendor RTOS with a C SDK and no Rust toolchain
+on the build machine? Path B.</li>
+<li><strong>Mirror, don’t extend.</strong> Implement every symbol in the three
+headers. The drift gate fails the build otherwise. If the kernel
+genuinely cannot provide a primitive, return the documented
+sentinel value (<code>-1</code> for <code>task_init</code> on single-task RTOS, <code>0</code> for
+<code>mutex_*</code> on single-core no-preempt hardware) rather than skipping
+the symbol.</li>
+<li><strong>Write the smoke test.</strong> Land a <code>tests/&lt;port&gt;-c-smoke/</code> mini-app
+that links the new C port against the canonical headers and calls
+a representative symbol from each capability group. Wire it into
+<code>just &lt;port&gt; test-c-port</code>. The smoke tests are the runtime
+parity layer that the drift gate cannot enforce.</li>
+<li><strong>For platforms that emit <code>critical_section::Impl</code></strong> (i.e. anything
+that consumes <code>dust-dds</code> or other <code>critical-section</code>-using crates),
+make sure the binary pulls
+<code>nros-platform-critical-section</code> once — it does the
+<code>critical_section::set_impl!(PlatformCs)</code> registration against the
+canonical externs. Binaries that don’t need the global registration
+don’t pay for it.</li>
+<li><strong>Update the drift gate’s smoke list</strong> (the
+<code>HEADERS_REQUIRE_MACRO</code> array in
+<code>scripts/check-platform-abi-mirror.sh</code>) if you add a new header.
+Adding a symbol to an existing header needs no script change — the
+grep is generic.</li>
 </ol>
-<p>Trailing arguments after <code>--</code> forward verbatim to the underlying tool.</p>
-<h3 id="nros-run---project-path---env-name----"><a class="header" href="#nros-run---project-path---env-name----"><code>nros run [--project &lt;path&gt;] [--env &lt;name&gt;] [-- ...]</code></a></h3>
-<p>Build → flash → monitor in one verb.</p>
+<h2 id="capability-groups"><a class="header" href="#capability-groups">Capability groups</a></h2>
+<p>Within <code>platform.h</code>, the symbols are grouped by trait. Each group is
+exported by one Rust trait + one C-port section + one drift-gate
+match. Adding a capability means adding a row to <strong>every</strong> column.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Detected target</th><th>Action</th></tr>
+<tr><th>Capability</th><th>Rust trait</th><th>C section</th><th>Symbols</th></tr>
 </thead>
 <tbody>
-<tr><td>Cargo + native</td><td><code>cargo run</code> (default bin)</td></tr>
-<tr><td>Cargo + <code>xtensa-esp32*</code> / <code>riscv32imc*</code> (from <code>.cargo/config.toml</code>)</td><td><code>espflash flash --monitor</code></td></tr>
-<tr><td>Zephyr / cmake / QEMU multi-target</td><td>not yet wired — see <code>just &lt;plat&gt; run</code> recipes</td></tr>
+<tr><td>Clock</td><td><code>PlatformClock</code></td><td><code>clock_ms</code></td><td><code>nros_platform_clock_ms</code></td></tr>
+<tr><td>Sleep</td><td><code>PlatformSleep</code></td><td><code>sleep_ms</code></td><td><code>nros_platform_sleep_ms</code></td></tr>
+<tr><td>Alloc</td><td><code>PlatformAlloc</code></td><td><code>malloc/realloc/free</code></td><td><code>nros_platform_alloc{,_realloc,_free}</code></td></tr>
+<tr><td>Threading</td><td><code>PlatformThreading</code></td><td>mutex/condvar/task</td><td><code>nros_platform_{mutex,condvar,task}_*</code></td></tr>
+<tr><td>Critical section</td><td><code>PlatformCriticalSection</code></td><td>per-CPU interrupt mask</td><td><code>nros_platform_critical_section_{acquire,release}</code></td></tr>
+<tr><td>Scheduler</td><td><code>PlatformScheduler</code></td><td>task hints</td><td><code>nros_platform_scheduler_*</code></td></tr>
+<tr><td>Time</td><td><code>PlatformTime</code></td><td>wall-clock</td><td><code>nros_platform_time_ns</code></td></tr>
+<tr><td>Yield</td><td><code>PlatformYield</code></td><td>cooperative yield</td><td><code>nros_platform_yield</code></td></tr>
+<tr><td>Random</td><td><code>PlatformRandom</code></td><td>best-effort RNG</td><td><code>nros_platform_random_*</code></td></tr>
+<tr><td>Wake</td><td><code>PlatformThreading</code> (wake methods)</td><td>opaque binary-semaphore</td><td><code>nros_platform_wake_{init,drop,wait_ms,signal,signal_from_isr,storage_size,storage_align}</code></td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="nros-monitor---env-name----"><a class="header" href="#nros-monitor---env-name----"><code>nros monitor [--env &lt;name&gt;] [-- ...]</code></a></h3>
-<p>v1 surfaces <code>espflash monitor</code>. ARM RTT (<code>defmt-print</code>) and QEMU
-semihosting decoders land alongside Phase 88 (<code>nros-log</code>).</p>
-<h3 id="nros-doctor---platform-name---workspace-path"><a class="header" href="#nros-doctor---platform-name---workspace-path"><code>nros doctor [--platform &lt;name&gt;] [--workspace &lt;path&gt;]</code></a></h3>
-<p>Shells out to <code>just doctor</code> from the auto-detected workspace root.
-The justfile orchestrates every per-module doctor recipe (<code>just nuttx doctor</code>, <code>just zephyr doctor</code>, …) and is the source of truth for
-“healthy”. <code>--platform &lt;name&gt;</code> scopes the check to a single module
-(<code>just &lt;platform&gt; doctor</code>).</p>
-<h3 id="nros-board-list---workspace-path"><a class="header" href="#nros-board-list---workspace-path"><code>nros board list [--workspace &lt;path&gt;]</code></a></h3>
-<p>Enumerate every <code>nros-board-*</code> crate under <code>packages/boards/</code>. Output
-columns today are <code>name | description</code>; structured <code>chip | flash | ram | supported_rmw</code> fields are deferred to UX-42 (board descriptor TOML).</p>
-<h3 id="nros-version"><a class="header" href="#nros-version"><code>nros version</code></a></h3>
-<p>Print toolchain and library versions.</p>
-<h3 id="nros-completions-shell"><a class="header" href="#nros-completions-shell"><code>nros completions &lt;shell&gt;</code></a></h3>
-<p>Emit shell completion scripts to stdout.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Shell</th><th>Install snippet</th></tr>
-</thead>
-<tbody>
-<tr><td><code>bash</code></td><td><code>nros completions bash &gt; ~/.local/share/bash-completion/completions/nros</code></td></tr>
-<tr><td><code>zsh</code></td><td><code>nros completions zsh &gt; "${fpath[1]}/_nros"</code></td></tr>
-<tr><td><code>fish</code></td><td><code>nros completions fish &gt; ~/.config/fish/completions/nros.fish</code></td></tr>
-<tr><td><code>powershell</code></td><td><code>nros completions powershell &gt; $PROFILE.parent\nros.ps1</code></td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="nros-release--maintainer-only"><a class="header" href="#nros-release--maintainer-only"><code>nros release …</code> (maintainer-only)</a></h3>
-<p>Compiled in only when <code>nros</code> is built with <code>--features release</code>;
-hidden from <code>--help</code> otherwise. Phase 111 Pillar B fills in
-<code>detect</code>, <code>publish</code>, <code>tag</code>, <code>c-libs</code>.</p>
-<h2 id="comparison-nros-vs-cargo-nano-ros-vs-just"><a class="header" href="#comparison-nros-vs-cargo-nano-ros-vs-just">Comparison: <code>nros</code> vs. <code>cargo nano-ros</code> vs. <code>just</code></a></h2>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Want to …</th><th>Use</th></tr>
-</thead>
-<tbody>
-<tr><td>Scaffold / build / run a single project</td><td><code>nros …</code></td></tr>
-<tr><td>Generate bindings inside an existing Cargo workflow</td><td><code>cargo nano-ros generate-{rust,c}</code></td></tr>
-<tr><td>Orchestrate the workspace (setup, doctor, CI, multi-platform sweeps)</td><td><code>just …</code></td></tr>
-</tbody>
-</table>
-</div>
-<p><code>nros</code> and <code>cargo nano-ros</code> route through the same <code>nros-cli-core</code>
-library, so they always agree on output. <code>just</code> recipes that wrap
-user-flow operations call into <code>nros</code> for consistency; internal
-recipes (build matrices, CI orchestration) keep their current shape.</p>
+<p><code>platform_net.h</code> covers TCP/UDP/multicast/IVC, and <code>platform_timer.h</code>
+covers periodic timers. The shapes follow the same pattern: trait →
+macro → header → drift gate.</p>
+<h2 id="status-and-historical-context"><a class="header" href="#status-and-historical-context">Status and historical context</a></h2>
+<ul>
+<li><strong>Phase 115</strong> introduced the C-vtable RMW shape and the dual
+Rust-trait / C-vtable model.</li>
+<li><strong>Phase 121</strong> lifted the same pattern down into the platform tier:
+one canonical header, every port mirrors it, the drift gate fails
+the build on divergence.</li>
+<li><strong>Phase 121.3</strong> retired the per-RTOS Rust platform crates
+(<code>nros-platform-{freertos,nuttx,threadx,zephyr}</code>) in favour of the
+pure-C ports under the same directory names.</li>
+<li><strong>Phase 121.9</strong> promoted <code>critical_section</code> from a per-FreeRTOS
+Cortex-M feature flag to a canonical platform capability owned by
+every port’s C body, with <code>nros-platform-critical-section</code> as the
+global-registration shim.</li>
+<li><strong>Phase 130</strong> added the opaque-storage wake primitive
+(<code>nros_platform_wake_*</code>) — a binary semaphore that lets the executor
+block on RMW activity without burning a thread.</li>
+</ul>
+<p>The current canonical surface is 57 + 29 + 8 = <strong>94 symbols</strong> across
+three headers, mirrored exactly by the Rust extern block, exported by
+six ports plus four bare-metal board crates, and gated by one drift
+script. Adding a capability touches all four columns in one PR.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../internals/contributing.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../design/platform-api.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../reference/rust-api.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../internals/rmw-backends.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -334,11 +367,11 @@ recipes (build matrices, CI orchestration) keep their current shape.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../internals/contributing.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../design/platform-api.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../reference/rust-api.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../internals/rmw-backends.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
