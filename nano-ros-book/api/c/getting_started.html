@@ -86,38 +86,26 @@ Prerequisites</h1>
 <li>zenohd router (build from submodule with <code>just build-zenohd</code>, or install a matching version from <a href="https://github.com/eclipse-zenoh/zenoh/releases">zenoh releases</a>)</li>
 </ul>
 <h1><a class="anchor" id="autotoc_md6"></a>
-1. Build the nros C Library</h1>
-<div class="fragment"><div class="line">cd /path/to/nano-ros</div>
-<div class="line"> </div>
-<div class="line"># Build the static library (libnros_c.a)</div>
-<div class="line">cargo build -p nros-c --release</div>
-<div class="line"># Library at: target/release/libnros_c.a</div>
-<div class="line"># Headers at: packages/core/nros-c/include/</div>
-<div class="line"> </div>
-<div class="line"># Or use the install recipe for a CMake-ready layout:</div>
-<div class="line">just install-local</div>
-<div class="line"># Installs to: build/install/</div>
-</div><!-- fragment --><p><code>just install-local</code> builds both zenoh and XRCE variants and creates a config-mode CMake package at <code>build/install/</code>.</p>
-<h1><a class="anchor" id="autotoc_md7"></a>
-2. Create a CMake Project</h1>
+1. Create a CMake Project</h1>
 <div class="fragment"><div class="line">mkdir my-c-talker &amp;&amp; cd my-c-talker</div>
 <div class="line">mkdir src</div>
-</div><!-- fragment --><p>Create <code>CMakeLists.txt</code>:</p>
-<div class="fragment"><div class="line">cmake_minimum_required(VERSION 3.15)</div>
+</div><!-- fragment --><p>Create <code>CMakeLists.txt</code> (Phase 140 — <code>add_subdirectory</code> is the only consumption shape):</p>
+<div class="fragment"><div class="line">cmake_minimum_required(VERSION 3.22)</div>
 <div class="line">project(my_c_talker LANGUAGES C)</div>
 <div class="line"> </div>
 <div class="line">set(CMAKE_C_STANDARD 11)</div>
 <div class="line"> </div>
-<div class="line"># Point to the nros install prefix</div>
-<div class="line">list(APPEND CMAKE_MODULE_PATH &quot;/path/to/nano-ros/cmake&quot;)</div>
-<div class="line">find_package(NanoRos REQUIRED CONFIG)</div>
+<div class="line">set(NANO_ROS_PLATFORM posix)</div>
+<div class="line">set(NANO_ROS_RMW     zenoh)</div>
+<div class="line">add_subdirectory(/path/to/nano-ros nano_ros)</div>
 <div class="line"> </div>
 <div class="line">add_executable(my_c_talker src/main.c)</div>
 <div class="line">target_link_libraries(my_c_talker PRIVATE NanoRos::NanoRos)</div>
-</div><!-- fragment --><p><code>find_package(NanoRos)</code> provides include directories, the static library, and platform link libraries (pthread, dl, m) automatically.</p>
-<h1><a class="anchor" id="autotoc_md8"></a>
-3. Code Generation</h1>
-<p>Use <code>nano_ros_generate_interfaces()</code> to generate C message types. This CMake function is included automatically by <code>find_package(NanoRos CONFIG)</code>. The codegen tool (<code>nros-codegen</code>) is installed to <code>$PREFIX/bin/</code> by <code>just install-local</code>.</p>
+<div class="line">nros_platform_link_app(my_c_talker)</div>
+</div><!-- fragment --><p><code>NanoRos::NanoRos</code> provides include directories, the static library, and platform link libraries (pthread, dl, m) automatically via the root CMake's INTERFACE target. The nros-c static library is built in-tree per-project via Corrosion.</p>
+<h1><a class="anchor" id="autotoc_md7"></a>
+2. Code Generation</h1>
+<p>Use <code>nano_ros_generate_interfaces()</code> to generate C message types. This CMake function becomes available automatically once <code>add_subdirectory(nano-ros)</code> runs (the root CMake includes <code>cmake/NanoRosGenerateInterfaces.cmake</code>). The codegen tool (<code>nros-codegen</code>) is a Corrosion-built target reachable via <code>$&lt;TARGET_FILE:nros-codegen&gt;</code>.</p>
 <p><b>Never hand-write CDR serialization or struct definitions</b> — always use the code generator.</p>
 <div class="fragment"><div class="line"># Standard ROS 2 package (resolved from bundled interfaces)</div>
 <div class="line">nano_ros_generate_interfaces(std_msgs</div>
@@ -142,16 +130,11 @@ Prerequisites</h1>
 <li><code>&lt;install_prefix&gt;/share/nano-ros/interfaces/&lt;target&gt;/&lt;file&gt;</code> (bundled)</li>
 </ol>
 <p>Generated type info structs (<code>nros_message_type_t</code>, <code>nros_service_type_t</code>, <code>nros_action_type_t</code>) are defined in <code>&lt;<a class="el" href="types_8h.html" title="Shared types and constants for the nros C API.">nros/types.h</a>&gt;</code>.</p>
+<h1><a class="anchor" id="autotoc_md8"></a>
+3. RMW Backend Selection</h1>
+<p>The <code>NANO_ROS_RMW</code> CMake variable selects which RMW staticlib to build in-tree. Set it in <code>CMakeLists.txt</code> (BEFORE <code>add_subdirectory</code>) or override on the command line (<code>-DNANO_ROS_RMW=xrce</code>). Valid: <code>zenoh</code> (default), <code>dds</code>, <code>xrce</code>, <code>cyclonedds</code>.</p>
 <h1><a class="anchor" id="autotoc_md9"></a>
-4. RMW Backend Selection</h1>
-<p>The <code>NANO_ROS_RMW</code> CMake variable selects which library variant to link. Default is <code>zenoh</code>.</p>
-<div class="fragment"><div class="line"># Zenoh backend (default)</div>
-<div class="line">cmake -S . -B build -DNANO_ROS_ROOT=/path/to/nano-ros ..</div>
-<div class="line"> </div>
-<div class="line"># XRCE-DDS backend</div>
-<div class="line">cmake -S . -B build -DNANO_ROS_RMW=xrce -DNANO_ROS_ROOT=/path/to/nano-ros ..</div>
-</div><!-- fragment --><h1><a class="anchor" id="autotoc_md10"></a>
-5. Write a Publisher</h1>
+4. Write a Publisher</h1>
 <p>Create <code>src/main.c</code>:</p>
 <div class="fragment"><div class="line"><span class="preprocessor">#include &lt;stdio.h&gt;</span></div>
 <div class="line"><span class="preprocessor">#include &lt;stdlib.h&gt;</span></div>
@@ -253,10 +236,10 @@ Prerequisites</h1>
 <div class="ttc" id="anode_8h_html"><div class="ttname"><a href="node_8h.html">node.h</a></div><div class="ttdoc">ROS 2 node creation and management.</div></div>
 <div class="ttc" id="apublisher_8h_html"><div class="ttname"><a href="publisher_8h.html">publisher.h</a></div><div class="ttdoc">Topic publisher API.</div></div>
 <div class="ttc" id="atimer_8h_html"><div class="ttname"><a href="timer_8h.html">timer.h</a></div><div class="ttdoc">Periodic timer API.</div></div>
-</div><!-- fragment --><h1><a class="anchor" id="autotoc_md11"></a>
-6. Build and Run</h1>
+</div><!-- fragment --><h1><a class="anchor" id="autotoc_md10"></a>
+5. Build and Run</h1>
 <div class="fragment"><div class="line">mkdir build &amp;&amp; cd build</div>
-<div class="line">cmake -DNANO_ROS_ROOT=/path/to/nano-ros ..</div>
+<div class="line">cmake ..</div>
 <div class="line">make</div>
 <div class="line"> </div>
 <div class="line"># Terminal 1: start zenoh router</div>
@@ -264,18 +247,10 @@ Prerequisites</h1>
 <div class="line"> </div>
 <div class="line"># Terminal 2: run the talker</div>
 <div class="line">./my_c_talker</div>
-</div><!-- fragment --><h1><a class="anchor" id="autotoc_md12"></a>
+</div><!-- fragment --><h1><a class="anchor" id="autotoc_md11"></a>
 System Install</h1>
-<p>For package maintainers or system-wide installation:</p>
-<div class="fragment"><div class="line">cmake -S . -B build -DNANO_ROS_RMW=zenoh -DCMAKE_BUILD_TYPE=Release</div>
-<div class="line">cmake --build build</div>
-<div class="line">cmake --install build --prefix /usr/local</div>
-<div class="line"> </div>
-<div class="line"># Multi-RMW: run cmake twice to the same prefix</div>
-<div class="line">cmake -S . -B build-xrce -DNANO_ROS_RMW=xrce -DCMAKE_BUILD_TYPE=Release</div>
-<div class="line">cmake --build build-xrce</div>
-<div class="line">cmake --install build-xrce --prefix /usr/local</div>
-</div><!-- fragment --><h1><a class="anchor" id="autotoc_md13"></a>
+<p>Phase 140 — there is no system install for nano-ros. Your user project owns whatever install layout it needs for <em>its</em> binaries.</p>
+<h1><a class="anchor" id="autotoc_md12"></a>
 Zephyr Integration</h1>
 <p>For Zephyr RTOS, enable the C API in <code>prj.conf</code>:</p>
 <div class="fragment"><div class="line"># Enable nros C API</div>

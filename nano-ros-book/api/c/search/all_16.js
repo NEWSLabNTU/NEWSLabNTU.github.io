@@ -1,13 +1,15 @@
 var searchData=
 [
-  ['see_20also_0',['See Also',['../error_codes.html#autotoc_md33',1,'']]],
-  ['selection_1',['4. RMW Backend Selection',['../getting_started.html#autotoc_md9',1,'']]],
-  ['service_2',['service',['../group__grp__service.html',1,'']]],
-  ['service_2eh_3',['service.h',['../service_8h.html',1,'']]],
-  ['stable_20pointer_20requirement_4',['Stable Pointer Requirement',['../troubleshooting.html#autotoc_md27',1,'']]],
-  ['start_5',['Quick Start',['../index.html#autotoc_md0',1,'']]],
-  ['start_203_20terminals_6',['Quick Start (3 Terminals)',['../ros2_interop.html#autotoc_md20',1,'']]],
-  ['started_7',['Getting Started',['../getting_started.html',1,'index']]],
-  ['subscription_2eh_8',['subscription.h',['../subscription_8h.html',1,'']]],
-  ['system_20install_9',['System Install',['../getting_started.html#autotoc_md12',1,'']]]
+  ['table_0',['Return Code Table',['../error_codes.html#autotoc_md29',1,'']]],
+  ['terminals_1',['Quick Start (3 Terminals)',['../ros2_interop.html#autotoc_md19',1,'']]],
+  ['timer_2eh_2',['timer.h',['../timer_8h.html',1,'']]],
+  ['too_20large_20truncated_3',['Message Too Large / Truncated',['../troubleshooting.html#autotoc_md22',1,'']]],
+  ['transport_20buffer_20tuning_4',['Transport Buffer Tuning',['../configuration.html#autotoc_md15',1,'']]],
+  ['troubleshooting_5',['Troubleshooting',['../troubleshooting.html',1,'index']]],
+  ['troubleshooting_2emd_6',['troubleshooting.md',['../troubleshooting_8md.html',1,'']]],
+  ['truncated_7',['Message Too Large / Truncated',['../troubleshooting.html#autotoc_md22',1,'']]],
+  ['tuning_8',['Transport Buffer Tuning',['../configuration.html#autotoc_md15',1,'']]],
+  ['tuning_20nros_5f_9',['C API Buffer Tuning (NROS_*)',['../configuration.html#autotoc_md14',1,'']]],
+  ['types_10',['types',['../group__grp__types.html',1,'']]],
+  ['types_2eh_11',['types.h',['../types_8h.html',1,'']]]
 ];

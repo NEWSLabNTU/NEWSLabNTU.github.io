@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-68bbd615.js";
+            window.path_to_searchindex_js = "../searchindex-9ac0349f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-2d4edb34.js"></script>
+        <script src="../toc-a20e9cf1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -178,7 +178,13 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="rmw-backends-zenoh-xrce-dds-dds-cyclone-dds"><a class="header" href="#rmw-backends-zenoh-xrce-dds-dds-cyclone-dds">RMW Backends: Zenoh, XRCE-DDS, DDS, Cyclone DDS</a></h1>
-<p>nano-ros supports four RMW (ROS Middleware) backends for connecting embedded devices to a ROS 2 network. Each backend targets different deployment scenarios and resource constraints. Only one backend can be active at compile time.</p>
+<p>nano-ros supports four RMW (ROS Middleware) backends for connecting
+embedded devices to a ROS 2 network. Each backend targets different
+deployment scenarios and resource constraints. Each Node picks its
+backend at build time; <strong>one binary can link multiple backends and
+bridge between them</strong> — see
+<a href="./cross-backend-bridges.html">Cross-backend Bridges</a> for the
+multi-RMW pattern.</p>
 <h2 id="zenoh-rmw-zenoh"><a class="header" href="#zenoh-rmw-zenoh">Zenoh (rmw-zenoh)</a></h2>
 <p>The Zenoh backend uses <a href="https://github.com/eclipse-zenoh/zenoh-pico">zenoh-pico</a>, a lightweight C client for the Zenoh protocol. The MCU participates directly in the Zenoh network – there is no protocol translation layer.</p>
 <p><strong>How it works:</strong></p>
@@ -231,7 +237,18 @@
 <li>ROS 2 interop is end-to-end (no protocol translator) — DDS-on-MCU appears in the ROS 2 graph the same way a desktop ROS 2 node does.</li>
 </ul>
 <h2 id="cyclone-dds-rmw-cyclonedds"><a class="header" href="#cyclone-dds-rmw-cyclonedds">Cyclone DDS (rmw-cyclonedds)</a></h2>
-<p>The Cyclone DDS backend uses <a href="https://github.com/eclipse-cyclonedds/cyclonedds">Eclipse Cyclone DDS</a>, the same DDS implementation that ROS 2 ships with via <code>rmw_cyclonedds_cpp</code>. Built as a <strong>standalone C++ library</strong> at <code>packages/dds/nros-rmw-cyclonedds/</code> that registers itself with the runtime through the C ABI vtable in <code>nros-rmw-cffi</code> (Phase 102).</p>
+<blockquote>
+<p><strong>Maturity status.</strong> Cyclone DDS support is <strong>pub/sub-only today.</strong>
+Service create / recv / reply returns <code>NROS_RMW_RET_UNSUPPORTED</code>;
+status events (liveliness, deadline-miss, etc.) are not wired to
+Cyclone listeners yet. Wire-level interop with stock
+<code>rmw_cyclonedds_cpp</code> (Humble) works for topic publishing and
+subscribing. If your fleet needs RPC or lifecycle events over
+Cyclone, use Zenoh or dust-DDS instead until the gaps close. Full
+known-limitations list:
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/reference/cyclonedds-known-limitations.md"><code>docs/reference/cyclonedds-known-limitations.md</code></a>.</p>
+</blockquote>
+<p>The Cyclone DDS backend uses <a href="https://github.com/eclipse-cyclonedds/cyclonedds">Eclipse Cyclone DDS</a>, the same DDS implementation that ROS 2 ships with via <code>rmw_cyclonedds_cpp</code>. Built as a <strong>standalone C++ library</strong> at <code>packages/dds/nros-rmw-cyclonedds/</code> that registers itself with the runtime through the C ABI vtable in <code>nros-rmw-cffi</code>.</p>
 <p><strong>How it works:</strong></p>
 <ol>
 <li>The application (or platform) calls <code>nros_rmw_cyclonedds_register()</code> once before <code>nros::init()</code> — this is automatic when the consumer’s CMake build sets <code>-DNANO_ROS_RMW=cyclonedds</code>.</li>
@@ -254,7 +271,11 @@
 just cyclonedds build-rmw   # build packages/dds/nros-rmw-cyclonedds
 just cyclonedds test        # run the CTest harness
 </code></pre>
-<p><code>just install-local-posix</code> builds the four-RMW matrix automatically (<code>zenoh</code> / <code>xrce</code> / <code>dds</code> / <code>cyclonedds</code>); the resulting <code>build/install/</code> exposes a <code>cyclonedds</code>-flavoured <code>libnros_cpp_cyclonedds.a</code> plus <code>find_package(NrosRmwCyclonedds)</code>.</p>
+<p>Each example picks its RMW via <code>-DNANO_ROS_RMW=cyclonedds</code> at
+configure time; the root <code>CMakeLists.txt</code> add_subdirectory’s
+<code>packages/dds/nros-rmw-cyclonedds/</code> and links the resulting target
+into <code>NanoRos::NanoRos</code>. No <code>build/install/</code> prefix, no
+<code>find_package(NrosRmwCyclonedds)</code> deleted both.</p>
 <p><strong>Known limitations.</strong> Cyclone DDS currently has a 2× CDR roundtrip per message, deferred status-event wiring, pending service request-id correlation, and incomplete Cortex-A/R Zephyr board support. See <code>docs/reference/cyclonedds-known-limitations.md</code> for the full list. ARMv8-R toolchain prep (Cortex-A 64-bit FVP, Cortex-R52 hardware) is in <code>docs/reference/zephyr-armv8r-setup.md</code>.</p>
 <h2 id="comparison"><a class="header" href="#comparison">Comparison</a></h2>
 <div class="table-wrapper">
@@ -278,27 +299,75 @@ just cyclonedds test        # run the CTest harness
 </tbody>
 </table>
 </div>
+<h2 id="multi-backend-binaries-bridges"><a class="header" href="#multi-backend-binaries-bridges">Multi-backend binaries (bridges)</a></h2>
+<p>A single nano-ros binary can link <strong>more than one RMW backend</strong> and
+forward traffic between them. The bridge pattern is useful for:</p>
+<ul>
+<li><strong>Translating between protocols</strong> — a gateway node running zenoh
+ingress + DDS egress lets MCU fleets on zenoh-pico talk to an
+Autoware stack on Cyclone DDS without a separate translator.</li>
+<li><strong>Hard-real-time + best-effort split</strong> — a high-priority Node on
+dust-DDS for control loops, a low-priority Node on Zenoh for
+telemetry, both in one process.</li>
+<li><strong>Bringing up an XRCE Agent</strong>-free fleet — bridge XRCE devices
+to a Zenoh network so they look like first-class participants
+to stock ROS 2.</li>
+</ul>
+<p>The pattern uses <code>Executor::open_with_rmw("&lt;name&gt;", ...)</code> to pin the
+primary session and <code>node_builder("name").rmw("&lt;other&gt;").build()</code> to
+open additional sessions on other backends. Both backends must be
+in the binary’s link line (Cargo manifest deps + <code>register()</code> call
+each).</p>
+<p>A worked example lives at
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/bridges/native-rust-zenoh-to-dds"><code>examples/bridges/native-rust-zenoh-to-dds/</code></a>;
+the time-triggered variant under
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/native/rust/bridge/tt-zenoh-to-xrce"><code>examples/native/rust/bridge/tt-zenoh-to-xrce/</code></a>
+shows the same pattern under an ARINC-653-style cyclic schedule.</p>
+<p>Full walkthrough: <a href="./cross-backend-bridges.html">Cross-backend Bridges</a>.</p>
 <h2 id="feature-selection"><a class="header" href="#feature-selection">Feature Selection</a></h2>
-<h3 id="cargotoml-rust"><a class="header" href="#cargotoml-rust">Cargo.toml (Rust)</a></h3>
-<p>Select exactly one RMW backend in your dependency features:</p>
+<h3 id="cargotoml-rust129-reshape--rmw-selection-is-driven-by-manifest-deps"><a class="header" href="#cargotoml-rust129-reshape--rmw-selection-is-driven-by-manifest-deps">Cargo.toml (Rust)/129 reshape — RMW selection is driven by <strong>manifest deps</strong>,</a></h3>
+<p>not by features on <code>nros</code>. Add <code>nros</code> with the platform feature plus
+exactly one <code>nros-rmw-&lt;x&gt;</code> shim dep:</p>
 <pre><code class="language-toml"># Zenoh backend
 [dependencies]
-nros = { features = ["rmw-zenoh", "platform-bare-metal"] }
+nros = { path = "&lt;...&gt;/packages/core/nros",
+         default-features = false,
+         features = ["std", "rmw-cffi", "platform-posix"] }
+nros-rmw-zenoh = { path = "&lt;...&gt;/packages/zpico/nros-rmw-zenoh",
+                   features = ["std", "platform-posix", "ros-humble"] }
 
 # XRCE-DDS backend
 [dependencies]
-nros = { features = ["rmw-xrce", "platform-bare-metal"] }
+nros = { path = "&lt;...&gt;/packages/core/nros",
+         default-features = false,
+         features = ["std", "rmw-cffi", "platform-posix"] }
+nros-rmw-xrce-cffi = { path = "&lt;...&gt;/packages/xrce/nros-rmw-xrce-cffi",
+                       features = ["std"] }
 
-# DDS backend (dust-dds)
+# DDS backend (dust-dds, pure Rust)
 [dependencies]
-nros = { features = ["rmw-dds", "platform-zephyr"] }
+nros = { path = "&lt;...&gt;/packages/core/nros",
+         default-features = false,
+         features = ["std", "alloc", "rmw-cffi", "platform-posix"] }
+nros-rmw-dds = { path = "&lt;...&gt;/packages/dds/nros-rmw-dds",
+                 default-features = false,
+                 features = ["std", "alloc", "platform-posix"] }
 
-# Cyclone DDS backend — the Rust runtime sees it as the generic
-# `rmw-cffi` C-ABI vtable axis; the actual Cyclone wiring is linked
-# C++-side via NrosRmwCyclonedds::NrosRmwCyclonedds.
+# Cyclone DDS backend — Rust runtime sees the generic rmw-cffi C-ABI
+# vtable; actual Cyclone wiring lives C++-side under
+# packages/dds/nros-rmw-cyclonedds/ and is selected at CMake
+# configure time via -DNANO_ROS_RMW=cyclonedds. The Rust
+# manifest only carries the `rmw-cffi` feature; no Rust shim dep.
 [dependencies]
-nros = { features = ["rmw-cffi", "platform-posix"] }
+nros = { path = "&lt;...&gt;/packages/core/nros",
+         default-features = false,
+         features = ["std", "rmw-cffi", "platform-posix"] }
 </code></pre>
+<p>Each example also calls <code>&lt;backend&gt;::register()</code> from <code>main()</code> before
+<code>Executor::open</code> — this drags the rlib’s CGU into the binary so the
+linkme distributed-slice walker finds the backend. C/C++ builds rely
+on the CMake-emitted strong stub from <code>nano_ros_link_rmw(... RMW &lt;x&gt;)</code>
+instead.</p>
 <p>For C++ consumers, the CMake option is the canonical way:</p>
 <pre><code class="language-bash">cmake -S . -B build -DNANO_ROS_RMW=cyclonedds  # zenoh / xrce / dds / cyclonedds
 </code></pre>
@@ -430,7 +499,7 @@ support natively. Just ensure the loopback interface is up
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../concepts/status-events.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../user-guide/cross-backend-bridges.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -444,7 +513,7 @@ support natively. Just ensure the loopback interface is up
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../concepts/status-events.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../user-guide/cross-backend-bridges.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

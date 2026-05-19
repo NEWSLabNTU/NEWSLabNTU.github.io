@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-68bbd615.js";
+            window.path_to_searchindex_js = "../searchindex-9ac0349f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-2d4edb34.js"></script>
+        <script src="../toc-a20e9cf1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,131 +177,155 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="freertos"><a class="header" href="#freertos">FreeRTOS</a></h1>
-<p>nano-ros runs on FreeRTOS with lwIP networking, targeting QEMU
-MPS2-AN385 (Cortex-M3 + LAN9118 Ethernet). Use this guide when you
-want a preemptive RTOS target with Rust, C, and C++ examples.</p>
-<h2 id="when-to-use-it"><a class="header" href="#when-to-use-it">When to Use It</a></h2>
+                        <h1 id="freertos-qemu-mps2-an385"><a class="header" href="#freertos-qemu-mps2-an385">FreeRTOS (QEMU MPS2-AN385)</a></h1>
+<p>Single-node starter on FreeRTOS + lwIP, cross-compiled for Cortex-M3
+and booted in QEMU MPS2-AN385. Slirp networking; no host TAP /
+bridge / sudo. Rust, C, and C++ talkers all live in-tree.</p>
+<blockquote>
+<p><strong>Prereqs.</strong> Clone with <code>just setup</code> already run. Need
+<code>arm-none-eabi-gcc</code> + <code>qemu-system-arm</code> on <code>PATH</code>. <code>just freertos setup</code> fetches the FreeRTOS kernel + lwIP sources under
+<code>third-party/freertos/</code>.</p>
+</blockquote>
+<h2 id="project-layout"><a class="header" href="#project-layout">Project layout</a></h2>
+<p>Each language uses the standard nano-ros canonical example shape —
+standalone Cargo (Rust) or CMake (C / C++) project under
+<code>examples/qemu-arm-freertos/&lt;lang&gt;/zenoh/&lt;example&gt;/</code>.</p>
+<pre><code class="language-text">examples/qemu-arm-freertos/
+├── rust/zenoh/talker/             # Cargo package, cross-compile target = thumbv7m-none-eabi
+│   ├── Cargo.toml
+│   ├── .cargo/config.toml          # target + QEMU runner
+│   ├── config.toml                 # network + zenoh locator + scheduling
+│   ├── package.xml
+│   ├── generated/                  # codegen output (gitignored)
+│   └── src/main.rs
+├── c/zenoh/talker/                 # CMake project, add_subdirectory consumption
+│   ├── CMakeLists.txt
+│   ├── config.toml
+│   ├── package.xml
+│   └── src/main.c
+└── cpp/zenoh/talker/               # CMake C++14 project
+    ├── CMakeLists.txt
+    ├── config.toml
+    ├── package.xml
+    └── src/main.cpp
+</code></pre>
+<p>The Rust <code>Cargo.toml</code> pulls the FreeRTOS board crate
+(<code>nros-board-mps2-an385-freertos</code>) which wraps the kernel + lwIP +
+LAN9118 driver build. The C / C++ <code>CMakeLists.txt</code> follows the
+canonical <code>add_subdirectory(&lt;repo-root&gt;) + nano_ros_link_rmw(&lt;target&gt; RMW zenoh)</code> pattern with
+<code>NANO_ROS_BOARD = mps2-an385-freertos</code>.</p>
+<h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
+<p>Network + Zenoh + scheduling live in <code>config.toml</code> (parsed by the
+board crate at boot):</p>
+<pre><code class="language-toml">[network]
+ip       = "10.0.2.21"
+mac      = "02:00:00:00:00:01"
+gateway  = "10.0.2.2"          # QEMU Slirp gateway = host loopback
+netmask  = "255.255.255.0"
+
+[zenoh]
+locator   = "tcp/10.0.2.2:7451"   # host's zenohd reached via Slirp
+domain_id = 0                      # Per-language test-fixture ports:
+                                   #   Rust  → 7451   C → 7551   C++ → 7651
+                                   # The talker / listener under each
+                                   # `&lt;lang&gt;/zenoh/` use the matching
+                                   # port; start `zenohd` on the one
+                                   # you intend to test against.
+
+[scheduling]
+app_priority           = 12
+app_stack_bytes        = 262144
+zenoh_read_priority    = 16
+zenoh_lease_priority   = 16
+poll_priority          = 16
+poll_interval_ms       = 5
+</code></pre>
+<p>The <code>10.0.2.0/24</code> subnet is QEMU Slirp’s default; <code>10.0.2.2</code> is the
+Slirp gateway that forwards to host loopback. No TAP, no sudo.</p>
+<h2 id="build"><a class="header" href="#build">Build</a></h2>
+<pre><code class="language-bash"># Rust:
+cd examples/qemu-arm-freertos/rust/zenoh/talker
+cargo build --release
+
+# C / C++ — use the cross-toolchain CMake invocation:
+just freertos build-fixtures        # builds every in-tree zenoh +
+                                    # DDS example across Rust / C / C++
+# Or single-example:
+toolchain="$(pwd)/cmake/toolchain/arm-freertos-armcm3.cmake"
+codegen="$(pwd)/packages/codegen/packages/target/release/nros-codegen"
+cd examples/qemu-arm-freertos/c/zenoh/talker
+cmake -B build -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -D_NANO_ROS_CODEGEN_TOOL="$codegen"
+cmake --build build --parallel
+</code></pre>
+<p>First Rust build pulls + cross-compiles deps (~5 min). C / C++ build
+also compiles FreeRTOS kernel + lwIP — first run ~3 min.</p>
+<h2 id="run"><a class="header" href="#run">Run</a></h2>
+<pre><code class="language-bash"># 1. Start zenohd on the host (Slirp forwards 10.0.2.2:7451 → host:7451):
+just zenohd run                           # or: ./build/zenohd/zenohd
+
+# 2. Boot the talker in QEMU:
+cd examples/qemu-arm-freertos/rust/zenoh/talker
+cargo run --release
+# Or for C / C++ (binary names carry the `freertos_` prefix from
+# the CMake project() declaration in each example):
+qemu-system-arm -cpu cortex-m3 -machine mps2-an385 \
+                -nographic -semihosting-config enable=on,target=native \
+                -nic socket,model=lan9118,listen=:6666 \
+                -kernel ./build/freertos_c_talker      # or freertos_cpp_talker
+
+# 3. Verify from stock ROS 2:
+source /opt/ros/humble/setup.bash
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+ros2 topic echo /chatter std_msgs/msg/Int32
+</code></pre>
+<p>QEMU exits via Ctrl-A x.</p>
+<p>For batch testing without manual QEMU launches: <code>just freertos test</code> runs every E2E (pub/sub, service, action) against a temporary
+in-test zenohd.</p>
+<p><strong>Readiness signal.</strong> Within ~20 seconds of QEMU boot, the talker
+should print <code>Published: 1</code> on its semihosting stdout. QEMU
+cold-boot through FreeRTOS init + lwIP DHCP + zenoh session open
+typically takes 10–15 s. If no <code>Published:</code> line in 30 seconds:</p>
+<ol>
+<li>Confirm <code>zenohd</code> is running on the host (Slirp forwards
+<code>10.0.2.2:7451</code> → host:7451). Without it the talker retries the
+zenoh handshake until QEMU is killed.</li>
+<li>Check the talker’s early log for <code>lwIP DHCP timeout</code> or
+<code>Failed to open session</code>.</li>
+<li>Bridge tip: <code>ros2 topic echo /chatter</code> from a stock ROS 2
+install (with <code>RMW_IMPLEMENTATION=rmw_zenoh_cpp</code>) confirms
+end-to-end interop.</li>
+<li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
+</ol>
+<h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>
+<p>Canonical, copy-out:</p>
 <ul>
-<li>You need a FreeRTOS + lwIP integration path.</li>
-<li>You want QEMU coverage before moving to STM32, NXP, Renesas, TI, or
-another lwIP-based board.</li>
-<li>You want to exercise nano-ros under a fixed-priority preemptive RTOS.</li>
+<li>Rust: <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/qemu-arm-freertos/rust/zenoh/talker"><code>examples/qemu-arm-freertos/rust/zenoh/talker/</code></a></li>
+<li>C: <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/qemu-arm-freertos/c/zenoh/talker"><code>examples/qemu-arm-freertos/c/zenoh/talker/</code></a></li>
+<li>C++: <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/qemu-arm-freertos/cpp/zenoh/talker"><code>examples/qemu-arm-freertos/cpp/zenoh/talker/</code></a></li>
 </ul>
-<h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
+<h2 id="next"><a class="header" href="#next">Next</a></h2>
 <ul>
-<li><code>qemu-system-arm</code> for running tests.</li>
-<li><code>arm-none-eabi-gcc</code> for compiling FreeRTOS and lwIP C code.</li>
-<li>Rust nightly with the <code>thumbv7m-none-eabi</code> target.</li>
+<li>Subscriber: peer <code>listener/</code> directory next to each talker.</li>
+<li>Services + actions: peer <code>service-*/</code> and <code>action-*/</code> directories.</li>
+<li>Real hardware: same code runs on STM32F4-Discovery /
+NXP-LPC55S69 / TI-MSP432 with a different board crate + linker
+script; see the <a href="./bare-metal.html">Bare-metal Cortex-M3</a> page for
+the no-RTOS variant.</li>
+<li>RTOS-specific debugging: <a href="../internals/freertos-lan9118-debugging.html">FreeRTOS LAN9118
+Debugging</a>.</li>
 </ul>
-<p>Install platform sources:</p>
-<pre><code class="language-bash">just freertos setup
-</code></pre>
-<p>This fetches FreeRTOS and lwIP into <code>third-party/freertos/</code>. Override
-the defaults only if you use external source trees:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Variable</th><th>Default</th><th>Purpose</th></tr>
-</thead>
-<tbody>
-<tr><td><code>FREERTOS_DIR</code></td><td><code>third-party/freertos/kernel</code></td><td>FreeRTOS kernel</td></tr>
-<tr><td><code>FREERTOS_PORT</code></td><td><code>GCC/ARM_CM3</code></td><td>FreeRTOS portable layer</td></tr>
-<tr><td><code>LWIP_DIR</code></td><td><code>third-party/freertos/lwip</code></td><td>lwIP source</td></tr>
-<tr><td><code>FREERTOS_CONFIG_DIR</code></td><td>board crate <code>config/</code></td><td><code>FreeRTOSConfig.h</code> and <code>lwipopts.h</code></td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="build-and-run"><a class="header" href="#build-and-run">Build and Run</a></h2>
-<pre><code class="language-bash">just freertos build
-</code></pre>
-<p>This cross-compiles the FreeRTOS examples for <code>thumbv7m-none-eabi</code>.
-The board crate build script compiles the FreeRTOS kernel, lwIP, and
-LAN9118 network driver.</p>
-<p>Rust examples live under <code>examples/qemu-arm-freertos/rust/zenoh/</code>:
-<code>talker</code>, <code>listener</code>, <code>service-server</code>, <code>service-client</code>,
-<code>action-server</code>, and <code>action-client</code>.</p>
-<p>C examples live under <code>examples/qemu-arm-freertos/c/zenoh/</code>; C++
-examples live under <code>examples/qemu-arm-freertos/cpp/zenoh/</code>.</p>
-<h2 id="testing"><a class="header" href="#testing">Testing</a></h2>
-<pre><code class="language-bash">just freertos test
-</code></pre>
-<p>Tests boot QEMU MPS2-AN385 images and verify message exchange through a
-host TAP bridge and <code>zenohd</code>.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Role</th><th>IP address</th><th>TAP device</th></tr>
-</thead>
-<tbody>
-<tr><td>Talker / publisher</td><td><code>192.0.3.10</code></td><td><code>tap-qemu0</code></td></tr>
-<tr><td>Listener / subscriber</td><td><code>192.0.3.11</code></td><td><code>tap-qemu1</code></td></tr>
-<tr><td>Service server</td><td><code>192.0.3.12</code></td><td><code>tap-qemu0</code></td></tr>
-<tr><td>Service client</td><td><code>192.0.3.13</code></td><td><code>tap-qemu1</code></td></tr>
-<tr><td>Host <code>zenohd</code></td><td><code>192.0.3.1</code></td><td><code>br-qemu</code></td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
-<p>The <code>nros-board-mps2-an385-freertos</code> board package follows the
-standard <code>Config</code> / <code>run()</code> pattern described in
-<a href="../porting/custom-board.html">Custom Board Package</a>. It initializes
-FreeRTOS, lwIP, LAN9118 Ethernet, and semihosting output before
-running the user closure as a FreeRTOS task.</p>
-<p>The platform uses:</p>
-<ul>
-<li>FreeRTOS for tasks, mutexes, semaphores, and scheduling.</li>
-<li>lwIP in threaded mode (<code>NO_SYS=0</code>) with BSD sockets.</li>
-<li>zenoh-pico over lwIP sockets.</li>
-<li>LAN9118 as the QEMU Ethernet device.</li>
-</ul>
-<h2 id="scheduling-configuration"><a class="header" href="#scheduling-configuration">Scheduling Configuration</a></h2>
-<p>Task priorities and stack sizes are configured through <code>config.toml</code>:</p>
-<pre><code class="language-toml">[scheduling]
-app_priority = 12
-app_stack_bytes = 65536
-zenoh_read_priority = 16
-zenoh_read_stack_bytes = 5120
-zenoh_lease_priority = 16
-zenoh_lease_stack_bytes = 5120
-poll_priority = 16
-poll_interval_ms = 5
-</code></pre>
-<p>The normalized 0-31 priority scale maps to FreeRTOS priorities 0-7.
-Keep these constraints for reliable networking:</p>
-<ul>
-<li><code>poll_priority &gt;= zenoh_read_priority</code></li>
-<li><code>zenoh_read_priority &gt;= app_priority</code></li>
-<li><code>app_stack_bytes &gt;= 16384</code>; 64 KB is recommended for services and
-actions.</li>
-</ul>
-<h2 id="tracing"><a class="header" href="#tracing">Tracing</a></h2>
-<p>Task scheduling can be visualized with Tonbandgeraet / Perfetto:</p>
-<pre><code class="language-bash">just freertos trace talker
-</code></pre>
-<p>Tracing is opt-in through <code>NROS_TRACE=1</code>; it uses a 16 KB RAM ring
-buffer and has no overhead when disabled.</p>
-<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
-<p>Common FreeRTOS failures are usually caused by task priority inversion,
-small application stacks, deterministic session IDs in QEMU, or missing
-WFI in the idle hook. See
-<a href="../internals/freertos-lan9118-debugging.html">FreeRTOS LAN9118 Debugging</a>
-for the detailed QEMU/LAN9118 reference.</p>
-<h2 id="status"><a class="header" href="#status">Status</a></h2>
-<p>FreeRTOS platform support includes Rust, C, and C++ examples, CMake
-cross-compilation, QEMU integration tests, and shared CMake platform
-modules. C++ action examples are pending alloc-free action module
-support.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../getting-started/zephyr.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../getting-started/troubleshooting-first-10-min.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../getting-started/nuttx.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../getting-started/integration-zephyr.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -311,11 +335,11 @@ support.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../getting-started/zephyr.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../getting-started/troubleshooting-first-10-min.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../getting-started/nuttx.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../getting-started/integration-zephyr.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

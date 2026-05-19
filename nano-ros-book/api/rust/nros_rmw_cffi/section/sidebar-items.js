@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["nros_rmw_cffi_walk_init_section"],"static":["RMW_INIT_ENTRIES"],"type":["RmwInitEntry"]};

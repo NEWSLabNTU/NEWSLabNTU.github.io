@@ -1,0 +1,49 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Phase 104.E.3 — cross-priority handoff queue."><title>nros_node::executor::handoff - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-b7b9f40b.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="nros_node" data-themes="" data-resource-suffix="" data-rustdoc-version="1.95.0 (59807616e 2026-04-14)" data-channel="1.95.0" data-search-js="search-63369b7b.js" data-stringdex-js="stringdex-b897f86f.js" data-settings-js="settings-170eb4bf.js" ><script src="../../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../static.files/main-5013f961.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module handoff</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../nros_node/index.html">nros_<wbr>node</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module handoff</a></h2><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In nros_<wbr>node::<wbr>executor</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">nros_node</a>::<wbr><a href="../index.html">executor</a></div><h1>Module <span>handoff</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/nros_node/executor/handoff.rs.html#1-192">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Phase 104.E.3 — cross-priority handoff queue.</p>
+<p>Bridges that span priority boundaries (sub callback at
+priority A, pub callback at priority B) need a bounded
+handoff queue between the two so the high-priority sub
+doesn’t block on the lower-priority pub’s transport drain.
+The existing pattern is <code>Arc&lt;Mutex&lt;heapless::Vec&lt;M, N&gt;&gt;&gt;</code> +
+a timer-driven pub; this module wraps it in a small
+<code>Handoff&lt;M, N&gt;</code> type so bridge code stays terse.</p>
+<p>Optional sugar — the manual pattern remains supported. The
+spec (Phase 104.E.3) explicitly lists this as “optional”
+convenience to avoid forcing every bridge to use the same
+shape.</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">use </span>nros_node::executor::handoff::Handoff;
+<span class="kw">use </span>std::sync::Arc;
+
+<span class="comment">// Shared bounded queue, N = 32, message type M.
+</span><span class="kw">let </span>q: Arc&lt;Handoff&lt;MyMsg, <span class="number">32</span>&gt;&gt; = Arc::new(Handoff::new());
+
+<span class="comment">// High-priority ingress: push into the queue inside the
+// sub callback. `push` is non-blocking — overflow returns
+// `Err(msg)` so the high-pri side never stalls.
+</span><span class="kw">let </span>q_pub = Arc::clone(<span class="kw-2">&amp;</span>q);
+executor.register_subscription::&lt;MyMsg, <span class="kw">_</span>&gt;(topic, <span class="kw">move </span>|msg: <span class="kw-2">&amp;</span>MyMsg| {
+    <span class="kw">let _ </span>= q_pub.push(msg.clone());  <span class="comment">// drop on overflow
+</span>})<span class="question-mark">?</span>;
+
+<span class="comment">// Low-priority egress: timer drains the queue + publishes.
+</span><span class="kw">let </span>q_sub = Arc::clone(<span class="kw-2">&amp;</span>q);
+<span class="kw">let </span>pub_out = ...;
+executor.register_timer(period, <span class="kw">move </span>|| {
+    <span class="kw">while let </span><span class="prelude-val">Some</span>(msg) = q_sub.pop() {
+        <span class="kw">let _ </span>= pub_out.publish(<span class="kw-2">&amp;</span>msg);
+    }
+})<span class="question-mark">?</span>;</code></pre></div>
+<p>Cross-priority safety: every <code>push</code> / <code>pop</code> takes the
+internal mutex for the duration of one queue slot
+operation (O(1)). On PiCAS-aware dispatchers (Phase 110.F)
+the mutex inherits the holder’s effective priority, so
+the low-pri drain doesn’t priority-invert the high-pri
+push.</p>
+<p><code>std</code>-gated for now — the <code>alloc</code>-only path needs a
+lock-free SPSC queue (heapless::spsc requires a <code>.split()</code>
+call that doesn’t compose with Arc-sharing across
+callbacks). Tracked under follow-up if no_std bridges
+become a use case.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.Handoff.html" title="struct nros_node::executor::handoff::Handoff">Handoff</a></dt><dd>Bounded FIFO between two callbacks running on different
+<code>SchedContext</code>s. Generic over message type <code>M</code> (must be
+<code>Send</code> for cross-thread executors) and capacity <code>N</code>.</dd></dl></section></div></main></body></html>

@@ -1,13 +1,13 @@
 var searchData=
 [
-  ['pattern_3a_20manual_20error_20handling_0',['Pattern: Manual Error Handling',['../error_codes.html#autotoc_md35',1,'']]],
-  ['pico_20underlying_20errors_1',['zenoh-pico Underlying Errors',['../error_codes.html#autotoc_md36',1,'']]],
+  ['pattern_3a_20manual_20error_20handling_0',['Pattern: Manual Error Handling',['../error_codes.html#autotoc_md34',1,'']]],
+  ['pico_20underlying_20errors_1',['zenoh-pico Underlying Errors',['../error_codes.html#autotoc_md35',1,'']]],
   ['ping_2',['ping',['../classnros_1_1Executor.html#a090b3c96ed0940cbff56610d1937f1ba',1,'nros::Executor']]],
   ['poll_3',['poll',['../classnros_1_1ActionClient.html#ae80596f01bbc3244993317b85e148ca6',1,'nros::ActionClient']]],
   ['pollingactionclient_4',['PollingActionClient',['../classnros_1_1PollingActionClient.html',1,'nros']]],
   ['pollingactionserver_5',['PollingActionServer',['../classnros_1_1PollingActionServer.html',1,'nros']]],
   ['prerequisites_6',['Prerequisites',['../getting_started.html#autotoc_md6',1,'']]],
-  ['project_7',['2. Create a CMake Project',['../getting_started.html#autotoc_md8',1,'']]],
+  ['project_7',['1. Create a CMake Project',['../getting_started.html#autotoc_md7',1,'']]],
   ['ptr_8',['ptr',['../structnros_1_1Span.html#a6d936b9e33d8196a429f3314e9431396',1,'nros::Span::ptr'],['../structnros_1_1StringView.html#a3b1b06c40b6c389c2e1809b17f7c0d58',1,'nros::StringView::ptr']]],
   ['publish_9',['publish',['../classnros_1_1Publisher.html#a7c50e37dba7b08ec1f3d8cfb14c38bda',1,'nros::Publisher']]],
   ['publish_5ffeedback_10',['publish_feedback',['../classnros_1_1ActionServer.html#a728c859ce7a40e13a76786326bfe28ad',1,'nros::ActionServer']]],

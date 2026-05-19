@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Bare-metal (QEMU ARM) - nano-ros Book</title>
+        <title>Bare-metal Cortex-M3 - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-68bbd615.js";
+            window.path_to_searchindex_js = "../searchindex-9ac0349f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-2d4edb34.js"></script>
+        <script src="../toc-a20e9cf1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,250 +177,142 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="qemu-bare-metal-testing"><a class="header" href="#qemu-bare-metal-testing">QEMU Bare-Metal Testing</a></h1>
-<p>This document describes how to run bare-metal nros applications in QEMU with network connectivity.</p>
-<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
-<p>QEMU emulates the MPS2-AN385 board (ARM Cortex-M3) with LAN9118 Ethernet, allowing full network testing without physical hardware.</p>
-<h3 id="network-topology"><a class="header" href="#network-topology">Network Topology</a></h3>
-<pre><code>┌─────────────────────────────────────────────────────────────────┐
-│                         Host System                              │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │  zenohd     │    │ ROS 2 Node  │    │   Test Runner       │  │
-│  │  (router)   │    │ (rmw_zenoh) │    │   (cargo test)      │  │
-│  └──────┬──────┘    └──────┬──────┘    └──────────┬──────────┘  │
-│         │                  │                       │            │
-│         └─────────┬────────┴───────────────────────┘            │
-│                   │                                             │
-│         ┌─────────▼─────────┐                                   │
-│         │   Bridge          │  192.0.2.1                        │
-│         │   (qemu-br)       │                                   │
-│         └─────────┬─────────┘                                   │
-│                   │                                             │
-│    ┌──────────────┼──────────────┐                              │
-│    │              │              │                              │
-│    ▼              ▼              ▼                              │
-│ ┌──────────┐ ┌──────────┐ ┌──────────┐                          │
-│ │tap-qemu0 │ │tap-qemu1 │ │tap-qemu2 │                          │
-│ └────┬─────┘ └────┬─────┘ └────┬─────┘                          │
-└──────┼────────────┼────────────┼────────────────────────────────┘
-       │            │            │
-  ┌────▼────┐  ┌────▼────┐  ┌────▼────┐
-  │  QEMU   │  │  QEMU   │  │  QEMU   │
-  │ MPS2    │  │ MPS2    │  │ MPS2    │
-  │ talker  │  │listener │  │  node   │
-  │192.0.2.10│ │192.0.2.11│ │192.0.2.12│
-  └─────────┘  └─────────┘  └─────────┘
+                        <h1 id="bare-metal-cortex-m3-qemu"><a class="header" href="#bare-metal-cortex-m3-qemu">Bare-metal Cortex-M3 (QEMU)</a></h1>
+<p>Single-node starter on <strong>bare-metal</strong> Cortex-M3 (QEMU MPS2-AN385) —
+no RTOS, no kernel scheduler. Pure cooperative spin via
+<code>zpico_spin_once</code>. Rust only. <code>nros-c</code> / <code>nros-cpp</code> are not
+supported on bare-metal targets (they assume a hosted RTOS for
+startup / heap / libc); see the
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/README.md#coverage-matrix">examples coverage matrix</a>
+for the policy.</p>
+<blockquote>
+<p><strong>When to use this path:</strong> ultra-constrained Cortex-M0+ / M3 / M4
+targets with no OS scheduler, no <code>pthread</code>. If you have FreeRTOS
+or any RTOS, use the <a href="./freertos.html">FreeRTOS starter</a> instead —
+it’s more ergonomic and produces smaller code overall.</p>
+</blockquote>
+<blockquote>
+<p><strong>Prereqs.</strong> Clone with <code>just setup</code> already run.
+Need <code>qemu-system-arm</code> + the Rust <code>thumbv7m-none-eabi</code> target.</p>
+</blockquote>
+<h2 id="project-layout"><a class="header" href="#project-layout">Project layout</a></h2>
+<pre><code class="language-text">examples/qemu-arm-baremetal/rust/zenoh/talker/
+├── Cargo.toml
+├── .cargo/config.toml         # target = thumbv7m-none-eabi
+│                              # runner = qemu-system-arm ... -kernel
+├── config.toml                # network + zenoh
+├── package.xml
+├── generated/                 # codegen output (gitignored)
+└── src/main.rs                # #[entry] fn main() -&gt; !
 </code></pre>
-<h3 id="ip-address-allocation"><a class="header" href="#ip-address-allocation">IP Address Allocation</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Address</th><th>Device</th></tr>
-</thead>
-<tbody>
-<tr><td>192.0.2.1</td><td>Host bridge (zenohd)</td></tr>
-<tr><td>192.0.2.10</td><td>QEMU node 0 (tap-qemu0)</td></tr>
-<tr><td>192.0.2.11</td><td>QEMU node 1 (tap-qemu1)</td></tr>
-<tr><td>192.0.2.12+</td><td>Additional QEMU nodes</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
-<h3 id="install-qemu"><a class="header" href="#install-qemu">Install QEMU</a></h3>
-<pre><code class="language-bash">sudo apt install qemu-system-arm
-</code></pre>
-<h3 id="verify-installation"><a class="header" href="#verify-installation">Verify Installation</a></h3>
-<pre><code class="language-bash">just check-qemu
-</code></pre>
-<h2 id="quick-start"><a class="header" href="#quick-start">Quick Start</a></h2>
-<h3 id="1-build-qemu-examples"><a class="header" href="#1-build-qemu-examples">1. Build QEMU Examples</a></h3>
-<pre><code class="language-bash">just qemu build
-</code></pre>
-<h3 id="2-run-tests-no-networking"><a class="header" href="#2-run-tests-no-networking">2. Run Tests (No Networking)</a></h3>
-<pre><code class="language-bash"># Run all QEMU bare-metal tests
-just qemu test
-</code></pre>
-<h3 id="3-setup-networking-for-full-stack-tests"><a class="header" href="#3-setup-networking-for-full-stack-tests">3. Setup Networking (For Full Stack Tests)</a></h3>
-<pre><code class="language-bash"># Create TAP bridge (requires sudo)
-just qemu setup-network
-
-# Verify setup
-just qemu status-network
-</code></pre>
-<h3 id="4-run-with-networking"><a class="header" href="#4-run-with-networking">4. Run with Networking</a></h3>
-<pre><code class="language-bash"># Terminal 1: Start zenoh router
-zenohd --listen tcp/0.0.0.0:7447
-
-# Terminal 2: Run QEMU with network
-./scripts/qemu/launch-mps2-an385.sh \
-    --tap tap-qemu0 \
-    --ip 192.0.2.10 \
-    --binary examples/qemu-arm-baremetal/rust/standalone/lan9118/target/thumbv7m-none-eabi/release/qemu-rs-lan9118
-</code></pre>
-<h3 id="5-teardown"><a class="header" href="#5-teardown">5. Teardown</a></h3>
-<pre><code class="language-bash">just qemu teardown-network
-</code></pre>
-<h2 id="scripts-reference"><a class="header" href="#scripts-reference">Scripts Reference</a></h2>
-<h3 id="scriptsqemusetup-networksh"><a class="header" href="#scriptsqemusetup-networksh"><code>scripts/qemu/setup-network.sh</code></a></h3>
-<p>Creates Linux bridge and TAP interfaces for QEMU networking.</p>
-<pre><code class="language-bash"># Create default setup (2 TAP interfaces)
-sudo ./scripts/qemu/setup-network.sh
-
-# Create with more TAP interfaces
-sudo ./scripts/qemu/setup-network.sh -n 4
-
-# Show current status
-./scripts/qemu/setup-network.sh --status
-
-# Tear down
-sudo ./scripts/qemu/setup-network.sh --down
-</code></pre>
-<h3 id="scriptsqemulaunch-mps2-an385sh"><a class="header" href="#scriptsqemulaunch-mps2-an385sh"><code>scripts/qemu/launch-mps2-an385.sh</code></a></h3>
-<p>Launches QEMU mps2-an385 with optional networking.</p>
-<pre><code class="language-bash"># Basic usage (no network)
-./scripts/qemu/launch-mps2-an385.sh --binary app.elf
-
-# With networking
-./scripts/qemu/launch-mps2-an385.sh \
-    --tap tap-qemu0 \
-    --ip 192.0.2.10 \
-    --binary app.elf
-
-# With GDB debugging
-./scripts/qemu/launch-mps2-an385.sh --gdb --binary app.elf
-# Then: arm-none-eabi-gdb -ex "target remote :1234" app.elf
-
-# Show full command without executing
-./scripts/qemu/launch-mps2-an385.sh --debug --tap tap-qemu0 --binary app.elf
-</code></pre>
-<h2 id="justfile-recipes"><a class="header" href="#justfile-recipes">Justfile Recipes</a></h2>
-<p>All under the <code>qemu</code> module: <code>just qemu &lt;recipe&gt;</code>.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Recipe</th><th>Description</th></tr>
-</thead>
-<tbody>
-<tr><td><code>build</code></td><td>Build all QEMU bare-metal examples</td></tr>
-<tr><td><code>test</code></td><td>Run all QEMU bare-metal integration tests</td></tr>
-<tr><td><code>setup-network</code></td><td>Create TAP bridge (sudo)</td></tr>
-<tr><td><code>teardown-network</code></td><td>Remove TAP bridge (sudo)</td></tr>
-<tr><td><code>status-network</code></td><td>Show network status</td></tr>
-<tr><td><code>help</code></td><td>Show QEMU help</td></tr>
-<tr><td><code>doctor</code></td><td>Diagnose QEMU install status</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="available-examples"><a class="header" href="#available-examples">Available Examples</a></h2>
-<h3 id="qemu-rs-test"><a class="header" href="#qemu-rs-test"><code>qemu-rs-test</code></a></h3>
-<p>Basic nros test on Cortex-M3 (lm3s6965evb machine, no networking).</p>
+<p>The board crate is <code>nros-board-mps2-an385</code> (note: no <code>-freertos</code>
+suffix — this is the bare-metal variant) which provides:</p>
 <ul>
-<li>Tests CDR serialization</li>
-<li>Tests Node API</li>
-<li>Uses semihosting for output</li>
+<li>Cortex-M3 startup + linker script</li>
+<li>LAN9118 driver for smoltcp</li>
+<li><code>BoardIdle::wfi()</code> for cooperative wait</li>
 </ul>
-<h3 id="qemu-rs-lan9118"><a class="header" href="#qemu-rs-lan9118"><code>qemu-rs-lan9118</code></a></h3>
-<p>LAN9118 Ethernet driver test on MPS2-AN385.</p>
+<h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
+<p>Mirror of the in-tree
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/qemu-arm-baremetal/rust/zenoh/talker/config.toml"><code>config.toml</code></a>:</p>
+<pre><code class="language-toml">[network]
+ip       = "10.0.2.10"
+mac      = "02:00:00:00:00:00"
+gateway  = "10.0.2.2"
+prefix   = 24                       # NOT `netmask` — Config::from_toml
+                                    # parses `prefix` (CIDR) only.
+
+[zenoh]
+locator   = "tcp/10.0.2.2:7450"     # bare-metal test-fixture port
+domain_id = 0
+</code></pre>
+<p>QEMU Slirp networking — no host TAP / bridge / sudo. The
+<code>zenohd</code> default port is 7447; this example expects <strong>7450</strong> so
+start the router with <code>zenohd run --listen tcp/127.0.0.1:7450</code>
+(or edit <code>config.toml</code> to match <code>zenohd</code>’s 7447 default).</p>
+<h2 id="build"><a class="header" href="#build">Build</a></h2>
+<pre><code class="language-bash">cd examples/qemu-arm-baremetal/rust/zenoh/talker
+cargo build --release
+</code></pre>
+<p>First build (~5 min) cross-compiles all of nano-ros’s Rust deps for
+<code>thumbv7m-none-eabi</code>. Re-builds finish in seconds.</p>
+<h2 id="run"><a class="header" href="#run">Run</a></h2>
+<pre><code class="language-bash"># 1. Bring up zenohd on the host (Slirp forwards 10.0.2.2:7447):
+just zenohd run
+
+# 2. Boot the talker in QEMU. The .cargo/config.toml runner does:
+cd examples/qemu-arm-baremetal/rust/zenoh/talker
+cargo run --release
+# Expected serial-over-semihosting output:
+#   nros Bare-Metal Cortex-M3 Talker
+#   Published: 1
+#   Published: 2
+#   ...
+
+# 3. Verify from stock ROS 2:
+source /opt/ros/humble/setup.bash
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+ros2 topic echo /chatter std_msgs/msg/Int32
+</code></pre>
+<p>QEMU exits via Ctrl-A x.</p>
+<p><strong>Readiness signal.</strong> Within ~15 seconds of QEMU boot (no RTOS
+init delay, but smoltcp + zenoh handshake still takes a few
+seconds), expect <code>Published: 1</code> on semihosting stdout. If no
+<code>Published:</code> line:</p>
+<ol>
+<li><code>zenohd</code> not running — talker spins on smoltcp poll until
+killed.</li>
+<li>Wrong LAN9118 emulation flag — <code>qemu-system-arm</code> needs
+<code>-nic socket,model=lan9118,…</code> or equivalent; the runner in
+<code>.cargo/config.toml</code> already supplies it.</li>
+<li>Cooperative spin starvation — if you added a long-running
+callback, the entire executor stalls; bare-metal has no
+preemption.</li>
+<li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
+</ol>
+<h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>
 <ul>
-<li>Tests driver initialization</li>
-<li>Tests smoltcp Device trait</li>
-<li>Uses semihosting for output</li>
+<li>Bare-metal talker:
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/qemu-arm-baremetal/rust/zenoh/talker"><code>examples/qemu-arm-baremetal/rust/zenoh/talker/</code></a></li>
+<li>Board crate:
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/boards/nros-board-mps2-an385"><code>packages/boards/nros-board-mps2-an385/</code></a></li>
 </ul>
-<h3 id="qemu-rs-talker"><a class="header" href="#qemu-rs-talker"><code>qemu-rs-talker</code></a></h3>
-<p>TCP client example with smoltcp networking on MPS2-AN385.</p>
+<h2 id="constraints-to-be-aware-of"><a class="header" href="#constraints-to-be-aware-of">Constraints to be aware of</a></h2>
 <ul>
-<li>Connects to a TCP server on the host (192.0.2.1:7777)</li>
-<li>Sends 5 test messages</li>
-<li>Demonstrates LAN9118 + smoltcp integration</li>
-<li>Static IP: 192.0.2.10</li>
+<li><strong>No <code>alloc</code> by default.</strong> Pure <code>no_std</code> + <code>heapless</code> for
+bounded collections. If you need <code>alloc</code>, opt in via the
+<code>alloc</code> feature on your board crate and supply a <code>#[global_allocator]</code>.</li>
+<li><strong>No wake primitive.</strong> Cooperative single-thread spin only; the
+executor’s <code>nros_platform_wake_*</code> slots return <code>Unsupported</code>.</li>
+<li><strong>No preemption.</strong> A long-running user callback blocks every
+other dispatchable handle until it returns.</li>
+<li><strong><code>nros-c</code> / <code>nros-cpp</code> NOT supported.</strong> These wrappers assume
+hosted-RTOS libc + heap. Pure-Rust API only on this target.</li>
 </ul>
-<h3 id="qemu-rs-listener"><a class="header" href="#qemu-rs-listener"><code>qemu-rs-listener</code></a></h3>
-<p>TCP server example with smoltcp networking on MPS2-AN385.</p>
+<p>For Cortex-M3 with an RTOS, switch to the
+<a href="./freertos.html">FreeRTOS</a> starter.</p>
+<h2 id="next"><a class="header" href="#next">Next</a></h2>
 <ul>
-<li>Listens on port 7778</li>
-<li>Echoes received data</li>
-<li>Demonstrates TCP server pattern</li>
-<li>Static IP: 192.0.2.11</li>
+<li>Subscriber / service / action peers under the same
+<code>examples/qemu-arm-baremetal/rust/zenoh/</code> tree.</li>
+<li>Wake-callback opt-in: the <code>wake-callback</code> (latency-probe) bench
+under <code>packages/testing/nros-bench/wake-latency-cortex-m3/</code> shows
+how to feed a backend’s transport-notify into the cooperative
+spin loop on bare-metal.</li>
+<li>Real hardware: same code runs on STM32F4-Discovery with a
+different board crate (<code>nros-board-stm32f4-nucleo</code>) and a
+different linker script.</li>
 </ul>
-<h2 id="debugging"><a class="header" href="#debugging">Debugging</a></h2>
-<h3 id="using-gdb"><a class="header" href="#using-gdb">Using GDB</a></h3>
-<pre><code class="language-bash"># Terminal 1: Start QEMU with GDB server
-./scripts/qemu/launch-mps2-an385.sh --gdb --binary app.elf
-
-# Terminal 2: Connect GDB
-arm-none-eabi-gdb \
-    -ex "target remote :1234" \
-    -ex "load" \
-    app.elf
-</code></pre>
-<h3 id="semihosting-output"><a class="header" href="#semihosting-output">Semihosting Output</a></h3>
-<p>All examples use semihosting for debug output. Output appears directly in the terminal where QEMU runs.</p>
-<h3 id="common-issues"><a class="header" href="#common-issues">Common Issues</a></h3>
-<p><strong>TAP interface not found</strong></p>
-<pre><code>Error: TAP interface tap-qemu0 does not exist
-</code></pre>
-<p>Solution: Run <code>just qemu setup-network</code></p>
-<p><strong>Permission denied on TAP</strong></p>
-<pre><code>qemu-system-arm: -netdev tap,id=net0,ifname=tap-qemu0: could not open /dev/net/tun: Permission denied
-</code></pre>
-<p>Solution: Ensure TAP is owned by your user. Re-run <code>sudo ./scripts/qemu/setup-network.sh $USER</code></p>
-<p><strong>QEMU not found</strong></p>
-<pre><code>Error: qemu-system-arm not found
-</code></pre>
-<p>Solution: <code>sudo apt install qemu-system-arm</code></p>
-<p><strong>QEMU version compatibility</strong></p>
-<p>The LAN9118 networking requires QEMU 7.0+ for full TAP networking support. On older versions (e.g., QEMU 6.2), the LAN9118 driver tests work but TAP networking may have issues.</p>
-<p>Check your QEMU version:</p>
-<pre><code class="language-bash">qemu-system-arm --version
-</code></pre>
-<p>To install a newer QEMU version on Ubuntu:</p>
-<pre><code class="language-bash">sudo add-apt-repository ppa:canonical-server/server-backports
-sudo apt update
-sudo apt install qemu-system-arm
-</code></pre>
-<h2 id="hardware-details"><a class="header" href="#hardware-details">Hardware Details</a></h2>
-<h3 id="mps2-an385-machine"><a class="header" href="#mps2-an385-machine">MPS2-AN385 Machine</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Value</th></tr>
-</thead>
-<tbody>
-<tr><td>CPU</td><td>ARM Cortex-M3</td></tr>
-<tr><td>Flash</td><td>4MB at 0x00000000</td></tr>
-<tr><td>SRAM</td><td>4MB at 0x20000000</td></tr>
-<tr><td>Ethernet</td><td>LAN9118 at 0x40200000</td></tr>
-</tbody>
-</table>
-</div>
-<h3 id="lan9118-ethernet-controller"><a class="header" href="#lan9118-ethernet-controller">LAN9118 Ethernet Controller</a></h3>
-<p>The <code>lan9118-smoltcp</code> crate provides a Rust driver for the LAN9118.</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>use lan9118_smoltcp::{Lan9118, Config};
-
-let config = Config {
-    base_addr: 0x4020_0000,
-    mac_addr: [0x02, 0x00, 0x00, 0x00, 0x00, 0x01],
-};
-
-let mut eth = unsafe { Lan9118::new(config) }?;
-eth.init()?;
-
-// Use with smoltcp
-let mut iface = Interface::new(iface_config, &amp;mut eth, instant);
-<span class="boring">}</span></code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../getting-started/threadx.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../getting-started/integration-platformio.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../getting-started/esp32.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../getting-started/px4.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -430,11 +322,11 @@ let mut iface = Interface::new(iface_config, &amp;mut eth, instant);
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../getting-started/threadx.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../getting-started/integration-platformio.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../getting-started/esp32.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../getting-started/px4.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

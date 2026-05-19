@@ -1,4 +1,6 @@
 var searchData=
 [
-  ['underlying_20errors_0',['zenoh-pico Underlying Errors',['../error_codes.html#autotoc_md31',1,'']]]
+  ['variables_0',['Runtime Environment Variables',['../configuration.html#autotoc_md13',1,'']]],
+  ['version_20mismatch_1',['zenoh Version Mismatch',['../troubleshooting.html#autotoc_md23',1,'']]],
+  ['visibility_2eh_2',['visibility.h',['../visibility_8h.html',1,'']]]
 ];

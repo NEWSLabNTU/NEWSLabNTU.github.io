@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Installation - nano-ros Book</title>
+        <title>Install + first build - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-68bbd615.js";
+            window.path_to_searchindex_js = "../searchindex-9ac0349f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-2d4edb34.js"></script>
+        <script src="../toc-a20e9cf1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -178,11 +178,18 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
-<p>nano-ros is distributed as <strong>source</strong>, fetched from git and built locally.
-There is no binary tarball or SDK release.</p>
+<p>nano-ros is distributed as <strong>source</strong>, vendored into the consumer’s
+project tree (git submodule, <code>west</code> manifest, ESP-IDF component, etc.)
+and built in-tree via <code>add_subdirectory(nano-ros)</code>. There is no binary
+tarball, no system-wide install step, no <code>find_package(NanoRos)</code>.</p>
+<blockquote>
+<p>See <a href="build-as-subdirectory.html">build-as-subdirectory.md</a> for the
+canonical user incantation (4-line <code>CMakeLists.txt</code>). This page
+walks the surrounding workspace + per-target setup choices.</p>
+</blockquote>
 <h2 id="pattern-a-nano-ros-lives-inside-your-ros-2-workspace"><a class="header" href="#pattern-a-nano-ros-lives-inside-your-ros-2-workspace">Pattern A: nano-ros lives inside your ROS 2 workspace</a></h2>
-<p>The recommended layout is to clone nano-ros into your workspace’s <code>src/</code>
-directory alongside your packages:</p>
+<p>The recommended layout is to clone nano-ros into your workspace’s
+<code>src/</code> directory alongside your packages:</p>
 <pre><code>~/ros2_ws/
 ├── src/
 │   ├── nano-ros/             # &lt;-- this repo
@@ -193,82 +200,96 @@ directory alongside your packages:</p>
 </code></pre>
 <p><code>colcon build</code> discovers nano-ros + each user package via <code>package.xml</code>,
 builds them in dependency order, and shares one nano-ros build across
-every consuming package. Users never run <code>cmake</code> manually.</p>
+every consuming package. Users never run <code>cmake</code> manually — the per-user
+package’s <code>CMakeLists.txt</code> does <code>add_subdirectory(../nano-ros nano_ros)</code>
+under the hood.</p>
 <p>A complete working example lives at
-<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/multi-package-workspace"><code>examples/multi-package-workspace/</code></a>.</p>
-<h2 id="one-shot-bootstrap"><a class="header" href="#one-shot-bootstrap">One-shot bootstrap</a></h2>
-<p>From the workspace root:</p>
-<pre><code class="language-bash">mkdir -p ~/ros2_ws/src &amp;&amp; cd ~/ros2_ws/src
-git clone https://github.com/NEWSLabNTU/nano-ros.git
-cd ~/ros2_ws
-./src/nano-ros/tools/setup.sh --target=posix-zenoh
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/multi-package-workspace"><code>examples/templates/multi-package-workspace/</code></a>.</p>
+<h2 id="pattern-b-nano-ros-as-a-third-party-subdirectory"><a class="header" href="#pattern-b-nano-ros-as-a-third-party-subdirectory">Pattern B: nano-ros as a third-party subdirectory</a></h2>
+<p>For C/C++ projects that don’t use colcon at all:</p>
+<pre><code>~/my_project/
+├── CMakeLists.txt
+├── src/main.c
+└── third_party/
+    └── nano-ros/             # git submodule
 </code></pre>
-<p>What <code>tools/setup.sh</code> does:</p>
+<p>The top-level <code>CMakeLists.txt</code>:</p>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
+project(my_app C)
+
+set(NANO_ROS_PLATFORM posix)
+set(NANO_ROS_RMW     zenoh)
+add_subdirectory(third_party/nano-ros nano_ros)
+
+add_executable(my_app src/main.c)
+target_link_libraries(my_app PRIVATE NanoRos::NanoRos)
+nros_platform_link_app(my_app)
+</code></pre>
+<p>That is the entire consumption shape. See
+<a href="build-as-subdirectory.html">build-as-subdirectory.md</a> for the full
+walkthrough.</p>
+<h2 id="one-shot-bootstrap"><a class="header" href="#one-shot-bootstrap">One-shot bootstrap</a></h2>
+<pre><code class="language-bash">git clone --branch=v&lt;X.Y.Z&gt; https://github.com/NEWSLabNTU/nano-ros.git
+cd nano-ros
+
+just setup                       # one-shot fetch + build of every module
+source ./setup.bash               # zenohd, nros, nros-codegen, qemu-system-arm on PATH
+                                  # (use ./setup.fish for fish)
+</code></pre>
+<p><code>just setup</code> is the only entry point you need. It:</p>
 <ol>
-<li>Reads <code>config/submodule-deps.toml</code> to pick the submodules needed for
-your <code>(platform, rmw)</code> tuple.</li>
-<li>Runs <code>git submodule update --init --depth=1</code> for each — selective
-fetch, no unrelated dependencies pulled.</li>
-<li>Installs rustup (if missing) + the Rust target triple for the
-selected platform via <code>rustup target add</code>.</li>
-<li>Surfaces any missing apt cross-toolchain packages on Linux.
-<code>tools/setup.sh</code> <strong>never</strong> runs sudo automatically; it tells you
-what to install.</li>
+<li>Picks the submodules required for the modules in scope.</li>
+<li>Runs <code>git submodule update --init --depth=1</code> selectively (no
+unrelated deps).</li>
+<li>Installs the Rust target triples via <code>rustup target add</code>.</li>
+<li>Surfaces missing apt cross-toolchain packages on Linux. <strong>Never</strong>
+runs sudo automatically; reports what to install.</li>
 </ol>
-<p>Useful flags:</p>
+<p>The optional <code>tier=minimal</code> argument scopes the install down to
+the workspace + verification + zenohd (Rust-only contributors who
+don’t want any cross toolchains pulled in):</p>
+<pre><code class="language-bash">just setup tier=minimal          # no cross toolchains; Rust + zenohd only
+just setup                       # the everything tier — every safe module
+</code></pre>
+<p>Most users can ignore the tier knob entirely. For platform-specific
+work prefer the narrower <code>just &lt;plat&gt; setup</code> recipes documented
+below.</p>
+<p>After <code>just setup</code>, <code>source ./setup.bash</code> puts every shipped
+binary on PATH for the current shell session — same idiom as
+<code>source /opt/ros/humble/setup.bash</code>. Re-source after subsequent
+builds (e.g. <code>just xrce setup</code>) to pick up newly-built tools.</p>
+<blockquote>
+<p><strong>Heads-up before your first example.</strong> Every nano-ros example
+(Linux talker, FreeRTOS talker, …) connects to a <strong>Zenoh router</strong>
+(<code>zenohd</code>) at startup. Without one running, the talker blocks
+forever on <code>Executor::open</code> with no output. Open a dedicated
+terminal and start the router before launching any example:</p>
+<pre><code class="language-bash">just zenohd run        # or: ./build/zenohd/zenohd
+</code></pre>
+<p>Leave that terminal open for the entire session. Default ports:
+<code>tcp/127.0.0.1:7447</code> on POSIX, <code>tcp/10.0.2.2:7451</code> on QEMU
+FreeRTOS (Slirp forwards to host). Mismatch = silent hang;
+see <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</p>
+</blockquote>
+<p>For a narrower fetch, invoke the per-platform recipe directly:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Flag</th><th>Effect</th></tr>
+<tr><th>Form</th><th>Effect</th></tr>
 </thead>
 <tbody>
-<tr><td><code>--target=&lt;plat&gt;-&lt;rmw&gt;</code></td><td>canonical setup (e.g. <code>posix-zenoh</code>, <code>freertos-xrce</code>, <code>threadx-dds</code>)</td></tr>
-<tr><td><code>--list-targets</code></td><td>print known platforms / RMWs / references</td></tr>
-<tr><td><code>--doctor</code></td><td>check tool availability without fetching</td></tr>
-<tr><td><code>--with-dev</code></td><td>include dev-only paths (zenoh router, XRCE agent)</td></tr>
-<tr><td><code>--with-reference=&lt;name&gt;</code></td><td>opt-in references (e.g. <code>px4</code>, <code>tracing</code>)</td></tr>
-<tr><td><code>--dry-run</code></td><td>print plan, fetch nothing</td></tr>
-<tr><td><code>--platform=&lt;plat&gt;</code></td><td>platform-only fetch (skips RMW)</td></tr>
-<tr><td><code>--rmw=&lt;rmw&gt;</code></td><td>RMW-only fetch (skips platform)</td></tr>
+<tr><td><code>just &lt;platform&gt; setup</code></td><td>platform-only fetch + build (<code>just freertos setup</code>, <code>just zephyr setup</code>, etc.)</td></tr>
+<tr><td><code>just &lt;platform&gt; doctor</code></td><td>read-only check of that platform’s prereqs</td></tr>
+<tr><td><code>just doctor</code></td><td>aggregate doctor across the chosen tier</td></tr>
 </tbody>
 </table>
 </div>
-<h2 id="build-with-colcon"><a class="header" href="#build-with-colcon">Build with colcon</a></h2>
-<p>After bootstrap:</p>
-<pre><code class="language-bash">cd ~/ros2_ws
-colcon build
-source install/setup.bash
-ros2 run pkg_a my_node
-</code></pre>
-<p>colcon walks <code>src/</code>, finds packages with <code>&lt;depend&gt;nano-ros&lt;/depend&gt;</code> +
-<code>&lt;depend&gt;std_msgs&lt;/depend&gt;</code> (etc.), and builds them in dependency order.</p>
-<p>The shared codegen cache (Phase 123.A.7) lets each generated message
-package — <code>std_msgs__nano_ros_c</code>, <code>std_msgs__nano_ros_cpp</code>, etc. —
-build <strong>once</strong> per workspace instead of once per consuming user package.
-Set <code>NANO_ROS_GEN_CACHE_DIR=&lt;dir&gt;</code> to enable it (<code>build-all.sh</code> in the
-demo workspace shows the pattern).</p>
-<h3 id="without-colcon"><a class="header" href="#without-colcon">Without colcon</a></h3>
-<p>Some setups don’t have a ROS 2 distro installed (embedded-focused users,
-CI runners). For these, <code>examples/multi-package-workspace/build-all.sh</code>
-shows the bare CMake + Cargo invocation that mimics what colcon would
-do — useful as a fallback.</p>
-<h2 id="direct-cmake--b-build-single-build-mode"><a class="header" href="#direct-cmake--b-build-single-build-mode">Direct <code>cmake -B build</code> (single-build mode)</a></h2>
-<p>If you don’t have a multi-package workspace and just want to use
-nano-ros as a one-shot library, configure it directly:</p>
-<pre><code class="language-bash">git clone https://github.com/NEWSLabNTU/nano-ros.git
-cd nano-ros
-cmake -S . -B build -DNANO_ROS_RMW=zenoh -DNANO_ROS_PLATFORM=posix
-cmake --build build
-cmake --install build --prefix ~/.local/nano-ros
-</code></pre>
-<p><code>cmake/bootstrap.cmake</code> (Phase 123.A.5) auto-runs
-<code>tools/setup.sh --target=posix-zenoh</code> if you forgot — no separate setup
-step is required. Opt out via <code>-DNANO_ROS_SKIP_BOOTSTRAP=ON</code> if you
-manage submodules yourself.</p>
-<p>Your downstream projects then reference the install:</p>
-<pre><code class="language-bash">cmake -S my_project -B my_project/build \
-    -DCMAKE_PREFIX_PATH=~/.local/nano-ros
-</code></pre>
+<blockquote>
+<p><strong>Power-user escape hatch.</strong> The underlying script <code>tools/setup.sh</code>
+takes <code>--target=&lt;plat&gt;-&lt;rmw&gt;</code> for exact-pair fetch + <code>--list-targets</code>,
+<code>--doctor</code>, <code>--with-dev</code>, <code>--with-reference=&lt;name&gt;</code>, <code>--dry-run</code>.
+Use it when you need finer control than the just recipes provide.</p>
+</blockquote>
 <h2 id="per-target-setup"><a class="header" href="#per-target-setup">Per-target setup</a></h2>
 <div class="table-wrapper">
 <table>
@@ -289,7 +310,7 @@ manage submodules yourself.</p>
 </tbody>
 </table>
 </div>
-<p>The per-platform <code>just &lt;plat&gt;::setup</code> recipes (Phase 123.A.8) delegate
+<p>The per-platform <code>just &lt;plat&gt;::setup</code> recipes delegate
 to <code>tools/setup.sh --platform=&lt;plat&gt;</code> for submodule fetch, then run any
 platform-specific build steps (NuttX kernel, Cyclone DDS SDK, etc.).</p>
 <h2 id="rust-only-consumers"><a class="header" href="#rust-only-consumers">Rust-only consumers</a></h2>
@@ -306,43 +327,47 @@ nros = { path = "src/nano-ros/packages/core/nros",
          default-features = false,
          features = ["std", "rmw-cffi", "platform-posix", "ros-humble"] }
 </code></pre>
-<p>For a tidier workspace, <code>tools/setup.sh --rust-workspace</code> (planned)
-will auto-generate a workspace-level <code>Cargo.toml</code> with the right
-<code>[workspace.dependencies]</code> + <code>[patch.crates-io]</code> table. Until then,
-each Rust package carries its own <code>.cargo/config.toml</code> patch —
-see <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/multi-package-workspace/src/pkg_rust_publisher"><code>examples/multi-package-workspace/src/pkg_rust_publisher/</code></a>
+<p>Each Rust package carries its own <code>.cargo/config.toml</code> patch entries
+when needed — see
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/multi-package-workspace/src/pkg_rust_publisher"><code>examples/templates/multi-package-workspace/src/pkg_rust_publisher/</code></a>
 for the pattern.</p>
 <h2 id="contributor-setup-working-on-nano-ros-itself"><a class="header" href="#contributor-setup-working-on-nano-ros-itself">Contributor setup (working on nano-ros itself)</a></h2>
-<p>If you’re hacking on nano-ros rather than consuming it, the
-workspace-wide <code>just setup</code> walks every platform module:</p>
+<p>Same <code>just setup</code> entry point — the no-arg invocation fetches every
+module:</p>
 <pre><code class="language-bash">git clone https://github.com/NEWSLabNTU/nano-ros.git
 cd nano-ros
-just setup       # Workspace + all platforms + verification + services
+just setup                    # every safe / idempotent module
 </code></pre>
-<p>The zero-arg form is the contributor entry point; the one-arg form
-<code>just setup posix-zenoh</code> shims <code>tools/setup.sh --target=posix-zenoh</code>
-for ergonomics parity with users.</p>
 <p>Diagnose missing tools (read-only):</p>
 <pre><code class="language-bash">just doctor
 </code></pre>
 <p>Set up just one module:</p>
-<pre><code class="language-bash">just freertos::setup
-just nuttx::setup
-just threadx_linux::setup
+<pre><code class="language-bash">just freertos setup
+just nuttx setup
+just threadx_linux setup
 </code></pre>
-<p>These delegate to <code>tools/setup.sh</code> (Phase 123.A.8) + run any
-platform-specific build steps (NuttX kernel, Cyclone DDS SDK).</p>
+<p>Each <code>&lt;module&gt; setup</code> delegates to <code>tools/setup.sh</code> for submodule
+fetch + runs any platform-specific build steps (NuttX kernel build,
+Cyclone DDS SDK build, etc.).</p>
 <h2 id="docker-environment"><a class="header" href="#docker-environment">Docker environment</a></h2>
 <p>For a containerized environment with QEMU 7.2+:</p>
 <pre><code class="language-bash">just docker build
 just docker shell      # Interactive shell with all tools
 just docker test-qemu  # Run QEMU tests in container
 </code></pre>
+<h2 id="migrating-from-a-pre-140-checkout"><a class="header" href="#migrating-from-a-pre-140-checkout">Migrating from a pre-140 checkout</a></h2>
+<p>If you were on a nano-ros version that still had <code>just install-local</code>,
+see
+<a href="../release/migration-install-local-removal.html">migration-install-local-removal.md</a>
+for the one-page rewrite.</p>
 <h2 id="next-steps"><a class="header" href="#next-steps">Next Steps</a></h2>
 <ul>
-<li><a href="native.html">First Native Rust Node</a> — build + run a Rust publisher</li>
+<li><a href="./first-node-rust.html">First Node — Rust</a> — build + run a Rust talker on Linux</li>
+<li><a href="./first-node-c.html">First Node — C</a> — build + run a C talker on Linux</li>
+<li><a href="./first-node-cpp.html">First Node — C++</a> — build + run a C++ talker on Linux</li>
+<li><a href="build-as-subdirectory.html">Build as Subdirectory</a> — CMake consumption walkthrough</li>
 <li><a href="../reference/c-api.html">C API</a> — API entry points and CMake integration</li>
-<li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/multi-package-workspace"><code>examples/multi-package-workspace/</code></a> — full mixed C / C++ / Rust example</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/multi-package-workspace"><code>examples/templates/multi-package-workspace/</code></a> — full mixed C / C++ / Rust example</li>
 </ul>
 
                     </main>
@@ -353,7 +378,7 @@ just docker test-qemu  # Run QEMU tests in container
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../user-guide/package-preparation.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../getting-started/first-node-rust.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -367,7 +392,7 @@ just docker test-qemu  # Run QEMU tests in container
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../user-guide/package-preparation.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../getting-started/first-node-rust.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

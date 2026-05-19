@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-68bbd615.js";
+            window.path_to_searchindex_js = "../searchindex-9ac0349f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-2d4edb34.js"></script>
+        <script src="../toc-a20e9cf1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -203,7 +203,7 @@ public surface a user application needs.</p>
 sets: <code>nros_*_init</code> (Layer 1, caller polls) and
 <code>nros_executor_register_*</code> (Layer 2, executor callback). Layer 1
 grew an <code>_init_polling</code> + <code>try_recv_*_raw</code> / <code>send_*_raw</code> family
-in Phase 122.3 for inline-storage callers (no executor arena).
+for inline-storage callers (no executor arena).
 Layer 2 keeps the existing <code>nros_*_init</code> + executor-register
 pair. See <a href="../concepts/two-layer-api.html">Two-Layer API</a> for the
 verb discipline and per-layer trade-offs.</p>
@@ -211,13 +211,51 @@ verb discipline and per-layer trade-offs.</p>
 <blockquote>
 <p><strong>Event-driven wake callbacks.</strong> Each L1 polling entity supports
 <code>nros_*_set_wake_callback(entity, &amp;state, cb, ctx)</code> for event-
-driven RTOS / embassy callers (Phase 122.3.c.6.e). State is a
+driven RTOS / embassy callers. State is a
 caller-owned <code>nros_wake_state_t</code> POD; the backend fires <code>cb(ctx)</code>
 on rx / reply / request arrival. Per-channel for actions
 (<code>set_{goal,cancel,get_result}_wake_callback</code> on the server,
 <code>set_{goal_response,cancel_response,result,feedback}_wake_callback</code>
 on the client). See the Doxygen for signatures.</p>
 </blockquote>
+<h2 id="async-action-client"><a class="header" href="#async-action-client">Async action client</a></h2>
+<p><code>&lt;nros/action.h&gt;</code> exposes two parallel entry-point families for sending
+goals, requesting results, and cancelling:</p>
+<ul>
+<li><strong>Async (non-blocking):</strong> <code>nros_action_send_goal_async()</code>,
+<code>nros_action_get_result_async()</code>, <code>nros_action_cancel_goal()</code>,
+<code>nros_action_try_recv_feedback()</code>. Return immediately. Replies are
+delivered through the callbacks registered with
+<code>nros_action_client_set_goal_response_callback()</code>,
+<code>nros_action_client_set_feedback_callback()</code>, and
+<code>nros_action_client_set_result_callback()</code>. The callbacks fire from
+<code>nros_executor_spin_some()</code> — your spin loop is the only place
+callbacks run.</li>
+<li><strong>Blocking convenience:</strong> <code>nros_action_send_goal()</code> and
+<code>nros_action_get_result()</code>. These call the async variant and then
+drive <code>nros_executor_spin_some()</code> internally on a wall-clock budget
+until the reply lands (or 15 s / 30 s timeout). They take the
+<code>nros_executor_t*</code> explicitly because the action client stores its
+handle as an opaque slot inside the executor (registered via
+<code>nros_executor_register_action_client()</code>). The same applies to
+<code>nros_action_client_wait_for_action_server()</code> and
+<code>nros_action_client_action_server_is_ready()</code>. Calling any of them
+from inside a dispatch callback returns <code>NROS_RET_REENTRANT</code>.</li>
+</ul>
+<p>The equivalent service client helper <code>nros_client_call()</code> does <strong>not</strong>
+take an explicit executor — the client stashes the executor pointer
+during <code>nros_executor_register_client()</code> and recovers it internally —
+but it follows the same async-then-spin contract.</p>
+<p>Canonical pattern: declare the executor, register the client, then
+either call the blocking helper or drive <code>nros_executor_spin_some()</code>
+yourself between async calls until your callback flags the result. See
+the example layouts in <code>examples/native/c/&lt;rmw&gt;/action-client/</code> and
+<code>examples/qemu-arm-freertos/c/zenoh/action-client/</code>.</p>
+<p>added a separate L1 polling family
+(<code>nros_action_client_init_polling</code> + the <code>_raw</code> send/recv siblings)
+that stores <code>ActionClientCore</code> inline in the
+<code>nros_action_client_t._opaque</code> slot and skips the executor entirely;
+see the Doxygen for the full L1 verb list.</p>
 <h2 id="cmake-integration"><a class="header" href="#cmake-integration">CMake integration</a></h2>
 <p>Out-of-tree projects use the <code>NanoRos::C</code> CMake target and the
 <code>nano_ros_generate_interfaces()</code> function — covered in

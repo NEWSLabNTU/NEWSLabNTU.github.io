@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-68bbd615.js";
+            window.path_to_searchindex_js = "../searchindex-9ac0349f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-2d4edb34.js"></script>
+        <script src="../toc-a20e9cf1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -192,50 +192,103 @@ rosdep install --from-paths src --ignore-src -y
 colcon build
 source install/setup.bash
 </code></pre>
-<p>The middleware implementation is usually selected at process startup:</p>
+<p>The middleware implementation is selected at process startup:</p>
 <pre><code class="language-bash">export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ros2 run my_pkg my_node
 </code></pre>
 <p>That model assumes shared libraries, a hosted OS, and runtime plugin
 loading.</p>
 <h2 id="nano-ros-flow"><a class="header" href="#nano-ros-flow">nano-ros Flow</a></h2>
-<p>nano-ros is distributed as source and built inside the user’s workspace:</p>
-<pre><code class="language-bash">mkdir -p ~/ros2_ws/src
-cd ~/ros2_ws/src
-git clone --depth=1 --branch=v1.0.0 https://github.com/NEWSLabNTU/nano-ros.git
-cd ~/ros2_ws
-./src/nano-ros/tools/setup.sh --target=posix-zenoh
-colcon build
-source install/setup.bash
+<p>nano-ros is <strong>shipped as source</strong> (archive — no crates.io,
+no precompiled SDK, no binary tarball). Clone, run <code>just setup</code>, then
+build the example tree (or your own package) directly:</p>
+<pre><code class="language-bash">git clone --branch=v&lt;X.Y.Z&gt; https://github.com/NEWSLabNTU/nano-ros.git
+cd nano-ros
+
+# One-shot SDK fetch.
+just setup                       # every safe / idempotent module
+# just setup tier=minimal        # workspace + verification + zenohd only
+source ./setup.bash               # zenohd / nros / qemu-system-arm on PATH
+
+# Build + run an example (POSIX):
+cd examples/native/rust/zenoh/talker
+cargo run
 </code></pre>
-<p>The <code>--target=&lt;platform&gt;-&lt;rmw&gt;</code> tuple replaces runtime RMW selection.
-It tells setup which submodules, Rust target, C/C++ dependencies, and
-platform support are needed. Examples include <code>posix-zenoh</code>,
-<code>freertos-xrce</code>, <code>zephyr-dds</code>, and <code>threadx-zenoh</code>.</p>
+<p>For embedded targets, the per-platform <code>just &lt;plat&gt; build</code> /
+<code>just &lt;plat&gt; run</code> recipes drive the right cross-toolchain
+(see <a href="../reference/build-commands.html">Build Commands</a>):</p>
+<pre><code class="language-bash">just freertos build-fixtures   # QEMU FreeRTOS Cortex-M3 examples
+just zephyr  build-fixtures    # west + Zephyr-SDK
+just nuttx   build-fixtures    # NuttX kernel + ARM Cortex-M3
+</code></pre>
+<p>Two tiers:</p>
+<ul>
+<li><strong>No-arg <code>just setup</code></strong> (default) — every safe / idempotent
+module: workspace, verification, zenohd, QEMU, FreeRTOS, NuttX,
+ThreadX (Linux + RV64), ESP32, Zephyr, XRCE, rmw_zenoh, Orin SPE,
+Cyclone DDS, PlatformIO, ESP-IDF, PX4.</li>
+<li><strong><code>just setup tier=minimal</code></strong> — workspace + verification +
+zenohd only. For Rust-only contributors who don’t want any cross
+toolchains pulled in.</li>
+</ul>
+<p>For platform-specific work prefer the narrower <code>just &lt;plat&gt; setup</code>
+recipes — they fetch only one RTOS’s deps without pulling the rest.</p>
+<h2 id="choosing-platform--rmw"><a class="header" href="#choosing-platform--rmw">Choosing platform + RMW</a></h2>
+<p>Unlike standard ROS 2, RMW and platform are <strong>compile-time</strong> choices —
+there is no runtime <code>RMW_IMPLEMENTATION</code> switch on embedded targets
+(no <code>dlopen</code>). The pair is selected via CMake cache vars + Cargo
+features:</p>
+<pre><code class="language-cmake"># Each example is a standalone CMake project that pulls nano-ros in
+# via add_subdirectory.
+set(NANO_ROS_PLATFORM freertos)
+set(NANO_ROS_RMW      zenoh)
+set(NANO_ROS_BOARD    mps2-an385-freertos)
+add_subdirectory(&lt;repo-root&gt;  nano_ros)
+
+target_link_libraries(my_app PRIVATE NanoRos::NanoRos)
+nros_platform_link_app(my_app)
+nano_ros_link_rmw(my_app RMW zenoh)
+</code></pre>
+<p>Multi-RMW bridges (one binary, two or more backends) use
+<code>Executor::open_with_rmw("&lt;name&gt;", ...)</code> + <code>node_builder.rmw("&lt;name&gt;")</code>
+— see <a href="../user-guide/cross-backend-bridges.html">Cross-backend Bridges</a>.</p>
 <h2 id="what-stays-familiar"><a class="header" href="#what-stays-familiar">What Stays Familiar</a></h2>
 <ul>
-<li>Workspace layout: one source checkout under <code>~/ros2_ws/src/</code>.</li>
+<li>Workspace layout: one source checkout next to your packages.</li>
 <li>Package metadata: downstream packages still use <code>package.xml</code>.</li>
-<li>Build entry point: <code>colcon build</code> remains the recommended consumer
-build for ROS 2 workspaces.</li>
 <li>ROS vocabulary: nodes, publishers, subscriptions, services, actions,
 QoS profiles, parameters, and message packages keep ROS-shaped names.</li>
+<li><code>colcon build</code> still works as a consumer-side build for POSIX
+workspaces that already use it; embedded targets use <code>cmake</code>,
+<code>cargo</code>, <code>west</code>, or <code>idf.py</code> directly.</li>
 <li>Interop: POSIX nano-ros nodes can communicate with standard ROS 2
-nodes through compatible RMW backends.</li>
+nodes through compatible RMW backends (Zenoh, Cyclone DDS, XRCE).</li>
 </ul>
 <h2 id="what-changes"><a class="header" href="#what-changes">What Changes</a></h2>
 <ul>
-<li>nano-ros is source-first. There is no binary SDK tarball or crates.io
-umbrella crate.</li>
-<li>Setup is target-aware. <code>tools/setup.sh</code> fetches only the submodules
-required by the selected platform and RMW.</li>
-<li>RMW and platform are compile-time choices. Embedded targets usually
-cannot use <code>dlopen</code> or shared-library RMW plugins.</li>
-<li>Message bindings are generated into the workspace or build tree
-instead of relying on installed ROS message libraries.</li>
-<li>Runtime environment variables are POSIX conveniences. Embedded
-targets usually resolve configuration at build time through CMake,
-Kconfig, Cargo features, or <code>config.toml</code>.</li>
+<li><strong>Source-only.</strong> No binary SDK tarball, no crates.io umbrella crate,
+no Arduino zip / ESP-IDF binary component / PlatformIO library /
+GitHub Releases artifact. The locked policy is <code>git clone --branch=v&lt;X.Y.Z&gt;</code> +
+in-tree build.</li>
+<li><strong>Target-aware setup.</strong> <code>just &lt;plat&gt; setup</code> fetches only the
+submodules + toolchains needed for one RTOS. No-arg <code>just setup</code>
+fetches everything safe.</li>
+<li><strong>Compile-time RMW + platform.</strong> Embedded targets can’t <code>dlopen</code>,
+so the RMW and platform combination is locked in by CMake cache
+vars (<code>NANO_ROS_PLATFORM</code>, <code>NANO_ROS_RMW</code>) and Cargo features at
+build time.</li>
+<li><strong>No install prefix.</strong> removed <code>just install-local</code> and
+every <code>install(...)</code> rule; consumers pull nano-ros into their build
+via <code>add_subdirectory(&lt;repo-root&gt;)</code>. The
+integration shells under <code>integrations/&lt;rtos&gt;/</code> re-export the same
+root CMake under each RTOS’s native package manager.</li>
+<li><strong>Generated bindings in-tree.</strong> Message codegen lands under
+<code>&lt;your-package&gt;/generated/</code> (or <code>OUT_DIR</code> for Cargo builds), not in
+an installed ROS message library.</li>
+<li><strong>Configuration is build-time on embedded.</strong> Runtime env vars
+(<code>ROS_DOMAIN_ID</code>, <code>ZENOH_LOCATOR</code>, …) work on POSIX; embedded
+targets resolve config via CMake cache, Kconfig (Zephyr), Cargo
+features, or <code>config.toml</code>.</li>
 </ul>
 <h2 id="next-step"><a class="header" href="#next-step">Next Step</a></h2>
 <p>Continue with <a href="../getting-started/installation.html">Installation</a>, then
@@ -246,7 +299,7 @@ example before moving to a platform-specific guide.</p>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../user-guide/workflow.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../start-here/choose-your-entry.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -260,7 +313,7 @@ example before moving to a platform-specific guide.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../user-guide/workflow.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../start-here/choose-your-entry.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 

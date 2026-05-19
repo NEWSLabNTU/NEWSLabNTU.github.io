@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-68bbd615.js";
+            window.path_to_searchindex_js = "../searchindex-9ac0349f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-2d4edb34.js"></script>
+        <script src="../toc-a20e9cf1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,273 +177,143 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="px4-autopilot"><a class="header" href="#px4-autopilot">PX4 Autopilot</a></h1>
-<p>nano-ros runs on PX4 Autopilot via the <strong>uORB transport</strong> — a publish/subscribe
-broker that ships in every PX4 build. Unlike the network-based zenoh and
-XRCE-DDS backends, uORB is in-process: publishers and subscribers share one
-binary and one address space, with the PX4 WorkQueue scheduler driving I/O.</p>
-<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
-<p>The PX4 backend uses:</p>
+                        <h1 id="px4-autopilot-external-module"><a class="header" href="#px4-autopilot-external-module">PX4 Autopilot (external module)</a></h1>
+<p>Single-node starter on PX4 Autopilot via the <strong>external-module
+copy-out template</strong>. PX4’s <code>EXTERNAL_MODULES_LOCATION</code> pattern lets
+downstream firmware drop in nano-ros without forking PX4 itself.
+C++ only — PX4’s uORB binding is C++-only (Rust + C not in the
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/README.md">coverage matrix</a>).</p>
+<blockquote>
+<p><strong>Prereqs.</strong> A PX4-Autopilot ≥ v1.16 clone, the matching cross
+toolchain (e.g. <code>gcc-arm-none-eabi</code> for Pixhawk targets), and
+<code>python3</code> with the PX4 development requirements installed
+(<code>bash ./Tools/setup/ubuntu.sh</code> once).</p>
+</blockquote>
+<h2 id="project-layout"><a class="header" href="#project-layout">Project layout</a></h2>
+<p>PX4 external modules live <strong>outside</strong> the PX4 source tree and are
+hooked in at configure time. The template at
+<code>integrations/px4/module-template/</code> has the PX4-required
+<code>src/modules/&lt;name&gt;/</code> shape:</p>
+<pre><code class="language-text">my_drone_firmware/
+├── PX4-Autopilot/                          # PX4 source tree (submodule)
+└── px4-modules/                            # passed via EXTERNAL_MODULES_LOCATION
+    └── nano-ros/                           # copy-out from integrations/px4/module-template/
+        └── src/
+            ├── CMakeLists.txt              # populates config_module_list_external
+            └── modules/
+                └── nano_ros_app/
+                    ├── CMakeLists.txt      # px4_add_module(... MAIN nano_ros_app)
+                    └── nano_ros_app.cpp    # the user-editable app
+</code></pre>
+<blockquote>
+<p><strong>Prereq.</strong> PX4 is an extended-tier dependency. Run
+<code>just px4 setup</code> first to populate <code>third-party/px4/PX4-Autopilot</code>
+and <code>third-party/px4/px4-rs</code>. <code>just px4 doctor</code> reports the gap
+on a fresh clone.</p>
+</blockquote>
+<p>Vendor the template into your firmware repo, then point PX4 at its
+parent directory + tell the template where nano-ros lives via
+<code>NANO_ROS_DIR</code>:</p>
+<pre><code class="language-bash">cmake -B build -S PX4-Autopilot \
+      -DCONFIG=px4_fmu-v5_default \
+      -DEXTERNAL_MODULES_LOCATION=$PWD/px4-modules \
+      -DNANO_ROS_DIR=$PWD/../nano-ros            # point at your nano-ros clone
+</code></pre>
+<p>Inside the module, the canonical pattern bridges uORB → nano-ros.
+The module is a <code>PX4Module</code> subclass that runs in its own work
+queue, opens an nros executor, and forwards uORB messages onto a
+zenoh / DDS topic (or vice versa). Edit <code>nano_ros_app.cpp</code> to add
+your topic bindings.</p>
+<h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
+<p>The template does <strong>not</strong> ship a Kconfig overlay (no <code>Kconfig.projbuild</code>
+files). Module enablement is implicit once <code>EXTERNAL_MODULES_LOCATION</code>
+points at the template’s parent. Pass RMW + ROS-edition selection
+via CMake cache vars rather than menuconfig:</p>
+<pre><code class="language-bash">cmake -B build -S PX4-Autopilot \
+      -DCONFIG=px4_fmu-v5_default \
+      -DEXTERNAL_MODULES_LOCATION=$PWD/px4-modules \
+      -DNANO_ROS_DIR=$PWD/../nano-ros \
+      -DNANO_ROS_RMW=zenoh
+</code></pre>
+<p>(Adding a Kconfig overlay so the module appears under
+<code>menuconfig → External modules</code> is a follow-up task; for now the
+template is always enabled.)</p>
+<h2 id="build"><a class="header" href="#build">Build</a></h2>
+<pre><code class="language-bash">cd PX4-Autopilot
+make px4_fmu-v5_default
+# Or for the SITL simulator (POSIX target — easier to develop against):
+make px4_sitl_default gazebo
+</code></pre>
+<p>The first build cross-compiles nano-ros’s Rust staticlibs alongside
+PX4’s NuttX kernel + apps (~10 min on a fresh checkout).</p>
+<h2 id="run"><a class="header" href="#run">Run</a></h2>
+<pre><code class="language-bash"># SITL: PX4 boots Gazebo + the autopilot binary
+cd PX4-Autopilot
+make px4_sitl_default gazebo
+# In the PX4 console:
+pxh&gt; nano_ros_app start
+
+# Real hardware (Pixhawk): flash via QGroundControl or
+#     `make px4_fmu-v5_default upload` over the bootloader USB
+
+# Verify from stock ROS 2 on the same network:
+source /opt/ros/humble/setup.bash
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+ros2 topic echo /vehicle_local_position px4_msgs/msg/VehicleLocalPosition
+</code></pre>
+<p><strong>Readiness signal.</strong> After <code>nano_ros_app start</code> in the PX4
+console, expect <code>INFO  [nano-ros] bridge started</code> plus messages
+flowing within 5 seconds. If no bridge log:</p>
+<ol>
+<li>uORB topic not advertised yet — start the upstream PX4 module
+that publishes it (<code>commander start</code> etc.) first.</li>
+<li><code>zenohd</code> unreachable — Pixhawk’s network config (set via
+QGroundControl or <code>param set</code>) needs to route to the host
+running zenohd.</li>
+<li>Module didn’t register — check the PX4 boot log for
+<code>nano-ros: register failed</code>.</li>
+<li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
+</ol>
+<h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>
 <ul>
-<li><strong>uORB</strong> — in-process pub/sub broker, included in PX4</li>
-<li><strong>px4-rs</strong> — Rust framework for writing PX4 modules (separate project at
-<a href="https://github.com/aeon/px4-rs">github.com/aeon/px4-rs</a>)</li>
-<li><strong>px4-uorb</strong> — typed <code>Publication&lt;T&gt;</code> / <code>Subscription&lt;T&gt;</code> wrappers</li>
-<li><strong>px4-workqueue</strong> — <code>#[task]</code> macro + waker chain integrated with PX4’s
-<code>ScheduledWorkItem</code></li>
+<li>PX4 external-module template:
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/integrations/px4/module-template"><code>integrations/px4/module-template/</code></a></li>
+<li>Worked PX4 example:
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/px4/cpp/uorb/nros-register-check"><code>examples/px4/cpp/uorb/nros-register-check/</code></a></li>
+<li>PX4 integration roadmap notes:
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/integrations/px4/README.md"><code>integrations/px4/README.md</code></a></li>
 </ul>
-<p>Crates: <code>nros-rmw-uorb</code> (RMW backend) + <code>nros-px4</code> (board-style entry point).
-Both live under <code>packages/px4/</code> and are wired into the workspace via the
-<code>rmw-uorb</code> feature on <code>nros-node</code>.</p>
-<h2 id="setup"><a class="header" href="#setup">Setup</a></h2>
-<p>px4-rs is a sibling project. Symlink it into the nano-ros tree:</p>
-<pre><code class="language-bash">just px4 setup            # symlinks third-party/px4-rs → $PX4_RS_DIR
-                          # default $PX4_RS_DIR = ~/repos/px4-rs
-</code></pre>
-<p>Override the source location via the <code>PX4_RS_DIR</code> env var or <code>.env</code>. SITL
-integration tests additionally require <code>PX4_AUTOPILOT_DIR</code> pointing at a
-PX4-Autopilot checkout.</p>
-<h3 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h3>
+<h2 id="constraints-to-be-aware-of"><a class="header" href="#constraints-to-be-aware-of">Constraints to be aware of</a></h2>
 <ul>
-<li><code>~/repos/px4-rs</code> checked out (recent main)</li>
-<li>For SITL tests: <code>~/repos/PX4-Autopilot</code> checked out + ability to build
-<code>make px4_sitl</code></li>
-<li>For target builds: <code>arm-none-eabi-gcc</code> (Pixhawk) or <code>riscv32-elf-gcc</code></li>
-<li>Rust toolchain ≥ 1.85 (px4-rs uses edition 2024)</li>
+<li><strong>uORB binding is C++-only.</strong> The PX4 example collapses uORB
+registration to a C++ port; Rust / C variants exist for non-PX4
+RTOSes but not for PX4.</li>
+<li><strong>PX4’s NuttX kernel.</strong> Underneath, PX4 runs NuttX; if you need
+to debug at the kernel layer, the
+<a href="./integration-nuttx.html">NuttX starter</a> page applies too.</li>
+<li><strong>uORB throughput vs zenoh hops.</strong> uORB is in-process pub/sub at
+~µs latency; zenoh adds network-RTT. Plan accordingly when
+bridging high-rate streams.</li>
 </ul>
-<p>Run <code>just px4 doctor</code> to verify install.</p>
-<h2 id="quick-build"><a class="header" href="#quick-build">Quick build</a></h2>
-<pre><code class="language-bash">just px4 build            # cargo check on host (std mock)
-just px4 test             # round-trip test via std mock broker
-just px4 ci               # check + test
-</code></pre>
-<h2 id="writing-a-px4-nano-ros-module"><a class="header" href="#writing-a-px4-nano-ros-module">Writing a PX4 nano-ros module</a></h2>
-<p>PX4 uORB messages are <code>#[repr(C)]</code> POD structs generated from <code>.msg</code> files
-by <code>px4-msg-codegen</code>. The same <code>.msg</code> definition is used on both ends of the
-pub/sub wire — there is no CDR. Each topic must be <strong>registered once</strong> at
-module init so nano-ros can map ROS 2 topic strings to typed
-<code>Publication&lt;T&gt;</code>/<code>Subscription&lt;T&gt;</code> instances.</p>
-<h3 id="direct-typed-api-recommended"><a class="header" href="#direct-typed-api-recommended">Direct typed API (recommended)</a></h3>
-<p>This is the primary path: PX4-generated message types + raw pub/sub
-straight from <code>px4-uorb</code>, with topic-name validation against
-<code>topics.toml</code>. No CDR, no type erasure, no trampoline registry. The
-entire API surface lives in [<code>nros::uorb</code>] — you never reach into
-<code>nros-rmw-uorb</code> or <code>px4-uorb</code> directly from your application code.</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span>#![no_std]
-
-<span class="boring">fn main() {
-</span>use nros::uorb::{publication, subscription};
-use px4_uorb::UorbTopic;
-
-// Generated by px4-msg-codegen from msg/SensorPing.msg
-#[px4_msg_macros::px4_message("./msg/SensorPing.msg")]
-pub struct sensor_ping;
-
-#[px4_workqueue::task(wq = "rate_ctrl")]
-async fn talker() {
-    let pub_ = publication::&lt;sensor_ping&gt;(
-        "/fmu/out/sensor_ping",
-        0,
-    ).expect("publication");
-
-    loop {
-        let msg = SensorPing { seq: 0, /* ... */ };
-        pub_.publish(&amp;msg).ok();
-        // throttle via px4-workqueue's Timer or interval task
-    }
-}
-
-#[px4_workqueue::task(wq = "rate_ctrl")]
-async fn listener() {
-    let sub = subscription::&lt;sensor_ping&gt;(
-        "/fmu/out/sensor_ping",
-        0,
-    ).expect("subscription");
-
-    loop {
-        let msg: SensorPing = sub.recv().await;
-        // process msg
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn nros_talker_main(_argc: i32, _argv: *mut *mut u8) -&gt; i32 {
-    talker::spawn().forget();
-    listener::spawn().forget();
-    0
-}
-<span class="boring">}</span></code></pre>
-<p><code>publication</code>/<code>subscription</code> validate the ROS 2 topic name is in
-<code>topics.toml</code> AND that the mapped uORB name matches <code>T::metadata().o_name</code>.
-Mismatches fail at module init rather than first publish, catching
-copy-paste errors early.</p>
-<h3 id="typeless-api-via-executor--node-recommended-for-ros-shaped-code"><a class="header" href="#typeless-api-via-executor--node-recommended-for-ros-shaped-code">Typeless API via <code>Executor</code> / <code>Node</code> (recommended for ROS-shaped code)</a></h3>
-<p>For users who want their PX4 module to look just like the zenoh / xrce
-examples — same <code>Executor::open</code> → <code>create_node</code> → <code>create_publisher</code> /
-<code>create_subscription</code> shape — use the <strong>typeless API</strong>. It bypasses CDR
-serialization (which doesn’t fit uORB’s raw memcpy semantics) by handing
-you a byte-shaped publisher/subscriber. Your code does its own
-serialization (memcpy of a <code>#[repr(C)]</code> struct).</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>use core::time::Duration;
-use nros::{Executor, ExecutorConfig};
-
-// One-time at boot: enrol the PX4 message type with the uORB trampoline.
-nros::uorb::register::&lt;sensor_ping&gt;("/fmu/out/sensor_ping", 0);
-
-let config = ExecutorConfig::new("").node_name("talker");
-let mut executor = Executor::open(&amp;config)?;
-let mut node = executor.create_node("talker")?;
-
-// Typeless publisher: same shape as create_publisher::&lt;M&gt;, but no
-// M: RosMessage bound. The (type_name, type_hash) strings are used by
-// backends that care about discovery; uORB ignores them.
-let publisher = node.create_publisher_raw(
-    "/fmu/out/sensor_ping",
-    "px4::SensorPing",
-    "0",
-)?;
-
-let msg = SensorPing { seq: 0, /* ... */ };
-let bytes: &amp;[u8] = unsafe {
-    core::slice::from_raw_parts(
-        &amp;msg as *const SensorPing as *const u8,
-        core::mem::size_of::&lt;SensorPing&gt;(),
-    )
-};
-publisher.publish_raw(bytes)?;
-
-// Subscription mirror:
-let mut subscriber = node.create_subscription_raw(
-    "/fmu/out/sensor_ping",
-    "px4::SensorPing",
-    "0",
-)?;
-loop {
-    let _ = executor.spin_once(Duration::from_millis(10));
-    if let Some(len) = subscriber.try_recv_raw()? {
-        let recv: SensorPing = unsafe {
-            core::ptr::read_unaligned(subscriber.buffer().as_ptr() as *const SensorPing)
-        };
-        // process recv
-        let _ = len;
-    }
-}
-<span class="boring">}</span></code></pre>
-<p><code>create_publisher_raw</code> / <code>create_subscription_raw</code> work for <strong>any</strong> RMW
-backend — zenoh, XRCE-DDS, uORB. Bytes you supply must match the
-backend’s wire format (CDR for zenoh / XRCE / DDS; raw POD for uORB).</p>
-<h3 id="direct-typed-api-lowest-overhead"><a class="header" href="#direct-typed-api-lowest-overhead">Direct typed API (lowest overhead)</a></h3>
-<p>This is the alternative path: PX4-generated message types + raw pub/sub
-straight from <code>px4-uorb</code>, with topic-name validation against
-<code>topics.toml</code>. No CDR, no type erasure, no trampoline registry. The
-entire API surface lives in [<code>nros::uorb</code>] — you never reach into
-<code>nros-rmw-uorb</code> or <code>px4-uorb</code> directly from your application code.</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span>#![no_std]
-
-<span class="boring">fn main() {
-</span>use nros::uorb::{publication, subscription};
-use px4_uorb::UorbTopic;
-
-// Generated by px4-msg-codegen from msg/SensorPing.msg
-#[px4_msg_macros::px4_message("./msg/SensorPing.msg")]
-pub struct sensor_ping;
-
-#[px4_workqueue::task(wq = "rate_ctrl")]
-async fn talker() {
-    let pub_ = publication::&lt;sensor_ping&gt;(
-        "/fmu/out/sensor_ping",
-        0,
-    ).expect("publication");
-
-    loop {
-        let msg = SensorPing { seq: 0, /* ... */ };
-        pub_.publish(&amp;msg).ok();
-        // throttle via px4-workqueue's Timer or interval task
-    }
-}
-
-#[px4_workqueue::task(wq = "rate_ctrl")]
-async fn listener() {
-    let sub = subscription::&lt;sensor_ping&gt;(
-        "/fmu/out/sensor_ping",
-        0,
-    ).expect("subscription");
-
-    loop {
-        let msg: SensorPing = sub.recv().await;
-        // process msg
-    }
-}
-<span class="boring">}</span></code></pre>
-<p><code>publication</code>/<code>subscription</code> validate the ROS 2 topic name is in
-<code>topics.toml</code> AND that the mapped uORB name matches <code>T::metadata().o_name</code>.
-Mismatches fail at module init rather than first publish.</p>
-<p>The direct typed API has zero registry overhead but couples your code
-tightly to uORB-specific entry points. <strong>Prefer the typeless <code>Node</code>
-API</strong> when you want code that reads like the zenoh / xrce examples and
-keeps the door open for swapping RMW backends later.</p>
-<h2 id="limitations"><a class="header" href="#limitations">Limitations</a></h2>
+<h2 id="next"><a class="header" href="#next">Next</a></h2>
 <ul>
-<li><strong>Services and actions return <code>Backend("uORB: services not yet supported")</code>.</strong>
-uORB has no native request/response; a paired-topic protocol with a
-correlation-id field is planned. For service-heavy workloads use the
-XRCE-DDS backend.</li>
-<li><strong>No CDR translation.</strong> Bytes flowing through nano-ros’s <code>publish_raw</code> are
-interpreted directly as the PX4 message struct via memcpy. ROS 2 messages
-with non-PX4 layouts (e.g. <code>sensor_msgs/msg/Imu</code>) require schema-mapping
-shims that we do not yet generate. Use the same <code>.msg</code> source on both ends.</li>
-<li><strong>Spin loop is polling.</strong> <code>nros-px4::run</code> calls <code>executor.spin_once</code>
-every 10 ms. Future work will replace this with a waker-driven
-<code>ScheduleNow()</code> integration so subscriber callbacks wake the hosting
-WorkItem on demand.</li>
-<li><strong>Discovery is static.</strong> uORB topics must be registered at compile time
-via <code>nros::uorb::register::&lt;T&gt;(name, instance)</code> calls. There is no
-runtime topic discovery.</li>
-</ul>
-<h2 id="ros-2--uorb-topic-mapping"><a class="header" href="#ros-2--uorb-topic-mapping">ROS 2 ↔ uORB topic mapping</a></h2>
-<p>The mapping table lives in <code>packages/px4/nros-rmw-uorb/topics.toml</code>. It seeds
-a compile-time <code>phf::Map</code> (built by <code>build.rs</code>) used by the RMW session to
-translate ROS 2 topic names to uORB descriptors. Initial subset mirrors
-PX4-Autopilot’s <code>src/modules/uxrce_dds_client/dds_topics.yaml</code>. To add a
-topic:</p>
-<pre><code class="language-toml">[[topic]]
-ros = "/fmu/out/your_topic"
-uorb = "your_topic"
-instance = 0
-</code></pre>
-<p>Then re-run <code>cargo build</code> — the new entry is baked into <code>nros-rmw-uorb</code>.</p>
-<h2 id="testing"><a class="header" href="#testing">Testing</a></h2>
-<h3 id="host-mock-unit-tests-no-sitl"><a class="header" href="#host-mock-unit-tests-no-sitl">Host-mock unit tests (no SITL)</a></h3>
-<p>px4-uorb ships an in-process broker keyed by topic name. Enable via the
-<code>std</code> feature; nano-ros tests use it through the <code>test-helpers</code> feature:</p>
-<pre><code class="language-bash">cargo test -p nros-rmw-uorb --features 'std test-helpers' --test round_trip
-</code></pre>
-<p>3 tests cover the registry, publish/subscribe round-trip, and error paths.</p>
-<h3 id="sitl-e2e-tests-requires-px4-autopilot"><a class="header" href="#sitl-e2e-tests-requires-px4-autopilot">SITL E2E tests (requires PX4-Autopilot)</a></h3>
-<p>Future work will add an integration test that links a nano-ros module into
-the PX4 simulator, modelled on <code>px4-rs/tests/sitl/</code>’s <code>Px4Sitl::boot()</code> /
-<code>shell()</code> / <code>wait_for_log()</code> fixture. Run via:</p>
-<pre><code class="language-bash">PX4_AUTOPILOT_DIR=~/repos/PX4-Autopilot just px4 test-sitl
-</code></pre>
-<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
-<ul>
-<li><a href="../../../docs/design/px4-rmw-uorb.html">docs/design/px4-rmw-uorb.md</a> — design notes</li>
-<li><a href="https://github.com/aeon/px4-rs">px4-rs README</a> — upstream framework</li>
+<li>Add your own uORB topics to the bridge: see the
+<code>nano_ros_app.cpp</code> template’s topic-table section.</li>
+<li>Multi-vehicle: PX4-XRCE-Agent → nano-ros XRCE backend gives you
+the standard PX4-ROS bridge with nano-ros on the autopilot side.</li>
+<li>For pure-NuttX (no PX4) firmware: see the
+<a href="./integration-nuttx.html">NuttX starter</a>.</li>
 </ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../getting-started/esp32.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../getting-started/bare-metal.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../concepts/architecture.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../platform-guides/native-posix.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -453,11 +323,11 @@ the PX4 simulator, modelled on <code>px4-rs/tests/sitl/</code>’s <code>Px4Sitl
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../getting-started/esp32.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../getting-started/bare-metal.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../concepts/architecture.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../platform-guides/native-posix.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

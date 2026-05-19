@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>ESP32 - nano-ros Book</title>
+        <title>ESP32 (esp-hal) - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-68bbd615.js";
+            window.path_to_searchindex_js = "../searchindex-9ac0349f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-2d4edb34.js"></script>
+        <script src="../toc-a20e9cf1.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,243 +177,126 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="esp32-c3-development-setup"><a class="header" href="#esp32-c3-development-setup">ESP32-C3 Development Setup</a></h1>
-<p>Guide for setting up ESP32-C3 development with nros.</p>
-<h2 id="hardware"><a class="header" href="#hardware">Hardware</a></h2>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Board</th><th>Chip</th><th>Arch</th><th>WiFi</th><th>Price</th></tr>
-</thead>
-<tbody>
-<tr><td>ESP32-C3-DevKitC</td><td>ESP32-C3</td><td>RISC-V (RV32IMC)</td><td>802.11 b/g/n</td><td>~$8</td></tr>
-<tr><td>ESP32-C6-DevKitC</td><td>ESP32-C6</td><td>RISC-V (RV32IMAC)</td><td>WiFi 6</td><td>~$12</td></tr>
-</tbody>
-</table>
-</div>
-<p>ESP32-C3 is the primary target. It uses upstream Rust (no forked compiler).</p>
-<h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
-<h3 id="1-rust-toolchains"><a class="header" href="#1-rust-toolchains">1. Rust Toolchains</a></h3>
-<pre><code class="language-bash"># Stable (for workspace builds)
-rustup target add riscv32imc-unknown-none-elf
+                        <h1 id="esp32-esp-hal-bare-metal-rust"><a class="header" href="#esp32-esp-hal-bare-metal-rust">ESP32 (esp-hal, bare-metal Rust)</a></h1>
+<p>Single-node starter on ESP32-C3 / ESP32-S3 using the bare-metal
+<code>esp-hal</code> Rust path — no ESP-IDF. For the ESP-IDF component path
+(C / C++ apps), see <a href="./integration-esp-idf.html">ESP32 (ESP-IDF
+component)</a>.</p>
+<blockquote>
+<p><strong>Prereqs.</strong> Clone with <code>just setup</code> already run.
+<code>espflash</code> on <code>PATH</code> (<code>cargo install espflash</code>). For ESP32-C3 the
+<code>riscv32imc-unknown-none-elf</code> Rust target is the toolchain;
+<code>just esp32 setup</code> pulls it.</p>
+</blockquote>
+<h2 id="project-layout"><a class="header" href="#project-layout">Project layout</a></h2>
+<p>Each example is a standalone Cargo package targeting
+<code>riscv32imc-unknown-none-elf</code> (ESP32-C3) or <code>xtensa-esp32s3-none-elf</code>
+(ESP32-S3). The board crate (<code>nros-board-esp32</code> or
+<code>nros-board-esp32-qemu</code>) wraps the wifi / esp-hal init.</p>
+<pre><code class="language-text">examples/esp32/rust/zenoh/talker/
+├── Cargo.toml
+├── .cargo/config.toml         # target = riscv32imc-unknown-none-elf
+│                              # runner = espflash flash --monitor
+├── config.toml                # wifi credentials + zenoh locator
+├── package.xml
+├── generated/
+└── src/main.rs                # esp-hal init → nros_app_main
+</code></pre>
+<p>The <code>Cargo.toml</code> pulls <code>nros-board-esp32</code> (real hardware) or
+<code>nros-board-esp32-qemu</code> (QEMU ESP32 / ESP32-C3 fork).</p>
+<h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
+<p><code>config.toml</code> carries wifi + zenoh:</p>
+<pre><code class="language-toml">[wifi]
+ssid     = "your-wifi-ssid"
+password = "your-wifi-password"
 
-# Nightly (required for ESP32 examples -- build-std)
-rustup toolchain install nightly
-rustup component add --toolchain nightly rust-src
-</code></pre>
-<p>Or use <code>just setup</code> which installs both automatically.</p>
-<h3 id="2-risc-v-gcc-cross-compiler"><a class="header" href="#2-risc-v-gcc-cross-compiler">2. RISC-V GCC Cross-Compiler</a></h3>
-<p>Required for building zenoh-pico C library for RISC-V.</p>
-<pre><code class="language-bash"># Ubuntu/Debian
-sudo apt install gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
-</code></pre>
-<p>The <code>picolibc</code> package provides C standard library headers (<code>stdint.h</code>, <code>stdlib.h</code>, etc.) for bare-metal RISC-V targets.</p>
-<h3 id="3-flashing-tool"><a class="header" href="#3-flashing-tool">3. Flashing Tool</a></h3>
-<pre><code class="language-bash">cargo install espflash --locked
-</code></pre>
-<p>Also installed by <code>just setup</code>.</p>
-<h3 id="4-usb-permissions-linux"><a class="header" href="#4-usb-permissions-linux">4. USB Permissions (Linux)</a></h3>
-<p>ESP32-C3 dev boards use USB-UART bridges. Add a udev rule to avoid needing <code>sudo</code> for flashing:</p>
-<pre><code class="language-bash">sudo tee /etc/udev/rules.d/99-esp32.rules &lt;&lt; 'EOF'
-# CP210x (Silicon Labs USB-UART)
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE="0666"
-# CH340/CH341
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE="0666"
-# FTDI
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="0403", MODE="0666"
-# ESP32-C3 built-in USB-JTAG
-SUBSYSTEMS=="usb", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", MODE="0666"
-EOF
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-</code></pre>
-<h2 id="quick-start"><a class="header" href="#quick-start">Quick Start</a></h2>
-<h3 id="build-hello-world"><a class="header" href="#build-hello-world">Build Hello World</a></h3>
-<pre><code class="language-bash">cd examples/esp32/hello-world
-cargo +nightly build --release
-</code></pre>
-<h3 id="flash-to-device"><a class="header" href="#flash-to-device">Flash to Device</a></h3>
-<p>Connect the ESP32-C3 board via USB, then:</p>
-<pre><code class="language-bash">cd examples/esp32/hello-world
-cargo +nightly run --release
-</code></pre>
-<p>This builds, flashes, and opens the serial monitor (<code>espflash flash --monitor</code> is configured as the cargo runner).</p>
-<h3 id="build-zenoh-pico-for-risc-v"><a class="header" href="#build-zenoh-pico-for-risc-v">Build zenoh-pico for RISC-V</a></h3>
-<p>zenoh-pico for the ESP32 RISC-V target is built via:</p>
-<pre><code class="language-bash">just esp32 build           # WiFi BSP (production hardware)
-just esp32 build-qemu      # QEMU OpenETH variant
-</code></pre>
-<p>Both invoke <code>cargo build</code> against the BSP, which links against
-zenoh-pico vendored under <code>packages/zpico/zpico-sys/zenoh-pico/</code>.</p>
-<h2 id="project-structure"><a class="header" href="#project-structure">Project Structure</a></h2>
-<p>ESP32 support spans three directories:</p>
-<pre><code>packages/boards/
-├── nros-board-esp32/            # WiFi BSP crate (esp-radio + smoltcp)
-└── nros-board-esp32-qemu/       # QEMU BSP crate (OpenETH + smoltcp, no WiFi deps)
+[zenoh]
+locator   = "tcp/192.168.1.100:7447"     # host running zenohd
+domain_id = 0
 
-packages/drivers/
-└── openeth-smoltcp/       # OpenCores Ethernet MAC driver for smoltcp
-
-packages/core/
-├── nros-platform-esp32/       # WiFi platform primitives (clock, memory, sleep, random)
-└── nros-platform-esp32-qemu/  # QEMU platform primitives
-
-examples/esp32/rust/
-├── zenoh/
-│   ├── talker/            # WiFi publisher (nros-board-esp32 BSP)
-│   └── listener/          # WiFi subscriber (nros-board-esp32 BSP)
-└── standalone/
-    └── hello-world/       # Minimal UART print (no nros deps)
-
-examples/qemu-esp32-baremetal/rust/zenoh/
-├── talker/                # QEMU publisher (nros-board-esp32-qemu BSP)
-└── listener/              # QEMU subscriber (nros-board-esp32-qemu BSP)
+# Optional static IP (commented out — defaults to DHCP):
+# [network]
+# ip      = "10.0.0.100"
+# gateway = "10.0.0.1"
+# prefix  = 24
 </code></pre>
-<p>All ESP32 examples are standalone packages (excluded from the workspace) because they require nightly + <code>build-std</code>.</p>
-<h2 id="esp-hal-crate-versions"><a class="header" href="#esp-hal-crate-versions">ESP-HAL Crate Versions</a></h2>
-<p>These are the crate versions used for ESP32-C3 support (pinned with <code>~</code> to avoid breaking updates):</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Crate</th><th>Version</th><th>Purpose</th></tr>
-</thead>
-<tbody>
-<tr><td><code>esp-hal</code></td><td>~1.0.0</td><td>Hardware Abstraction Layer</td></tr>
-<tr><td><code>esp-backtrace</code></td><td>~0.18.0</td><td>Panic handler + backtrace</td></tr>
-<tr><td><code>esp-println</code></td><td>~0.16.0</td><td>UART print output</td></tr>
-<tr><td><code>esp-bootloader-esp-idf</code></td><td>~0.4.0</td><td>ESP-IDF bootloader compatibility</td></tr>
-</tbody>
-</table>
-</div>
-<p>All crates require the <code>esp32c3</code> feature flag. The <code>unstable</code> feature on <code>esp-hal</code> is needed for <code>delay</code> and other commonly-used modules.</p>
-<h2 id="cargo-configuration"><a class="header" href="#cargo-configuration">Cargo Configuration</a></h2>
-<p>Each ESP32 example needs <code>.cargo/config.toml</code>:</p>
-<pre><code class="language-toml">[target.riscv32imc-unknown-none-elf]
-runner = "espflash flash --monitor"
-rustflags = ["-C", "link-arg=-Tlinkall.x", "-C", "force-frame-pointers"]
+<p>Wi-Fi credentials can also be supplied via <code>SSID=… PASSWORD=…</code>
+environment variables on the build command — preferred for real
+networks since the file ships in git history.</p>
+<p>For QEMU ESP32 (no real wifi) the example tree at
+<code>examples/qemu-esp32-baremetal/</code> uses the loopback path via
+<code>nros-board-esp32-qemu</code>.</p>
+<h2 id="build"><a class="header" href="#build">Build</a></h2>
+<pre><code class="language-bash"># Real hardware (ESP32-C3):
+just esp32 setup           # rustup target add riscv32imc-unknown-none-elf
+cd examples/esp32/rust/zenoh/talker
+cargo build --release
 
-[build]
-target = "riscv32imc-unknown-none-elf"
-
-[unstable]
-build-std = ["core"]
+# QEMU ESP32 (qemu-system-xtensa or qemu-system-riscv32):
+just esp32 build           # builds for the QEMU board crate
 </code></pre>
-<p>Key points:</p>
+<h2 id="run"><a class="header" href="#run">Run</a></h2>
+<pre><code class="language-bash"># Real hardware:
+cd examples/esp32/rust/zenoh/talker
+cargo run --release        # invokes `espflash flash --monitor`
+# Expected serial output:
+#   ESP32-C3 booting...
+#   Wifi connected: 192.168.1.42
+#   Published: 1
+#   Published: 2
+
+# QEMU ESP32:
+just esp32 talker          # boots the talker binary in qemu-system-xtensa
+
+# Verify from stock ROS 2 on the same network:
+source /opt/ros/humble/setup.bash
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+ros2 topic echo /chatter std_msgs/msg/Int32
+</code></pre>
+<p><strong>Readiness signal.</strong> Real hardware: after <code>espflash flash --monitor</code>,
+expect the Wi-Fi connect line + <code>Published: 1</code> within 10 seconds.
+QEMU ESP32: ~15 seconds. If no <code>Published:</code> line:</p>
+<ol>
+<li>Wi-Fi credentials wrong → <code>Wifi connect failed</code> in serial log.</li>
+<li>Wrong locator → talker logs <code>zenoh open failed</code> and retries.
+Confirm <code>zenohd</code> is reachable on the host IP from the board’s
+subnet.</li>
+<li>ESP32-C3 vs ESP32-S3: confirm <code>.cargo/config.toml</code> target matches
+your chip (<code>riscv32imc-unknown-none-elf</code> vs <code>xtensa-esp32s3-none-elf</code>).</li>
+<li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
+</ol>
+<h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>
 <ul>
-<li><code>build-std = ["core"]</code> requires nightly Rust</li>
-<li>Add <code>"alloc"</code> to <code>build-std</code> if heap allocation is needed (WiFi examples)</li>
-<li><code>-Tlinkall.x</code> is the RISC-V linker script from <code>esp-riscv-rt</code></li>
+<li>esp-hal Rust:
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/esp32/rust/zenoh/talker"><code>examples/esp32/rust/zenoh/talker/</code></a></li>
+<li>QEMU ESP32 talker:
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/qemu-esp32-baremetal/rust/zenoh/talker"><code>examples/qemu-esp32-baremetal/rust/zenoh/talker/</code></a></li>
+<li>Board crates:
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/boards/nros-board-esp32"><code>packages/boards/nros-board-esp32/</code></a>,
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/boards/nros-board-esp32-qemu"><code>packages/boards/nros-board-esp32-qemu/</code></a></li>
 </ul>
-<h2 id="qemu-esp32-c3-testing"><a class="header" href="#qemu-esp32-c3-testing">QEMU ESP32-C3 Testing</a></h2>
-<p>Espressif’s QEMU fork emulates ESP32-C3 with OpenCores Ethernet, enabling full E2E testing without physical hardware.</p>
-<h3 id="install-espressif-qemu"><a class="header" href="#install-espressif-qemu">Install Espressif QEMU</a></h3>
-<pre><code class="language-bash">just setup                                    # Includes QEMU check
-./scripts/esp32/install-espressif-qemu.sh     # Or install manually
-</code></pre>
-<p>Provides <code>qemu-system-riscv32</code> with the <code>-M esp32c3</code> machine type.</p>
-<h3 id="build-and-run-qemu-examples"><a class="header" href="#build-and-run-qemu-examples">Build and Run QEMU Examples</a></h3>
-<pre><code class="language-bash"># Build QEMU examples + create flash images
-just esp32 build-qemu
-
-# Boot test (no networking)
-just esp32 test-basic
-</code></pre>
-<h3 id="networked-e2e-tests"><a class="header" href="#networked-e2e-tests">Networked E2E Tests</a></h3>
-<p>The QEMU tests use TAP networking to connect ESP32-C3 instances through zenohd:</p>
-<pre><code>┌──────────────────┐         ┌─────────┐         ┌──────────────────┐
-│ QEMU ESP32-C3    │  TAP    │ zenohd  │  TAP    │ QEMU ESP32-C3    │
-│  talker          │◄───────►│ (host)  │◄───────►│  listener        │
-│  192.0.3.10      │  eth    │192.0.3.1│  eth    │  192.0.3.11      │
-│ OpenETH + smoltcp│         │         │         │ OpenETH + smoltcp│
-└──────────────────┘         └─────────┘         └──────────────────┘
-</code></pre>
-<p>Run the full test suite:</p>
-<pre><code class="language-bash"># Setup TAP network (one-time, requires sudo)
-sudo ./scripts/qemu/setup-network.sh
-
-# Run all ESP32-C3 QEMU tests (builds zenohd automatically)
-just esp32 test
-</code></pre>
-<p>Tests include boot verification, ESP32-to-ESP32 pub/sub, and ESP32-to-native interop.</p>
-<h3 id="key-notes"><a class="header" href="#key-notes">Key Notes</a></h3>
+<h2 id="next"><a class="header" href="#next">Next</a></h2>
 <ul>
-<li>Requires <code>espflash</code> for flash image creation (<code>espflash save-image --merge</code>)</li>
-<li>Uses <code>-icount 3</code> for instruction timing (simulates 125MHz)</li>
-<li>Must use zenohd from submodule (<code>just build-zenohd</code>) – system zenohd may be incompatible</li>
-<li>Each QEMU peer uses a separate TAP device (<code>tap-qemu0</code>, <code>tap-qemu1</code>)</li>
+<li>Subscriber + service + action peer directories under the same
+<code>examples/esp32/rust/zenoh/</code>.</li>
+<li>ESP-IDF component path for C / C++ apps:
+<a href="./integration-esp-idf.html">ESP32 (ESP-IDF component)</a>.</li>
+<li>PlatformIO library path:
+<a href="./integration-platformio.html">PlatformIO library</a>.</li>
+<li>ESP32-S3 (Xtensa) — same code shape; the toolchain swap is
+<code>rustup target add xtensa-esp32s3-none-elf</code> and a different board
+crate.</li>
 </ul>
-<h2 id="wifi-bsp-examples"><a class="header" href="#wifi-bsp-examples">WiFi BSP Examples</a></h2>
-<p>The WiFi examples use the <code>nros-board-esp32</code> BSP crate, which handles WiFi initialization, DHCP, and zenoh session setup.</p>
-<h3 id="build"><a class="header" href="#build">Build</a></h3>
-<p>WiFi credentials are passed as environment variables:</p>
-<pre><code class="language-bash">SSID=MyNetwork PASSWORD=secret just esp32 build
-</code></pre>
-<h3 id="flash-and-monitor"><a class="header" href="#flash-and-monitor">Flash and Monitor</a></h3>
-<p>Connect the ESP32-C3 board via USB, then flash:</p>
-<pre><code class="language-bash">cd examples/esp32/rust/zenoh/talker
-espflash flash --monitor target/riscv32imc-unknown-none-elf/release/esp32-bsp-talker
-</code></pre>
-<h3 id="bsp-api"><a class="header" href="#bsp-api">BSP API</a></h3>
-<p>The <code>nros-board-esp32</code> crate provides <code>run_node()</code> for a minimal setup:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>use nros_board_esp32::prelude::*;
-
-run_node(
-    WifiConfig::new("MyNetwork", "password123"),
-    |node| {
-        let publisher = node.create_publisher("demo/esp32")?;
-        loop {
-            node.spin_once(1000);
-            publisher.publish(&amp;data)?;
-        }
-    },
-)
-<span class="boring">}</span></code></pre>
-<p>For advanced configuration (static IP, custom zenoh locator):</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>run_node_with_config(
-    WifiConfig::new("MyNetwork", "password123"),
-    NodeConfig::new()
-        .zenoh_locator("tcp/192.168.1.1:7447")
-        .node_name("esp32_sensor")
-        .ip_mode(IpMode::Dhcp),
-    |node| { /* ... */ },
-)
-<span class="boring">}</span></code></pre>
-<p>See <code>packages/boards/nros-board-esp32/</code> for full API documentation.</p>
-<h3 id="requirements"><a class="header" href="#requirements">Requirements</a></h3>
-<ul>
-<li>Physical ESP32-C3 board (WiFi testing is not available in QEMU)</li>
-<li>WiFi network reachable by both ESP32 and the zenohd router host</li>
-<li>zenohd running on a host the ESP32 can reach over WiFi</li>
-</ul>
-<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
-<h3 id="error-no-matching-package-found-for-esp-hal"><a class="header" href="#error-no-matching-package-found-for-esp-hal"><code>error: no matching package found</code> for esp-hal</a></h3>
-<p>Ensure you’re using nightly: <code>cargo +nightly build --release</code></p>
-<h3 id="errore0463-cant-find-crate-for-core"><a class="header" href="#errore0463-cant-find-crate-for-core"><code>error[E0463]: can't find crate for core</code></a></h3>
-<p>The <code>build-std</code> config requires nightly and <code>rust-src</code>:</p>
-<pre><code class="language-bash">rustup component add --toolchain nightly rust-src
-</code></pre>
-<h3 id="permission-denied-when-flashing"><a class="header" href="#permission-denied-when-flashing"><code>Permission denied</code> when flashing</a></h3>
-<p>Add the udev rules listed above, or use <code>sudo</code> temporarily:</p>
-<pre><code class="language-bash">sudo cargo +nightly run --release
-</code></pre>
-<h3 id="zenoh-pico-build-fails-with-stdinth-no-such-file-or-directory"><a class="header" href="#zenoh-pico-build-fails-with-stdinth-no-such-file-or-directory">zenoh-pico build fails with <code>stdint.h: No such file or directory</code></a></h3>
-<p>Install the picolibc C library headers:</p>
-<pre><code class="language-bash">sudo apt install picolibc-riscv64-unknown-elf
-</code></pre>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../getting-started/bare-metal.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../getting-started/threadx.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../getting-started/px4.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../getting-started/integration-esp-idf.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -423,11 +306,11 @@ run_node(
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../getting-started/bare-metal.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../getting-started/threadx.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../getting-started/px4.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../getting-started/integration-esp-idf.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

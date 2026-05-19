@@ -1,4 +1,5 @@
 var searchData=
 [
-  ['write_20a_20publisher_0',['5. Write a Publisher',['../getting_started.html#autotoc_md10',1,'']]]
+  ['xrce_20dds_20backend_20xrce_5f_0',['XRCE-DDS Backend (XRCE_*)',['../configuration.html#autotoc_md17',1,'']]],
+  ['xrce_5f_1',['XRCE-DDS Backend (XRCE_*)',['../configuration.html#autotoc_md17',1,'']]]
 ];
