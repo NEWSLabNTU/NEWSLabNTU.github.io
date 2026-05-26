@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9c11d4b3.js";
+            window.path_to_searchindex_js = "searchindex-ffbfd9a3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-81400ecb.js"></script>
@@ -1409,14 +1409,41 @@ covered at <a href="getting-started/zephyr.html">Zephyr (contributor)</a>. The p
 the canonical user entry.</p>
 </blockquote>
 <blockquote>
-<p><strong>Prereqs.</strong> Zephyr SDK ≥ v0.16, <code>west</code> CLI (<code>pip install west</code>),
-Python 3.10+. Bootstrap a Zephyr workspace first
+<p><strong>Prereqs.</strong> Zephyr SDK ≥ v0.16, <code>west</code> CLI (<code>pip install west</code>).
+<strong>Python: 3.10+ on Zephyr 3.7 LTS, but ≥ 3.12 on Zephyr 4.x</strong>
+(4.x’s <code>find_package(Python3)</code> requires 3.12 — see the version
+matrix below). Bootstrap a Zephyr workspace first
 (<code>west init -l &lt;your-app&gt;</code> or <code>just zephyr setup</code> to use the
 in-tree <code>zephyr-workspace/</code> layout). nano-ros’s imported west
 fragment <code>integrations/zephyr/west.yml</code> is a manifest-only file —
 it does NOT pull Zephyr itself; that has to be in your parent
 manifest (<code>zephyrproject-rtos/zephyr</code>).</p>
 </blockquote>
+<h2 id="which-zephyr--37-lts-and-4x-both-supported"><a class="header" href="#which-zephyr--37-lts-and-4x-both-supported">Which Zephyr? — 3.7 LTS and 4.x both supported</a></h2>
+<p>nano-ros consumes as a module on <strong>both</strong> the <strong>3.7 LTS</strong> line (supported
+to Jan 2027; the safety-island default) and the current <strong>4.x</strong> rolling
+line. You build against <strong>whatever Zephyr your workspace already pins</strong> —
+nano-ros adapts. The two lines differ only in <em>how</em> you select an RMW and
+apply nano-ros’s Zephyr patches:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Capability</th><th>Zephyr 3.7 LTS</th><th>Zephyr 4.x</th></tr>
+</thead>
+<tbody>
+<tr><td>Min Python</td><td>3.10</td><td><strong>3.12</strong> (<code>find_package(Python3)</code>)</td></tr>
+<tr><td>RMW selection</td><td><code>prj-&lt;rmw&gt;.conf</code> overlay (<code>-DCONF_FILE=...</code>)</td><td><strong><code>-S nros-&lt;rmw&gt;</code> snippet</strong> (or the overlay)</td></tr>
+<tr><td>nano-ros patches</td><td>sed scripts (<code>just zephyr setup</code>)</td><td><strong><code>west patch apply</code></strong> (<code>zephyr/patches.yml</code>) — <em>or</em> the sed scripts</td></tr>
+<tr><td>Examples as samples / Twister</td><td>—</td><td><strong><code>samples:</code> + Twister</strong> (<code>sample.nano-ros.*</code>)</td></tr>
+<tr><td>zenoh (native_sim)</td><td>✅ build + e2e</td><td>✅ build + e2e</td></tr>
+<tr><td>cyclonedds (native_sim)</td><td>✅ build + e2e</td><td>✅ build · publish · receive · multicast-join <em>(stable 2-node run pending a tracked <code>k_mutex</code> fix)</em></td></tr>
+<tr><td>xrce</td><td>✅</td><td>build path WIP</td></tr>
+</tbody>
+</table>
+</div>
+<p>native_sim networking uses <strong>NSOS</strong> (host loopback) on both lines — no
+TAP/bridge/root. The copy-out, snippet, <code>west patch</code>, and dual-line build
+flows are exercised in CI (<code>just zephyr ci-both</code>, <code>just zephyr check-copy-out</code>).</p>
 <h2 id="project-layout-4"><a class="header" href="#project-layout-4">Project layout</a></h2>
 <p>A Zephyr workspace using nano-ros looks like any other Zephyr
 project — the <strong>nano-ros module sits beside Zephyr</strong>, your
@@ -1502,6 +1529,55 @@ in <code>prj.conf</code> — Zephyr networking is opt-in.</li>
 needs <code>10.0.2.2:7447</code> on QEMU; native_sim uses host loopback).</li>
 <li>See <a href="#troubleshooting--first-10-minutes">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
+<p><strong>Zephyr 4.x build gotchas.</strong></p>
+<ul>
+<li><code>Could NOT find Python3 ... required is at least "3.12"</code> — 4.x needs
+Python ≥ 3.12. Provision one without sudo (e.g. <code>uv venv --python 3.12 .venv312 &amp;&amp; uv pip install west -r zephyr/scripts/requirements.txt</code>) and
+run west through it (<code>.venv312/bin/python -m west build ...</code>), so the
+ROS descriptor-codegen subprocess still uses the system ROS Python.</li>
+<li><code>attempt to assign the value ... to the undefined symbol ETH_NATIVE_POSIX</code>
+— that symbol was renamed <code>ETH_NATIVE_TAP</code> in 4.x; the version-aware
+NSOS overlay handles it (<code>just zephyr build-one</code> does this automatically).</li>
+</ul>
+<h2 id="zephyr-4x-select-the-rmw-with-a-snippet"><a class="header" href="#zephyr-4x-select-the-rmw-with-a-snippet">Zephyr 4.x: select the RMW with a snippet</a></h2>
+<p>On 4.x, nano-ros ships <code>west</code> <strong>snippets</strong> so you pick the RMW on the
+build line instead of hand-writing the overlay:</p>
+<pre><code class="language-bash">west build -b native_sim/native/64 -S nros-cyclonedds apps/my_app
+#                                   ^^^^^^^^^^^^^^^^^^^  nros-zenoh | nros-cyclonedds | nros-xrce
+</code></pre>
+<p>The snippet (shipped via the module’s <code>snippet_root</code>) carries the
+RMW-common Kconfig — equivalent to merging <code>prj-&lt;rmw&gt;.conf</code>. The
+<code>prj-&lt;rmw&gt;.conf</code> / <code>-DCONF_FILE</code> path still works (and is the only option
+on 3.7).</p>
+<h2 id="zephyr-4x-apply-nano-ross-patches-with-west-patch"><a class="header" href="#zephyr-4x-apply-nano-ross-patches-with-west-patch">Zephyr 4.x: apply nano-ros’s patches with <code>west patch</code></a></h2>
+<p>nano-ros needs a few patches to Zephyr’s <code>native_sim</code> NSOS driver
+(<code>recvmsg</code>, IPv4-multicast). On 4.x these are delivered the standard
+way — <code>zephyr/patches.yml</code> consumed by <code>west patch</code>:</p>
+<pre><code class="language-bash">west update
+west patch apply        # applies nano-ros's zephyr/patches.yml (checksummed)
+# ... build as above ...
+west patch clean        # roll back if needed
+</code></pre>
+<p><code>west patch</code> is <strong>4.x-only</strong>; on 3.7 the same patches are applied by the
+sed scripts that <code>just zephyr setup</code> runs. (Cyclone-DDS-on-Zephyr patches
+are baked into the pinned cyclonedds submodule, not delivered via
+<code>west patch</code> — see <code>integrations/zephyr/README.md</code>.)</p>
+<h2 id="copy-out-an-example-as-your-starting-point"><a class="header" href="#copy-out-an-example-as-your-starting-point">Copy out an example as your starting point</a></h2>
+<p>The <code>examples/zephyr/&lt;lang&gt;/&lt;role&gt;/</code> dirs are <strong>copy-out clean</strong> — copy one
+into your own app tree and it builds against the nano-ros module with no
+reference back into the nano-ros repo:</p>
+<pre><code class="language-bash">cp -r modules/nano-ros/examples/zephyr/c/talker apps/my_app
+# cyclonedds examples need the host idlc + the ROS message dirs:
+export NROS_STD_MSGS_DIR=/opt/ros/humble/share/std_msgs   # PKG_DIR contract
+west build -b native_sim/native/64 -S nros-zenoh apps/my_app
+</code></pre>
+<p>Cyclone <code>idlc</code> and the descriptor-gen scripts are located via the module’s
+exported cache vars (<code>NROS_CYCLONE_IDLC</code>, <code>NROS_CYCLONE_SCRIPTS_DIR</code>,
+<code>NROS_CYCLONE_CMAKE_DIR</code>); message-package dirs come from <code>NROS_&lt;PKG&gt;_DIR</code>
+env (defaulting to <code>/opt/ros/humble/share/&lt;pkg&gt;</code>). No <code>/opt/ros</code> or
+repo-relative paths are baked into the example.</p>
+<p>See <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/integrations/zephyr/README.md"><code>integrations/zephyr/README.md</code></a>
+for the in-repo quick reference.</p>
 <h2 id="github-source-4"><a class="header" href="#github-source-4">GitHub source</a></h2>
 <ul>
 <li>Zephyr module shell:
