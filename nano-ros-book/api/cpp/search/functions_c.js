@@ -6,7 +6,8 @@ var searchData=
   ['nodebuilder_3',['NodeBuilder',['../classnros_1_1NodeBuilder.html#a3addc54027ca56283e5b70db6670cf9b',1,'nros::NodeBuilder']]],
   ['nros_5fcpp_5faction_5fclient_5fset_5fcallbacks_4',['nros_cpp_action_client_set_callbacks',['../action__client_8hpp.html#a062e8b3f7a7d97eb88c1f76e2ff61b63',1,'action_client.hpp']]],
   ['nros_5fcpp_5faction_5fserver_5fset_5fcallbacks_5',['nros_cpp_action_server_set_callbacks',['../action__server_8hpp.html#a2c50619814e2731c2500f78e0384a697',1,'action_server.hpp']]],
-  ['nros_5fcpp_5fservice_5fserver_5fregister_6',['nros_cpp_service_server_register',['../service_8hpp.html#ae17e3962a1911b6d08271db5bd0c0b6a',1,'service.hpp']]],
-  ['nros_5fcpp_5fspin_5fonce_7',['nros_cpp_spin_once',['../future_8hpp.html#aa4fd3cd1de6065f38c5f9769fe7172bb',1,'nros_cpp_spin_once(void *handle, int32_t timeout_ms):&#160;future.hpp'],['../stream_8hpp.html#aa4fd3cd1de6065f38c5f9769fe7172bb',1,'nros_cpp_spin_once(void *handle, int32_t timeout_ms):&#160;stream.hpp']]],
-  ['nros_5fcpp_5ftime_5fns_8',['nros_cpp_time_ns',['../future_8hpp.html#abf4799c6d4d352c4d93e57fa83fdb902',1,'nros_cpp_time_ns(void):&#160;future.hpp'],['../stream_8hpp.html#abf4799c6d4d352c4d93e57fa83fdb902',1,'nros_cpp_time_ns(void):&#160;stream.hpp']]]
+  ['nros_5fcpp_5fservice_5fclient_5fregister_6',['nros_cpp_service_client_register',['../client_8hpp.html#a2d2a70ebef096cbea86fe70d6ec7e50c',1,'client.hpp']]],
+  ['nros_5fcpp_5fservice_5fserver_5fregister_7',['nros_cpp_service_server_register',['../service_8hpp.html#ae17e3962a1911b6d08271db5bd0c0b6a',1,'service.hpp']]],
+  ['nros_5fcpp_5fspin_5fonce_8',['nros_cpp_spin_once',['../future_8hpp.html#aa4fd3cd1de6065f38c5f9769fe7172bb',1,'nros_cpp_spin_once(void *handle, int32_t timeout_ms):&#160;future.hpp'],['../stream_8hpp.html#aa4fd3cd1de6065f38c5f9769fe7172bb',1,'nros_cpp_spin_once(void *handle, int32_t timeout_ms):&#160;stream.hpp']]],
+  ['nros_5fcpp_5ftime_5fns_9',['nros_cpp_time_ns',['../future_8hpp.html#abf4799c6d4d352c4d93e57fa83fdb902',1,'nros_cpp_time_ns(void):&#160;future.hpp'],['../stream_8hpp.html#abf4799c6d4d352c4d93e57fa83fdb902',1,'nros_cpp_time_ns(void):&#160;stream.hpp']]]
 ];
