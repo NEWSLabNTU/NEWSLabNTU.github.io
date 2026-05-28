@@ -35,7 +35,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-49cd0129.js";
+            window.path_to_searchindex_js = "../../searchindex-ae2e9a96.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-1dcc8aa0.js"></script>
@@ -180,15 +180,24 @@
                         <h1 id="xrce-dds-symbol-reference"><a class="header" href="#xrce-dds-symbol-reference">XRCE-DDS Symbol Reference</a></h1>
 <p>XRCE-DDS has a minimal platform abstraction layer. It is single-threaded,
 heap-less, and delegates networking to user-provided transport callbacks.
-The 2-3 required FFI symbols are provided by <code>xrce-platform-shim</code> (inside
-<code>xrce-sys</code>), which forwards <code>uxr_*</code> calls to the <code>ConcretePlatform</code> type
-alias from <code>nros-platform</code>. When porting to a new platform, you implement an
-<code>nros-platform-&lt;name&gt;</code> crate (see <a href="../../porting/custom-platform.html">Custom Platform</a>)
-rather than providing these symbols directly.</p>
+The 2-3 required FFI symbols (<code>uxr_millis</code>, <code>uxr_nanos</code>) are provided by
+<code>nros-rmw-xrce</code>’s C alias translation unit (<code>src/platform_aliases.c</code>,
+compiled into <code>nros-rmw-xrce-cffi</code> on every target), which forwards them to
+the canonical <code>nros_platform_*</code> ABI. When porting to a new platform, you
+implement an <code>nros-platform-&lt;name&gt;</code> crate (see
+<a href="../../porting/custom-platform.html">Custom Platform</a>) that supplies the
+<code>nros_platform_*</code> symbols — you do <strong>not</strong> provide the <code>uxr_*</code> symbols
+directly.</p>
+<blockquote>
+<p>Historical note: this mapping used to live in a separate
+<code>xrce-platform-shim</code> crate; Phase 129 deleted it and moved the <code>uxr_*</code>
+forwarders into the <code>nros-rmw-xrce</code> alias TU.</p>
+</blockquote>
 <h2 id="platform-crate-structure"><a class="header" href="#platform-crate-structure">Platform crate structure</a></h2>
 <p>The XRCE-DDS clock symbols are a subset of what the platform crate provides.
-Your <code>nros-platform-&lt;name&gt;</code> crate provides the clock primitives and
-<code>xrce-platform-shim</code> maps them to the <code>uxr_*</code> symbols XRCE-DDS expects.</p>
+Your <code>nros-platform-&lt;name&gt;</code> crate provides the canonical clock primitives
+(<code>nros_platform_time_now_ms</code>, <code>nros_platform_clock_us</code>) and the alias TU
+maps them to the <code>uxr_*</code> symbols XRCE-DDS expects.</p>
 <pre><code>packages/core/nros-platform-&lt;name&gt;/
 ├── Cargo.toml
 └── src/
@@ -287,8 +296,10 @@ the clock symbols.</p>
 <ol>
 <li><strong>Create the platform crate</strong> — <code>nros-platform-&lt;name&gt;/</code> (see
 <a href="../../porting/custom-platform.html">Custom Platform</a>)</li>
-<li><strong>Implement the clock primitives</strong> — <code>clock_ms()</code> and friends; the
-<code>xrce-platform-shim</code> maps these to <code>uxr_millis()</code> and <code>uxr_nanos()</code></li>
+<li><strong>Implement the canonical clock primitives</strong> —
+<code>nros_platform_time_now_ms()</code> / <code>nros_platform_clock_us()</code>; the alias TU
+(<code>nros-rmw-xrce/src/platform_aliases.c</code>) maps these to <code>uxr_millis()</code> /
+<code>uxr_nanos()</code> for you</li>
 <li><strong>Implement <code>smoltcp_clock_now_ms()</code></strong> if using smoltcp transport</li>
 <li><strong>Add a feature to <code>xrce-sys</code></strong> for the new platform if needed</li>
 <li><strong>Choose or implement a transport crate</strong> — reuse <code>xrce-smoltcp</code> for
@@ -299,25 +310,22 @@ networking stack</li>
 <li><strong>Write an example and tests</strong></li>
 </ol>
 <h2 id="example-bare-metal-mps2-an385"><a class="header" href="#example-bare-metal-mps2-an385">Example: bare-metal MPS2-AN385</a></h2>
-<p>The simplest reference is <code>nros-platform-mps2-an385</code>, which provides clock
-primitives that <code>xrce-platform-shim</code> maps to three symbols:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>#[unsafe(no_mangle)]
-pub extern "C" fn uxr_millis() -&gt; i64 {
-    clock_ms() as i64
+<p>The simplest reference is <code>nros-platform-mps2-an385</code>. It supplies the
+canonical <code>nros_platform_*</code> clock symbols; the XRCE alias TU
+(<code>nros-rmw-xrce/src/platform_aliases.c</code>) then derives <code>uxr_millis</code> /
+<code>uxr_nanos</code> from them — you never hand-write the <code>uxr_*</code> symbols:</p>
+<pre><code class="language-c">/* nros-rmw-xrce/src/platform_aliases.c — provided for you, not the porter */
+int64_t uxr_millis(void) {
+    return (int64_t) nros_platform_time_now_ms();
 }
-
-#[unsafe(no_mangle)]
-pub extern "C" fn uxr_nanos() -&gt; i64 {
-    clock_ms() as i64 * 1_000_000
+int64_t uxr_nanos(void) {
+    return (int64_t) nros_platform_clock_us() * 1000;
 }
-
-#[unsafe(no_mangle)]
-pub extern "C" fn smoltcp_clock_now_ms() -&gt; u64 {
-    clock_ms()
-}
-<span class="boring">}</span></code></pre>
+</code></pre>
+<p>So a porter only implements the canonical primitives in their platform crate
+(<code>nros_platform_time_now_ms</code>, <code>nros_platform_clock_us</code>), plus
+<code>smoltcp_clock_now_ms()</code> if using the smoltcp transport. The MPS2-AN385
+platform reads these from a hardware timer with wrap detection.</p>
 <p>Where <code>clock_ms()</code> reads from a hardware timer with wrap detection.</p>
 <h2 id="common-pitfalls"><a class="header" href="#common-pitfalls">Common pitfalls</a></h2>
 <ul>

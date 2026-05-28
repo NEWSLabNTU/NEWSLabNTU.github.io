@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-49cd0129.js";
+            window.path_to_searchindex_js = "searchindex-ae2e9a96.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-1dcc8aa0.js"></script>
@@ -5779,9 +5779,13 @@ ship from <code>packages/core/nros-platform-&lt;plat&gt;/src/*.c</code>, linked 
 the consumer’s build site — <code>posix-c-port</code> for pure-cargo POSIX
 builds, the standalone <code>lib&lt;…&gt;.a</code> for CMake builds, or the kernel
 build system for NuttX / Zephyr.</li>
-<li><strong>Shims.</strong> <code>zpico-platform-shim</code> / <code>xrce-platform-shim</code> forward the
-transport C library’s <code>z_*</code> / <code>uxr_*</code> platform calls to the
-<code>nros_platform_*</code> symbols.</li>
+<li><strong>Alias TUs.</strong> C translation units forward each transport C library’s
+<code>z_*</code> / <code>uxr_*</code> platform calls to the canonical <code>nros_platform_*</code> symbols:
+<code>zpico-sys/c/zpico/platform_aliases.c</code> (default-on <code>platform-aliases</code>
+feature) for zenoh-pico, and <code>nros-rmw-xrce/src/platform_aliases.c</code> (always
+compiled into <code>nros-rmw-xrce-cffi</code>) for XRCE-DDS. (These replaced the
+former <code>zpico-platform-shim</code> / <code>xrce-platform-shim</code> crates, deleted in
+Phase 129.)</li>
 </ul>
 <p>The default feature set is <code>std</code> only. No RMW backend or platform is
 selected by default — the consuming crate chooses explicitly.</p>
@@ -6348,8 +6352,8 @@ shape the cooperative model.</li>
 <tr><td><code>nros-node</code></td><td>Executor, Node, pub/sub/service/action handles</td></tr>
 <tr><td><code>nros-rmw</code></td><td>RMW trait definitions (Session, Publisher, Subscriber, etc.)</td></tr>
 <tr><td><code>nros-platform</code></td><td>Platform trait definitions and <code>ConcretePlatform</code> type alias</td></tr>
-<tr><td><code>zpico-platform-shim</code></td><td>Maps zenoh-pico C symbols to <code>ConcretePlatform</code></td></tr>
-<tr><td><code>xrce-platform-shim</code></td><td>Maps XRCE-DDS C symbols to <code>ConcretePlatform</code></td></tr>
+<tr><td><code>zpico-sys</code> alias TU</td><td>Maps zenoh-pico <code>z_*</code> C symbols to <code>nros_platform_*</code> (default-on <code>platform-aliases</code>)</td></tr>
+<tr><td><code>nros-rmw-xrce</code> alias TU</td><td>Maps XRCE-DDS <code>uxr_*</code> C symbols to <code>nros_platform_*</code></td></tr>
 <tr><td><code>nros-c</code>, <code>nros-cpp</code></td><td>C and C++ API wrappers</td></tr>
 </tbody>
 </table>
@@ -6453,10 +6457,10 @@ run(Config::default(), |config| {
     v
 Board crate (nros-my-board)
     |
-    +-- Platform crate (nros-platform-freertos)
+    +-- Platform crate (nros-platform-&lt;name&gt;)
     +-- Driver crate (lan9118-smoltcp)
     +-- Transport bridge (nros-smoltcp or zpico-serial)
-    +-- Shim crate (zpico-platform-shim)
+    +-- zpico-sys (its default-on alias TU supplies zenoh-pico z_* symbols)
 </code></pre>
 <h2 id="crate-structure"><a class="header" href="#crate-structure">Crate structure</a></h2>
 <p>A minimal board crate looks like this:</p>
@@ -6482,8 +6486,9 @@ name = "nros_my_board"
 nros-platform = { path = "../../core/nros-platform", features = ["platform-freertos"] }
 nros-platform-freertos = { path = "../../core/nros-platform-freertos" }
 
-# Force-link shim crate (provides zenoh-pico C symbols)
-zpico-platform-shim = { path = "../../zpico/zpico-platform-shim", features = ["active"] }
+# zenoh-pico FFI. Its default-on `platform-aliases` C TU emits every
+# `z_*` / `_z_*` symbol zenoh-pico needs, forwarding to `nros_platform_*`.
+# (Phase 129 retired the separate `zpico-platform-shim` crate.)
 zpico-sys = { path = "../../zpico/zpico-sys", default-features = false }
 
 # Ethernet transport (optional, gated by feature)
@@ -6512,10 +6517,12 @@ serial = ["dep:zpico-serial", "dep:my-uart-driver"]
 <p>The lib module force-links shim crates and re-exports the public API.</p>
 <pre><code class="language-rust ignore">#![no_std]
 
-// Force-link: ensures the platform shim's C symbols (zpico FFI) are
-// included in the final binary even though Rust code never calls them
-// directly. Without this, the linker drops them and zenoh-pico fails.
-extern crate zpico_platform_shim;
+// Force-link: ensures `zpico-sys` (and its default-on `platform-aliases`
+// C alias TU, which emits zenoh-pico's `z_*` FFI symbols) is pulled into
+// the final binary even though Rust code never calls it directly. Without
+// this, the linker drops the rlib and zenoh-pico fails to resolve. Phase
+// 129 retired the separate `zpico-platform-shim` keep-alive.
+extern crate zpico_sys;
 
 mod config;
 mod node;
@@ -7000,48 +7007,33 @@ pub type ConcretePlatform = nros_platform_myos::MyOsPlatform;
 <span class="boring">}</span></code></pre>
 <h3 id="4-propagate-through-the-nros-facade"><a class="header" href="#4-propagate-through-the-nros-facade">4. Propagate through the nros facade</a></h3>
 <p>In <code>packages/core/nros/Cargo.toml</code>, add <code>platform-myos</code> to the feature list so users can write <code>nros = { features = ["rmw-zenoh", "platform-myos"] }</code>.</p>
-<h3 id="5-activate-the-shims"><a class="header" href="#5-activate-the-shims">5. Activate the shim(s)</a></h3>
-<p>Each RMW backend has its own platform shim crate. Enable the ones your
-platform will support:</p>
-<pre><code class="language-toml"># packages/zpico/zpico-sys/Cargo.toml  (needed for rmw-zenoh)
+<h3 id="5-register-your-platform-as-an-abi-marker"><a class="header" href="#5-register-your-platform-as-an-abi-marker">5. Register your platform as an ABI marker</a></h3>
+<p>The platform shim crates are gone (Phase 129). Each transport C library’s
+platform symbols now come from a <strong>default-on C alias translation unit</strong> that
+forwards to the canonical <code>nros_platform_*</code> ABI — <code>zpico-sys</code>’s
+<code>platform-aliases</code> feature for zenoh-pico (<code>z_*</code> / <code>_z_*</code>), and
+<code>nros-rmw-xrce</code>’s always-compiled <code>src/platform_aliases.c</code> for XRCE-DDS
+(<code>uxr_*</code>). You do not activate or configure a shim.</p>
+<p>What you add is a <strong>pure ABI marker</strong> feature so each transport crate’s
+<code>build.rs</code> can do per-platform source selection (e.g. strip the vendor
+<code>system/&lt;rtos&gt;/system.c</code>, gate the alias TU’s network section to bare-metal):</p>
+<pre><code class="language-toml"># packages/zpico/zpico-sys/Cargo.toml  (rmw-zenoh)
 [features]
-myos = [
-    "dep:zpico-platform-shim",
-    "zpico-platform-shim?/active",
-    "zpico-platform-shim?/network",
-]
+myos = []   # ABI marker only — no shim dependency
 
-# packages/xrce/xrce-sys/Cargo.toml  (needed for rmw-xrce)
+# packages/xrce/xrce-sys/Cargo.toml  (rmw-xrce)
 [features]
-myos = [
-    "dep:xrce-platform-shim",
-    "xrce-platform-shim?/active",
-]
+myos = []   # ABI marker only
 </code></pre>
-<p>Shim feature flags:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>When to enable</th></tr>
-</thead>
-<tbody>
-<tr><td><code>active</code></td><td>Always, when this platform should claim the shim’s symbols</td></tr>
-<tr><td><code>network</code></td><td>Rust-native TCP/UDP path — forwards <code>_z_open_tcp</code>/<code>_z_read_tcp</code>/etc. to your <code>PlatformTcp</code>/<code>PlatformUdp</code> impl. Omit if you compile zenoh-pico’s C <code>network.c</code> directly (see “Networking” below).</td></tr>
-<tr><td><code>skip-clock-symbols</code></td><td>Your platform provides its own <code>_z_time_elapsed_us</code> etc. (e.g. NuttX ships clock functions in libc). Skips the shim’s default clock forwarders to avoid duplicate-symbol link errors.</td></tr>
-<tr><td><code>network-smoltcp-bridge</code></td><td>Bare-metal smoltcp integration (implies <code>network</code>).</td></tr>
-</tbody>
-</table>
-</div>
-<p>The shim picks up <code>ConcretePlatform</code> automatically through Cargo
-feature unification — no changes inside the shim itself.</p>
-<p>Build-script contract: the shim’s <code>build.rs</code> reads
-<code>DEP_ZPICO_SOCKET_SIZE</code> / <code>DEP_ZPICO_ENDPOINT_SIZE</code> (exported by
-<code>zpico-sys</code>’s <code>build.rs</code>) so it can size socket-handle slabs correctly.
-If you replace <code>zpico-sys</code> with a custom transport crate, export the
-same <code>DEP_*</code> variables from its <code>build.rs</code> or the shim will fall back
-to defaults.</p>
+<p>The alias TU (default-on <code>platform-aliases</code>) covers the full <code>z_*</code> surface —
+memory, sleep, random, time, yield, threading, condvar, clock, and network.
+<code>zpico-sys</code>’s <code>build.rs</code> defines <code>NROS_PLATFORM_ALIASES</code> and emits the network
+wrappers only where the vendor stack doesn’t already provide them (bare-metal).
+If your RTOS’s vendor <code>system.c</code> already supplies these symbols natively (as on
+Orin SPE’s FSP FreeRTOS), turn <code>platform-aliases</code> <strong>off</strong> for that platform to
+avoid duplicate-symbol link errors.</p>
 <h2 id="rust-path"><a class="header" href="#rust-path">Rust path</a></h2>
-<p>This is the recommended approach. Create a ZST and implement each capability as inherent methods (not trait impls). The shim calls these methods directly through the <code>ConcretePlatform</code> type alias.</p>
+<p>This is the recommended approach. Create a ZST and implement each capability as inherent methods (not trait impls). <code>nros-platform-cffi</code> exposes these methods as the canonical <code>nros_platform_*</code> C symbols, which the alias TUs call.</p>
 <h3 id="skeleton"><a class="header" href="#skeleton">Skeleton</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -12482,12 +12474,19 @@ status + caveats.</li>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="zenoh-pico-symbol-reference"><a class="header" href="#zenoh-pico-symbol-reference">Zenoh-pico Symbol Reference</a></h1>
 <p>This page documents the ~55 FFI symbols that zenoh-pico requires at link time.
-These symbols are provided by <code>zpico-platform-shim</code> (inside <code>zpico-sys</code>), which
-forwards each <code>z_*</code> / <code>_z_*</code> call to the <code>ConcretePlatform</code> type alias from
-<code>nros-platform</code>. When porting to a new platform, you implement an
+These symbols are provided by <code>zpico-sys</code>’s C alias translation unit
+(<code>c/zpico/platform_aliases.c</code>, built by the default-on <code>platform-aliases</code>
+feature), which forwards each <code>z_*</code> / <code>_z_*</code> call to the canonical
+<code>nros_platform_*</code> ABI. When porting to a new platform, you implement an
 <code>nros-platform-&lt;name&gt;</code> crate (see <a href="#custom-platform">Custom Platform</a>)
-rather than providing these symbols directly.</p>
-<p>This page serves as a reference for understanding what the shim layer maps
+that supplies the <code>nros_platform_*</code> symbols — you do <strong>not</strong> provide the
+<code>z_*</code> symbols directly.</p>
+<blockquote>
+<p>Historical note: this mapping used to live in a separate
+<code>zpico-platform-shim</code> crate; Phase 129 deleted it and folded the
+forwarders into the <code>zpico-sys</code> alias TU.</p>
+</blockquote>
+<p>This page serves as a reference for understanding what the alias TU maps
 and what capabilities your <code>nros-platform-&lt;name&gt;</code> crate must provide.</p>
 <h2 id="platform-crate-structure"><a class="header" href="#platform-crate-structure">Platform crate structure</a></h2>
 <pre><code>packages/core/nros-platform-&lt;name&gt;/
@@ -12734,15 +12733,24 @@ QEMU I/O starvation, recursive mutexes, stack sizing, and heap sizing.</p>
 <h1 id="xrce-dds-symbol-reference"><a class="header" href="#xrce-dds-symbol-reference">XRCE-DDS Symbol Reference</a></h1>
 <p>XRCE-DDS has a minimal platform abstraction layer. It is single-threaded,
 heap-less, and delegates networking to user-provided transport callbacks.
-The 2-3 required FFI symbols are provided by <code>xrce-platform-shim</code> (inside
-<code>xrce-sys</code>), which forwards <code>uxr_*</code> calls to the <code>ConcretePlatform</code> type
-alias from <code>nros-platform</code>. When porting to a new platform, you implement an
-<code>nros-platform-&lt;name&gt;</code> crate (see <a href="#custom-platform">Custom Platform</a>)
-rather than providing these symbols directly.</p>
+The 2-3 required FFI symbols (<code>uxr_millis</code>, <code>uxr_nanos</code>) are provided by
+<code>nros-rmw-xrce</code>’s C alias translation unit (<code>src/platform_aliases.c</code>,
+compiled into <code>nros-rmw-xrce-cffi</code> on every target), which forwards them to
+the canonical <code>nros_platform_*</code> ABI. When porting to a new platform, you
+implement an <code>nros-platform-&lt;name&gt;</code> crate (see
+<a href="#custom-platform">Custom Platform</a>) that supplies the
+<code>nros_platform_*</code> symbols — you do <strong>not</strong> provide the <code>uxr_*</code> symbols
+directly.</p>
+<blockquote>
+<p>Historical note: this mapping used to live in a separate
+<code>xrce-platform-shim</code> crate; Phase 129 deleted it and moved the <code>uxr_*</code>
+forwarders into the <code>nros-rmw-xrce</code> alias TU.</p>
+</blockquote>
 <h2 id="platform-crate-structure-1"><a class="header" href="#platform-crate-structure-1">Platform crate structure</a></h2>
 <p>The XRCE-DDS clock symbols are a subset of what the platform crate provides.
-Your <code>nros-platform-&lt;name&gt;</code> crate provides the clock primitives and
-<code>xrce-platform-shim</code> maps them to the <code>uxr_*</code> symbols XRCE-DDS expects.</p>
+Your <code>nros-platform-&lt;name&gt;</code> crate provides the canonical clock primitives
+(<code>nros_platform_time_now_ms</code>, <code>nros_platform_clock_us</code>) and the alias TU
+maps them to the <code>uxr_*</code> symbols XRCE-DDS expects.</p>
 <pre><code>packages/core/nros-platform-&lt;name&gt;/
 ├── Cargo.toml
 └── src/
@@ -12841,8 +12849,10 @@ the clock symbols.</p>
 <ol>
 <li><strong>Create the platform crate</strong> — <code>nros-platform-&lt;name&gt;/</code> (see
 <a href="#custom-platform">Custom Platform</a>)</li>
-<li><strong>Implement the clock primitives</strong> — <code>clock_ms()</code> and friends; the
-<code>xrce-platform-shim</code> maps these to <code>uxr_millis()</code> and <code>uxr_nanos()</code></li>
+<li><strong>Implement the canonical clock primitives</strong> —
+<code>nros_platform_time_now_ms()</code> / <code>nros_platform_clock_us()</code>; the alias TU
+(<code>nros-rmw-xrce/src/platform_aliases.c</code>) maps these to <code>uxr_millis()</code> /
+<code>uxr_nanos()</code> for you</li>
 <li><strong>Implement <code>smoltcp_clock_now_ms()</code></strong> if using smoltcp transport</li>
 <li><strong>Add a feature to <code>xrce-sys</code></strong> for the new platform if needed</li>
 <li><strong>Choose or implement a transport crate</strong> — reuse <code>xrce-smoltcp</code> for
@@ -12853,25 +12863,22 @@ networking stack</li>
 <li><strong>Write an example and tests</strong></li>
 </ol>
 <h2 id="example-bare-metal-mps2-an385"><a class="header" href="#example-bare-metal-mps2-an385">Example: bare-metal MPS2-AN385</a></h2>
-<p>The simplest reference is <code>nros-platform-mps2-an385</code>, which provides clock
-primitives that <code>xrce-platform-shim</code> maps to three symbols:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>#[unsafe(no_mangle)]
-pub extern "C" fn uxr_millis() -&gt; i64 {
-    clock_ms() as i64
+<p>The simplest reference is <code>nros-platform-mps2-an385</code>. It supplies the
+canonical <code>nros_platform_*</code> clock symbols; the XRCE alias TU
+(<code>nros-rmw-xrce/src/platform_aliases.c</code>) then derives <code>uxr_millis</code> /
+<code>uxr_nanos</code> from them — you never hand-write the <code>uxr_*</code> symbols:</p>
+<pre><code class="language-c">/* nros-rmw-xrce/src/platform_aliases.c — provided for you, not the porter */
+int64_t uxr_millis(void) {
+    return (int64_t) nros_platform_time_now_ms();
 }
-
-#[unsafe(no_mangle)]
-pub extern "C" fn uxr_nanos() -&gt; i64 {
-    clock_ms() as i64 * 1_000_000
+int64_t uxr_nanos(void) {
+    return (int64_t) nros_platform_clock_us() * 1000;
 }
-
-#[unsafe(no_mangle)]
-pub extern "C" fn smoltcp_clock_now_ms() -&gt; u64 {
-    clock_ms()
-}
-<span class="boring">}</span></code></pre>
+</code></pre>
+<p>So a porter only implements the canonical primitives in their platform crate
+(<code>nros_platform_time_now_ms</code>, <code>nros_platform_clock_us</code>), plus
+<code>smoltcp_clock_now_ms()</code> if using the smoltcp transport. The MPS2-AN385
+platform reads these from a hardware timer with wrap detection.</p>
 <p>Where <code>clock_ms()</code> reads from a hardware timer with wrap detection.</p>
 <h2 id="common-pitfalls-3"><a class="header" href="#common-pitfalls-3">Common pitfalls</a></h2>
 <ul>
