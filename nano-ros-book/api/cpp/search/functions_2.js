@@ -8,7 +8,7 @@ var searchData=
   ['code_5',['code',['../classnros_1_1Result.html#a60e3ba9ab6ee345c1d2ba6558509b6ee',1,'nros::Result']]],
   ['commit_6',['commit',['../classnros_1_1Publisher_1_1Loan.html#a356a602ba2be0924a6037b39b9d246a9',1,'nros::Publisher::Loan']]],
   ['complete_5fgoal_7',['complete_goal',['../classnros_1_1ActionServer.html#ab3c2c1fa1b4054f3d89e4e51b52aebae',1,'nros::ActionServer']]],
-  ['create_8',['create',['../classnros_1_1Executor.html#aa19f7e42c61d2dab1aac9c121c2e7c9a',1,'nros::Executor::create(Executor &amp;out, const char *locator, uint8_t domain_id, const char *session_name)'],['../classnros_1_1Executor.html#a4faee15f84673abcf34bbf5c60a029aa',1,'nros::Executor::create(Executor &amp;out, const char *locator=nullptr, uint8_t domain_id=0)'],['../classnros_1_1Node.html#aa2f0bcfec1cce23ad864bb341c41a355',1,'nros::Node::create(Node &amp;out, const char *name, const char *ns=nullptr)']]],
+  ['create_8',['create',['../classnros_1_1Node.html#aa2f0bcfec1cce23ad864bb341c41a355',1,'nros::Node::create()'],['../classnros_1_1Executor.html#a4faee15f84673abcf34bbf5c60a029aa',1,'nros::Executor::create(Executor &amp;out, const char *locator=nullptr, uint8_t domain_id=0)'],['../classnros_1_1Executor.html#aa19f7e42c61d2dab1aac9c121c2e7c9a',1,'nros::Executor::create(Executor &amp;out, const char *locator, uint8_t domain_id, const char *session_name)']]],
   ['create_5faction_5fclient_9',['create_action_client',['../classnros_1_1Node.html#a69b1865073490ed4c033c01cdd817e91',1,'nros::Node']]],
   ['create_5faction_5fserver_10',['create_action_server',['../classnros_1_1Node.html#a0c7863feac0349c5dc9c61332c48d8e7',1,'nros::Node']]],
   ['create_5fclient_11',['create_client',['../classnros_1_1Node.html#a14bfc22c50a47b0c4d96dce99b53cef0',1,'nros::Node']]],
@@ -16,9 +16,9 @@ var searchData=
   ['create_5fnode_13',['create_node',['../classnros_1_1Executor.html#afe4abbbe96bfc493c508877f60b130ab',1,'nros::Executor::create_node()'],['../namespacenros.html#ad03f5d25b58677506379a479c6c921df',1,'nros::create_node()']]],
   ['create_5fpolling_5faction_5fclient_14',['create_polling_action_client',['../classnros_1_1Node.html#abb42188c9173ca3ee72274c5bdda84cc',1,'nros::Node']]],
   ['create_5fpolling_5faction_5fserver_15',['create_polling_action_server',['../classnros_1_1Node.html#a10d71c0eab4c2c63650dbf873ff75711',1,'nros::Node']]],
-  ['create_5fpublisher_16',['create_publisher',['../classnros_1_1Node.html#a9e3d23d8b3e831b49f806911f8ff26fa',1,'nros::Node']]],
+  ['create_5fpublisher_16',['create_publisher',['../classnros_1_1Node.html#a9e3d23d8b3e831b49f806911f8ff26fa',1,'nros::Node::create_publisher(Publisher&lt; M &gt; &amp;out, const char *topic, const QoS &amp;qos=QoS::default_profile())'],['../classnros_1_1Node.html#a87bc8ca5c4682d25a7e72c6935544107',1,'nros::Node::create_publisher(Publisher&lt; M &gt; &amp;out, const char *topic, const QoS &amp;qos, const PublisherOptions &amp;options)']]],
   ['create_5fservice_17',['create_service',['../classnros_1_1Node.html#a7c44f909d5315ea7db415b8406027b2c',1,'nros::Node']]],
-  ['create_5fsubscription_18',['create_subscription',['../classnros_1_1Node.html#a594d23b322d5f723d82932c7cd45283b',1,'nros::Node']]],
+  ['create_5fsubscription_18',['create_subscription',['../classnros_1_1Node.html#a594d23b322d5f723d82932c7cd45283b',1,'nros::Node::create_subscription(Subscription&lt; M &gt; &amp;out, const char *topic, const QoS &amp;qos=QoS::default_profile())'],['../classnros_1_1Node.html#ab798a01ec92de1605edd2436a2d279a3',1,'nros::Node::create_subscription(Subscription&lt; M &gt; &amp;out, const char *topic, const QoS &amp;qos, const SubscriptionOptions &amp;options)']]],
   ['create_5ftimer_19',['create_timer',['../classnros_1_1Node.html#a762b5f440fffdec2f1661dbf07cbe556',1,'nros::Node']]],
   ['create_5ftimer_5foneshot_20',['create_timer_oneshot',['../classnros_1_1Node.html#ac61aef6e69a2b807ac35186b645099f0',1,'nros::Node']]]
 ];

@@ -8,7 +8,8 @@ var searchData=
   ['try_5frecv_5',['try_recv',['../classnros_1_1Subscription.html#a73bde6ea94ffc6d3b8b89337840598c3',1,'nros::Subscription']]],
   ['try_5frecv_5ffeedback_6',['try_recv_feedback',['../classnros_1_1ActionClient.html#a84e3b0f723e2e6e1b1b02063e4d59ff0',1,'nros::ActionClient']]],
   ['try_5frecv_5fraw_7',['try_recv_raw',['../classnros_1_1Subscription.html#a7dadec9879357b252083cb757b7bed40',1,'nros::Subscription']]],
-  ['try_5frecv_5frequest_8',['try_recv_request',['../classnros_1_1Service.html#a4cf36676b75fd7ce67c2bf86e16b7dd1',1,'nros::Service']]],
-  ['try_5frecv_5fsequence_9',['try_recv_sequence',['../classnros_1_1Subscription.html#a252b497886e5e8fc017b4d2b453ff22d',1,'nros::Subscription']]],
-  ['try_5ftake_10',['try_take',['../classnros_1_1Future.html#a2ef431f381dfe2500323ba7a67787073',1,'nros::Future']]]
+  ['try_5frecv_5fraw_5fwith_5fattachment_8',['try_recv_raw_with_attachment',['../classnros_1_1Subscription.html#ac3097fc9efde51369ac190af408ef45a',1,'nros::Subscription']]],
+  ['try_5frecv_5frequest_9',['try_recv_request',['../classnros_1_1Service.html#a4cf36676b75fd7ce67c2bf86e16b7dd1',1,'nros::Service']]],
+  ['try_5frecv_5fsequence_10',['try_recv_sequence',['../classnros_1_1Subscription.html#a252b497886e5e8fc017b4d2b453ff22d',1,'nros::Subscription']]],
+  ['try_5ftake_11',['try_take',['../classnros_1_1Future.html#a2ef431f381dfe2500323ba7a67787073',1,'nros::Future']]]
 ];
