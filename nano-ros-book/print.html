@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-8d683252.js";
+            window.path_to_searchindex_js = "searchindex-b115c05e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-7454c8b7.js"></script>
@@ -552,9 +552,9 @@ root CMake under each RTOS’s native package manager.</li>
 <code>&lt;your-package&gt;/generated/</code> (or <code>OUT_DIR</code> for Cargo builds), not in
 an installed ROS message library.</li>
 <li><strong>Configuration is build-time on embedded.</strong> Runtime env vars
-(<code>ROS_DOMAIN_ID</code>, <code>ZENOH_LOCATOR</code>, …) work on POSIX; embedded
-targets resolve config via CMake cache, Kconfig (Zephyr), Cargo
-features, or <code>config.toml</code>.</li>
+(<code>ROS_DOMAIN_ID</code>, <code>NROS_LOCATOR</code> — legacy alias <code>ZENOH_LOCATOR</code>,
+…) work on POSIX; embedded targets resolve config via CMake cache,
+Kconfig (Zephyr), Cargo features, or <code>config.toml</code>.</li>
 </ul>
 <h2 id="next-step"><a class="header" href="#next-step">Next Step</a></h2>
 <p>Continue with <a href="#installation">Installation</a>, then
@@ -797,9 +797,9 @@ nros-rmw-zenoh = { path = "&lt;...&gt;/packages/zpico/nros-rmw-zenoh",
 <tr><th>Knob</th><th>Default</th><th>Env override</th></tr>
 </thead>
 <tbody>
-<tr><td>Zenoh locator</td><td><code>tcp/127.0.0.1:7447</code></td><td><code>ZENOH_LOCATOR</code></td></tr>
+<tr><td>Zenoh locator</td><td><code>tcp/127.0.0.1:7447</code></td><td><code>NROS_LOCATOR</code> (legacy alias: <code>ZENOH_LOCATOR</code>)</td></tr>
 <tr><td>ROS domain ID</td><td><code>0</code></td><td><code>ROS_DOMAIN_ID</code></td></tr>
-<tr><td>Zenoh mode</td><td>client</td><td><code>ZENOH_MODE</code></td></tr>
+<tr><td>Zenoh mode</td><td>client</td><td><code>NROS_SESSION_MODE</code> (legacy alias: <code>ZENOH_MODE</code>)</td></tr>
 </tbody>
 </table>
 </div>
@@ -819,15 +819,16 @@ seconds.</p>
 <pre><code class="language-bash"># Terminal 1 — zenoh router. Blocks the shell until Ctrl-C.
 zenohd                               # installed by `nros setup native`
 
-# Terminal 2 — the talker.
+# Terminal 2 — the talker. The talker logs via `log::info!`, so set
+# RUST_LOG=info — without it `env_logger` only shows errors and the
+# `Published: N` lines stay hidden.
 cd examples/native/rust/talker
-cargo run
-# Expected output:
-#   nros Native Talker (Zenoh Transport)
-#   Node created: talker
-#   Publisher created for topic: /chatter
-#   Published: 1
-#   Published: 2
+RUST_LOG=info cargo run
+# Expected output (on stderr):
+#   [INFO  native_rs_talker] nros Native Talker (Zenoh Transport)
+#   [INFO  native_rs_talker] =========================================
+#   [INFO  native_rs_talker] Published: 1
+#   [INFO  native_rs_talker] Published: 2
 #   …
 </code></pre>
 <p>That’s the nano-ros side fully working. <strong>Optional step:</strong> verify
@@ -846,9 +847,13 @@ ros2 topic echo /chatter std_msgs/msg/Int32
 <p>If <code>ros2 topic echo</code> shows no output despite the talker printing
 <code>Published:</code>, the routers aren’t peering — confirm both processes
 point at the same port (default <code>tcp/127.0.0.1:7447</code>).</p>
-<p><strong>Readiness signal.</strong> Within 5 seconds of <code>cargo run</code>, the talker
-should print <code>Published: 1</code>. If no <code>Published:</code> line in 30 seconds:</p>
+<p><strong>Readiness signal.</strong> Within 5 seconds of <code>RUST_LOG=info cargo run</code>,
+the talker should print <code>Published: 1</code>. If no <code>Published:</code> line in
+30 seconds:</p>
 <ol>
+<li>Confirm <code>RUST_LOG</code> is set. Without <code>RUST_LOG=info</code> (or <code>debug</code>),
+<code>env_logger</code> filters out the <code>Published:</code> lines and the run looks
+silent even when it’s working.</li>
 <li>Confirm <code>zenohd</code> is running (terminal 1). Without it, the talker
 blocks on <code>Executor::open</code> indefinitely.</li>
 <li>Re-run with <code>RUST_LOG=debug cargo run</code> and look for “Failed to
@@ -1177,18 +1182,22 @@ points at one of the predictable misses below.</p>
 ├─ error[E0432]: unresolved import `nros`
 ├─ error: failed to load source for dependency `nros`
 ├─ error: could not find `nros-rmw-zenoh`
-│   → Run `just setup base` from the repo root. The
+│   → Run `nros setup native --rmw zenoh` (or the matching
+│     `nros setup &lt;board&gt; --rmw &lt;rmw&gt;` for your target). The
 │     path-dep in the example's Cargo.toml points at the
-│     in-tree `packages/core/nros`; if the SDK fetch didn't
-│     run, transitive deps are missing.
+│     in-tree `packages/core/nros`; if the source-package
+│     fetch (zenoh-pico, mbedtls) didn't run, transitive
+│     deps are missing.
 │
 ├─ error: failed to find tool. Is `nros` installed?
 ├─ error: `nros-codegen` not found
-│   → Build the host codegen tool first:
-│       cargo build --release \
-│         --manifest-path packages/codegen/packages/Cargo.toml \
-│         -p nros-codegen-c --bin nros-codegen
-│     CMake examples pass it via `-D_NANO_ROS_CODEGEN_TOOL=…`.
+│   → The `nros` CLI is missing on PATH. Reinstall:
+│       curl -fsSL https://raw.githubusercontent.com/NEWSLabNTU/nano-ros/main/scripts/install-nros.sh | sh
+│       export PATH="$HOME/.nros/bin:$PATH"
+│     The `nros` binary ships the codegen — there is no
+│     separate `nros-codegen` build step. CMake examples
+│     auto-resolve `nros` on PATH; `-D_NANO_ROS_CODEGEN_TOOL=`
+│     is an override, not a requirement.
 │
 ├─ error: could not compile … due to previous error
 │  followed by:  the target `thumbv7m-none-eabi` is not installed
@@ -1364,13 +1373,12 @@ cargo build --release
 # C / C++ — use the cross-toolchain CMake invocation:
 just freertos build-fixtures        # builds every in-tree zenoh +
                                     # DDS example across Rust / C / C++
-# Or single-example:
+# Or single-example (the `nros` CLI on PATH auto-resolves the codegen
+# tool — no `-D_NANO_ROS_CODEGEN_TOOL=` needed):
 toolchain="$(pwd)/cmake/toolchain/arm-freertos-armcm3.cmake"
-codegen="$(pwd)/packages/codegen/packages/target/release/nros-codegen"
 cd examples/qemu-arm-freertos/c/talker
 cmake -B build -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
-              -DCMAKE_BUILD_TYPE=Release \
-              -D_NANO_ROS_CODEGEN_TOOL="$codegen"
+              -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 </code></pre>
 <p>First Rust build pulls + cross-compiles deps (~5 min). C / C++ build
@@ -2180,7 +2188,7 @@ into a standard IDF component, mapping IDF Kconfig knobs to
 <h2 id="configure-8"><a class="header" href="#configure-8">Configure</a></h2>
 <p>After <code>idf.py menuconfig</code>:</p>
 <pre><code>Component config → nano-ros
-    RMW backend          (zenoh)        zenoh | xrce | dds | cyclonedds
+    RMW backend          (zenoh)        zenoh | xrce | cyclonedds
     ROS 2 edition        (humble)       humble | iron
 </code></pre>
 <p>The nano-ros component itself exposes only those two knobs.
@@ -2444,7 +2452,9 @@ cargo build --release
 <p>First build (~5 min) cross-compiles all of nano-ros’s Rust deps for
 <code>thumbv7m-none-eabi</code>. Re-builds finish in seconds.</p>
 <h2 id="run-10"><a class="header" href="#run-10">Run</a></h2>
-<pre><code class="language-bash"># 1. Bring up zenohd on the host (Slirp forwards 10.0.2.2:7447):
+<pre><code class="language-bash"># 1. Bring up zenohd on the host (Slirp forwards 10.0.2.2:7450 → host
+#    127.0.0.1:7450). The bare-metal test-fixture port is 7450, NOT
+#    zenohd's default 7447 — edit `config.toml` if you want 7447 instead.
 #    zenohd was installed by `nros setup ... --rmw zenoh`.
 zenohd --listen tcp/127.0.0.1:7450
 
