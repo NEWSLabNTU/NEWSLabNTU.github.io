@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b843b5c1.js";
+            window.path_to_searchindex_js = "searchindex-8d683252.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-7454c8b7.js"></script>
@@ -3270,11 +3270,80 @@ brokered client doesn’t need:</p>
 </tbody>
 </table>
 </div>
-<p>The recommended size-minimal recipe is <strong>serial transport + <code>--gc-sections</code></strong> (in
-the example’s <code>rustflags</code>) <strong>+ a heap right-sized to the backend</strong> — see
-<a href="#serial-transport">Serial transport</a>. nano-ros reuses the RTOS’s network stack
-(lwIP/Zephyr-net/NetX) on hosted RTOS and links <code>smoltcp</code> only on bare-metal
-ethernet; serial links no IP stack at all.</p>
+<h3 id="measured-footprint"><a class="header" href="#measured-footprint">Measured footprint</a></h3>
+<p>Honest, reproducible numbers per <code>(platform, transport, backend, profile)</code> —
+built with the in-tree examples, the <strong>release</strong> profile is cargo’s default
+(opt-3), the <strong>size</strong> profile is the scaffolded <code>[profile.size]</code> (opt-<code>s</code> + <code>lto</code></p>
+<ul>
+<li><code>strip</code>, see <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/phase-204-embedded-binary-size.md#2043--size-tuned-embedded-release-profile">Phase 204.3</a>).
+RAM = <code>data + bss</code>. All cells are after <code>--gc-sections</code> + the size knobs above
+are applied where noted; the serial cell ships with the recipe below.</li>
+</ul>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>platform</th><th>transport</th><th>backend</th><th>profile</th><th>text (flash code)</th><th>data</th><th>bss</th><th>RAM total</th></tr>
+</thead>
+<tbody>
+<tr><td>qemu-arm-baremetal (mps2-an385, cortex-m3)</td><td>ethernet (smoltcp)</td><td>zenoh-pico</td><td>release</td><td>177.4 KB</td><td>67.0 KB</td><td>91.7 KB</td><td><strong>158.7 KB</strong></td></tr>
+<tr><td>qemu-arm-baremetal</td><td>ethernet</td><td>zenoh-pico</td><td>size</td><td><strong>158.3 KB</strong></td><td>67.0 KB</td><td>91.7 KB</td><td>158.7 KB</td></tr>
+<tr><td>qemu-arm-baremetal</td><td><strong>serial</strong> (no IP stack)</td><td>zenoh-pico</td><td>release</td><td>128.6 KB</td><td>25.2 KB</td><td>75.8 KB</td><td><strong>101.0 KB</strong></td></tr>
+<tr><td>qemu-arm-baremetal</td><td><strong>serial</strong></td><td>zenoh-pico</td><td><strong>size</strong> + recipe</td><td><strong>116.1 KB</strong></td><td>25.2 KB</td><td>75.8 KB</td><td><strong>101.0 KB</strong></td></tr>
+<tr><td>stm32f4 (thumbv7em-eabihf, cortex-m4)</td><td>ethernet</td><td>zenoh-pico</td><td>release</td><td>186.9 KB</td><td>13.7 KB</td><td>123.0 KB</td><td>136.7 KB</td></tr>
+<tr><td>stm32f4</td><td>ethernet</td><td>zenoh-pico</td><td>size</td><td><strong>138.1 KB</strong></td><td>13.7 KB</td><td>123.0 KB</td><td>136.7 KB</td></tr>
+<tr><td>qemu-arm-freertos (cortex-m3 + lwIP, RTOS-reused stack)</td><td>ethernet (lwIP)</td><td>zenoh-pico</td><td>release</td><td>240.6 KB</td><td>10.7 KB</td><td>3.3 MB</td><td>3.3 MB</td></tr>
+<tr><td><strong>micro-ROS reference</strong> (XRCE)</td><td>serial</td><td>XRCE-DDS Client</td><td>-Os</td><td>&lt; 75 KB</td><td>—</td><td>~3 KB</td><td>~3 KB peak</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>How to read this:</strong></p>
+<ul>
+<li><strong>The size profile (opt-<code>s</code>) shrinks <code>.text</code> by ~10–26 %</strong> with <code>.bss</code>/<code>.data</code>
+unchanged (opt-level doesn’t touch static buffers — those are the env knobs
+above). <code>-Oz</code> is <strong>not</strong> used — on smoltcp examples it grows <code>.bss</code> +24 KB by
+defeating opt-3’s per-socket dead-buffer DCE (see Phase 204.3).</li>
+<li><strong>Switching ethernet → serial sheds ~50 KB text + ~42 KB <code>.data</code></strong> (no smoltcp
+stack, no IP link C, tuned heap) — the structural lever.</li>
+<li><strong>FreeRTOS + lwIP cells <code>.bss</code> is dominated by lwIP’s heap + FreeRTOS task
+stacks</strong> (3 MB is the configured headroom, not nano-ros overhead).</li>
+<li><strong>The micro-ROS / XRCE row is a reference</strong>, not a nano-ros measurement — no
+bare-metal XRCE example ships yet (needs a custom-transport injection); the
+path to parity is <strong>XRCE + serial + static pools</strong>.</li>
+</ul>
+<h3 id="size-minimal-recipe"><a class="header" href="#size-minimal-recipe">Size-minimal recipe</a></h3>
+<p>Smallest measured nano-ros configuration today (qemu-arm-baremetal serial
+talker, <strong>116 KB text / 101 KB RAM</strong>):</p>
+<pre><code class="language-toml"># Cargo.toml
+[profile.size]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+debug = false
+strip = true
+</code></pre>
+<pre><code class="language-toml"># .cargo/config.toml — gc + serial knobs
+[target.thumbv7m-none-eabi]
+rustflags = [
+    "-C", "link-arg=--gc-sections",   # 204.8 — strip unreferenced fns/data
+    "-C", "link-arg=-Tlink.x",
+]
+
+[env]
+NROS_LINK_IP        = "0"      # 204.7 — drop zenoh-pico TCP/UDP link C
+ZPICO_NO_SMOLTCP    = "1"      # skip smoltcp glue on bare-metal
+NROS_HEAP_SIZE      = "24576"  # 204.5 — right-size for zenoh-pico working set
+NROS_SMOLTCP_MAX_SOCKETS     = "1"   # 204.2 — brokered client multiplexes
+NROS_SMOLTCP_MAX_UDP_SOCKETS = "1"
+</code></pre>
+<p>Build with <code>cargo build --profile size</code>, or fleet-wide via
+<code>NROS_CARGO_PROFILE=size just &lt;plat&gt; build</code>. <code>nros new --platform baremetal</code>
+already scaffolds the <code>[profile.size]</code> + the <code>.cargo/config.toml</code> shape (Phase
+204.7/204.8); uncomment the serial block when you swap to a serial transport.</p>
+<p><strong>The deeper RAM win waits on XRCE on bare-metal</strong> (the ~3 KB-class client +
+static pools, with discovery offloaded to the agent) — tracked separately;
+zenoh-pico’s <code>SUBSCRIBER_BUFFERS</code> + alloc-based session are what keep this row’s
+<code>.bss</code> ~76 KB.</p>
 <h2 id="cargo-features-which-rmwplatform-is-linked"><a class="header" href="#cargo-features-which-rmwplatform-is-linked">Cargo features (which RMW/platform is <em>linked</em>)</a></h2>
 <p>Features select the <strong>linked</strong> RMW backend, platform, and ROS edition. The
 <code>nros.toml</code> <code>node.rmw</code> picks which <em>linked</em> backend is <em>active</em> — the two are
