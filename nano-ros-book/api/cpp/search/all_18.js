@@ -37,5 +37,7 @@ var searchData=
   ['typedresponsefnwithctx_34',['TypedResponseFnWithCtx',['../classnros_1_1Client.html#a4b981ab7ea490279430e5379a6120f29',1,'nros::Client']]],
   ['typedservicefn_35',['TypedServiceFn',['../classnros_1_1Service.html#a7b2304443cb38e19ce8872c467682152',1,'nros::Service']]],
   ['typedservicefnwithctx_36',['TypedServiceFnWithCtx',['../classnros_1_1Service.html#a090fbb98560968c638cf044cb2eb8877',1,'nros::Service']]],
-  ['typedvisitorfn_37',['TypedVisitorFn',['../classnros_1_1ActionServer.html#a361786c56fa69b9faa4ec6a4123fc73c',1,'nros::ActionServer']]]
+  ['typedsubscriptionfn_37',['TypedSubscriptionFn',['../classnros_1_1Subscription.html#af08ba42757cc1ce4107ce58965c42ebf',1,'nros::Subscription']]],
+  ['typedsubscriptionfnwithctx_38',['TypedSubscriptionFnWithCtx',['../classnros_1_1Subscription.html#a7e07e81b5dc176116c9f9d5b4815a885',1,'nros::Subscription']]],
+  ['typedvisitorfn_39',['TypedVisitorFn',['../classnros_1_1ActionServer.html#a361786c56fa69b9faa4ec6a4123fc73c',1,'nros::ActionServer']]]
 ];

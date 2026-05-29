@@ -7,5 +7,6 @@ var searchData=
   ['nros_5fcpp_5fgoal_5fcallback_5ft_4',['nros_cpp_goal_callback_t',['../action__server_8hpp.html#a22d8a6c03c62d6d259f9cdc2987532bc',1,'action_server.hpp']]],
   ['nros_5fcpp_5fret_5ft_5',['nros_cpp_ret_t',['../future_8hpp.html#a45b2b7085c06c18b90bbab273aee11b1',1,'nros_cpp_ret_t:&#160;future.hpp'],['../stream_8hpp.html#a45b2b7085c06c18b90bbab273aee11b1',1,'nros_cpp_ret_t:&#160;stream.hpp']]],
   ['nros_5fcpp_5fservice_5frequest_5fcallback_5ft_6',['nros_cpp_service_request_callback_t',['../service_8hpp.html#a52f236c6bec9091dad05a46f70b2185a',1,'service.hpp']]],
-  ['nros_5fcpp_5fservice_5fresponse_5fcallback_5ft_7',['nros_cpp_service_response_callback_t',['../client_8hpp.html#abd3e9a5a9109ac2d00a579c39a42c011',1,'client.hpp']]]
+  ['nros_5fcpp_5fservice_5fresponse_5fcallback_5ft_7',['nros_cpp_service_response_callback_t',['../client_8hpp.html#abd3e9a5a9109ac2d00a579c39a42c011',1,'client.hpp']]],
+  ['nros_5fcpp_5fsubscription_5fmessage_5fcallback_5ft_8',['nros_cpp_subscription_message_callback_t',['../subscription_8hpp.html#aca09411656ccf70618994c7fdef9de7c',1,'subscription.hpp']]]
 ];
