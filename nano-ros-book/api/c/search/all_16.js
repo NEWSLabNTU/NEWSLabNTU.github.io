@@ -1,15 +1,20 @@
 var searchData=
 [
-  ['table_0',['Return Code Table',['../error_codes.html#autotoc_md29',1,'']]],
-  ['terminals_1',['Quick Start (3 Terminals)',['../ros2_interop.html#autotoc_md19',1,'']]],
-  ['timer_2eh_2',['timer.h',['../timer_8h.html',1,'']]],
-  ['too_20large_20truncated_3',['Message Too Large / Truncated',['../troubleshooting.html#autotoc_md22',1,'']]],
-  ['transport_20buffer_20tuning_4',['Transport Buffer Tuning',['../configuration.html#autotoc_md15',1,'']]],
-  ['troubleshooting_5',['Troubleshooting',['../troubleshooting.html',1,'index']]],
-  ['troubleshooting_2emd_6',['troubleshooting.md',['../troubleshooting_8md.html',1,'']]],
-  ['truncated_7',['Message Too Large / Truncated',['../troubleshooting.html#autotoc_md22',1,'']]],
-  ['tuning_8',['Transport Buffer Tuning',['../configuration.html#autotoc_md15',1,'']]],
-  ['tuning_20nros_5f_9',['C API Buffer Tuning (NROS_*)',['../configuration.html#autotoc_md14',1,'']]],
-  ['types_10',['types',['../group__grp__types.html',1,'']]],
-  ['types_2eh_11',['types.h',['../types_8h.html',1,'']]]
+  ['read_0',['read',['../structnros__transport__ops__t.html#ad34a520c1560fe2684427f535b356055',1,'nros_transport_ops_t']]],
+  ['reference_1',['Reference',['../index.html#autotoc_md199',1,'']]],
+  ['reliability_2',['reliability',['../structnros__qos__t.html#a20e0dfe241270529f1d22dc22a3f433d',1,'nros_qos_t']]],
+  ['requirement_3',['Stable Pointer Requirement',['../troubleshooting.html#autotoc_md222',1,'']]],
+  ['requirements_4',['Requirements',['../ros2_interop.html#autotoc_md216',1,'']]],
+  ['response_5fcallback_5',['response_callback',['../structnros__client__t.html#abebe4f06472ed8fc253f609e7b827e27',1,'nros_client_t']]],
+  ['result_5fcallback_6',['result_callback',['../structnros__action__client__t.html#a9fd20af318b662c5e84a137a9b653140',1,'nros_action_client_t']]],
+  ['result_5fserialized_5fsize_5fmax_7',['result_serialized_size_max',['../structnros__action__type__t.html#a571c74c831c2d85e24490f20a8cb98cd',1,'nros_action_type_t']]],
+  ['return_20code_20table_8',['Return Code Table',['../error_codes.html#autotoc_md225',1,'']]],
+  ['returns_9',['returns',['../nros__generated_8h.html#autotoc_md151',1,'Returns'],['../nros__generated_8h.html#autotoc_md121',1,'Returns'],['../nros__generated_8h.html#autotoc_md123',1,'Returns'],['../nros__generated_8h.html#autotoc_md125',1,'Returns'],['../nros__generated_8h.html#autotoc_md129',1,'Returns'],['../nros__generated_8h.html#autotoc_md131',1,'Returns'],['../nros__generated_8h.html#autotoc_md134',1,'Returns'],['../nros__generated_8h.html#autotoc_md136',1,'Returns'],['../nros__generated_8h.html#autotoc_md137',1,'Returns'],['../nros__generated_8h.html#autotoc_md138',1,'Returns'],['../nros__generated_8h.html#autotoc_md139',1,'Returns'],['../nros__generated_8h.html#autotoc_md141',1,'Returns'],['../nros__generated_8h.html#autotoc_md143',1,'Returns'],['../nros__generated_8h.html#autotoc_md145',1,'Returns'],['../nros__generated_8h.html#autotoc_md147',1,'Returns'],['../nros__generated_8h.html#autotoc_md119',1,'Returns'],['../nros__generated_8h.html#autotoc_md154',1,'Returns'],['../nros__generated_8h.html#autotoc_md159',1,'Returns'],['../nros__generated_8h.html#autotoc_md161',1,'Returns'],['../nros__generated_8h.html#autotoc_md167',1,'Returns'],['../nros__generated_8h.html#autotoc_md169',1,'Returns'],['../nros__generated_8h.html#autotoc_md172',1,'Returns'],['../nros__generated_8h.html#autotoc_md177',1,'Returns'],['../nros__generated_8h.html#autotoc_md180',1,'Returns'],['../nros__generated_8h.html#autotoc_md182',1,'Returns'],['../nros__generated_8h.html#autotoc_md185',1,'Returns'],['../nros__generated_8h.html#autotoc_md187',1,'Returns'],['../nros__generated_8h.html#autotoc_md189',1,'Returns'],['../nros__generated_8h.html#autotoc_md191',1,'Returns'],['../nros__generated_8h.html#autotoc_md193',1,'Returns'],['../nros__generated_8h.html#autotoc_md77',1,'Returns'],['../nros__generated_8h.html#autotoc_md195',1,'Returns'],['../nros__generated_8h.html#autotoc_md1',1,'Returns'],['../nros__generated_8h.html#autotoc_md6',1,'Returns'],['../nros__generated_8h.html#autotoc_md7',1,'Returns'],['../nros__generated_8h.html#autotoc_md10',1,'Returns'],['../nros__generated_8h.html#autotoc_md25',1,'Returns'],['../nros__generated_8h.html#autotoc_md28',1,'Returns'],['../nros__generated_8h.html#autotoc_md32',1,'Returns'],['../nros__generated_8h.html#autotoc_md59',1,'Returns'],['../nros__generated_8h.html#autotoc_md62',1,'Returns'],['../nros__generated_8h.html#autotoc_md65',1,'Returns'],['../nros__generated_8h.html#autotoc_md68',1,'Returns'],['../nros__generated_8h.html#autotoc_md71',1,'Returns'],['../nros__generated_8h.html#autotoc_md74',1,'Returns'],['../nros__generated_8h.html#autotoc_md80',1,'Returns'],['../nros__generated_8h.html#autotoc_md83',1,'Returns'],['../nros__generated_8h.html#autotoc_md86',1,'Returns'],['../nros__generated_8h.html#autotoc_md89',1,'Returns'],['../nros__generated_8h.html#autotoc_md92',1,'Returns'],['../nros__generated_8h.html#autotoc_md94',1,'Returns'],['../nros__generated_8h.html#autotoc_md99',1,'Returns'],['../nros__generated_8h.html#autotoc_md102',1,'Returns'],['../nros__generated_8h.html#autotoc_md104',1,'Returns'],['../nros__generated_8h.html#autotoc_md106',1,'Returns'],['../nros__generated_8h.html#autotoc_md110',1,'Returns'],['../nros__generated_8h.html#autotoc_md112',1,'Returns'],['../nros__generated_8h.html#autotoc_md115',1,'Returns'],['../nros__generated_8h.html#autotoc_md118',1,'Returns']]],
+  ['rmw_20backend_20selection_10',['3. RMW Backend Selection',['../getting_started.html#autotoc_md204',1,'']]],
+  ['rmw_5fname_11',['rmw_name',['../structnros__node__t.html#a3ecb77db1e4f45278bfc20fffd06a20e',1,'nros_node_t::rmw_name'],['../structnros__node__options__t.html#add84dca61b83e4d124ccc5a936f70429',1,'nros_node_options_t::rmw_name']]],
+  ['rmw_5fname_5flen_12',['rmw_name_len',['../structnros__node__t.html#a3190b380ccd12acbf9cd567331fe8811',1,'nros_node_t::rmw_name_len'],['../structnros__node__options__t.html#a7d3b493263460891fd97596fb9f2eaae',1,'nros_node_options_t::rmw_name_len']]],
+  ['ros_202_20interoperability_13',['ROS 2 Interoperability',['../ros2_interop.html',1,'index']]],
+  ['ros2_2dinterop_2emd_14',['ros2-interop.md',['../ros2-interop_8md.html',1,'']]],
+  ['run_15',['5. Build and Run',['../getting_started.html#autotoc_md206',1,'']]],
+  ['runtime_20environment_20variables_16',['Runtime Environment Variables',['../configuration.html#autotoc_md209',1,'']]]
 ];

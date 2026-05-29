@@ -1,12 +1,20 @@
 var searchData=
 [
-  ['reference_0',['Reference',['../index.html#autotoc_md3',1,'']]],
-  ['requirement_1',['Stable Pointer Requirement',['../troubleshooting.html#autotoc_md26',1,'']]],
-  ['requirements_2',['Requirements',['../ros2_interop.html#autotoc_md20',1,'']]],
-  ['return_20code_20table_3',['Return Code Table',['../error_codes.html#autotoc_md29',1,'']]],
-  ['rmw_20backend_20selection_4',['3. RMW Backend Selection',['../getting_started.html#autotoc_md8',1,'']]],
-  ['ros_202_20interoperability_5',['ROS 2 Interoperability',['../ros2_interop.html',1,'index']]],
-  ['ros2_2dinterop_2emd_6',['ros2-interop.md',['../ros2-interop_8md.html',1,'']]],
-  ['run_7',['5. Build and Run',['../getting_started.html#autotoc_md10',1,'']]],
-  ['runtime_20environment_20variables_8',['Runtime Environment Variables',['../configuration.html#autotoc_md13',1,'']]]
+  ['parameter_0',['parameter',['../group__grp__parameter.html',1,'']]],
+  ['parameter_2eh_1',['parameter.h',['../parameter_8h.html',1,'']]],
+  ['parameters_2',['parameters',['../nros__generated_8h.html#autotoc_md91',1,'Parameters'],['../nros__generated_8h.html#autotoc_md181',1,'Parameters'],['../nros__generated_8h.html#autotoc_md98',1,'Parameters'],['../nros__generated_8h.html#autotoc_md101',1,'Parameters'],['../nros__generated_8h.html#autotoc_md103',1,'Parameters'],['../nros__generated_8h.html#autotoc_md105',1,'Parameters'],['../nros__generated_8h.html#autotoc_md109',1,'Parameters'],['../nros__generated_8h.html#autotoc_md111',1,'Parameters'],['../nros__generated_8h.html#autotoc_md120',1,'Parameters'],['../nros__generated_8h.html#autotoc_md122',1,'Parameters'],['../nros__generated_8h.html#autotoc_md124',1,'Parameters'],['../nros__generated_8h.html#autotoc_md128',1,'Parameters'],['../nros__generated_8h.html#autotoc_md130',1,'Parameters'],['../nros__generated_8h.html#autotoc_md140',1,'Parameters'],['../nros__generated_8h.html#autotoc_md142',1,'Parameters'],['../nros__generated_8h.html#autotoc_md144',1,'Parameters'],['../nros__generated_8h.html#autotoc_md146',1,'Parameters'],['../nros__generated_8h.html#autotoc_md150',1,'Parameters'],['../nros__generated_8h.html#autotoc_md153',1,'Parameters'],['../nros__generated_8h.html#autotoc_md158',1,'Parameters'],['../nros__generated_8h.html#autotoc_md166',1,'Parameters'],['../nros__generated_8h.html#autotoc_md168',1,'Parameters'],['../nros__generated_8h.html#autotoc_md171',1,'Parameters'],['../nros__generated_8h.html#autotoc_md174',1,'Parameters'],['../nros__generated_8h.html#autotoc_md176',1,'Parameters'],['../nros__generated_8h.html#autotoc_md179',1,'Parameters'],['../nros__generated_8h.html#autotoc_md85',1,'Parameters'],['../nros__generated_8h.html#autotoc_md194',1,'Parameters'],['../structnros__param__server__t.html#a2f7f6e428b02cf2a895b3b750caeab16',1,'nros_param_server_t::parameters'],['../nros__generated_8h.html#autotoc_md192',1,'Parameters'],['../nros__generated_8h.html#autotoc_md190',1,'Parameters'],['../nros__generated_8h.html#autotoc_md188',1,'Parameters'],['../nros__generated_8h.html#autotoc_md186',1,'Parameters'],['../nros__generated_8h.html#autotoc_md184',1,'Parameters'],['../nros__generated_8h.html#autotoc_md0',1,'Parameters'],['../nros__generated_8h.html#autotoc_md2',1,'Parameters'],['../nros__generated_8h.html#autotoc_md3',1,'Parameters'],['../nros__generated_8h.html#autotoc_md4',1,'Parameters'],['../nros__generated_8h.html#autotoc_md5',1,'Parameters'],['../nros__generated_8h.html#autotoc_md24',1,'Parameters'],['../nros__generated_8h.html#autotoc_md31',1,'Parameters'],['../nros__generated_8h.html#autotoc_md58',1,'Parameters'],['../nros__generated_8h.html#autotoc_md61',1,'Parameters'],['../nros__generated_8h.html#autotoc_md64',1,'Parameters'],['../nros__generated_8h.html#autotoc_md67',1,'Parameters'],['../nros__generated_8h.html#autotoc_md70',1,'Parameters'],['../nros__generated_8h.html#autotoc_md73',1,'Parameters'],['../nros__generated_8h.html#autotoc_md76',1,'Parameters'],['../nros__generated_8h.html#autotoc_md79',1,'Parameters'],['../nros__generated_8h.html#autotoc_md82',1,'Parameters'],['../nros__generated_8h.html#autotoc_md88',1,'Parameters']]],
+  ['pattern_3a_20handling_20errors_3',['Pattern: Handling Errors',['../error_codes.html#autotoc_md227',1,'']]],
+  ['period_5fns_4',['period_ns',['../structnros__timer__t.html#acea948be2eb74bac1a4146e25825ca05',1,'nros_timer_t']]],
+  ['period_5fus_5',['period_us',['../structnros__sched__context__t.html#ab1c0b4f2090c7f66ea5cb15d93e1e56d',1,'nros_sched_context_t']]],
+  ['pico_20error_20codes_6',['zenoh-pico Error Codes',['../troubleshooting.html#autotoc_md224',1,'']]],
+  ['pico_20underlying_20errors_7',['zenoh-pico Underlying Errors',['../error_codes.html#autotoc_md226',1,'']]],
+  ['platform_2eh_8',['platform.h',['../platform_8h.html',1,'']]],
+  ['pointer_20requirement_9',['Stable Pointer Requirement',['../troubleshooting.html#autotoc_md222',1,'']]],
+  ['prerequisites_10',['Prerequisites',['../getting_started.html#autotoc_md201',1,'']]],
+  ['priority_11',['priority',['../structnros__sched__context__t.html#ad705e50862ca93d99f76e01f9bde5b3e',1,'nros_sched_context_t']]],
+  ['project_12',['1. Create a CMake Project',['../getting_started.html#autotoc_md202',1,'']]],
+  ['publisher_13',['4. Write a Publisher',['../getting_started.html#autotoc_md205',1,'']]],
+  ['publisher_2eh_14',['publisher.h',['../publisher_8h.html',1,'']]],
+  ['pubsub_15',['pubsub',['../group__grp__pubsub.html',1,'']]],
+  ['pvportmalloc_16',['pvPortMalloc',['../nros__generated_8h.html#afeb840172d039f8326a27700effd7dcc',1,'nros_generated.h']]]
 ];

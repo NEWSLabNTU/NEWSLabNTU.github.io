@@ -1,13 +1,6 @@
 var searchData=
 [
-  ['see_20also_0',['See Also',['../error_codes.html#autotoc_md32',1,'']]],
-  ['selection_1',['3. RMW Backend Selection',['../getting_started.html#autotoc_md8',1,'']]],
-  ['service_2',['service',['../group__grp__service.html',1,'']]],
-  ['service_2eh_3',['service.h',['../service_8h.html',1,'']]],
-  ['stable_20pointer_20requirement_4',['Stable Pointer Requirement',['../troubleshooting.html#autotoc_md26',1,'']]],
-  ['start_5',['Quick Start',['../index.html#autotoc_md0',1,'']]],
-  ['start_203_20terminals_6',['Quick Start (3 Terminals)',['../ros2_interop.html#autotoc_md19',1,'']]],
-  ['started_7',['Getting Started',['../getting_started.html',1,'index']]],
-  ['subscription_2eh_8',['subscription.h',['../subscription_8h.html',1,'']]],
-  ['system_20install_9',['System Install',['../getting_started.html#autotoc_md11',1,'']]]
+  ['qos_0',['qos',['../structnros__action__server__t.html#a0c3bfa19e96344ab89a9b0497f64d46a',1,'nros_action_server_t::qos'],['../structnros__subscription__t.html#a8825e89dc50f3ce8318697ea21fa962c',1,'nros_subscription_t::qos'],['../structnros__service__t.html#a9d63c7644c14a8c4563e1b658fa1d3dd',1,'nros_service_t::qos'],['../structnros__client__t.html#a960a96627c2ac3f2a2bb4232b137e7cd',1,'nros_client_t::qos'],['../group__grp__qos.html',1,'qos']]],
+  ['quick_20start_1',['Quick Start',['../index.html#autotoc_md196',1,'']]],
+  ['quick_20start_203_20terminals_2',['Quick Start (3 Terminals)',['../ros2_interop.html#autotoc_md215',1,'']]]
 ];
