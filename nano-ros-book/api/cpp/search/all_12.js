@@ -38,11 +38,13 @@ var searchData=
   ['nros_5fcpp_5fservice_5frequest_5fcallback_5ft_35',['nros_cpp_service_request_callback_t',['../service_8hpp.html#a52f236c6bec9091dad05a46f70b2185a',1,'service.hpp']]],
   ['nros_5fcpp_5fservice_5fresponse_5fcallback_5ft_36',['nros_cpp_service_response_callback_t',['../client_8hpp.html#abd3e9a5a9109ac2d00a579c39a42c011',1,'client.hpp']]],
   ['nros_5fcpp_5fservice_5fserver_5fregister_37',['nros_cpp_service_server_register',['../service_8hpp.html#ae17e3962a1911b6d08271db5bd0c0b6a',1,'service.hpp']]],
-  ['nros_5fcpp_5fspin_5fonce_38',['nros_cpp_spin_once',['../stream_8hpp.html#aa4fd3cd1de6065f38c5f9769fe7172bb',1,'nros_cpp_spin_once(void *handle, int32_t timeout_ms):&#160;stream.hpp'],['../future_8hpp.html#aa4fd3cd1de6065f38c5f9769fe7172bb',1,'nros_cpp_spin_once(void *handle, int32_t timeout_ms):&#160;future.hpp']]],
+  ['nros_5fcpp_5fspin_5fonce_38',['nros_cpp_spin_once',['../future_8hpp.html#aa4fd3cd1de6065f38c5f9769fe7172bb',1,'nros_cpp_spin_once(void *handle, int32_t timeout_ms):&#160;future.hpp'],['../stream_8hpp.html#aa4fd3cd1de6065f38c5f9769fe7172bb',1,'nros_cpp_spin_once(void *handle, int32_t timeout_ms):&#160;stream.hpp']]],
   ['nros_5fcpp_5fsubscription_5fmessage_5fcallback_5ft_39',['nros_cpp_subscription_message_callback_t',['../subscription_8hpp.html#aca09411656ccf70618994c7fdef9de7c',1,'subscription.hpp']]],
-  ['nros_5fcpp_5fsubscription_5fregister_40',['nros_cpp_subscription_register',['../subscription_8hpp.html#a3f2ed843158abcfd56fed5d159d41119',1,'subscription.hpp']]],
-  ['nros_5fcpp_5ftime_5fns_41',['nros_cpp_time_ns',['../future_8hpp.html#abf4799c6d4d352c4d93e57fa83fdb902',1,'nros_cpp_time_ns(void):&#160;future.hpp'],['../stream_8hpp.html#abf4799c6d4d352c4d93e57fa83fdb902',1,'nros_cpp_time_ns(void):&#160;stream.hpp']]],
-  ['nros_5ftry_42',['nros_try',['../result_8hpp.html#adcb636653aecb567d949ea777fbbe54b',1,'NROS_TRY:&#160;result.hpp'],['../error_codes.html#autotoc_md33',1,'NROS_TRY']]],
-  ['nros_5ftry_5flog_43',['NROS_TRY_LOG',['../result_8hpp.html#ac84e296f3331eb978f148a9cf22c126f',1,'result.hpp']]],
-  ['nros_5ftry_5fret_44',['NROS_TRY_RET',['../result_8hpp.html#a886119e49639e4228c7e93730618526a',1,'result.hpp']]]
+  ['nros_5fcpp_5fsubscription_5fmessage_5finfo_5fcallback_5ft_40',['nros_cpp_subscription_message_info_callback_t',['../subscription_8hpp.html#a8cdcc3df26179817d9ea6dc6d8b61b00',1,'subscription.hpp']]],
+  ['nros_5fcpp_5fsubscription_5fregister_41',['nros_cpp_subscription_register',['../subscription_8hpp.html#a3f2ed843158abcfd56fed5d159d41119',1,'subscription.hpp']]],
+  ['nros_5fcpp_5fsubscription_5fregister_5fwith_5finfo_42',['nros_cpp_subscription_register_with_info',['../subscription_8hpp.html#adaecfdac1c1960d8f57cb0cb32a6e3f2',1,'subscription.hpp']]],
+  ['nros_5fcpp_5ftime_5fns_43',['nros_cpp_time_ns',['../future_8hpp.html#abf4799c6d4d352c4d93e57fa83fdb902',1,'nros_cpp_time_ns(void):&#160;future.hpp'],['../stream_8hpp.html#abf4799c6d4d352c4d93e57fa83fdb902',1,'nros_cpp_time_ns(void):&#160;stream.hpp']]],
+  ['nros_5ftry_44',['nros_try',['../result_8hpp.html#adcb636653aecb567d949ea777fbbe54b',1,'NROS_TRY:&#160;result.hpp'],['../error_codes.html#autotoc_md33',1,'NROS_TRY']]],
+  ['nros_5ftry_5flog_45',['NROS_TRY_LOG',['../result_8hpp.html#ac84e296f3331eb978f148a9cf22c126f',1,'result.hpp']]],
+  ['nros_5ftry_5fret_46',['NROS_TRY_RET',['../result_8hpp.html#a886119e49639e4228c7e93730618526a',1,'result.hpp']]]
 ];

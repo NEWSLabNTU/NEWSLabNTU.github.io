@@ -39,5 +39,6 @@ var searchData=
   ['typedservicefnwithctx_36',['TypedServiceFnWithCtx',['../classnros_1_1Service.html#a090fbb98560968c638cf044cb2eb8877',1,'nros::Service']]],
   ['typedsubscriptionfn_37',['TypedSubscriptionFn',['../classnros_1_1Subscription.html#af08ba42757cc1ce4107ce58965c42ebf',1,'nros::Subscription']]],
   ['typedsubscriptionfnwithctx_38',['TypedSubscriptionFnWithCtx',['../classnros_1_1Subscription.html#a7e07e81b5dc176116c9f9d5b4815a885',1,'nros::Subscription']]],
-  ['typedvisitorfn_39',['TypedVisitorFn',['../classnros_1_1ActionServer.html#a361786c56fa69b9faa4ec6a4123fc73c',1,'nros::ActionServer']]]
+  ['typedsubscriptioninfofn_39',['TypedSubscriptionInfoFn',['../classnros_1_1Subscription.html#a0496b0d9e6dcef3ef3c94ad2a3928378',1,'nros::Subscription']]],
+  ['typedvisitorfn_40',['TypedVisitorFn',['../classnros_1_1ActionServer.html#a361786c56fa69b9faa4ec6a4123fc73c',1,'nros::ActionServer']]]
 ];
