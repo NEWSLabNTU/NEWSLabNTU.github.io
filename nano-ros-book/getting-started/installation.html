@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-01733834.js";
+            window.path_to_searchindex_js = "../searchindex-a7ecd083.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7454c8b7.js"></script>
@@ -228,124 +228,74 @@ nros_platform_link_app(my_app)
 <p>That is the entire consumption shape. See
 <a href="build-as-subdirectory.html">build-as-subdirectory.md</a> for the full
 walkthrough.</p>
-<h2 id="setup-chooser"><a class="header" href="#setup-chooser">Setup chooser</a></h2>
-<pre><code class="language-bash">git clone --branch=v&lt;X.Y.Z&gt; https://github.com/NEWSLabNTU/nano-ros.git
-cd nano-ros
-
-scripts/bootstrap.sh              # install/check just, then print setup choices
-just setup                        # print the same setup choices once just exists
+<h2 id="provision-your-toolchain-with-nros-setup"><a class="header" href="#provision-your-toolchain-with-nros-setup">Provision your toolchain with <code>nros setup</code></a></h2>
+<p><code>nros setup</code> is the single command that prepares a machine to build
+nano-ros for a given board. It ships <strong>prebuilt toolchains per platform
+per RMW</strong> — the cross-compiler, emulator, RMW host daemon, and any SDK
+sources a board needs are fetched from a pinned index and placed in a
+shared store (<code>~/.nros/sdk</code>). You do <strong>not</strong> install cross-toolchains by
+hand, and you do not need ROS 2 on the machine.</p>
+<h3 id="1-install-the-nros-cli-once-per-machine"><a class="header" href="#1-install-the-nros-cli-once-per-machine">1. Install the <code>nros</code> CLI (once per machine)</a></h3>
+<pre><code class="language-bash">curl -fsSL https://raw.githubusercontent.com/NEWSLabNTU/nano-ros/main/scripts/install-nros.sh | sh
+export PATH="$HOME/.nros/bin:$PATH"      # add to your shell profile
 </code></pre>
-<p>Use recipe groups to discover the command surface without scrolling
-through every platform/backend recipe:</p>
-<pre><code class="language-bash">just --groups
-just --group main --list
-just --group setup --list
-just --group full-matrix --list
-just --group full-matrix --list zephyr
+<p>This downloads the prebuilt <code>nros</code> host binary for your OS/arch into
+<code>~/.nros/bin</code>. Verify with <code>nros --version</code>.</p>
+<h3 id="2-provision-a-board--rmw"><a class="header" href="#2-provision-a-board--rmw">2. Provision a board (+ RMW)</a></h3>
+<pre><code class="language-bash">nros setup &lt;board&gt; --rmw &lt;zenoh|xrce|cyclonedds&gt;
 </code></pre>
-<p>For local documentation preview:</p>
-<pre><code class="language-bash">just setup-docs
-just book-serve
+<p><code>nros setup</code> resolves the board’s package set <strong>union</strong> the RMW’s host
+packages and fetches them all — prebuilt cross-toolchain + emulator +
+RMW daemon + board SDK sources. <code>--rmw</code> defaults to <code>zenoh</code>.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Command</th><th>Provisions</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros setup native</code></td><td>host build; the zenoh router (<code>zenohd</code>)</td></tr>
+<tr><td><code>nros setup native --rmw xrce</code></td><td>host build; the Micro-XRCE-DDS agent</td></tr>
+<tr><td><code>nros setup native --rmw cyclonedds</code></td><td>host build; Cyclone DDS runtime + <code>idlc</code></td></tr>
+<tr><td><code>nros setup qemu-arm-freertos</code></td><td><code>arm-none-eabi-gcc</code>, patched <code>qemu-system-arm</code>, FreeRTOS + lwIP sources, <code>zenohd</code></td></tr>
+<tr><td><code>nros setup qemu-arm-nuttx</code></td><td><code>arm-none-eabi-gcc</code>, qemu, NuttX sources</td></tr>
+<tr><td><code>nros setup qemu-riscv64-threadx</code></td><td><code>riscv64-*-gcc</code>, qemu, ThreadX/NetX sources</td></tr>
+<tr><td><code>nros setup threadx-linux</code></td><td>ThreadX POSIX-sim sources</td></tr>
+<tr><td><code>nros setup esp32</code></td><td>the Espressif toolchain bits the esp-hal path needs</td></tr>
+<tr><td><code>nros setup zephyr</code></td><td>the Zephyr west workspace + Zephyr SDK bits</td></tr>
+<tr><td><code>nros setup mps2-an385</code> / <code>stm32f4</code> / <code>qemu-arm-baremetal</code></td><td>bare-metal <code>arm-none-eabi-gcc</code> + qemu</td></tr>
+</tbody>
+</table>
+</div>
+<p>Useful flags:</p>
+<pre><code class="language-bash">nros setup --list            # every package in the index + its version
+nros setup &lt;board&gt; --dry-run # resolve + print the plan, fetch nothing
+nros setup --licenses        # license-gated packages + how to install them
+nros setup --tool qemu       # one tool by name
+nros setup --source freertos-kernel   # one source package by name
 </code></pre>
-<p><code>just setup</code> is intentionally informational. It does not fetch
-submodules or install SDKs until you choose a tier or platform:</p>
-<pre><code class="language-bash">just setup base                   # first-time native/ROS/zenoh quick start
-just setup zephyr                 # focused platform setup
-just setup all                    # full contributor/test-all setup
-source ./setup.bash               # zenohd, nros, nros-codegen, qemu-system-arm on PATH
-                                  # (use ./setup.fish for fish)
-</code></pre>
-<p>The selected setup command:</p>
-<ol>
-<li>Picks the submodules required for the modules in scope.</li>
-<li>Runs <code>git submodule update --init --depth=1</code> selectively (no
-unrelated deps).</li>
-<li>Installs the Rust target triples via <code>rustup target add</code>.</li>
-<li>Surfaces missing apt cross-toolchain packages on Linux. <strong>Never</strong>
-runs sudo automatically; reports what to install.</li>
-</ol>
-<p>The base tier is for first-time users who want Linux/native examples
-and standard ROS/zenoh workflows:</p>
-<pre><code class="language-bash">just setup base                  # workspace tools + in-tree zenohd
-</code></pre>
-<p>For platform-specific work, run the platform setup directly:</p>
-<pre><code class="language-bash">just setup freertos              # equivalent to: just freertos setup
-just setup nuttx
-just setup zephyr
-just setup threadx_linux
-just setup esp_idf
-just setup px4
-</code></pre>
-<p>For contributors preparing the broad matrix:</p>
-<pre><code class="language-bash">just setup all                   # all supported platform SDKs and services
-</code></pre>
-<p>After a setup command, <code>source ./setup.bash</code> puts every shipped
-binary on PATH for the current shell session — same idiom as
-<code>source /opt/ros/humble/setup.bash</code>. Re-source after subsequent
-builds (e.g. <code>just xrce setup</code>) to pick up newly-built tools.</p>
+<p>Each board’s exact package set lives in the index; run
+<code>nros setup &lt;board&gt; --dry-run</code> to see precisely what a board pulls.
+See <a href="../reference/supported-boards.html">Supported Boards</a> for the full
+board list and <a href="../reference/cli.html"><code>nros</code> CLI</a> for every subcommand.</p>
 <blockquote>
 <p><strong>Heads-up before your first example.</strong> Every nano-ros example
-(Linux talker, FreeRTOS talker, …) connects to a <strong>Zenoh router</strong>
-(<code>zenohd</code>) at startup. Without one running, the talker blocks
-forever on <code>Executor::open</code> with no output. Open a dedicated
-terminal and start the router before launching any example:</p>
-<pre><code class="language-bash">just zenohd run
+(Linux talker, FreeRTOS talker, …) connects to its <strong>RMW host
+daemon</strong> at startup — <code>zenohd</code> for zenoh, the Micro-XRCE-DDS agent
+for xrce. <code>nros setup … --rmw &lt;rmw&gt;</code> installs it into the nros store
+(<code>~/.nros/sdk/&lt;tool&gt;/&lt;version&gt;/bin/</code>); you must then run it in a
+dedicated terminal before launching any example. For zenoh, put the
+store binary on PATH once and run it:</p>
+<pre><code class="language-bash">export PATH="$(dirname "$(ls -d ~/.nros/sdk/zenohd/*/bin/zenohd | tail -1)")":$PATH
+zenohd        # leave running for the whole session
 </code></pre>
-<p>Leave that terminal open for the entire session. Default ports:
-<code>tcp/127.0.0.1:7447</code> on POSIX, <code>tcp/10.0.2.2:7451</code> on QEMU
-FreeRTOS (Slirp forwards to host). Mismatch = silent hang;
-see <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</p>
+<p>Without it the talker blocks forever on <code>Executor::open</code> with no
+output. Default ports: <code>tcp/127.0.0.1:7447</code> on POSIX,
+<code>tcp/10.0.2.2:7451</code> on QEMU FreeRTOS (Slirp forwards to host).
+Mismatch = silent hang; see
+<a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</p>
 </blockquote>
-<p>For a narrower fetch, invoke the per-platform recipe directly:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Form</th><th>Effect</th></tr>
-</thead>
-<tbody>
-<tr><td><code>just setup</code></td><td>print setup choices; no fetch/install</td></tr>
-<tr><td><code>just setup base</code></td><td>workspace tools + in-tree zenohd for first-time native use</td></tr>
-<tr><td><code>just setup all</code></td><td>full contributor/test-all tier</td></tr>
-<tr><td><code>just &lt;platform&gt; setup</code></td><td>platform-only fetch + build (<code>just freertos setup</code>, <code>just zephyr setup</code>, etc.)</td></tr>
-<tr><td><code>just setup &lt;platform&gt;</code></td><td>shorthand for <code>just &lt;platform&gt; setup</code></td></tr>
-<tr><td><code>just &lt;platform&gt; doctor</code></td><td>read-only check of that platform’s prereqs</td></tr>
-<tr><td><code>just doctor</code></td><td>base readiness check</td></tr>
-<tr><td><code>just doctor tier=all</code></td><td>full contributor readiness check</td></tr>
-</tbody>
-</table>
-</div>
-<p>Root commands are workflows (<code>build</code>, <code>test</code>, <code>check</code>, <code>clean</code>,
-<code>build-all</code>, <code>test-all</code>). Platform-specific setup, networking, and help
-stay under the platform namespace, for example <code>just qemu setup-network</code>
-and <code>just zephyr help</code>.</p>
-<blockquote>
-<p><strong>Power-user escape hatch.</strong> The underlying script <code>tools/setup.sh</code>
-takes <code>--target=&lt;plat&gt;-&lt;rmw&gt;</code> for exact-pair fetch + <code>--list-targets</code>,
-<code>--doctor</code>, <code>--with-dev</code>, <code>--with-reference=&lt;name&gt;</code>, <code>--dry-run</code>.
-Use it when you need finer control than the just recipes provide.</p>
-</blockquote>
-<h2 id="per-target-setup"><a class="header" href="#per-target-setup">Per-target setup</a></h2>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Target</th><th>Notes</th></tr>
-</thead>
-<tbody>
-<tr><td><code>posix-zenoh</code></td><td>host build, no cross-toolchain needed</td></tr>
-<tr><td><code>posix-xrce</code></td><td>host build, Micro-XRCE-DDS C backend</td></tr>
-<tr><td><code>posix-cyclonedds</code></td><td>host build, Cyclone DDS via the C++ vtable; requires <code>apt install</code> for Cyclone runtime</td></tr>
-<tr><td><code>freertos-zenoh</code></td><td>needs <code>gcc-arm-none-eabi</code></td></tr>
-<tr><td><code>freertos-xrce</code></td><td>same + <code>xrce::setup</code> to build the agent fixture</td></tr>
-<tr><td><code>nuttx-zenoh</code></td><td>NuttX kernel + apps via <code>make</code> (handled by <code>just nuttx::setup</code>)</td></tr>
-<tr><td><code>threadx-zenoh</code></td><td>ThreadX-Linux POSIX sim or RISC-V via <code>just threadx_linux::setup</code> / <code>threadx_riscv64::setup</code></td></tr>
-<tr><td><code>zephyr-zenoh</code></td><td>Zephyr module via west — see <code>just zephyr::setup</code></td></tr>
-<tr><td><code>esp32-zenoh</code></td><td>ESP-IDF component model</td></tr>
-</tbody>
-</table>
-</div>
-<p>The per-platform <code>just &lt;plat&gt;::setup</code> recipes delegate
-to <code>tools/setup.sh --platform=&lt;plat&gt;</code> for submodule fetch, then run any
-platform-specific build steps (NuttX kernel, Cyclone DDS SDK, etc.).</p>
+<p>After provisioning, follow the per-platform starter page (FreeRTOS,
+Zephyr, NuttX, …) for the board’s build + run steps.</p>
 <h2 id="rust-only-consumers"><a class="header" href="#rust-only-consumers">Rust-only consumers</a></h2>
 <p>nano-ros is source-only — nothing is published to crates.io
 (decision 2026-05-14). The full <code>nros</code> crate can’t be published
@@ -365,22 +315,22 @@ when needed — see
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/multi-package-workspace/src/pkg_rust_publisher"><code>examples/templates/multi-package-workspace/src/pkg_rust_publisher/</code></a>
 for the pattern.</p>
 <h2 id="contributor-setup-working-on-nano-ros-itself"><a class="header" href="#contributor-setup-working-on-nano-ros-itself">Contributor setup (working on nano-ros itself)</a></h2>
-<p>Use the explicit full tier when you need broad <code>test-all</code> coverage:</p>
+<p>Contributors clone the repo and drive everything through <code>just</code>. The
+<code>just</code> setup recipes are thin wrappers over the same <code>nros setup</code> index —
+<code>just &lt;module&gt; setup</code> calls <code>nros setup &lt;board&gt;</code> under the hood, so the
+toolchains a contributor gets are identical to a user’s.</p>
 <pre><code class="language-bash">git clone https://github.com/NEWSLabNTU/nano-ros.git
 cd nano-ros
-just setup all                # every supported SDK/service module
+just setup all                # provision every supported board's SDK/toolchain
 </code></pre>
 <p>Diagnose missing tools (read-only):</p>
 <pre><code class="language-bash">just doctor tier=all
 </code></pre>
-<p>Set up just one module:</p>
-<pre><code class="language-bash">just freertos setup
-just nuttx setup
-just threadx_linux setup
+<p>Provision one module:</p>
+<pre><code class="language-bash">just freertos setup           # → nros setup qemu-arm-freertos
+just nuttx setup              # → nros setup qemu-arm-nuttx
+just threadx_linux setup      # → nros setup threadx-linux
 </code></pre>
-<p>Each <code>&lt;module&gt; setup</code> delegates to <code>tools/setup.sh</code> for submodule
-fetch + runs any platform-specific build steps (NuttX kernel build,
-Cyclone DDS SDK build, etc.).</p>
 <h2 id="docker-environment"><a class="header" href="#docker-environment">Docker environment</a></h2>
 <p>For a containerized environment with QEMU 7.2+:</p>
 <pre><code class="language-bash">just docker build
