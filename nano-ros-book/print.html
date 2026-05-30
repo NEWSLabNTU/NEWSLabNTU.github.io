@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b115c05e.js";
+            window.path_to_searchindex_js = "searchindex-5e20d714.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-7454c8b7.js"></script>
@@ -554,7 +554,8 @@ an installed ROS message library.</li>
 <li><strong>Configuration is build-time on embedded.</strong> Runtime env vars
 (<code>ROS_DOMAIN_ID</code>, <code>NROS_LOCATOR</code> — legacy alias <code>ZENOH_LOCATOR</code>,
 …) work on POSIX; embedded targets resolve config via CMake cache,
-Kconfig (Zephyr), Cargo features, or <code>config.toml</code>.</li>
+Kconfig (Zephyr), Cargo features, or a sidecar <code>nros.toml</code>
+(<code>[node]</code> + <code>[[transport]]</code>).</li>
 </ul>
 <h2 id="next-step"><a class="header" href="#next-step">Next Step</a></h2>
 <p>Continue with <a href="#installation">Installation</a>, then
@@ -599,10 +600,14 @@ under the hood.</p>
 </code></pre>
 <p>The top-level <code>CMakeLists.txt</code>:</p>
 <pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
-project(my_app C)
+# `C CXX` — the per-target `nros_app_register_backends.c` stub the
+# platform link emits needs the C compiler enabled in this scope.
+project(my_app LANGUAGES C CXX)
 
 set(NANO_ROS_PLATFORM posix)
-set(NANO_ROS_RMW     zenoh)
+set(NROS_RMW "zenoh" CACHE STRING
+    "Active RMW (zenoh|xrce|cyclonedds).")
+set(NANO_ROS_RMW "${NROS_RMW}")
 add_subdirectory(third_party/nano-ros nano_ros)
 
 add_executable(my_app src/main.c)
@@ -765,11 +770,16 @@ via a path dependency. Three files matter:</p>
     └── main.rs         # 60-line talker
 </code></pre>
 <p>POSIX talkers read the locator / domain from environment variables
-(<code>ZENOH_LOCATOR</code>, <code>ROS_DOMAIN_ID</code>) — no <code>config.toml</code> is needed.
-The <code>config.toml</code> shape used by embedded targets shows up under
-the Embedded Starters section.</p>
+(<code>NROS_LOCATOR</code>, <code>ROS_DOMAIN_ID</code>) — no <code>nros.toml</code> is needed.
+Embedded targets carry a sidecar <code>nros.toml</code> (<code>[node]</code> +
+<code>[[transport]]</code>) that the board crate parses at boot; see the
+Embedded Starters section.</p>
 <p>The <code>Cargo.toml</code> is the contract that wires nano-ros into your
-package:</p>
+package. The in-tree
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/native/rust/talker/Cargo.toml"><code>examples/native/rust/talker/Cargo.toml</code></a>
+is the canonical version (workspace member of the nano-ros root,
+multi-RMW feature flags, <code>nros-platform-cffi</code> for the POSIX C-port).
+The minimal <strong>standalone</strong> shape (no nano-ros workspace, one RMW) is:</p>
 <pre><code class="language-toml">[package]
 name    = "my-talker"
 edition = "2024"
@@ -782,15 +792,23 @@ path = "src/main.rs"
 nros = { path = "&lt;...&gt;/packages/core/nros",
          default-features = false,
          features = ["std", "rmw-cffi", "platform-posix"] }
+nros-platform-cffi = { path = "&lt;...&gt;/packages/core/nros-platform-cffi",
+                       features = ["posix-c-port"] }
 nros-rmw-zenoh = { path = "&lt;...&gt;/packages/zpico/nros-rmw-zenoh",
                    features = ["std", "platform-posix", "ros-humble"] }
+std_msgs = { version = "*", default-features = false }
+log         = "0.4"
+env_logger  = "0.11"
 
-[workspace]      # empty table — this package is intentionally
-                 # standalone, no walking-up workspace.
+[workspace]      # empty table — keep this package out of any
+                 # parent workspace cargo finds when walking up.
 </code></pre>
+<p>Copying the in-tree example wholesale into a new tree without that
+empty <code>[workspace]</code> table makes cargo walk up and pull the example
+into the nano-ros workspace — which is fine inside the nano-ros
+checkout but breaks once you copy it out.</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
-<p>Three runtime knobs, each overridable at three layers (defaults →
-<code>config.toml</code> → env vars):</p>
+<p>Three runtime knobs, overridable via env vars:</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -803,11 +821,6 @@ nros-rmw-zenoh = { path = "&lt;...&gt;/packages/zpico/nros-rmw-zenoh",
 </tbody>
 </table>
 </div>
-<p><code>config.toml</code> (optional, alongside <code>Cargo.toml</code>):</p>
-<pre><code class="language-toml">[zenoh]
-locator   = "tcp/127.0.0.1:7447"
-domain_id = 0
-</code></pre>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
 <pre><code class="language-bash">cd examples/native/rust/talker
 cargo build           # or: cargo build --release
@@ -827,8 +840,8 @@ RUST_LOG=info cargo run
 # Expected output (on stderr):
 #   [INFO  native_rs_talker] nros Native Talker (Zenoh Transport)
 #   [INFO  native_rs_talker] =========================================
+#   [INFO  native_rs_talker] Published: 0
 #   [INFO  native_rs_talker] Published: 1
-#   [INFO  native_rs_talker] Published: 2
 #   …
 </code></pre>
 <p>That’s the nano-ros side fully working. <strong>Optional step:</strong> verify
@@ -848,7 +861,7 @@ ros2 topic echo /chatter std_msgs/msg/Int32
 <code>Published:</code>, the routers aren’t peering — confirm both processes
 point at the same port (default <code>tcp/127.0.0.1:7447</code>).</p>
 <p><strong>Readiness signal.</strong> Within 5 seconds of <code>RUST_LOG=info cargo run</code>,
-the talker should print <code>Published: 1</code>. If no <code>Published:</code> line in
+the talker should print <code>Published: 0</code>. If no <code>Published:</code> line in
 30 seconds:</p>
 <ol>
 <li>Confirm <code>RUST_LOG</code> is set. Without <code>RUST_LOG=info</code> (or <code>debug</code>),
@@ -898,12 +911,14 @@ nros setup native --rmw zenoh
 <code>add_subdirectory(&lt;repo-root&gt;)</code>. Four files matter:</p>
 <pre><code class="language-text">examples/native/c/talker/
 ├── CMakeLists.txt      # add_subdirectory + targets
-├── package.xml         # ROS-style manifest (drives codegen tooling)
-├── config.toml         # runtime locator + domain id (optional)
 └── src/
-    └── main.c          # ~100-line talker
+    └── main.c          # ~100-line talker (locator + domain via env vars)
 </code></pre>
-<p>The CMake preamble is <strong>four lines</strong> plus the per-target link:</p>
+<p>The CMake preamble matches the canonical
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/native/c/talker/CMakeLists.txt"><code>examples/native/c/talker/CMakeLists.txt</code></a>
+shape — RMW chosen via the <code>NROS_RMW</code> cache var (overridable on the
+configure line with <code>-DNROS_RMW=&lt;rmw&gt;</code>), registration wired
+transitively by <code>nros_platform_link_app</code>:</p>
 <pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
 project(my_talker LANGUAGES C)
 
@@ -912,7 +927,9 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Pull nano-ros in. Adjust the relative path to your repo root.
 set(NANO_ROS_PLATFORM posix)
-set(NANO_ROS_RMW      zenoh)
+set(NROS_RMW "zenoh" CACHE STRING
+    "Active RMW (zenoh|xrce|cyclonedds) — selects the backend linked into my_talker.")
+set(NANO_ROS_RMW "${NROS_RMW}")
 add_subdirectory(&lt;rel-path-to-nano-ros&gt; nano_ros)
 
 # Generate C bindings for std_msgs (transitively depends on
@@ -926,12 +943,13 @@ target_link_libraries(my_talker PRIVATE
     std_msgs__nano_ros_c
     NanoRos::NanoRos)
 nros_platform_link_app(my_talker)
-nano_ros_link_rmw(my_talker RMW zenoh)
 </code></pre>
-<p><code>nano_ros_link_rmw</code> emits the per-target
-<code>nros_app_register_backends()</code> strong stub that calls
-<code>nros_rmw_zenoh_register()</code> at startup — the auto-registration path
-for the C build.</p>
+<p>On hosted POSIX the RMW backend registers itself transitively when
+<code>nros_platform_link_app</code> brings in the backend rlib’s CGU — no
+explicit <code>nano_ros_link_rmw(my_talker RMW zenoh)</code> call is needed.
+(That helper still exists and works; it’s the only registration path
+on bare-metal targets without <code>.init_array</code>. POSIX builds inherit it
+for free.)</p>
 <p>The C entry point is <strong><code>int nros_app_main(int argc, char **argv)</code></strong>
 (not <code>main</code>); <code>&lt;nros/app_main.h&gt;</code> provides the OS-side <code>main</code>
 stub that wires signal handling and forwards to your function.</p>
@@ -965,9 +983,11 @@ int nros_app_main(int argc, char** argv) {
 </tbody>
 </table>
 </div>
-<p><code>config.toml</code> (optional) accepts the same <code>[zenoh]</code> table as the
-Rust starter; the C runtime reads it only when wired explicitly via
-<code>nros_config_load()</code> (see the example source).</p>
+<p>Embedded C examples (FreeRTOS / NuttX / ThreadX / bare-metal /
+ESP32) carry a sidecar <code>nros.toml</code> with <code>[node]</code> + <code>[[transport]]</code>
+sections — see the embedded starter pages. The native POSIX C
+talker has neither: it reads <code>NROS_LOCATOR</code> / <code>ROS_DOMAIN_ID</code> from
+env vars at startup (see <code>examples/native/c/talker/src/main.c</code>).</p>
 <h2 id="build-1"><a class="header" href="#build-1">Build</a></h2>
 <pre><code class="language-bash">cd examples/native/c/talker
 cmake -B build
@@ -986,8 +1006,9 @@ cd examples/native/c/talker
 # Expected output:
 #   nros C Talker
 #   =================
+#   Locator: tcp/127.0.0.1:7447
+#   Published: 0
 #   Published: 1
-#   Published: 2
 #   …
 
 # 3. Verify from stock ROS 2:
@@ -996,7 +1017,7 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 topic echo /chatter std_msgs/msg/Int32
 </code></pre>
 <p><strong>Readiness signal.</strong> Within 5 seconds of <code>./build/c_talker</code>, the
-binary should print <code>Published: 1</code> on stdout. If no <code>Published:</code>
+binary should print <code>Published: 0</code> on stdout. If no <code>Published:</code>
 line in 30 seconds:</p>
 <ol>
 <li>Confirm <code>zenohd</code> is running (terminal 1). Without it,
@@ -1050,18 +1071,25 @@ nros setup native --rmw zenoh
     └── main.cpp        # ~70-line talker
 </code></pre>
 <p>POSIX talkers read the locator + domain from arguments passed to
-<code>nros::init(...)</code>; no <code>config.toml</code> is needed. Embedded variants
-under <code>examples/&lt;plat&gt;/cpp/talker/</code> carry a <code>config.toml</code>
-that their board crate reads.</p>
-<p>CMake preamble — five lines + per-target link:</p>
+<code>nros::init(...)</code> (with <code>NROS_LOCATOR</code> / <code>ROS_DOMAIN_ID</code> env-var
+fallbacks). Embedded variants under
+<code>examples/&lt;plat&gt;/cpp/talker/</code> carry a sidecar <code>nros.toml</code>
+(<code>[node]</code> + <code>[[transport]]</code>) that their board crate reads at boot.</p>
+<p>CMake preamble matches the canonical
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/native/cpp/talker/CMakeLists.txt"><code>examples/native/cpp/talker/CMakeLists.txt</code></a>:</p>
 <pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
-project(my_talker LANGUAGES CXX)
+# `LANGUAGES C CXX` is required, NOT `CXX` alone — the per-target
+# `nros_app_register_backends.c` stub the platform link emits needs
+# the C compiler.
+project(my_talker LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(NANO_ROS_PLATFORM posix)
-set(NANO_ROS_RMW      zenoh)
+set(NROS_RMW "zenoh" CACHE STRING
+    "Active RMW (zenoh|xrce|cyclonedds) — selects the backend linked into my_talker.")
+set(NANO_ROS_RMW "${NROS_RMW}")
 add_subdirectory(&lt;rel-path-to-nano-ros&gt; nano_ros)
 
 # Generate C++ bindings (LANGUAGE CPP — separate from the C variant).
@@ -1074,18 +1102,26 @@ target_link_libraries(my_talker PRIVATE
     std_msgs__nano_ros_cpp
     NanoRos::NanoRosCpp)
 nros_platform_link_app(my_talker)
-nano_ros_link_rmw(my_talker RMW zenoh)
 </code></pre>
+<p>On hosted POSIX the RMW backend is registered transitively when
+<code>nros_platform_link_app</code> brings in the backend rlib’s CGU — no
+explicit <code>nano_ros_link_rmw(my_talker RMW zenoh)</code> call is needed.
+(That helper exists and works; it’s the only registration path on
+bare-metal targets without <code>.init_array</code>.)</p>
 <p>The C++ entry point is <strong><code>int nros_app_main(int argc, char** argv)</code></strong>
 (same as C); <code>&lt;nros/app_main.h&gt;</code> provides the OS-side <code>main</code> stub.</p>
 <p>The body uses typed <code>nros::Publisher&lt;M&gt;</code> / <code>nros::Subscription&lt;M&gt;</code>
 wrappers over the C ABI:</p>
-<pre><code class="language-cpp">#include &lt;nros/app_main.h&gt;
+<pre><code class="language-cpp">#include &lt;cstdio&gt;
+
+// Define NROS_TRY_LOG BEFORE the nros headers — the macro is
+// referenced inside `NROS_TRY_RET` expansions in `&lt;nros/nros.hpp&gt;`.
+#define NROS_TRY_LOG(file, line, expr, ret) \
+    std::fprintf(stderr, "[nros] %s:%d %s -&gt; %d\n", (file), (line), (expr), (int)(ret))
+
+#include &lt;nros/app_main.h&gt;
 #include &lt;nros/nros.hpp&gt;
 #include "std_msgs.hpp"
-
-#define NROS_TRY_LOG(file, line, expr, ret) \
-    std::fprintf(stderr, "[nros] %s:%d %s -&gt; %d\n", file, line, expr, (int)ret)
 
 int nros_app_main(int argc, char** argv) {
     NROS_TRY_RET(nros::init("tcp/127.0.0.1:7447", 0), 1);
@@ -1134,8 +1170,11 @@ zenohd
 cd examples/native/cpp/talker
 ./build/cpp_talker
 # Expected:
+#   nros C++ Talker
+#   ===================
+#   Locator: tcp/127.0.0.1:7447
+#   Published: 0
 #   Published: 1
-#   Published: 2
 #   …
 
 # 3. Verify from stock ROS 2:
@@ -1144,7 +1183,7 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 topic echo /chatter std_msgs/msg/Int32
 </code></pre>
 <p><strong>Readiness signal.</strong> Within 5 seconds of <code>./build/cpp_talker</code>, the
-binary should print <code>Published: 1</code>. If no <code>Published:</code> line in 30
+binary should print <code>Published: 0</code>. If no <code>Published:</code> line in 30
 seconds:</p>
 <ol>
 <li>Confirm <code>zenohd</code> is running (terminal 1). Without it,
@@ -1182,12 +1221,16 @@ points at one of the predictable misses below.</p>
 ├─ error[E0432]: unresolved import `nros`
 ├─ error: failed to load source for dependency `nros`
 ├─ error: could not find `nros-rmw-zenoh`
-│   → Run `nros setup native --rmw zenoh` (or the matching
-│     `nros setup &lt;board&gt; --rmw &lt;rmw&gt;` for your target). The
-│     path-dep in the example's Cargo.toml points at the
-│     in-tree `packages/core/nros`; if the source-package
-│     fetch (zenoh-pico, mbedtls) didn't run, transitive
-│     deps are missing.
+│   → The path-dep at the top of the example's Cargo.toml
+│     (`path = "../../../../packages/core/nros"`) doesn't
+│     resolve. Either you're outside the nano-ros checkout, or
+│     you copied the example to a new dir without updating the
+│     relative path. Fix: adjust the `path = "…"` value (or add
+│     an empty `[workspace]` table to the copied example and
+│     change the path to point at the real nano-ros checkout).
+│     If you're INSIDE the nano-ros checkout but the dependency
+│     itself (zenoh-pico, mbedtls) is missing from the
+│     submodule, run `nros setup native --rmw zenoh`.
 │
 ├─ error: failed to find tool. Is `nros` installed?
 ├─ error: `nros-codegen` not found
@@ -1214,15 +1257,17 @@ points at one of the predictable misses below.</p>
 │       nros setup native --rmw cyclonedds
 
 Did the binary build but not produce output?
-├─ Hangs after "Opening session" / no `Published:` lines
-├─ `nros::init -&gt; -3` / `-100` (Transport error)
-│   → zenohd isn't running. Open another terminal and run the
-│     zenohd installed by `nros setup … --rmw zenoh` (in the
-│     nros store, ~/.nros/sdk/zenohd/*/bin/):
+├─ Talker panics `panicked … Failed to open session:
+│  Transport(ConnectionFailed)` (Rust) or
+│  `nros::init -&gt; -3` / `-100` (C / C++)
+│   → zenohd isn't reachable. Open another terminal and start
+│     it (the `install-nros.sh` script provisions a
+│     `~/.nros/bin/zenohd` forwarder that resolves the SDK-
+│     store install):
 │       zenohd --listen tcp/127.0.0.1:7447
 │     Check the locator the example points at matches the
 │     port zenohd is listening on (default 7447 for POSIX,
-│     7451+ for QEMU per-platform tests).
+│     per-platform 7450..7456 for the embedded fixtures).
 │
 ├─ binary exits immediately, no error printed
 │   → Buffering: `setvbuf(stdout, NULL, _IOLBF, 0)` if you piped
@@ -1236,9 +1281,13 @@ Did the binary build but not produce output?
 │     publishers on the Zenoh backend.
 
 Stuck on something else?
-├─ `just doctor` prints a fixit hint for every missing tool.
-├─ `just &lt;platform&gt; doctor` scopes to one RTOS (e.g.
-│   `just freertos doctor` for FreeRTOS / QEMU / arm-none-eabi).
+├─ `just &lt;platform&gt; doctor` is the fast scoped variant — prefer
+│   it over `just doctor`. E.g. `just freertos doctor` for
+│   FreeRTOS / QEMU / arm-none-eabi prints one fixit hint per
+│   missing tool and exits in seconds.
+├─ `just doctor tier=default` is slower (network calls to
+│   verify rustup toolchain pins); use it for a workspace-wide
+│   sweep, not for a quick "what's missing".
 └─ When all else fails, file an issue with:
     - the exact command you ran,
     - the full stderr,
@@ -1249,29 +1298,28 @@ Stuck on something else?
 prints something like this on stderr (with <code>RUST_LOG=info</code>):</p>
 <pre><code class="language-text">[INFO  native_rs_talker] nros Native Talker (Zenoh Transport)
 [INFO  native_rs_talker] =========================================
-[INFO  native_rs_talker] Node created: talker
-[INFO  native_rs_talker] Publisher created for topic: /chatter
+[INFO  native_rs_talker] Published: 0
 [INFO  native_rs_talker] Published: 1
 [INFO  native_rs_talker] Published: 2
-[INFO  native_rs_talker] Published: 3
 </code></pre>
 <p>A correctly-running C talker (<code>examples/native/c/talker</code>)
 prints on stdout:</p>
 <pre><code class="language-text">nros C Talker
 =================
+Locator: tcp/127.0.0.1:7447
+Published: 0
 Published: 1
 Published: 2
-Published: 3
 </code></pre>
 <p>A correctly-running C++ talker prints the same <code>Published: N</code> line
 once per second.</p>
 <p>The ROS 2 side (<code>ros2 topic echo /chatter std_msgs/msg/Int32</code> with
 <code>RMW_IMPLEMENTATION=rmw_zenoh_cpp</code>) should see:</p>
-<pre><code class="language-text">data: 1
+<pre><code class="language-text">data: 0
+---
+data: 1
 ---
 data: 2
----
-data: 3
 ---
 </code></pre>
 <p>If you see all three of these — talker logging, ROS 2 echo
@@ -1317,18 +1365,18 @@ standalone Cargo (Rust) or CMake (C / C++) project under
 ├── rust/talker/             # Cargo package, cross-compile target = thumbv7m-none-eabi
 │   ├── Cargo.toml
 │   ├── .cargo/config.toml          # target + QEMU runner
-│   ├── config.toml                 # network + zenoh locator + scheduling
+│   ├── nros.toml                   # node + transport (network + locator) + node.rt scheduling
 │   ├── package.xml
 │   ├── generated/                  # codegen output (gitignored)
 │   └── src/main.rs
 ├── c/talker/                 # CMake project, add_subdirectory consumption
 │   ├── CMakeLists.txt
-│   ├── config.toml
+│   ├── nros.toml
 │   ├── package.xml
 │   └── src/main.c
 └── cpp/talker/               # CMake C++14 project
     ├── CMakeLists.txt
-    ├── config.toml
+    ├── nros.toml
     ├── package.xml
     └── src/main.cpp
 </code></pre>
@@ -1338,33 +1386,35 @@ LAN9118 driver build. The C / C++ <code>CMakeLists.txt</code> follows the
 canonical <code>add_subdirectory(&lt;repo-root&gt;) + nano_ros_link_rmw(&lt;target&gt; RMW zenoh)</code> pattern with
 <code>NANO_ROS_BOARD = mps2-an385-freertos</code>.</p>
 <h2 id="configure-3"><a class="header" href="#configure-3">Configure</a></h2>
-<p>Network + Zenoh + scheduling live in <code>config.toml</code> (parsed by the
-board crate at boot):</p>
-<pre><code class="language-toml">[network]
-ip       = "10.0.2.21"
-mac      = "02:00:00:00:00:01"
-gateway  = "10.0.2.2"          # QEMU Slirp gateway = host loopback
-netmask  = "255.255.255.0"
+<p>Network + locator + scheduling live in <code>nros.toml</code> (parsed by the
+board crate at boot). Schema: <code>[node]</code> + one or more
+<code>[[transport]]</code> tables + <code>[node.rt]</code>:</p>
+<pre><code class="language-toml">[node]
+domain_id = 0
 
-[zenoh]
-locator   = "tcp/10.0.2.2:7451"   # host's zenohd reached via Slirp
-domain_id = 0                      # Per-language test-fixture ports:
-                                   #   Rust  → 7451   C → 7551   C++ → 7651
-                                   # The talker / listener under each
-                                   # `&lt;lang&gt;/` use the matching
-                                   # port; start `zenohd` on the one
-                                   # you intend to test against.
+[[transport]]
+kind    = "ethernet"
+ip      = "10.0.2.20/24"        # CIDR — `prefix` is encoded in the value
+mac     = "02:00:00:00:00:00"
+gateway = "10.0.2.2"            # QEMU Slirp gateway = host loopback
+locator = "tcp/10.0.2.2:7451"   # host's zenohd reached via Slirp
 
-[scheduling]
-app_priority           = 12
-app_stack_bytes        = 262144
-zenoh_read_priority    = 16
-zenoh_lease_priority   = 16
-poll_priority          = 16
-poll_interval_ms       = 5
+[node.rt]
+app_priority             = 12
+app_stack_bytes          = 262144
+zenoh_read_priority      = 16
+zenoh_read_stack_bytes   = 5120
+zenoh_lease_priority     = 16
+zenoh_lease_stack_bytes  = 5120
+poll_priority            = 16
+poll_interval_ms         = 5
 </code></pre>
 <p>The <code>10.0.2.0/24</code> subnet is QEMU Slirp’s default; <code>10.0.2.2</code> is the
-Slirp gateway that forwards to host loopback. No TAP, no sudo.</p>
+Slirp gateway that forwards to host loopback. No TAP, no sudo.
+Per-language test-fixture ports: Rust → 7451, C → 7551, C++ → 7651.
+The in-tree <code>examples/qemu-arm-freertos/&lt;lang&gt;/talker/nros.toml</code>
+files carry the correct port + IP per language; copy that file
+verbatim if you’re starting fresh.</p>
 <h2 id="build-3"><a class="header" href="#build-3">Build</a></h2>
 <pre><code class="language-bash"># Rust:
 cd examples/qemu-arm-freertos/rust/talker
@@ -1384,30 +1434,33 @@ cmake --build build --parallel
 <p>First Rust build pulls + cross-compiles deps (~5 min). C / C++ build
 also compiles FreeRTOS kernel + lwIP — first run ~3 min.</p>
 <h2 id="run-3"><a class="header" href="#run-3">Run</a></h2>
-<pre><code class="language-bash"># 1. Start zenohd on the host (Slirp forwards 10.0.2.2:7451 → host:7451).
-#    zenohd was installed into the nros store by `nros setup … --rmw zenoh`.
-zenohd -l tcp/0.0.0.0:7451
+<p>The canonical run path is <code>just freertos talker</code>, which launches
+zenohd on <code>tcp/127.0.0.1:7451</code> and the QEMU MPS2-AN385 with the
+freertos talker kernel attached:</p>
+<pre><code class="language-bash"># Terminal 1 — zenohd on the FreeRTOS test-fixture port (7451).
+#  Slirp forwards 10.0.2.2:7451 → host 127.0.0.1:7451.
+just freertos zenohd
 
-# 2. Boot the talker in QEMU:
-cd examples/qemu-arm-freertos/rust/talker
-cargo run --release
-# Or for C / C++ (binary names carry the `freertos_` prefix from
-# the CMake project() declaration in each example):
-qemu-system-arm -cpu cortex-m3 -machine mps2-an385 \
-                -nographic -semihosting-config enable=on,target=native \
-                -nic socket,model=lan9118,listen=:6666 \
-                -kernel ./build/freertos_c_talker      # or freertos_cpp_talker
+# Terminal 2 — boot the talker in QEMU. Uses the patched
+#  qemu-system-arm from `~/.nros/sdk/qemu/&lt;v&gt;/bin/`.
+just freertos talker
 
-# 3. Verify from stock ROS 2:
+# Terminal 3 — verify from stock ROS 2 (optional):
 source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 topic echo /chatter std_msgs/msg/Int32
 </code></pre>
-<p>QEMU exits via Ctrl-A x.</p>
-<p>For batch testing without manual QEMU launches: <code>just freertos test</code> runs every E2E (pub/sub, service, action) against a temporary
-in-test zenohd.</p>
+<p>QEMU exits via <code>Ctrl-A x</code>. For batch testing without manual QEMU
+launches, <code>just freertos test</code> runs every E2E (pub/sub, service,
+action) against a temporary in-test zenohd.</p>
+<p>If you do need a raw <code>qemu-system-arm</code> invocation (e.g. to wire a
+hand-rolled binary into a different harness), grep the exact flag
+set from <code>just/freertos.just::_run-qemu</code> — that recipe is the
+single source of truth for the Slirp <code>-nic user,model=lan9118</code>
+flags + the <code>-semihosting-config</code> lines. (Don’t copy a <code>-nic socket,…</code> form: it puts QEMU in bridge mode and the talker can’t
+reach the host zenohd via Slirp.)</p>
 <p><strong>Readiness signal.</strong> Within ~20 seconds of QEMU boot, the talker
-should print <code>Published: 1</code> on its semihosting stdout. QEMU
+should print <code>Published: 0</code> on its semihosting stdout. QEMU
 cold-boot through FreeRTOS init + lwIP DHCP + zenoh session open
 typically takes 10–15 s. If no <code>Published:</code> line in 30 seconds:</p>
 <ol>
@@ -1796,22 +1849,40 @@ already include these.</p>
 companion <code>config.toml</code> or from <code>nros_init()</code> arguments — see the
 example source.</p>
 <h2 id="build-5"><a class="header" href="#build-5">Build</a></h2>
-<pre><code class="language-bash">cd $NUTTX_DIR
-make                                # full kernel + apps build
+<p>A bare <code>cd $NUTTX_DIR &amp;&amp; make</code> will not produce a working nano-ros
+kernel — NuttX needs the nano-ros board defconfig and a fistful of
+<code>kconfig-tweak --enable / --set-val</code> toggles before its build
+graph wires nano-ros in. The canonical builder does all of that:</p>
+<pre><code class="language-bash">just nuttx build-fixtures      # builds the kernel + every staged example
 </code></pre>
-<p>The Cargo build of nano-ros’s Rust staticlibs runs as a sub-step of
-the NuttX app build; <code>libnros_c.a</code> is linked at the final app
-link stage.</p>
-<p>For CMake-driven NuttX builds:</p>
-<pre><code class="language-bash">cmake -B build -DBOARD=qemu-armv7a \
-              -DCONFIG=nsh_smp
-cmake --build build
-</code></pre>
+<p>Internally it copies
+<code>packages/boards/nros-board-nuttx-qemu-arm/nuttx-config/defconfig</code>
+into <code>$NUTTX_DIR/.config</code>, runs two <code>make olddefconfig</code> passes,
+flips <code>CONFIG_NROS</code> / <code>CONFIG_NROS_C_API</code> / <code>CONFIG_NROS_CPP_API</code>
+/ <code>CONFIG_NROS_EXAMPLE_*_{C,CPP}</code> on, sets <code>CONFIG_TLS_NELEM=8</code>
+(Rust std TLS), switches to <code>LIBCXXTOOLCHAIN</code> (nros-cpp needs
+<code>&lt;utility&gt;</code>), disables <code>ALLSYMS</code> (first-link chicken-egg), and
+runs the NuttX <code>make</code>. The Cargo build of nano-ros’s Rust
+staticlibs runs as a sub-step; <code>libnros_c.a</code> (and the per-example
+auxiliary staticlibs) link in at the final app link stage.</p>
+<p>For a custom workspace where you maintain your own kernel
+configuration, re-create that toggle set against your own
+<code>.config</code> (cite <code>just/nuttx.just::_nuttx-configure-fixtures</code> as
+the source of truth). The Phase 208.A.1 sweep retired the
+<code>cmake -B build -DBOARD=… -DCONFIG=…</code> block that previously
+appeared here — those flags aren’t supported by upstream NuttX
+(it uses the combined <code>-DBOARD_CONFIG=&lt;board&gt;:&lt;config&gt;</code> form, and
+even that requires NuttX’s CMake-build feature which isn’t part
+of nano-ros’s pinned line).</p>
 <h2 id="run-5"><a class="header" href="#run-5">Run</a></h2>
-<pre><code class="language-bash"># QEMU NuttX (ARM):
-qemu-system-arm -cpu cortex-a8 -machine virt -nographic \
-                -kernel $NUTTX_DIR/nuttx
-nsh&gt; nros_talker        # or whatever your app's NSH command is
+<pre><code class="language-bash"># Terminal 1 — zenohd on the NuttX test-fixture port (7452):
+just nuttx zenohd
+
+# Terminal 2 — QEMU NuttX (ARM cortex-a7 virt board, virtio-net
+# for Slirp). `just nuttx talker` wires every flag from
+# `packages/testing/nros-tests/src/qemu.rs::NUTTX`:
+just nuttx talker
+nsh&gt; nuttx_c_talker         # or nuttx_cpp_talker / nuttx_c_listener / …
 
 # Real hardware: standard NuttX flash flow (openocd / J-Link / etc.)
 
@@ -1820,15 +1891,26 @@ source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 topic echo /chatter std_msgs/msg/Int32
 </code></pre>
-<p><strong>Readiness signal.</strong> After typing the app’s NSH command (e.g.
-<code>nros_talker</code>), expect <code>Published: 1</code> on the NSH console within
-5 seconds. If no <code>Published:</code> line:</p>
+<p>The NSH command is the staged example’s PROGNAME (see each
+<code>examples/qemu-arm-nuttx/&lt;lang&gt;/&lt;example&gt;/Makefile</code>): <code>nuttx_c_talker</code>,
+<code>nuttx_cpp_talker</code>, <code>nuttx_c_listener</code>, <code>nuttx_cpp_service-server</code>,
+etc. <code>nros_talker</code> is <strong>not</strong> a registered name.</p>
+<p>A direct <code>qemu-system-arm</code> invocation, if you need one, MUST
+include <code>-cpu cortex-a7</code> (not <code>cortex-a8</code>) and the virtio-net pair
+<code>-netdev user,id=net0 -device virtio-net-device,netdev=net0</code> — the
+nano-ros board defconfig enables <code>CONFIG_DRIVERS_VIRTIO_MMIO</code>, so
+the default <code>-nic user</code> (PCI virtio-net) gets ignored by NuttX’s
+NIC driver. Grep the exact flag set from
+<code>packages/testing/nros-tests/src/qemu.rs::qemu_args_nuttx_arm</code>.</p>
+<p><strong>Readiness signal.</strong> After typing the app’s NSH command, expect
+<code>Published: 0</code> on the NSH console within 5 seconds. If no
+<code>Published:</code> line:</p>
 <ol>
 <li>Confirm the app actually ran — <code>ps</code> should show your task.</li>
-<li>Confirm networking — <code>ifconfig</code> shows a configured interface.
-For QEMU <code>nsh_smp</code>, Slirp defaults apply: <code>eth0</code> at <code>10.0.2.15</code>.</li>
-<li>Confirm <code>zenohd</code> reachable; the locator in <code>config.toml</code> /
-<code>nros_init</code> arguments must match.</li>
+<li>Confirm networking — <code>ifconfig</code> shows <code>eth0</code> at <code>10.0.2.30</code>
+(the nano-ros board defconfig sets <code>CONFIG_NETINIT_IPADDR= 0x0a00021e</code>, NOT the stock Slirp default 10.0.2.15).</li>
+<li>Confirm <code>zenohd</code> reachable on the locator from <code>nros.toml</code>
+(default 7452 for the NuttX QEMU fixture).</li>
 <li>See <a href="#troubleshooting--first-10-minutes">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
 <h2 id="github-source-5"><a class="header" href="#github-source-5">GitHub source</a></h2>
@@ -1862,9 +1944,10 @@ build, host network stack, ideal for development.</li>
 <li><strong>threadx-riscv64</strong> — QEMU <code>virt</code> machine with the RISC-V64 GCC
 toolchain. Full kernel + NetX Duo TCP/IP stack.</li>
 </ul>
-<p>Rust and C are supported on both flavours; nros-cpp does not target
-ThreadX (not in the
-<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/README.md">coverage matrix</a>).</p>
+<p>Rust, C, and C++ are supported on threadx-linux; threadx-riscv64
+ships Rust + C only. See the
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/README.md">coverage matrix</a>
+for the exact cells.</p>
 <blockquote>
 <p><strong>Prereqs.</strong> Install the <code>nros</code> CLI once, then run
 <code>nros setup &lt;board&gt; --rmw &lt;rmw&gt;</code> for the flavour you need (see
@@ -1914,35 +1997,41 @@ uses the <code>nx_bsd_*</code> BSD socket shim layered on the host TCP stack
 (threadx-linux variant) or on its own NetX Duo TCP/IP stack
 (riscv64 variant).</p>
 <h2 id="configure-6"><a class="header" href="#configure-6">Configure</a></h2>
-<pre><code class="language-toml"># threadx-linux talker config.toml — mirror of in-tree file
-[network]
-ip      = "192.0.3.10"
-mac     = "02:00:00:00:00:00"
-gateway = "192.0.3.1"
-netmask = "255.255.255.0"
-
-[platform]
-interface = "tap-tx0"               # veth pair created by nros setup threadx-linux
-
-[zenoh]
-locator   = "tcp/127.0.0.1:7455"   # ThreadX-Linux test-fixture port
+<p>The board crate parses <code>nros.toml</code> at boot. Schema is <code>[node]</code> +
+<code>[[transport]]</code> (direct-mode); the locator rides inside the
+transport.</p>
+<pre><code class="language-toml"># threadx-linux — mirror of examples/threadx-linux/rust/talker/nros.toml
+[node]
 domain_id = 0
+
+[[transport]]
+kind      = "ethernet"
+ip        = "192.0.3.10/24"     # CIDR; veth peer is 192.0.3.1
+mac       = "02:00:00:00:00:00"
+gateway   = "192.0.3.1"
+interface = "tap-tx0"           # veth side of the pair (see below)
+locator   = "tcp/127.0.0.1:7455"
 </code></pre>
-<pre><code class="language-toml"># threadx-riscv64 talker config.toml — QEMU Slirp
-[network]
-ip      = "10.0.2.10"
-mac     = "02:00:00:00:00:00"
+<pre><code class="language-toml"># threadx-riscv64 — QEMU Slirp; mirror of
+# examples/qemu-riscv64-threadx/rust/talker/nros.toml
+[node]
+domain_id = 0
+
+[[transport]]
+kind    = "ethernet"
+ip      = "10.0.2.40/24"
+mac     = "52:54:00:12:34:56"
 gateway = "10.0.2.2"
-netmask = "255.255.255.0"
-
-[zenoh]
-locator   = "tcp/10.0.2.2:7453"   # ThreadX-RV64 test-fixture port
-domain_id = 0
+locator = "tcp/10.0.2.2:7453"
 </code></pre>
-<p>ThreadX-Linux uses a veth pair (<code>tap-tx0</code>) rather than QEMU Slirp;
-<code>nros setup threadx-linux</code> creates the interface. The QEMU-RISC-V64
-fixture uses Slirp’s default <code>10.0.2.2</code> gateway just like the
-FreeRTOS QEMU flow.</p>
+<p><code>tap-tx0</code> is a veth pair brought up out-of-band by
+<code>scripts/qemu/setup-network.sh</code> — <strong>the script needs root</strong> (it
+calls <code>ip link add</code>/<code>ip addr add</code>) and so it does NOT run as part
+of <code>nros setup threadx-linux</code>. Run it once per machine:</p>
+<pre><code class="language-bash">sudo scripts/qemu/setup-network.sh
+</code></pre>
+<p>The QEMU-RISC-V64 fixture uses Slirp’s default <code>10.0.2.2</code> gateway
+and needs no host-side network setup.</p>
 <h2 id="build-6"><a class="header" href="#build-6">Build</a></h2>
 <pre><code class="language-bash"># threadx-linux:
 just threadx_linux build-fixtures   # build all rust + c examples
@@ -1958,21 +2047,17 @@ just threadx_riscv64 build-fixtures
 builds finish in seconds.</p>
 <h2 id="run-6"><a class="header" href="#run-6">Run</a></h2>
 <pre><code class="language-bash"># threadx-linux (no QEMU):
-zenohd                                      # bring up the router (provisioned by nros setup --rmw zenoh)
-cd examples/threadx-linux/rust/talker
-cargo run --release
+just threadx_linux zenohd        # router on 127.0.0.1:7455
+just threadx_linux talker        # boots the linux talker process
 # Expected:
 #   nros ThreadX-Linux Talker
+#   Published: 0
 #   Published: 1
-#   Published: 2
 #   ...
 
 # threadx-riscv64 (QEMU virt):
-qemu-system-riscv64 -machine virt -cpu rv64 -smp 1 -m 256M \
-                    -nographic \
-                    -netdev user,id=net0 \
-                    -device virtio-net-device,netdev=net0 \
-                    -kernel ./build/talker.elf
+just threadx_riscv64 zenohd      # router on 127.0.0.1:7453
+just threadx_riscv64 talker      # boots the riscv64 kernel under qemu-system-riscv64
 
 # Verify from stock ROS 2:
 source /opt/ros/humble/setup.bash
@@ -1981,14 +2066,16 @@ ros2 topic echo /chatter std_msgs/msg/Int32
 </code></pre>
 <p>For batch testing: <code>just threadx_linux test</code> runs every pubsub /
 service / action against an in-test zenohd.</p>
-<p><strong>Readiness signal.</strong> threadx-linux: <code>Published: 1</code> within 3
-seconds of <code>cargo run</code>. threadx-riscv64 (QEMU): within ~15
-seconds of QEMU boot. If no <code>Published:</code> line:</p>
+<p><strong>Readiness signal.</strong> threadx-linux: <code>Published: 0</code> within 3
+seconds of <code>just threadx_linux talker</code>. threadx-riscv64 (QEMU):
+within ~15 seconds of QEMU boot. If no <code>Published:</code> line:</p>
 <ol>
-<li>Confirm <code>zenohd</code> reachable on the locator from <code>config.toml</code>
-(threadx-linux uses <code>127.0.0.1</code>; riscv64 QEMU uses <code>10.0.2.2</code>).</li>
-<li>threadx-linux: confirm the veth bridge came up via
-<code>nros setup threadx-linux</code>.</li>
+<li>Confirm <code>zenohd</code> reachable on the locator from <code>nros.toml</code>
+(threadx-linux uses <code>127.0.0.1:7455</code>; riscv64 QEMU uses
+<code>tcp/10.0.2.2:7453</code>).</li>
+<li>threadx-linux: confirm <code>tap-tx0</code> is up — <code>ip link show tap-tx0</code>
+should report the interface. If absent, re-run
+<code>sudo scripts/qemu/setup-network.sh</code>.</li>
 <li>See <a href="#troubleshooting--first-10-minutes">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
 <h2 id="github-source-6"><a class="header" href="#github-source-6">GitHub source</a></h2>
@@ -2001,7 +2088,7 @@ seconds of QEMU boot. If no <code>Published:</code> line:</p>
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/qemu-riscv64-threadx/rust/talker"><code>examples/qemu-riscv64-threadx/rust/talker/</code></a></li>
 <li>Board crates:
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/boards/nros-board-threadx-linux"><code>packages/boards/nros-board-threadx-linux/</code></a>,
-<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/boards/nros-board-riscv64-qemu"><code>packages/boards/nros-board-riscv64-qemu/</code></a></li>
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/boards/nros-board-threadx-qemu-riscv64"><code>packages/boards/nros-board-threadx-qemu-riscv64/</code></a></li>
 </ul>
 <h2 id="next-6"><a class="header" href="#next-6">Next</a></h2>
 <ul>
@@ -2046,7 +2133,7 @@ xrce) into <code>~/.nros/sdk</code>.</p>
 ├── Cargo.toml
 ├── .cargo/config.toml         # target = riscv32imc-unknown-none-elf
 │                              # runner = espflash flash --monitor
-├── config.toml                # wifi credentials + zenoh locator
+├── nros.toml                  # [node] + [[transport kind="wifi"]]
 ├── package.xml
 ├── generated/
 └── src/main.rs                # esp-hal init → nros_app_main
@@ -2054,24 +2141,27 @@ xrce) into <code>~/.nros/sdk</code>.</p>
 <p>The <code>Cargo.toml</code> pulls <code>nros-board-esp32</code> (real hardware) or
 <code>nros-board-esp32-qemu</code> (QEMU ESP32 / ESP32-C3 fork).</p>
 <h2 id="configure-7"><a class="header" href="#configure-7">Configure</a></h2>
-<p><code>config.toml</code> carries wifi + zenoh:</p>
-<pre><code class="language-toml">[wifi]
-ssid     = "your-wifi-ssid"
-password = "your-wifi-password"
-
-[zenoh]
-locator   = "tcp/192.168.1.100:7447"     # host running zenohd
+<p><code>nros.toml</code> carries wifi creds + locator inside a single
+<code>[[transport]] kind = "wifi"</code> block. Direct-mode schema; the
+locator rides the transport.</p>
+<pre><code class="language-toml">[node]
 domain_id = 0
 
-# Optional static IP (commented out — defaults to DHCP):
-# [network]
-# ip      = "10.0.0.100"
-# gateway = "10.0.0.1"
-# prefix  = 24
+[[transport]]
+kind     = "wifi"
+ssid     = "your-wifi-ssid"
+password = "your-wifi-password"
+locator  = "tcp/192.168.1.100:7447"      # host running zenohd
+
+# Optional static IP (omit for DHCP). Same schema as the ethernet
+# transport — CIDR `ip`, gateway:
+# ip      = "192.168.1.50/24"
+# gateway = "192.168.1.1"
 </code></pre>
-<p>Wi-Fi credentials can also be supplied via <code>SSID=… PASSWORD=…</code>
-environment variables on the build command — preferred for real
-networks since the file ships in git history.</p>
+<p>Wi-Fi credentials can also be baked at build time via <code>SSID=… PASSWORD=…</code> environment variables read by
+<code>scripts/build/fixtures-build.sh</code> — preferred for real networks
+since <code>nros.toml</code> ships in git history. The env vars are
+build-time only; they don’t override the file at runtime.</p>
 <p>For QEMU ESP32 (no real wifi) the example tree at
 <code>examples/qemu-esp32-baremetal/</code> uses the loopback path via
 <code>nros-board-esp32-qemu</code>.</p>
@@ -2080,21 +2170,23 @@ networks since the file ships in git history.</p>
 cd examples/esp32/rust/talker
 cargo build --release
 
-# QEMU ESP32 (qemu-system-xtensa or qemu-system-riscv32):
-just esp32 build           # builds for the QEMU board crate
+# QEMU ESP32-C3 (RISC-V) — use the canonical builder, NOT a bare
+# `cargo build` from the workspace root:
+just esp32 build-examples
 </code></pre>
 <h2 id="run-7"><a class="header" href="#run-7">Run</a></h2>
-<pre><code class="language-bash"># Real hardware:
+<pre><code class="language-bash"># Real hardware (ESP32-C3):
 cd examples/esp32/rust/talker
 cargo run --release        # invokes `espflash flash --monitor`
 # Expected serial output:
 #   ESP32-C3 booting...
 #   Wifi connected: 192.168.1.42
+#   Published: 0
 #   Published: 1
-#   Published: 2
 
-# QEMU ESP32:
-just esp32 talker          # boots the talker binary in qemu-system-xtensa
+# QEMU ESP32-C3 — start zenohd FIRST (port 7454), THEN the talker:
+just esp32 zenohd          # router on 127.0.0.1:7454
+just esp32 talker          # boots the talker in qemu-system-riscv32
 
 # Verify from stock ROS 2 on the same network:
 source /opt/ros/humble/setup.bash
@@ -2102,7 +2194,7 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 topic echo /chatter std_msgs/msg/Int32
 </code></pre>
 <p><strong>Readiness signal.</strong> Real hardware: after <code>espflash flash --monitor</code>,
-expect the Wi-Fi connect line + <code>Published: 1</code> within 10 seconds.
+expect the Wi-Fi connect line + <code>Published: 0</code> within 10 seconds.
 QEMU ESP32: ~15 seconds. If no <code>Published:</code> line:</p>
 <ol>
 <li>Wi-Fi credentials wrong → <code>Wifi connect failed</code> in serial log.</li>
@@ -2131,9 +2223,11 @@ your chip (<code>riscv32imc-unknown-none-elf</code> vs <code>xtensa-esp32s3-none
 <a href="#esp32-esp-idf-component">ESP32 (ESP-IDF component)</a>.</li>
 <li>PlatformIO library path:
 <a href="#platformio-library">PlatformIO library</a>.</li>
-<li>ESP32-S3 (Xtensa) — same code shape; the toolchain swap is
-<code>rustup target add xtensa-esp32s3-none-elf</code> and a different board
-crate.</li>
+<li>ESP32-S3 (Xtensa) is <strong>not</strong> currently supported. Xtensa targets
+aren’t shipped via rustup (there is no <code>rustup target add xtensa-esp32s3-none-elf</code> — Xtensa requires Espressif’s <code>espup</code>
+toolchain on top of a custom <code>+esp</code> channel, plus a different
+board crate). Only the ESP32-C3 (RISC-V) path is wired today;
+the workspace <code>just/esp32.just</code> comment even calls this out.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="esp32-esp-idf-component"><a class="header" href="#esp32-esp-idf-component">ESP32 (ESP-IDF component)</a></h1>
@@ -2171,7 +2265,7 @@ or by a local path during development.</p>
 │   ├── CMakeLists.txt             # `idf_component_register(REQUIRES nano-ros …)`
 │   ├── idf_component.yml          # declares nano-ros as a managed dependency
 │   ├── app_main.c | app_main.cpp
-│   └── config.toml
+│   └── nros.toml                  # [node] + [[transport kind="wifi"]]
 └── components/                    # (optional) local components override
 </code></pre>
 <p>The <code>idf_component.yml</code> is the dependency manifest:</p>
@@ -2193,9 +2287,10 @@ into a standard IDF component, mapping IDF Kconfig knobs to
 </code></pre>
 <p>The nano-ros component itself exposes only those two knobs.
 <strong>Wi-Fi credentials + zenoh locator are NOT in this Kconfig</strong> —
-provide them via your app’s own <code>Kconfig.projbuild</code> (Espressif’s
-standard pattern) or via environment variables, then pass them to
-<code>nros::init(locator, domain_id)</code> at startup.</p>
+put them in <code>main/nros.toml</code> (<code>[[transport]] kind = "wifi"</code> with
+<code>ssid</code>/<code>password</code>/<code>locator</code>), or supply them via your app’s own
+<code>Kconfig.projbuild</code> (Espressif’s standard pattern) and pass them
+to <code>nros::init(locator, domain_id)</code> at startup.</p>
 <h2 id="build-8"><a class="header" href="#build-8">Build</a></h2>
 <pre><code class="language-bash">cd my_idf_app
 idf.py set-target esp32c3        # or esp32s3, esp32, esp32c6
@@ -2209,7 +2304,7 @@ idf.py -p /dev/ttyUSB0 flash monitor
 # Expected serial output:
 #   I (1234) nano-ros: Wi-Fi connected
 #   I (1456) nano-ros: zenoh session opened
-#   I (1567) nano-ros: Published: 1
+#   I (1567) nano-ros: Published: 0
 
 # Verify from stock ROS 2 on the same network:
 source /opt/ros/humble/setup.bash
@@ -2221,11 +2316,12 @@ boot the IDF binary in <code>qemu-system-xtensa</code> via Espressif’s
 patched QEMU.</p>
 <p><strong>Readiness signal.</strong> After <code>idf.py flash monitor</code>, expect
 <code>I (XXXX) nano-ros: Wi-Fi connected</code> followed by
-<code>I (XXXX) nano-ros: Published: 1</code> within 10 seconds. If no
+<code>I (XXXX) nano-ros: Published: 0</code> within 10 seconds. If no
 <code>Published:</code> line:</p>
 <ol>
-<li>Wi-Fi creds — IDF Kconfig under <code>Component config → nano-ros</code>
-must carry SSID + password OR your <code>config.toml</code> must.</li>
+<li>Wi-Fi creds — your <code>main/nros.toml</code> <code>[[transport]]</code> block must
+carry <code>ssid</code> + <code>password</code> (the nano-ros component itself only
+exposes RMW + ROS-edition Kconfig knobs).</li>
 <li>Wrong locator — confirm host running <code>zenohd</code> is on the same
 Wi-Fi subnet (or routable to it). NAT will block discovery.</li>
 <li><code>idf.py menuconfig</code> confirms <code>CONFIG_NROS_ENABLED=y</code>.</li>
@@ -2415,7 +2511,7 @@ physical hardware.</p>
 ├── Cargo.toml
 ├── .cargo/config.toml         # target = thumbv7m-none-eabi
 │                              # runner = qemu-system-arm ... -kernel
-├── config.toml                # network + zenoh
+├── nros.toml                  # [node] + [[transport]] (locator inside)
 ├── package.xml
 ├── generated/                 # codegen output (gitignored)
 └── src/main.rs                # #[entry] fn main() -&gt; !
@@ -2429,22 +2525,24 @@ suffix — this is the bare-metal variant) which provides:</p>
 </ul>
 <h2 id="configure-10"><a class="header" href="#configure-10">Configure</a></h2>
 <p>Mirror of the in-tree
-<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/qemu-arm-baremetal/rust/talker/config.toml"><code>config.toml</code></a>:</p>
-<pre><code class="language-toml">[network]
-ip       = "10.0.2.10"
-mac      = "02:00:00:00:00:00"
-gateway  = "10.0.2.2"
-prefix   = 24                       # NOT `netmask` — Config::from_toml
-                                    # parses `prefix` (CIDR) only.
-
-[zenoh]
-locator   = "tcp/10.0.2.2:7450"     # bare-metal test-fixture port
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/qemu-arm-baremetal/rust/talker/nros.toml"><code>nros.toml</code></a>:</p>
+<pre><code class="language-toml">[node]
 domain_id = 0
+
+# Single ethernet transport running a zenoh session. `ip` is CIDR
+# (address/prefix); the locator rides the transport.
+[[transport]]
+kind    = "ethernet"
+ip      = "10.0.2.10/24"            # CIDR — address + prefix in one
+mac     = "02:00:00:00:00:00"
+gateway = "10.0.2.2"
+rmw     = "zenoh"
+locator = "tcp/10.0.2.2:7450"       # bare-metal test-fixture port
 </code></pre>
-<p>QEMU Slirp networking — no host TAP / bridge / sudo. The
-<code>zenohd</code> default port is 7447; this example expects <strong>7450</strong> so
-start the router with <code>zenohd --listen tcp/127.0.0.1:7450</code>
-(or edit <code>config.toml</code> to match <code>zenohd</code>’s 7447 default).</p>
+<p>QEMU Slirp networking — no host TAP / bridge / sudo. The bare-metal
+fixture port is <strong>7450</strong> (NOT zenohd’s default 7447); start the
+router with <code>zenohd --listen tcp/127.0.0.1:7450</code> or edit
+<code>nros.toml</code> to match the port your zenohd actually listens on.</p>
 <h2 id="build-10"><a class="header" href="#build-10">Build</a></h2>
 <pre><code class="language-bash">cd examples/qemu-arm-baremetal/rust/talker
 cargo build --release
@@ -2454,17 +2552,17 @@ cargo build --release
 <h2 id="run-10"><a class="header" href="#run-10">Run</a></h2>
 <pre><code class="language-bash"># 1. Bring up zenohd on the host (Slirp forwards 10.0.2.2:7450 → host
 #    127.0.0.1:7450). The bare-metal test-fixture port is 7450, NOT
-#    zenohd's default 7447 — edit `config.toml` if you want 7447 instead.
-#    zenohd was installed by `nros setup ... --rmw zenoh`.
-zenohd --listen tcp/127.0.0.1:7450
+#    zenohd's default 7447 — edit `nros.toml` if you want 7447 instead.
+just qemu zenohd                  # or: zenohd --listen tcp/127.0.0.1:7450
 
-# 2. Boot the talker in QEMU. The .cargo/config.toml runner does:
-cd examples/qemu-arm-baremetal/rust/talker
-cargo run --release
+# 2. Boot the talker in QEMU. `just qemu talker` runs the example
+#    via cargo's `.cargo/config.toml` runner (= qemu-system-arm with
+#    the right -machine / -cpu / -kernel flags).
+just qemu talker
 # Expected serial-over-semihosting output:
-#   nros Bare-Metal Cortex-M3 Talker
+#   nros QEMU Platform
+#   Published: 0
 #   Published: 1
-#   Published: 2
 #   ...
 
 # 3. Verify from stock ROS 2:
@@ -2475,14 +2573,17 @@ ros2 topic echo /chatter std_msgs/msg/Int32
 <p>QEMU exits via Ctrl-A x.</p>
 <p><strong>Readiness signal.</strong> Within ~15 seconds of QEMU boot (no RTOS
 init delay, but smoltcp + zenoh handshake still takes a few
-seconds), expect <code>Published: 1</code> on semihosting stdout. If no
+seconds), expect <code>Published: 0</code> on semihosting stdout. If no
 <code>Published:</code> line:</p>
 <ol>
 <li><code>zenohd</code> not running — talker spins on smoltcp poll until
 killed.</li>
-<li>Wrong LAN9118 emulation flag — <code>qemu-system-arm</code> needs
-<code>-nic socket,model=lan9118,…</code> or equivalent; the runner in
-<code>.cargo/config.toml</code> already supplies it.</li>
+<li>QEMU NIC mismatch — the <code>.cargo/config.toml</code> runner relies on
+QEMU’s default NIC for the MPS2-AN385 machine (the runner does
+NOT add a <code>-nic</code> flag). If you invoke <code>qemu-system-arm</code>
+directly with a <code>-nic socket,…</code> form, the talker can’t reach
+Slirp on <code>10.0.2.2</code>. Use <code>-nic user,model=lan9118</code> (Slirp) for
+a direct invocation.</li>
 <li>Cooperative spin starvation — if you added a long-running
 callback, the entire executor stalls; bare-metal has no
 preemption.</li>
@@ -2518,8 +2619,8 @@ under <code>packages/testing/nros-bench/wake-latency-cortex-m3/</code> shows
 how to feed a backend’s transport-notify into the cooperative
 spin loop on bare-metal.</li>
 <li>Real hardware: same code runs on STM32F4-Discovery with a
-different board crate (<code>nros-board-stm32f4-nucleo</code>) and a
-different linker script.</li>
+different board crate (<code>nros-board-stm32f4</code>) and a different
+linker script.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="px4-autopilot-external-module"><a class="header" href="#px4-autopilot-external-module">PX4 Autopilot (external module)</a></h1>
@@ -2610,16 +2711,19 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 topic echo /vehicle_local_position px4_msgs/msg/VehicleLocalPosition
 </code></pre>
 <p><strong>Readiness signal.</strong> After <code>nano_ros_app start</code> in the PX4
-console, expect <code>INFO  [nano-ros] bridge started</code> plus messages
-flowing within 5 seconds. If no bridge log:</p>
+console, the shipped template logs <code>nano-ros uORB backend registered</code> and returns immediately — it doesn’t start a
+publisher loop or print a “bridge started” line on its own.
+You’re expected to edit <code>nano_ros_app.cpp</code> to wire your
+uORB → nano-ros forwards. If <code>nano_ros_app</code> reports <code>register failed</code>, check:</p>
 <ol>
+<li>Module didn’t register — check the PX4 boot log for
+<code>nano-ros: register failed</code>. Usually a NuttX kernel-config /
+feature-gate mismatch.</li>
+<li>Once you’ve added forwarders, <code>zenohd</code> must be reachable from
+the autopilot’s network (Pixhawk: configured via QGroundControl
+or <code>param set</code>).</li>
 <li>uORB topic not advertised yet — start the upstream PX4 module
 that publishes it (<code>commander start</code> etc.) first.</li>
-<li><code>zenohd</code> unreachable — Pixhawk’s network config (set via
-QGroundControl or <code>param set</code>) needs to route to the host
-running zenohd.</li>
-<li>Module didn’t register — check the PX4 boot log for
-<code>nano-ros: register failed</code>.</li>
 <li>See <a href="#troubleshooting--first-10-minutes">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
 <h2 id="github-source-11"><a class="header" href="#github-source-11">GitHub source</a></h2>

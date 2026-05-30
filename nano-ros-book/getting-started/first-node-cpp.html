@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b115c05e.js";
+            window.path_to_searchindex_js = "../searchindex-5e20d714.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7454c8b7.js"></script>
@@ -204,18 +204,25 @@ nros setup native --rmw zenoh
     └── main.cpp        # ~70-line talker
 </code></pre>
 <p>POSIX talkers read the locator + domain from arguments passed to
-<code>nros::init(...)</code>; no <code>config.toml</code> is needed. Embedded variants
-under <code>examples/&lt;plat&gt;/cpp/talker/</code> carry a <code>config.toml</code>
-that their board crate reads.</p>
-<p>CMake preamble — five lines + per-target link:</p>
+<code>nros::init(...)</code> (with <code>NROS_LOCATOR</code> / <code>ROS_DOMAIN_ID</code> env-var
+fallbacks). Embedded variants under
+<code>examples/&lt;plat&gt;/cpp/talker/</code> carry a sidecar <code>nros.toml</code>
+(<code>[node]</code> + <code>[[transport]]</code>) that their board crate reads at boot.</p>
+<p>CMake preamble matches the canonical
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/native/cpp/talker/CMakeLists.txt"><code>examples/native/cpp/talker/CMakeLists.txt</code></a>:</p>
 <pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
-project(my_talker LANGUAGES CXX)
+# `LANGUAGES C CXX` is required, NOT `CXX` alone — the per-target
+# `nros_app_register_backends.c` stub the platform link emits needs
+# the C compiler.
+project(my_talker LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(NANO_ROS_PLATFORM posix)
-set(NANO_ROS_RMW      zenoh)
+set(NROS_RMW "zenoh" CACHE STRING
+    "Active RMW (zenoh|xrce|cyclonedds) — selects the backend linked into my_talker.")
+set(NANO_ROS_RMW "${NROS_RMW}")
 add_subdirectory(&lt;rel-path-to-nano-ros&gt; nano_ros)
 
 # Generate C++ bindings (LANGUAGE CPP — separate from the C variant).
@@ -228,18 +235,26 @@ target_link_libraries(my_talker PRIVATE
     std_msgs__nano_ros_cpp
     NanoRos::NanoRosCpp)
 nros_platform_link_app(my_talker)
-nano_ros_link_rmw(my_talker RMW zenoh)
 </code></pre>
+<p>On hosted POSIX the RMW backend is registered transitively when
+<code>nros_platform_link_app</code> brings in the backend rlib’s CGU — no
+explicit <code>nano_ros_link_rmw(my_talker RMW zenoh)</code> call is needed.
+(That helper exists and works; it’s the only registration path on
+bare-metal targets without <code>.init_array</code>.)</p>
 <p>The C++ entry point is <strong><code>int nros_app_main(int argc, char** argv)</code></strong>
 (same as C); <code>&lt;nros/app_main.h&gt;</code> provides the OS-side <code>main</code> stub.</p>
 <p>The body uses typed <code>nros::Publisher&lt;M&gt;</code> / <code>nros::Subscription&lt;M&gt;</code>
 wrappers over the C ABI:</p>
-<pre><code class="language-cpp">#include &lt;nros/app_main.h&gt;
+<pre><code class="language-cpp">#include &lt;cstdio&gt;
+
+// Define NROS_TRY_LOG BEFORE the nros headers — the macro is
+// referenced inside `NROS_TRY_RET` expansions in `&lt;nros/nros.hpp&gt;`.
+#define NROS_TRY_LOG(file, line, expr, ret) \
+    std::fprintf(stderr, "[nros] %s:%d %s -&gt; %d\n", (file), (line), (expr), (int)(ret))
+
+#include &lt;nros/app_main.h&gt;
 #include &lt;nros/nros.hpp&gt;
 #include "std_msgs.hpp"
-
-#define NROS_TRY_LOG(file, line, expr, ret) \
-    std::fprintf(stderr, "[nros] %s:%d %s -&gt; %d\n", file, line, expr, (int)ret)
 
 int nros_app_main(int argc, char** argv) {
     NROS_TRY_RET(nros::init("tcp/127.0.0.1:7447", 0), 1);
@@ -288,8 +303,11 @@ zenohd
 cd examples/native/cpp/talker
 ./build/cpp_talker
 # Expected:
+#   nros C++ Talker
+#   ===================
+#   Locator: tcp/127.0.0.1:7447
+#   Published: 0
 #   Published: 1
-#   Published: 2
 #   …
 
 # 3. Verify from stock ROS 2:
@@ -298,7 +316,7 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 topic echo /chatter std_msgs/msg/Int32
 </code></pre>
 <p><strong>Readiness signal.</strong> Within 5 seconds of <code>./build/cpp_talker</code>, the
-binary should print <code>Published: 1</code>. If no <code>Published:</code> line in 30
+binary should print <code>Published: 0</code>. If no <code>Published:</code> line in 30
 seconds:</p>
 <ol>
 <li>Confirm <code>zenohd</code> is running (terminal 1). Without it,

@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b115c05e.js";
+            window.path_to_searchindex_js = "../searchindex-5e20d714.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7454c8b7.js"></script>
@@ -186,9 +186,10 @@ build, host network stack, ideal for development.</li>
 <li><strong>threadx-riscv64</strong> — QEMU <code>virt</code> machine with the RISC-V64 GCC
 toolchain. Full kernel + NetX Duo TCP/IP stack.</li>
 </ul>
-<p>Rust and C are supported on both flavours; nros-cpp does not target
-ThreadX (not in the
-<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/README.md">coverage matrix</a>).</p>
+<p>Rust, C, and C++ are supported on threadx-linux; threadx-riscv64
+ships Rust + C only. See the
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/README.md">coverage matrix</a>
+for the exact cells.</p>
 <blockquote>
 <p><strong>Prereqs.</strong> Install the <code>nros</code> CLI once, then run
 <code>nros setup &lt;board&gt; --rmw &lt;rmw&gt;</code> for the flavour you need (see
@@ -238,35 +239,41 @@ uses the <code>nx_bsd_*</code> BSD socket shim layered on the host TCP stack
 (threadx-linux variant) or on its own NetX Duo TCP/IP stack
 (riscv64 variant).</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
-<pre><code class="language-toml"># threadx-linux talker config.toml — mirror of in-tree file
-[network]
-ip      = "192.0.3.10"
-mac     = "02:00:00:00:00:00"
-gateway = "192.0.3.1"
-netmask = "255.255.255.0"
-
-[platform]
-interface = "tap-tx0"               # veth pair created by nros setup threadx-linux
-
-[zenoh]
-locator   = "tcp/127.0.0.1:7455"   # ThreadX-Linux test-fixture port
+<p>The board crate parses <code>nros.toml</code> at boot. Schema is <code>[node]</code> +
+<code>[[transport]]</code> (direct-mode); the locator rides inside the
+transport.</p>
+<pre><code class="language-toml"># threadx-linux — mirror of examples/threadx-linux/rust/talker/nros.toml
+[node]
 domain_id = 0
+
+[[transport]]
+kind      = "ethernet"
+ip        = "192.0.3.10/24"     # CIDR; veth peer is 192.0.3.1
+mac       = "02:00:00:00:00:00"
+gateway   = "192.0.3.1"
+interface = "tap-tx0"           # veth side of the pair (see below)
+locator   = "tcp/127.0.0.1:7455"
 </code></pre>
-<pre><code class="language-toml"># threadx-riscv64 talker config.toml — QEMU Slirp
-[network]
-ip      = "10.0.2.10"
-mac     = "02:00:00:00:00:00"
+<pre><code class="language-toml"># threadx-riscv64 — QEMU Slirp; mirror of
+# examples/qemu-riscv64-threadx/rust/talker/nros.toml
+[node]
+domain_id = 0
+
+[[transport]]
+kind    = "ethernet"
+ip      = "10.0.2.40/24"
+mac     = "52:54:00:12:34:56"
 gateway = "10.0.2.2"
-netmask = "255.255.255.0"
-
-[zenoh]
-locator   = "tcp/10.0.2.2:7453"   # ThreadX-RV64 test-fixture port
-domain_id = 0
+locator = "tcp/10.0.2.2:7453"
 </code></pre>
-<p>ThreadX-Linux uses a veth pair (<code>tap-tx0</code>) rather than QEMU Slirp;
-<code>nros setup threadx-linux</code> creates the interface. The QEMU-RISC-V64
-fixture uses Slirp’s default <code>10.0.2.2</code> gateway just like the
-FreeRTOS QEMU flow.</p>
+<p><code>tap-tx0</code> is a veth pair brought up out-of-band by
+<code>scripts/qemu/setup-network.sh</code> — <strong>the script needs root</strong> (it
+calls <code>ip link add</code>/<code>ip addr add</code>) and so it does NOT run as part
+of <code>nros setup threadx-linux</code>. Run it once per machine:</p>
+<pre><code class="language-bash">sudo scripts/qemu/setup-network.sh
+</code></pre>
+<p>The QEMU-RISC-V64 fixture uses Slirp’s default <code>10.0.2.2</code> gateway
+and needs no host-side network setup.</p>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
 <pre><code class="language-bash"># threadx-linux:
 just threadx_linux build-fixtures   # build all rust + c examples
@@ -282,21 +289,17 @@ just threadx_riscv64 build-fixtures
 builds finish in seconds.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
 <pre><code class="language-bash"># threadx-linux (no QEMU):
-zenohd                                      # bring up the router (provisioned by nros setup --rmw zenoh)
-cd examples/threadx-linux/rust/talker
-cargo run --release
+just threadx_linux zenohd        # router on 127.0.0.1:7455
+just threadx_linux talker        # boots the linux talker process
 # Expected:
 #   nros ThreadX-Linux Talker
+#   Published: 0
 #   Published: 1
-#   Published: 2
 #   ...
 
 # threadx-riscv64 (QEMU virt):
-qemu-system-riscv64 -machine virt -cpu rv64 -smp 1 -m 256M \
-                    -nographic \
-                    -netdev user,id=net0 \
-                    -device virtio-net-device,netdev=net0 \
-                    -kernel ./build/talker.elf
+just threadx_riscv64 zenohd      # router on 127.0.0.1:7453
+just threadx_riscv64 talker      # boots the riscv64 kernel under qemu-system-riscv64
 
 # Verify from stock ROS 2:
 source /opt/ros/humble/setup.bash
@@ -305,14 +308,16 @@ ros2 topic echo /chatter std_msgs/msg/Int32
 </code></pre>
 <p>For batch testing: <code>just threadx_linux test</code> runs every pubsub /
 service / action against an in-test zenohd.</p>
-<p><strong>Readiness signal.</strong> threadx-linux: <code>Published: 1</code> within 3
-seconds of <code>cargo run</code>. threadx-riscv64 (QEMU): within ~15
-seconds of QEMU boot. If no <code>Published:</code> line:</p>
+<p><strong>Readiness signal.</strong> threadx-linux: <code>Published: 0</code> within 3
+seconds of <code>just threadx_linux talker</code>. threadx-riscv64 (QEMU):
+within ~15 seconds of QEMU boot. If no <code>Published:</code> line:</p>
 <ol>
-<li>Confirm <code>zenohd</code> reachable on the locator from <code>config.toml</code>
-(threadx-linux uses <code>127.0.0.1</code>; riscv64 QEMU uses <code>10.0.2.2</code>).</li>
-<li>threadx-linux: confirm the veth bridge came up via
-<code>nros setup threadx-linux</code>.</li>
+<li>Confirm <code>zenohd</code> reachable on the locator from <code>nros.toml</code>
+(threadx-linux uses <code>127.0.0.1:7455</code>; riscv64 QEMU uses
+<code>tcp/10.0.2.2:7453</code>).</li>
+<li>threadx-linux: confirm <code>tap-tx0</code> is up — <code>ip link show tap-tx0</code>
+should report the interface. If absent, re-run
+<code>sudo scripts/qemu/setup-network.sh</code>.</li>
 <li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
 <h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>
@@ -325,7 +330,7 @@ seconds of QEMU boot. If no <code>Published:</code> line:</p>
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/qemu-riscv64-threadx/rust/talker"><code>examples/qemu-riscv64-threadx/rust/talker/</code></a></li>
 <li>Board crates:
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/boards/nros-board-threadx-linux"><code>packages/boards/nros-board-threadx-linux/</code></a>,
-<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/boards/nros-board-riscv64-qemu"><code>packages/boards/nros-board-riscv64-qemu/</code></a></li>
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/boards/nros-board-threadx-qemu-riscv64"><code>packages/boards/nros-board-threadx-qemu-riscv64/</code></a></li>
 </ul>
 <h2 id="next"><a class="header" href="#next">Next</a></h2>
 <ul>

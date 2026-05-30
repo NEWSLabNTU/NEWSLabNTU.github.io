@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b115c05e.js";
+            window.path_to_searchindex_js = "../searchindex-5e20d714.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7454c8b7.js"></script>
@@ -209,7 +209,7 @@ xrce) into <code>~/.nros/sdk</code>.</p>
 ├── Cargo.toml
 ├── .cargo/config.toml         # target = riscv32imc-unknown-none-elf
 │                              # runner = espflash flash --monitor
-├── config.toml                # wifi credentials + zenoh locator
+├── nros.toml                  # [node] + [[transport kind="wifi"]]
 ├── package.xml
 ├── generated/
 └── src/main.rs                # esp-hal init → nros_app_main
@@ -217,24 +217,27 @@ xrce) into <code>~/.nros/sdk</code>.</p>
 <p>The <code>Cargo.toml</code> pulls <code>nros-board-esp32</code> (real hardware) or
 <code>nros-board-esp32-qemu</code> (QEMU ESP32 / ESP32-C3 fork).</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
-<p><code>config.toml</code> carries wifi + zenoh:</p>
-<pre><code class="language-toml">[wifi]
-ssid     = "your-wifi-ssid"
-password = "your-wifi-password"
-
-[zenoh]
-locator   = "tcp/192.168.1.100:7447"     # host running zenohd
+<p><code>nros.toml</code> carries wifi creds + locator inside a single
+<code>[[transport]] kind = "wifi"</code> block. Direct-mode schema; the
+locator rides the transport.</p>
+<pre><code class="language-toml">[node]
 domain_id = 0
 
-# Optional static IP (commented out — defaults to DHCP):
-# [network]
-# ip      = "10.0.0.100"
-# gateway = "10.0.0.1"
-# prefix  = 24
+[[transport]]
+kind     = "wifi"
+ssid     = "your-wifi-ssid"
+password = "your-wifi-password"
+locator  = "tcp/192.168.1.100:7447"      # host running zenohd
+
+# Optional static IP (omit for DHCP). Same schema as the ethernet
+# transport — CIDR `ip`, gateway:
+# ip      = "192.168.1.50/24"
+# gateway = "192.168.1.1"
 </code></pre>
-<p>Wi-Fi credentials can also be supplied via <code>SSID=… PASSWORD=…</code>
-environment variables on the build command — preferred for real
-networks since the file ships in git history.</p>
+<p>Wi-Fi credentials can also be baked at build time via <code>SSID=… PASSWORD=…</code> environment variables read by
+<code>scripts/build/fixtures-build.sh</code> — preferred for real networks
+since <code>nros.toml</code> ships in git history. The env vars are
+build-time only; they don’t override the file at runtime.</p>
 <p>For QEMU ESP32 (no real wifi) the example tree at
 <code>examples/qemu-esp32-baremetal/</code> uses the loopback path via
 <code>nros-board-esp32-qemu</code>.</p>
@@ -243,21 +246,23 @@ networks since the file ships in git history.</p>
 cd examples/esp32/rust/talker
 cargo build --release
 
-# QEMU ESP32 (qemu-system-xtensa or qemu-system-riscv32):
-just esp32 build           # builds for the QEMU board crate
+# QEMU ESP32-C3 (RISC-V) — use the canonical builder, NOT a bare
+# `cargo build` from the workspace root:
+just esp32 build-examples
 </code></pre>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
-<pre><code class="language-bash"># Real hardware:
+<pre><code class="language-bash"># Real hardware (ESP32-C3):
 cd examples/esp32/rust/talker
 cargo run --release        # invokes `espflash flash --monitor`
 # Expected serial output:
 #   ESP32-C3 booting...
 #   Wifi connected: 192.168.1.42
+#   Published: 0
 #   Published: 1
-#   Published: 2
 
-# QEMU ESP32:
-just esp32 talker          # boots the talker binary in qemu-system-xtensa
+# QEMU ESP32-C3 — start zenohd FIRST (port 7454), THEN the talker:
+just esp32 zenohd          # router on 127.0.0.1:7454
+just esp32 talker          # boots the talker in qemu-system-riscv32
 
 # Verify from stock ROS 2 on the same network:
 source /opt/ros/humble/setup.bash
@@ -265,7 +270,7 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 topic echo /chatter std_msgs/msg/Int32
 </code></pre>
 <p><strong>Readiness signal.</strong> Real hardware: after <code>espflash flash --monitor</code>,
-expect the Wi-Fi connect line + <code>Published: 1</code> within 10 seconds.
+expect the Wi-Fi connect line + <code>Published: 0</code> within 10 seconds.
 QEMU ESP32: ~15 seconds. If no <code>Published:</code> line:</p>
 <ol>
 <li>Wi-Fi credentials wrong → <code>Wifi connect failed</code> in serial log.</li>
@@ -294,9 +299,11 @@ your chip (<code>riscv32imc-unknown-none-elf</code> vs <code>xtensa-esp32s3-none
 <a href="./integration-esp-idf.html">ESP32 (ESP-IDF component)</a>.</li>
 <li>PlatformIO library path:
 <a href="./integration-platformio.html">PlatformIO library</a>.</li>
-<li>ESP32-S3 (Xtensa) — same code shape; the toolchain swap is
-<code>rustup target add xtensa-esp32s3-none-elf</code> and a different board
-crate.</li>
+<li>ESP32-S3 (Xtensa) is <strong>not</strong> currently supported. Xtensa targets
+aren’t shipped via rustup (there is no <code>rustup target add xtensa-esp32s3-none-elf</code> — Xtensa requires Espressif’s <code>espup</code>
+toolchain on top of a custom <code>+esp</code> channel, plus a different
+board crate). Only the ESP32-C3 (RISC-V) path is wired today;
+the workspace <code>just/esp32.just</code> comment even calls this out.</li>
 </ul>
 
                     </main>

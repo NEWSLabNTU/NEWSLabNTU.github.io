@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b115c05e.js";
+            window.path_to_searchindex_js = "../searchindex-5e20d714.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-7454c8b7.js"></script>
@@ -206,11 +206,16 @@ via a path dependency. Three files matter:</p>
     └── main.rs         # 60-line talker
 </code></pre>
 <p>POSIX talkers read the locator / domain from environment variables
-(<code>ZENOH_LOCATOR</code>, <code>ROS_DOMAIN_ID</code>) — no <code>config.toml</code> is needed.
-The <code>config.toml</code> shape used by embedded targets shows up under
-the Embedded Starters section.</p>
+(<code>NROS_LOCATOR</code>, <code>ROS_DOMAIN_ID</code>) — no <code>nros.toml</code> is needed.
+Embedded targets carry a sidecar <code>nros.toml</code> (<code>[node]</code> +
+<code>[[transport]]</code>) that the board crate parses at boot; see the
+Embedded Starters section.</p>
 <p>The <code>Cargo.toml</code> is the contract that wires nano-ros into your
-package:</p>
+package. The in-tree
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/native/rust/talker/Cargo.toml"><code>examples/native/rust/talker/Cargo.toml</code></a>
+is the canonical version (workspace member of the nano-ros root,
+multi-RMW feature flags, <code>nros-platform-cffi</code> for the POSIX C-port).
+The minimal <strong>standalone</strong> shape (no nano-ros workspace, one RMW) is:</p>
 <pre><code class="language-toml">[package]
 name    = "my-talker"
 edition = "2024"
@@ -223,15 +228,23 @@ path = "src/main.rs"
 nros = { path = "&lt;...&gt;/packages/core/nros",
          default-features = false,
          features = ["std", "rmw-cffi", "platform-posix"] }
+nros-platform-cffi = { path = "&lt;...&gt;/packages/core/nros-platform-cffi",
+                       features = ["posix-c-port"] }
 nros-rmw-zenoh = { path = "&lt;...&gt;/packages/zpico/nros-rmw-zenoh",
                    features = ["std", "platform-posix", "ros-humble"] }
+std_msgs = { version = "*", default-features = false }
+log         = "0.4"
+env_logger  = "0.11"
 
-[workspace]      # empty table — this package is intentionally
-                 # standalone, no walking-up workspace.
+[workspace]      # empty table — keep this package out of any
+                 # parent workspace cargo finds when walking up.
 </code></pre>
+<p>Copying the in-tree example wholesale into a new tree without that
+empty <code>[workspace]</code> table makes cargo walk up and pull the example
+into the nano-ros workspace — which is fine inside the nano-ros
+checkout but breaks once you copy it out.</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
-<p>Three runtime knobs, each overridable at three layers (defaults →
-<code>config.toml</code> → env vars):</p>
+<p>Three runtime knobs, overridable via env vars:</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -244,11 +257,6 @@ nros-rmw-zenoh = { path = "&lt;...&gt;/packages/zpico/nros-rmw-zenoh",
 </tbody>
 </table>
 </div>
-<p><code>config.toml</code> (optional, alongside <code>Cargo.toml</code>):</p>
-<pre><code class="language-toml">[zenoh]
-locator   = "tcp/127.0.0.1:7447"
-domain_id = 0
-</code></pre>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
 <pre><code class="language-bash">cd examples/native/rust/talker
 cargo build           # or: cargo build --release
@@ -268,8 +276,8 @@ RUST_LOG=info cargo run
 # Expected output (on stderr):
 #   [INFO  native_rs_talker] nros Native Talker (Zenoh Transport)
 #   [INFO  native_rs_talker] =========================================
+#   [INFO  native_rs_talker] Published: 0
 #   [INFO  native_rs_talker] Published: 1
-#   [INFO  native_rs_talker] Published: 2
 #   …
 </code></pre>
 <p>That’s the nano-ros side fully working. <strong>Optional step:</strong> verify
@@ -289,7 +297,7 @@ ros2 topic echo /chatter std_msgs/msg/Int32
 <code>Published:</code>, the routers aren’t peering — confirm both processes
 point at the same port (default <code>tcp/127.0.0.1:7447</code>).</p>
 <p><strong>Readiness signal.</strong> Within 5 seconds of <code>RUST_LOG=info cargo run</code>,
-the talker should print <code>Published: 1</code>. If no <code>Published:</code> line in
+the talker should print <code>Published: 0</code>. If no <code>Published:</code> line in
 30 seconds:</p>
 <ol>
 <li>Confirm <code>RUST_LOG</code> is set. Without <code>RUST_LOG=info</code> (or <code>debug</code>),
