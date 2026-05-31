@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-c447251e.js";
+            window.path_to_searchindex_js = "searchindex-9af93682.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-fa22aaf5.js"></script>
@@ -1253,28 +1253,71 @@ this; the only delta is <strong>build-script glue</strong>.</p>
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/cpp-port-minimal-publisher"><code>examples/templates/cpp-port-minimal-publisher/</code></a> —
 the ROS 2 tutorial’s <code>minimal_publisher.cpp</code> vendored unmodified, building
 against nano-ros via the three glue lines below.</p>
-<h2 id="the-three-line-glue"><a class="header" href="#the-three-line-glue">The three-line glue</a></h2>
-<p>In your ported package’s <code>CMakeLists.txt</code>, <strong>before</strong> the stock
-<code>find_package(ament_cmake_auto REQUIRED) / ament_auto_*</code> block:</p>
-<pre><code class="language-cmake"># 1) Pull nano-ros into the build (NanoRos::NanoRos / NanoRosCpp + the codegen).
-set(NANO_ROS_PLATFORM posix)         # or zephyr / freertos / nuttx / threadx
-set(NROS_RMW "zenoh" CACHE STRING "Active RMW (zenoh|cyclonedds|xrce).")
+<h2 id="two-layers-of-glue"><a class="header" href="#two-layers-of-glue">Two layers of glue</a></h2>
+<h3 id="per-package-cmakeliststxt--zero-nano-ros-lines-phase-210"><a class="header" href="#per-package-cmakeliststxt--zero-nano-ros-lines-phase-210">Per-package CMakeLists.txt — <strong>zero nano-ros lines</strong> (Phase 210)</a></h3>
+<p>The ported pkg’s <code>CMakeLists.txt</code> carries <strong>only stock ROS 2 syntax</strong>.
+Same file builds under both <code>colcon build</code> AND a nano-ros build:</p>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.20)
+project(my_node LANGUAGES CXX)
+
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
+# … any other msg packages the source #include's.
+
+add_executable(my_node src/my_node.cpp)
+ament_target_dependencies(my_node rclcpp std_msgs)
+
+ament_package()
+</code></pre>
+<p><code>find_package(rclcpp)</code> resolves through the rclcpp Find-stub (which
+auto-applies the <code>rclcpp_compat.hpp</code> force-include); <code>find_package(std_msgs)</code>
+resolves through the smart Find-stub (Phase 210.A.2 → walks
+<code>NROS_INTERFACE_SEARCH_PATH &gt; AMENT_PREFIX_PATH &gt; bundled</code>); the
+<code>ament_target_dependencies</code> compat shim wires both link targets.</p>
+<h3 id="workspace-umbrella-cmakeliststxt--one-nano-ros-include-phase-210"><a class="header" href="#workspace-umbrella-cmakeliststxt--one-nano-ros-include-phase-210">Workspace umbrella CMakeLists.txt — <strong>one nano-ros include</strong> (Phase 210)</a></h3>
+<p>The umbrella <code>CMakeLists.txt</code> (sits at the workspace root, next to
+<code>src/</code>) is the <strong>only</strong> nano-ros-aware file:</p>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
+project(my_workspace LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 14)
+
+# 1) Pull nano-ros in.
+set(NANO_ROS_PLATFORM posix)
+set(NROS_RMW "zenoh" CACHE STRING "Active RMW.")
 set(NANO_ROS_RMW "${NROS_RMW}")
 add_subdirectory("/path/to/nano-ros" nano_ros)
 
-# 2) Drop-in source-compat for rclcpp / ament_cmake_auto / rclcpp_components /
-#    diagnostic_updater. Everything below this line is unmodified stock ROS 2.
+# 2) Point the smart Find-stub at this workspace's src/ (must precede the
+#    NrosRclcppCompat include so workspace-pkg Find&lt;pkg&gt;.cmake auto-emit
+#    picks it up).
+set(NROS_INTERFACE_SEARCH_PATH "${CMAKE_SOURCE_DIR}/src")
+
+# 3) Drop-in source-compat surface.
 include("/path/to/nano-ros/cmake/compat/NrosRclcppCompat.cmake")
 
-# 3) Generate the message bindings the source includes. (Phase 209.E folds
-#    this into one bulk `nros generate cpp --workspace &lt;ws&gt;` call; today it's
-#    one line per package.)
-nros_generate_interfaces(builtin_interfaces LANGUAGE CPP SKIP_INSTALL)
-nros_generate_interfaces(std_msgs DEPENDENCIES builtin_interfaces LANGUAGE CPP SKIP_INSTALL)
-# … plus any other msg packages the source `#include`s.
+# 4) Bulk-build every workspace msg pkg in topo order (one line instead of
+#    N add_subdirectory(src/&lt;pkg&gt;) lines).
+nros_workspace_interfaces()
+
+# 5) Build consumer apps.
+add_subdirectory(src/my_node)
 </code></pre>
-<p>Below that block, the original <code>find_package(rclcpp) / find_package(&lt;msg-pkg&gt;) / ament_auto_add_executable / ament_target_dependencies / ament_auto_package</code>
-stays unchanged.</p>
+<p>No <code>nros_generate_interfaces(&lt;pkg&gt;)</code> calls per consumer — the smart
+Find-stub does the codegen at <code>find_package(&lt;pkg&gt;)</code> time.</p>
+<h3 id="reference-fixture"><a class="header" href="#reference-fixture">Reference fixture</a></h3>
+<p><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/local-msg-package"><code>examples/templates/local-msg-package/</code></a>
+ships the pattern end-to-end: two workspace msg pkgs (<code>local_msgs</code>,
+<code>extra_msgs</code>) with intra-workspace dep + a C++ consumer pulling msgs
+from BOTH the workspace AND AMENT (<code>std_msgs</code>, <code>geometry_msgs</code>,
+<code>sensor_msgs</code>) via one <code>find_package</code> shape. Cross-build proof: the
+same <code>src/</code> builds under <code>colcon build</code> (CI-gated by Phase 210.F.2).</p>
+<h3 id="legacy-nros_generate_interfacespkg-shape"><a class="header" href="#legacy-nros_generate_interfacespkg-shape">Legacy <code>nros_generate_interfaces(&lt;pkg&gt;)</code> shape</a></h3>
+<p>Per-package <code>nros_generate_interfaces(std_msgs LANGUAGE CPP SKIP_INSTALL)</code>
+calls still work (back-compat preserved) but are <strong>deprecated for new
+code</strong> — they bypass the ROS-convention smart Find-stub + workspace
+discovery. Existing in-tree examples will migrate as part of Phase
+210.E.3.</p>
 <h2 id="what-just-works-without-source-edits"><a class="header" href="#what-just-works-without-source-edits">What “just works” without source edits</a></h2>
 <p>The compat surface covers the patterns a typical ROS 2 C++ node uses:</p>
 <div class="table-wrapper">
@@ -1299,19 +1342,18 @@ stays unchanged.</p>
 </table>
 </div>
 <h2 id="whats-documented-as-needs-adapt-codegen-side-not-surface-side"><a class="header" href="#whats-documented-as-needs-adapt-codegen-side-not-surface-side">What’s documented as “needs adapt” (codegen-side, not surface-side)</a></h2>
-<p>These are not source-compat regressions — they’re cosmetic codegen
-differences nano-ros’s per-package codegen and the upstream
-<code>rosidl_default_runtime</code> codegen don’t yet share. Both are tracked under
-Phase 209.E (bulk codegen with the upstream layout).</p>
+<p>These are cosmetic codegen differences nano-ros’s per-package codegen
+and the upstream <code>rosidl_default_runtime</code> codegen don’t share. Both are
+tracked under Phase 210 (ROS-convention codegen).</p>
 <ul>
 <li><strong>Message string fields.</strong> nano-ros codegen emits <code>nros::FixedString&lt;N&gt;</code>,
 upstream emits <code>std::string</code>. Assigning a <code>std::string</code> needs a one-token
 adapter: <code>message.data = s.c_str()</code>. The reverse <code>(std::string{}.c_str())</code>
-is what RCLCPP_INFO already takes.</li>
-<li><strong>Generated message header path.</strong> nano-ros codegen emits a per-package
-umbrella at <code>&lt;pkg&gt;/&lt;pkg&gt;.hpp</code> (e.g. <code>&lt;std_msgs/std_msgs.hpp&gt;</code>); upstream
-emits the per-message form <code>&lt;std_msgs/msg/string.hpp&gt;</code>. Use the nano-ros
-umbrella include for now; 209.E will emit both.</li>
+is what <code>RCLCPP_INFO</code> already takes.</li>
+<li><strong>Generated message header path.</strong> <strong>CLOSED</strong> (Phase 123.B.8 alias
+headers): nano-ros codegen emits BOTH the per-message form
+<code>&lt;std_msgs/msg/string.hpp&gt;</code> (upstream-shape) AND the umbrella
+<code>&lt;std_msgs/std_msgs.hpp&gt;</code>. Use whichever the original source picks.</li>
 </ul>
 <h2 id="whats-out-of-scope-will-need-code-adapt-or-a-follow-up-phase"><a class="header" href="#whats-out-of-scope-will-need-code-adapt-or-a-follow-up-phase">What’s out of scope (will need code adapt or a follow-up phase)</a></h2>
 <ul>
@@ -1333,17 +1375,24 @@ nano-ros’s to ship; the porting user vendors them or replaces the call
 sites with raw <code>nros-cpp</code> ones.</li>
 </ul>
 <h2 id="when-the-port-hits-a-gap"><a class="header" href="#when-the-port-hits-a-gap">When the port hits a gap</a></h2>
-<p>The 209 phase doc tracks open follow-ups (E for bulk codegen, F for yaml
-params bake, H for LifecycleNode). If your port surfaces a <em>new</em> gap not
-covered by the compat header, file it under Phase 209 (Track-A = tree-side
-fix that lands in <code>cmake/compat/</code> or <code>packages/core/nros-cpp/</code>; Track-B = a
-codegen change). The two in-tree templates
-(<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/rclcpp-compat-smoke"><code>rclcpp-compat-smoke</code></a>
-and
-<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/topic-state-monitor-port"><code>topic-state-monitor-port</code></a>)
-exist as regression fixtures — drop your reduced-case node under
-<code>examples/templates/&lt;your-port&gt;/</code> and add it to the CI build matrix once the
-gap closes.</p>
+<p>Open follow-ups: 209.F (yaml params bake), 209.H (LifecycleNode), 210.E.3
+(in-tree migration of legacy <code>nros_generate_interfaces(&lt;pkg&gt;)</code> call
+sites). If your port surfaces a <em>new</em> gap not covered by the compat
+header, file it under Phase 209 (Track-A = tree-side fix that lands in
+<code>cmake/compat/</code> or <code>packages/core/nros-cpp/</code>; Track-B = a codegen change).</p>
+<p>In-tree regression fixtures:</p>
+<ul>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/local-msg-package"><code>local-msg-package</code></a>
+— mixed workspace (workspace + AMENT msg sources) C++ + Rust consumers.</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/cpp-port-minimal-publisher"><code>cpp-port-minimal-publisher</code></a>
+— ROS 2 tutorial <code>minimal_publisher.cpp</code> verbatim.</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/rclcpp-compat-smoke"><code>rclcpp-compat-smoke</code></a>
+— minimal source-compat regression test.</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/topic-state-monitor-port"><code>topic-state-monitor-port</code></a>
+— multi-sub / wall-timer / diagnostic_updater exercise.</li>
+</ul>
+<p>Drop your reduced-case node under <code>examples/templates/&lt;your-port&gt;/</code> and
+add it to CI once the gap closes.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="your-own-message-package"><a class="header" href="#your-own-message-package">Your own message package</a></h1>
 <p>You write a ROS 2 msg package <strong>once</strong>. The same <code>src/my_msgs/</code> directory
@@ -1515,7 +1564,7 @@ Find-stub forwarding <code>find_package(my_msgs)</code> → <code>my_msgs::my_ms
 </div>
 <p>Shadowing — a workspace <code>my_msgs</code> and an AMENT <code>my_msgs</code> resolve to the
 workspace one, with a <code>message(STATUS ...)</code> line noting the shadow.</p>
-<h2 id="reference-fixture"><a class="header" href="#reference-fixture">Reference fixture</a></h2>
+<h2 id="reference-fixture-1"><a class="header" href="#reference-fixture-1">Reference fixture</a></h2>
 <p><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/local-msg-package"><code>examples/templates/local-msg-package/</code></a>
 ships the exact pattern above end-to-end (two workspace msg pkgs with a
 dep between them, plus a consumer node). Use it as a copy-out template.</p>
