@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["ExecutorError"],"fn":["nros_run_components"],"struct":["ComponentHandle","ExecutorComponentRuntime"],"type":["ComponentRegisterFn"]};
+window.SIDEBAR_ITEMS = {"enum":["ExecutorError"],"fn":["nros_run_components"],"struct":["ComponentHandle","ExecutorComponentRuntime"],"type":["ComponentDispatchFn","ComponentInitFn","ComponentRegisterFn","ComponentTickFn"]};
