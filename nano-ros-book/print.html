@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9af93682.js";
+            window.path_to_searchindex_js = "searchindex-6fe5b96b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-fa22aaf5.js"></script>
+        <script src="toc-92628a6c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -3523,6 +3523,142 @@ colcon build &amp;&amp; source install/setup.bash
 Each guide covers toolchain setup, package layout, code example, build
 command, run/flash command, and deployment notes.</p>
 <p>See <a href="#deployment-workflow">Deployment Workflow</a>.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="component--entry-pkg-cookbook"><a class="header" href="#component--entry-pkg-cookbook">Component + Entry Pkg Cookbook</a></h1>
+<p>nano-ros multi-node workspaces split into <strong>two kinds of package</strong>:</p>
+<ul>
+<li><strong>Component pkg</strong> — a reusable, board-agnostic node library. Defines what a node <em>does</em> (publishers, subscribers, timers, services, actions) and registers itself with the <code>nros::component!()</code> macro. No <code>main()</code>, no board pick, no deploy config.</li>
+<li><strong>Entry pkg</strong> — a per-board binary that <em>composes</em> one or more Component pkgs into a runnable system. Owns the board choice (via the <code>Board</code> trait family), the launch file, and the deploy/domain/bridge config. Typically ~30 LoC of <code>main.rs</code>.</li>
+</ul>
+<p>The split exists because a node’s logic is portable across boards, but boot + transport + deploy config is not. One Component pkg can be reused across native POSIX, FreeRTOS, and Zephyr targets by writing one Entry pkg per target.</p>
+<blockquote>
+<p><strong>Convenience shortcut:</strong> for a single-Component workspace on native hosts, a Component pkg can declare <code>[package.metadata.nros.entry] deploy = "&lt;board&gt;"</code> in its own <code>Cargo.toml</code> and skip the Entry pkg directory entirely — see <a href="#single-component-pkg-convenience-cargo-run-just-works">Single-Component-pkg convenience</a> below. Embedded boards still need a hand-written Entry pkg.</p>
+</blockquote>
+<h2 id="component-pkg"><a class="header" href="#component-pkg">Component pkg</a></h2>
+<p>A Component pkg is a normal Rust library (or C++ static library) with a few nano-ros-specific knobs:</p>
+<pre><code>pkgs/talker/
+├── Cargo.toml          # [lib] crate-type = ["rlib", "staticlib"]
+│                       # [package.metadata.nros.component]
+│                       #     class = "talker::Talker"
+├── package.xml         # ROS 2 package manifest (&lt;exec_depend&gt; etc.)
+├── src/
+│   └── lib.rs          # impl Component for Talker { … }
+│                       # nros::component!(Talker);
+└── launch/             # OPTIONAL — per-component launch fragment
+    └── talker.launch.xml
+</code></pre>
+<p><code>src/lib.rs</code> declares the user class, implements <code>Component</code> +
+<code>ExecutableComponent</code> (<code>init</code> / <code>on_callback</code> / optional <code>tick</code>), and
+ends with <code>nros::component!(Talker);</code> to emit the register trampoline.
+Codegen owns the spin loop — your code only describes what the node
+<em>has</em> and what its callbacks <em>do</em>.</p>
+<p>Key rules:</p>
+<ul>
+<li><strong>No <code>fn main()</code>.</strong> A Component pkg builds as <code>rlib + staticlib</code> and is <em>linked into</em> an Entry pkg’s binary. Codegen synthesises the spin driver; you never hand-write one.</li>
+<li><strong><code>class</code> field must start with the pkg dir name.</strong> <code>nros check</code> rejects <code>class = "foo::Talker"</code> inside <code>pkgs/talker/</code> — the pkg name and the class prefix are the same identity. (Phase 212.L.4.)</li>
+<li><strong>C++ analogue:</strong> <code>nano_ros_component_register(NAME … CLASS … SOURCES … DEPLOY …)</code> cmake fn + <code>NROS_COMPONENT_REGISTER(UserClass, "&lt;pkg&gt;::UserClass")</code> in the source. Same conceptual shape, no Cargo.toml.</li>
+<li><strong><code>package.xml</code> is mandatory.</strong> Even pure-Rust Component pkgs ship one — <code>&lt;exec_depend&gt;</code> lines drive ROS 2 launch discovery when the system runs through <code>ros2 launch</code> outside the nano-ros toolchain.</li>
+</ul>
+<h2 id="entry-pkg"><a class="header" href="#entry-pkg">Entry pkg</a></h2>
+<p>An Entry pkg is a binary crate that combines one or more Component pkgs with a board choice, a launch file, and per-board deploy config:</p>
+<pre><code>pkgs/robot_entry/
+├── Cargo.toml          # [[bin]] name = "robot_entry"
+│                       # [dependencies]
+│                       #     talker   = { path = "../talker" }
+│                       #     listener = { path = "../listener" }
+│                       #     nros-board-posix = { … }            # or another family
+│                       # [package.metadata.nros.entry]
+│                       #     deploy = "native"
+│                       # [package.metadata.nros.deploy.native]
+│                       #     board     = "posix"
+│                       #     rmw       = "zenoh"
+│                       #     domain_id = 0
+│                       #     locator   = "tcp/127.0.0.1:7447"
+│                       # [build-dependencies]
+│                       #     nros-build = { … }
+├── package.xml         # &lt;exec_depend&gt;talker&lt;/exec_depend&gt;, listener, …
+├── launch/
+│   └── system.launch.xml   # &lt;node pkg=… exec=…/&gt; rows + params/remaps
+├── build.rs            # ~3 LoC: nros_build::generate_run_plan(...)
+└── src/
+    └── main.rs         # ~10–30 LoC: Board::run(|runtime| { run_plan(runtime) })
+</code></pre>
+<p><code>build.rs</code> is a one-liner calling
+<code>nros_build::generate_run_plan(nros_build::Config::from_env())</code>.
+<code>nros-build</code> reads <code>package.xml</code> + <code>launch/system.launch.xml</code> + each
+Component pkg’s <code>[package.metadata.nros.component]</code> via
+<code>cargo metadata</code>, then writes <code>$OUT_DIR/run_plan.rs</code> exposing a
+board-agnostic <code>fn run_plan(runtime: &amp;mut RuntimeCtx) -&gt; Result&lt;(), Error&gt;</code>
+(see <a href="#runtimectx"><code>RuntimeCtx</code></a>).</p>
+<p><code>main.rs</code> consumes that:</p>
+<pre><code class="language-rust ignore">// pkgs/robot_entry/src/main.rs
+use nros_board_posix::PosixBoard;
+use nros_platform::board::BoardEntry;
+
+include!(concat!(env!("OUT_DIR"), "/run_plan.rs"));
+
+fn main() {
+    let _ = &lt;PosixBoard as BoardEntry&gt;::run(|runtime| {
+        // Optional: overlay knobs from CLI args / env into runtime here.
+        run_plan(runtime)
+    });
+}</code></pre>
+<p>Key rules:</p>
+<ul>
+<li><strong>One Entry pkg per board target.</strong> Want to run the same components on native POSIX, on a QEMU-MPS2-AN385 FreeRTOS target, and on a real ThreadX board? Three Entry pkgs (<code>robot_entry_native</code>, <code>robot_entry_qemu_freertos</code>, <code>robot_entry_acme_threadx</code>) sharing the same Component pkgs and (usually) the same <code>launch/system.launch.xml</code> via symlink or <code>&lt;include&gt;</code>.</li>
+<li><strong><code>launch/system.launch.xml</code> is the canonical name.</strong> <code>nros plan</code> resolution order: <code>--file &lt;path&gt;</code> → <code>&lt;dir&gt;/launch/&lt;pkg&gt;.launch.xml</code> → <code>&lt;dir&gt;/launch/system.launch.xml</code> → the single <code>&lt;dir&gt;/launch/*.launch.xml</code> → synth (only for non-Entry, single-Component pkgs).</li>
+<li><strong>Deploy config lives in <code>Cargo.toml</code>.</strong> <code>[package.metadata.nros.deploy.&lt;target&gt;]</code> holds board / RMW / domain / locator per target; <code>[[package.metadata.nros.domain]]</code> and <code>[[package.metadata.nros.bridge]]</code> carry multi-domain topology. The retired <code>system.toml</code> is gone — <code>nros check</code> rejects it.</li>
+<li><strong>C++ analogue:</strong> cmake fn <code>nano_ros_entry(NAME &lt;name&gt; SOURCES … BOARD &lt;board&gt; DEPLOY …)</code> plus <code>nano_ros_deploy(TARGET … RMW … DOMAIN_ID … LOCATOR …)</code>. (<code>nano_ros_entry</code> is renamed from the older <code>nano_ros_application</code> per Phase 212.N.6.) Metadata flows through <code>${BUILD}/nros-metadata.json</code> rather than a sidecar TOML.</li>
+</ul>
+<h2 id="workspace-shape"><a class="header" href="#workspace-shape">Workspace shape</a></h2>
+<p>A typical multi-Component workspace, with one Entry pkg per supported board:</p>
+<pre><code>my_robot/
+├── Cargo.toml          # [workspace] members = [
+│                       #     "pkgs/talker",
+│                       #     "pkgs/listener",
+│                       #     "pkgs/robot_entry_native",
+│                       #     "pkgs/robot_entry_freertos",
+│                       # ]
+│                       # [workspace.metadata.nros]
+│                       #     default_system = "robot_entry_native"
+├── pkgs/
+│   ├── talker/                  # Component pkg (lib)
+│   ├── listener/                # Component pkg (lib)
+│   ├── robot_entry_native/      # Entry pkg (bin, board = posix)
+│   └── robot_entry_freertos/    # Entry pkg (bin, board = qemu-mps2-an385-freertos)
+└── .gitignore          # /target/  /build/
+</code></pre>
+<p><code>cargo build</code> at the workspace root builds everything via cargo’s native scheduler. <code>nros plan</code> reads <code>[workspace.metadata.nros] default_system</code> to pick the Entry pkg (or you pass <code>nros plan robot_entry_freertos</code> explicitly).</p>
+<p>For C++-majority or mixed workspaces, CMake is the top-level driver instead — see <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/multi-node-workspace-layout.md">the multi-node workspace design doc</a>.</p>
+<h2 id="single-component-pkg-convenience-cargo-run-just-works"><a class="header" href="#single-component-pkg-convenience-cargo-run-just-works">Single-Component-pkg convenience (<code>cargo run</code> Just Works)</a></h2>
+<p>For tiny fixtures and host-side dev loops, a Component pkg can declare itself as its own Entry pkg by adding <code>[package.metadata.nros.entry] deploy = "&lt;board&gt;"</code> to its <code>Cargo.toml</code>, alongside the usual <code>[package.metadata.nros.component]</code> and <code>[package.metadata.nros.deploy.&lt;target&gt;]</code> tables. <code>build.rs</code> calls the convenience helper:</p>
+<pre><code class="language-rust ignore">// build.rs
+fn main() {
+    nros_build::generate_single_node_main(nros_board_posix::PosixBoard).unwrap();
+}</code></pre>
+<p>That emits <em>both</em> <code>$OUT_DIR/run_plan.rs</code> <em>and</em> <code>$OUT_DIR/main.rs</code>. The <code>src/main.rs</code> stub just re-includes the generated body via <code>include!(concat!(env!("OUT_DIR"), "/main.rs"))</code>.</p>
+<p><code>cargo run</code> now boots the component without a sibling Entry pkg directory, without a launch file (one is synthesised in-memory), and without hand-written boot glue. This is the L.7 self-entry planner path (Phase 212.L.7 + N.5).</p>
+<p><strong>Limits of the convenience:</strong></p>
+<ul>
+<li><strong>Native only.</strong> Embedded boards (FreeRTOS, ThreadX, Zephyr, bare-metal) still require a hand-written Entry pkg — board init is non-trivial enough that hiding it behind a one-liner does more harm than good.</li>
+<li><strong>One Component.</strong> Two or more Component pkgs in the same workspace = author an Entry pkg. The point of the convenience is to skip ceremony for tiny single-node fixtures, not to grow into a multi-component composition root.</li>
+</ul>
+<h2 id="quick-reference"><a class="header" href="#quick-reference">Quick reference</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>You want…</th><th>Use</th></tr>
+</thead>
+<tbody>
+<tr><td>Reusable node logic, board-independent</td><td>Component pkg (<code>nros::component!()</code>)</td></tr>
+<tr><td>Per-board binary that runs N components</td><td>Entry pkg (<code>main.rs</code> calls <code>BoardEntry::run</code>)</td></tr>
+<tr><td><code>cargo run</code> on host for a single-node fixture</td><td>Component pkg with <code>[package.metadata.nros.entry] deploy = "native"</code></td></tr>
+<tr><td>Same components on multiple boards</td><td>One Component pkg set + one Entry pkg per board</td></tr>
+<tr><td>Composition root (launch file + deploy config)</td><td>Entry pkg (replaces the retired Bringup pkg)</td></tr>
+<tr><td>Board hardware bringup</td><td><code>Board</code> trait family (see <a href="#the-board-trait-family">porting chapter</a>)</td></tr>
+</tbody>
+</table>
+</div>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="build-as-a-cmake-subdirectory"><a class="header" href="#build-as-a-cmake-subdirectory">Build as a CMake subdirectory</a></h1>
 <p>This is <strong>the</strong> way to integrate nano-ros into a C or C++ project. The
@@ -7255,6 +7391,166 @@ shape the cooperative model.</li>
 <li><a href="#rmw-api">RMW API Reference</a> – RMW trait hierarchy and backend details</li>
 <li><a href="#architecture-overview">Architecture Overview</a> – concise layer map</li>
 <li><a href="#platform-model">Platform Model</a> – conceptual overview of the three feature axes</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="the-board-trait-family"><a class="header" href="#the-board-trait-family">The <code>Board</code> Trait Family</a></h1>
+<p>The <code>Board</code> trait family is the <strong>porting surface for a new MCU or host target</strong>. It lives in <code>packages/core/nros-platform/src/board/</code> and pins the contract every board crate (<code>nros-board-&lt;board&gt;</code> or a user-authored crate in a downstream Entry pkg) implements. Phase 212.N introduces this surface; earlier prototypes used <code>nros-board-common::board_init::*</code>, and those legacy traits stay as a transition shim until Phase 212.N.7 lands.</p>
+<p>A board impl tells nano-ros four things: <em>how to initialize hardware</em>, <em>how to print a line of text</em>, <em>how to terminate</em>, and (optionally) <em>how to bring a transport up and gate on the network</em>. With those four pieces the <code>BoardEntry::run</code> driver owns the boot lifecycle, and a user Entry pkg <code>main.rs</code> is a ~30 LoC shim.</p>
+<h2 id="where-the-trait-family-sits"><a class="header" href="#where-the-trait-family-sits">Where the trait family sits</a></h2>
+<pre><code class="language-text">nros-platform::board
+│
+├── Board: BoardInit + BoardPrint + BoardExit     // super-trait (blanket impl)
+│
+├── TransportBringup: Board                       // mixin — Ethernet / WiFi / serial / CAN / USB CDC / IVC
+├── NetworkWait:    Board                         // mixin — carrier / DHCP / link-up gate
+│
+└── BoardEntry: Board
+        fn run&lt;F, E&gt;(setup: F) -&gt; Result&lt;(), E&gt;
+        where F: FnOnce(&amp;mut RuntimeCtx) -&gt; Result&lt;(), E&gt;;
+</code></pre>
+<ul>
+<li><strong><code>BoardInit::init_hardware()</code></strong> — clock tree, pin mux, peripheral wakes. Runs once on boot before allocation. Panicking here is the same as panicking from <code>fn main()</code> — no recovery.</li>
+<li><strong><code>BoardPrint::println(args: core::fmt::Arguments&lt;'_&gt;)</code></strong> — emit a line. Boards wrap whatever stdout makes sense: <code>cortex_m_semihosting::hprintln!</code>, a vendor printf bridge, a UART writer, <code>libc::write(STDOUT_FILENO, …)</code>, or <code>printk</code>.</li>
+<li><strong><code>BoardExit::{exit_success, exit_failure}() -&gt; !</code></strong> — terminate cleanly (or with failure). QEMU boards call <code>cortex_m_semihosting::debug::exit</code>; real hardware resets or halts; POSIX shells <code>std::process::exit</code>.</li>
+<li><strong><code>TransportBringup::init_transport()</code></strong> — bring the link layer up to L2 (Ethernet frames flow / WiFi associated / UART open at baud). Returns <em>before</em> any L3/IP state — that’s <code>NetworkWait</code>’s job.</li>
+<li><strong><code>NetworkWait::wait_link_up()</code></strong> — block until carrier + DHCP/static IP + default route. Only IP-aware transports implement it; CAN-only, serial-only, IVC-only boards skip it.</li>
+<li><strong><code>BoardEntry::run(setup)</code></strong> — the boot driver. Implementations live in the family driver crates (<code>nros-board-{posix,freertos,threadx,…}</code>); user Entry pkg <code>main.rs</code> calls it.</li>
+</ul>
+<p><code>Board</code> is itself a blanket-implemented super-trait: any type that carries <code>BoardInit + BoardPrint + BoardExit</code> automatically satisfies <code>Board</code>. Concrete board crates do <em>not</em> <code>impl Board</code> directly — they impl the three sub-traits (plus whichever mixins they need).</p>
+<h2 id="the-boardentryrun-lifecycle"><a class="header" href="#the-boardentryrun-lifecycle">The <code>BoardEntry::run</code> lifecycle</a></h2>
+<p><code>BoardEntry::run</code> owns the full boot → user-closure → exit flow. The exact body lives in the family driver crate (e.g. <code>nros-board-posix</code>, <code>nros-board-freertos</code>); each family folds its RTOS specifics in, but the <em>order</em> is fixed:</p>
+<ol>
+<li><strong><code>BoardInit::init_hardware()</code></strong> — clocks, pinmux, MMIO setup.</li>
+<li><strong><code>TransportBringup::init_transport()</code></strong> — driver up at L2 (skipped if the board doesn’t impl the mixin).</li>
+<li><strong><code>NetworkWait::wait_link_up()</code></strong> — DHCP / carrier (skipped if the board doesn’t impl the mixin).</li>
+<li>Open the executor, build a <a href="#runtimectx"><code>RuntimeCtx</code></a> with overlay knobs from the launch file / CLI, and invoke <code>setup(&amp;mut runtime)</code>. The codegen-emitted <code>run_plan(runtime)</code> body is what <code>setup</code> ultimately calls.</li>
+<li>Spin the executor to completion (or termination signal).</li>
+<li><strong><code>BoardExit::exit_success()</code></strong> on <code>Ok</code>, <strong><code>BoardExit::exit_failure()</code></strong> on <code>Err</code> or any failed init step.</li>
+</ol>
+<p><code>run</code> returns <code>Result&lt;(), E&gt;</code> rather than <code>!</code> so unit tests can drive it in a hosted process without <code>exit()</code> killing the test harness — but production boards still call <code>exit_*</code> from inside <code>run</code>’s body after spin returns, so in practice the caller’s <code>Ok(())</code> arm is unreachable on a real target.</p>
+<p>The <code>setup</code> callback is the only place user code runs inside <code>run</code>. Everything else is family-crate boilerplate.</p>
+<h2 id="runtimectx"><a class="header" href="#runtimectx"><code>RuntimeCtx</code></a></h2>
+<p><code>RuntimeCtx&lt;'a&gt;</code> is the per-invocation overlay context the <code>setup</code> callback receives:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct RuntimeCtx&lt;'a&gt; {
+    pub params:  &amp;'a [(&amp;'a str, &amp;'a str)],   // &lt;param name=… value=…/&gt; + -p name:=value
+    pub remaps:  &amp;'a [(&amp;'a str, &amp;'a str)],   // topic/service/action renames
+    pub env:     &amp;'a [(&amp;'a str, &amp;'a str)],   // env-style key/value (rarely set on embedded)
+}
+<span class="boring">}</span></code></pre>
+<p>Slice-of-tuples, <code>no_std</code>-safe, no allocation. Codegen owns the storage and passes a <code>&amp;mut RuntimeCtx&lt;'_&gt;</code> whose backing slices live in <code>static</code>s — <code>RuntimeCtx::EMPTY</code> is a const placeholder for launch-less single-node examples or unit tests.</p>
+<h2 id="picking-your-transport-mixins"><a class="header" href="#picking-your-transport-mixins">Picking your transport mixins</a></h2>
+<p>What you implement on the transport axis depends on what link layers your board exposes:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Board transport class</th><th>Implement</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>Ethernet (smoltcp / lwIP / NetX BSD)</td><td><code>TransportBringup</code> + <code>NetworkWait</code></td><td>Both — driver up, then DHCP/link gate</td></tr>
+<tr><td>WiFi (ESP32)</td><td><code>TransportBringup</code> + <code>NetworkWait</code></td><td>Same shape — association is L2, DHCP is L3</td></tr>
+<tr><td>Serial UART only</td><td><code>TransportBringup</code></td><td>No IP, so no <code>NetworkWait</code></td></tr>
+<tr><td>CAN / USB CDC / IVC</td><td><code>TransportBringup</code></td><td>Link-layer only</td></tr>
+<tr><td>Bridged-net (threadx-linux veth)</td><td><code>TransportBringup</code> + <code>NetworkWait</code></td><td>Host kernel owns IP — <code>wait_link_up</code> just probes the bridge</td></tr>
+<tr><td>Native POSIX</td><td>None</td><td>Host OS owns everything; the family crate’s <code>run</code> skips both mixins</td></tr>
+</tbody>
+</table>
+</div>
+<p>Boards with multiple transports compose via an internal helper (e.g. a <code>MultiTransport</code> newtype) rather than blanket impls — each transport’s bringup is sequential and order-sensitive (<code>init_link</code> before <code>link_up</code>, sockets only after link).</p>
+<h2 id="worked-example--porting-a-new-board"><a class="header" href="#worked-example--porting-a-new-board">Worked example — porting a new board</a></h2>
+<p>Suppose you’re adding <code>nros-board-acme-cortex-m4-eth</code>, a Cortex-M4 with a UART for <code>println</code> and an MII-attached PHY routed through smoltcp. The crate sits at <code>packages/boards/nros-board-acme-cortex-m4-eth/</code> and depends on <code>nros-platform</code>, the family crate (<code>nros-board-freertos</code> if FreeRTOS is the RTOS), the matching <code>packages/drivers/&lt;phy&gt;-smoltcp</code> MAC driver, and a vendor HAL crate.</p>
+<pre><code class="language-rust ignore">// packages/boards/nros-board-acme-cortex-m4-eth/src/lib.rs
+#![no_std]
+
+use nros_platform::board::{
+    BoardEntry, BoardExit, BoardInit, BoardPrint,
+    NetworkWait, TransportBringup,
+    NetworkError, TransportError, RuntimeCtx,
+};
+
+pub struct AcmeCortexM4Eth;
+
+impl BoardInit for AcmeCortexM4Eth {
+    fn init_hardware() {
+        acme_hal::clocks::init_hse_192mhz();
+        acme_hal::pinmux::route_uart2();
+        acme_hal::pinmux::route_eth_mii();
+        acme_hal::eth::release_phy_reset();
+    }
+}
+
+impl BoardPrint for AcmeCortexM4Eth {
+    fn println(args: core::fmt::Arguments&lt;'_&gt;) {
+        // 256-byte stack staging buffer is enough for our log lines;
+        // pick whatever your UART driver wants.
+        let mut buf = heapless::String::&lt;256&gt;::new();
+        let _ = core::fmt::write(&amp;mut buf, args);
+        let _ = buf.push('\n');
+        acme_hal::uart2::write_bytes(buf.as_bytes());
+    }
+}
+
+impl BoardExit for AcmeCortexM4Eth {
+    fn exit_success() -&gt; ! { acme_hal::system::reset() }
+    fn exit_failure() -&gt; ! { acme_hal::system::halt_with_blinkenlight() }
+}
+
+impl TransportBringup for AcmeCortexM4Eth {
+    fn init_transport() -&gt; Result&lt;(), TransportError&gt; {
+        // Brings the MAC up to L2; smoltcp owns the IP stack and joins
+        // it in NetworkWait.
+        acme_phy_smoltcp::init().map_err(|_| TransportError::DriverInit)?;
+        acme_phy_smoltcp::wait_link(core::time::Duration::from_secs(5))
+            .map_err(|_| TransportError::LinkDown)
+    }
+}
+
+impl NetworkWait for AcmeCortexM4Eth {
+    fn wait_link_up() -&gt; Result&lt;(), NetworkError&gt; {
+        acme_phy_smoltcp::dhcp_acquire(core::time::Duration::from_secs(10))
+            .map_err(|_| NetworkError::DhcpTimeout)
+    }
+}
+
+// BoardEntry comes from the family crate's blanket impl:
+//   impl&lt;B: Board + TransportBringup + NetworkWait&gt; BoardEntry for B { fn run … }
+// The family crate provides the FreeRTOS-shaped run body; you do not
+// hand-write a BoardEntry impl unless your target is exotic enough to
+// step outside the family.</code></pre>
+<p>That’s the whole board crate. A downstream Entry pkg consumes it as:</p>
+<pre><code class="language-rust ignore">// pkgs/robot_acme_entry/src/main.rs
+use nros_board_acme_cortex_m4_eth::AcmeCortexM4Eth;
+use nros_platform::board::BoardEntry;
+
+include!(concat!(env!("OUT_DIR"), "/run_plan.rs"));   // codegen-emitted
+
+fn main() {
+    let _ = &lt;AcmeCortexM4Eth as BoardEntry&gt;::run(|runtime| {
+        run_plan(runtime)
+    });
+}</code></pre>
+<p>See the <a href="#component--entry-pkg-cookbook">Component + Entry pkg cookbook</a> for the Entry-pkg surface.</p>
+<h2 id="family-driver-crates"><a class="header" href="#family-driver-crates">Family driver crates</a></h2>
+<p>The family crate is where the <code>BoardEntry::run</code> <em>body</em> actually lives. Tier-1 families targeted by Phase 212.N.2:</p>
+<ul>
+<li><code>nros-board-posix</code> — native host (Linux / macOS / *BSD); <code>init_transport</code>/<code>wait_link_up</code> no-ops.</li>
+<li><code>nros-board-freertos</code> — FreeRTOS-Kernel + lwIP; <code>run</code> spawns the executor task, hands DHCP to lwIP’s hook.</li>
+<li><code>nros-board-threadx</code> — ThreadX + NetX BSD; same shape over NetX.</li>
+<li><code>nros-board-nuttx</code> — NuttX POSIX layer; <code>init_transport</code> shells <code>ifup</code>-style logic.</li>
+<li><code>nros-board-zephyr</code> — carve-out: Kconfig + DTS own BSP, family crate impls only <code>NetworkWait</code> over <code>&lt;zephyr/net/net_if.h&gt;</code>. The Rust staticlib cannot take over <code>main</code> on Zephyr.</li>
+<li><code>nros-board-esp-idf</code> — ESP-IDF component shape; WiFi association lives in <code>init_transport</code>, IP lease in <code>wait_link_up</code>.</li>
+<li><code>nros-board-bare-metal</code> — Cortex-M / RV32, no RTOS; minimal <code>run</code> body with a single-thread <code>zp_read</code> loop.</li>
+</ul>
+<blockquote>
+<p><strong>Current state:</strong> as of Phase 212.N.1 the trait surface lives in <code>nros-platform</code>; the family driver crates land in N.2 and the per-board shims in N.3. Until then, see <code>packages/boards/nros-board-*</code> for the in-tree boards that still ride the legacy <code>nros-board-common::board_init::*</code> traits — same conceptual shape, different module path.</p>
+</blockquote>
+<h2 id="cross-references"><a class="header" href="#cross-references">Cross-references</a></h2>
+<ul>
+<li><strong>Workspace shape + how an Entry pkg consumes a board</strong> → <a href="#component--entry-pkg-cookbook">Component + Entry pkg cookbook</a>.</li>
+<li><strong>Multi-node composition root</strong> → <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/multi-node-workspace-layout.md"><code>docs/design/multi-node-workspace-layout.md</code></a>.</li>
+<li><strong>Why the C ABI looks the way it does</strong> → <a href="#canonical-platform-c-abi">Canonical Platform C ABI</a>.</li>
+<li><strong>Platform trait set vs Board trait set</strong> — these are <em>different</em> traits with different roles. <code>Platform*</code> (clock / alloc / sockets / threading) sits below the RMW; <code>Board*</code> sits above the platform and owns the boot lifecycle. A bare-metal board crate typically depends on both: a <code>nros-platform-*</code> impl for the platform traits and a <code>nros-board-*</code> impl for the board traits.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="custom-board-package"><a class="header" href="#custom-board-package">Custom Board Package</a></h1>
@@ -12482,7 +12778,7 @@ automatically (<code>nros_tests::qemu::qemu_system_arm_cmd()</code>); the system
 the fallback. See <a href="#patched-qemu-system-arm-binary">Patched qemu-system-arm</a>.</p>
 <h2 id="see-also-11"><a class="header" href="#see-also-11">See also</a></h2>
 <ul>
-<li><a href="#quick-reference-1">Build Commands</a> — the user-facing quick reference.</li>
+<li><a href="#quick-reference-2">Build Commands</a> — the user-facing quick reference.</li>
 <li><a href="#zpico-sys-build-architecture">zpico-sys Build Architecture</a> — the zenoh-pico cross-compile.</li>
 <li><code>CLAUDE.md</code> — the authoritative build/test-tier + parallelism policy.</li>
 <li>Phase docs (<code>docs/roadmap/archived/</code>): 176 (jobserver), 181 (fixture SSOT +
@@ -12742,7 +13038,7 @@ just test-miri       # Miri UB detection
 </code></pre>
 <h2 id="verus"><a class="header" href="#verus">Verus</a></h2>
 <p>Verus is a deductive verification tool for Rust. Unlike Kani (which checks bounded executions), Verus proves properties hold for all possible inputs using SMT solving.</p>
-<h3 id="quick-reference"><a class="header" href="#quick-reference">Quick Reference</a></h3>
+<h3 id="quick-reference-1"><a class="header" href="#quick-reference-1">Quick Reference</a></h3>
 <pre><code class="language-bash">just verification verus   # Download Verus binary to tools/ (or `just verification setup` for kani + verus)
 just verify-verus    # Run all Verus proofs
 just verify          # Run both Kani + Verus
@@ -14815,7 +15111,7 @@ guidance and platform guides for target-specific sizing.</p>
 </table>
 </div>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="quick-reference-1"><a class="header" href="#quick-reference-1">Quick Reference</a></h1>
+<h1 id="quick-reference-2"><a class="header" href="#quick-reference-2">Quick Reference</a></h1>
 <h2 id="finding-commands"><a class="header" href="#finding-commands">Finding Commands</a></h2>
 <p>Root commands are grouped by audience:</p>
 <pre><code class="language-bash">just --list                         # grouped root command overview
