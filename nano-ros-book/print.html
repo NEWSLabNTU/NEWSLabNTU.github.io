@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-ab1dc089.js";
+            window.path_to_searchindex_js = "searchindex-0dbcc82a.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-92628a6c.js"></script>
@@ -1567,6 +1567,55 @@ Find-stub forwarding <code>find_package(my_msgs)</code> → <code>my_msgs::my_ms
 </div>
 <p>Shadowing — a workspace <code>my_msgs</code> and an AMENT <code>my_msgs</code> resolve to the
 workspace one, with a <code>message(STATUS ...)</code> line noting the shadow.</p>
+<h2 id="shadowing-contract"><a class="header" href="#shadowing-contract">Shadowing contract</a></h2>
+<p>When two layers carry the same package name (e.g. a workspace
+<code>std_msgs</code> and <code>/opt/ros/&lt;distro&gt;/share/std_msgs/</code>), the <strong>higher
+layer wins</strong> — silently and deterministically. Concretely:</p>
+<ol>
+<li>
+<p><strong><code>NROS_INTERFACE_SEARCH_PATH</code> &gt; <code>AMENT_PREFIX_PATH</code> &gt; bundled.</strong>
+The smart Find-stub
+(<code>cmake/compat/stubs/_NrosFindRosMsgPackage.cmake</code>) walks the
+three layers in order; the first hit wins. Lower layers are
+skipped entirely.</p>
+</li>
+<li>
+<p><strong>The configure pass emits a <code>message(STATUS ...)</code> line</strong> noting
+the resolved path, e.g.</p>
+<pre><code>-- nros: find_package(std_msgs) -&gt; /path/to/workspace/src/std_msgs
+</code></pre>
+<p>Grep your configure log for <code>nros: find_package(&lt;pkg&gt;)</code> to confirm
+which layer supplied each pkg.</p>
+</li>
+<li>
+<p><strong>Intra-workspace shadowing</strong> — when two roots under
+<code>NROS_INTERFACE_SEARCH_PATH</code> both ship the same pkg, the
+<code>nros_workspace_interfaces()</code> bulk orchestrator keeps the
+earlier-listed one and warns about the shadowed copy.</p>
+</li>
+<li>
+<p><strong>No partial overrides.</strong> Shadowing is whole-package: a workspace
+pkg replaces ALL of an AMENT pkg’s interfaces, not a subset. If
+you only want to add <code>MyExtraMsg.msg</code> to <code>std_msgs</code>, ship a
+separate pkg (e.g. <code>my_std_extra_msgs</code>) — don’t shadow.</p>
+</li>
+</ol>
+<h3 id="compile-time-fail-safe"><a class="header" href="#compile-time-fail-safe">Compile-time fail-safe</a></h3>
+<p>Shadowing is observed at compile time: if your workspace <code>std_msgs</code>
+declares a <code>Marker.msg</code> and your consumer includes
+<code>"std_msgs/msg/marker.hpp"</code>, the build only succeeds when the
+workspace copy is the one linked. AMENT’s <code>std_msgs</code> ships no
+<code>Marker.msg</code>, so a fall-through resolves to a missing header. The
+build outcome is the strongest evidence — <code>nm</code> on the linked binary
+is the symbol-level corroborator.</p>
+<h3 id="reference-fixture-for-shadowing"><a class="header" href="#reference-fixture-for-shadowing">Reference fixture for shadowing</a></h3>
+<p>The canonical smoke proof for the Layer 1 &gt; Layer 2 case ships at
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/workspace-shadowing"><code>examples/templates/workspace-shadowing/</code></a> —
+a workspace <code>std_msgs</code> carrying a <code>Marker.msg</code> shadows the
+AMENT-installed <code>std_msgs</code>. The fixture’s <code>README.md</code> walks through
+the <code>cmake</code> + <code>nm</code> verification. A regression test
+(<code>packages/testing/nros-tests/tests/phase210_f4_shadowing.rs</code>)
+re-runs the same proof in CI when AMENT is sourced.</p>
 <h2 id="reference-fixture-1"><a class="header" href="#reference-fixture-1">Reference fixture</a></h2>
 <p><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/local-msg-package"><code>examples/templates/local-msg-package/</code></a>
 ships the exact pattern above end-to-end (two workspace msg pkgs with a

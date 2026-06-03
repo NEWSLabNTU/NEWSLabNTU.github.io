@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["FieldType"],"struct":["Field","NestedType"],"trait":["Message"]};

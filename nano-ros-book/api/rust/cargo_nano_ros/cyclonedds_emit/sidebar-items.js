@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["emit_for_package","patch_cargo_toml_with_cyclonedds_feature","resolve_idlc"],"struct":["EmitOutcome"]};
