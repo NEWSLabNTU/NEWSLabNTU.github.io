@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["parse_idl_file"],"struct":["IdlParseError","IdlParser"]};

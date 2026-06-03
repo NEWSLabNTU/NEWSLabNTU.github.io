@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["build_metadata","render_harness_cargo_toml","render_harness_main"],"struct":["MetadataBuildOptions"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["node_fqn","normalize_namespace","resolve_entity_name","resolve_without_remap"],"struct":["ResolvedName"]};

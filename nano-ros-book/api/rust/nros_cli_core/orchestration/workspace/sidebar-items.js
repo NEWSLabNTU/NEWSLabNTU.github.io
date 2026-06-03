@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["load_component_config","unique_paths"],"struct":["ComponentDeclaration","Package","Workspace"]};

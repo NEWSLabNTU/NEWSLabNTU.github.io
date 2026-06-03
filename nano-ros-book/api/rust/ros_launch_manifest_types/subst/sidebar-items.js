@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SubstError"],"fn":["resolve_args","substitute_manifest","substitute_opt","substitute_str","substitute_vec"]};

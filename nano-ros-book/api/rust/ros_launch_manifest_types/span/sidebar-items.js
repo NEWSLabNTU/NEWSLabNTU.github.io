@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["line_col_to_offset","line_starts"],"struct":["SpanIndex","Spanned"]};

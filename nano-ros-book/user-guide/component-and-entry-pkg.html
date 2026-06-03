@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b8347599.js";
+            window.path_to_searchindex_js = "../searchindex-ab1dc089.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-92628a6c.js"></script>
@@ -227,35 +227,37 @@ Codegen owns the spin loop — your code only describes what the node
 │                       #     rmw       = "zenoh"
 │                       #     domain_id = 0
 │                       #     locator   = "tcp/127.0.0.1:7447"
-│                       # [build-dependencies]
-│                       #     nros-build = { … }
 ├── package.xml         # &lt;exec_depend&gt;talker&lt;/exec_depend&gt;, listener, …
-├── launch/
-│   └── system.launch.xml   # &lt;node pkg=… exec=…/&gt; rows + params/remaps
-├── build.rs            # ~3 LoC: nros_build::generate_run_plan(...)
 └── src/
-    └── main.rs         # ~10–30 LoC: Board::run(|runtime| { run_plan(runtime) })
+    └── main.rs         # one line: `nros::main!(launch = "demo_bringup");`
 </code></pre>
-<p><code>build.rs</code> is a one-liner calling
-<code>nros_build::generate_run_plan(nros_build::Config::from_env())</code>.
-<code>nros-build</code> reads <code>package.xml</code> + <code>launch/system.launch.xml</code> + each
-Component pkg’s <code>[package.metadata.nros.component]</code> via
-<code>cargo metadata</code>, then writes <code>$OUT_DIR/run_plan.rs</code> exposing a
-board-agnostic <code>fn run_plan(runtime: &amp;mut RuntimeCtx) -&gt; Result&lt;(), Error&gt;</code>
-(see <a href="../porting/board-trait.html#runtimectx"><code>RuntimeCtx</code></a>).</p>
-<p><code>main.rs</code> consumes that:</p>
-<pre><code class="language-rust ignore">// pkgs/robot_entry/src/main.rs
-use nros_board_posix::PosixBoard;
-use nros_platform::board::BoardEntry;
-
-include!(concat!(env!("OUT_DIR"), "/run_plan.rs"));
-
-fn main() {
-    let _ = &lt;PosixBoard as BoardEntry&gt;::run(|runtime| {
-        // Optional: overlay knobs from CLI args / env into runtime here.
-        run_plan(runtime)
-    });
-}</code></pre>
+<p>The <code>nros::main!()</code> proc-macro (Phase 212.N.9) reads the launch file
+at compile time, walks the workspace pkg-index for each <code>&lt;node pkg=…&gt;</code>
+entry, and expands to a <code>fn main()</code> that delegates to
+<code>&lt;Board as BoardEntry&gt;::run(...)</code>, dispatching one
+<code>&lt;pkg&gt;::register(runtime)?</code> call per launch row. The macro has four
+forms; pick whichever matches your composition shape:</p>
+<pre><code class="language-rust ignore">nros::main!();                                          // single-node self-bringup
+nros::main!(board = NativeBoard);                       // single-node, explicit board
+nros::main!(launch = "demo_bringup");                   // multi-node, default launch
+nros::main!(launch = "demo_bringup:sim.launch.xml");    // multi-node, explicit file
+nros::main!(                                            // all explicit
+    board  = NativeBoard,
+    launch = "demo_bringup:sim.launch.xml",
+    args   = [("use_sim", "true")],
+);</code></pre>
+<p>Form-1 (no args) reads
+<code>[package.metadata.nros.entry] deploy = "&lt;board&gt;"</code> from this Entry
+pkg’s own <code>Cargo.toml</code> and maps the board key
+(<code>"native"</code>/<code>"freertos"</code>/<code>"zephyr"</code>/…) to the right board crate
+via a small lookup table. Forms 2–4 use the user-supplied path
+verbatim. Forms 3/4 expect a separate “bringup” pkg whose dir
+hosts <code>launch/&lt;file&gt;.launch.xml</code> plus an optional <code>system.toml</code>
+naming the default file (<code>[system] default_launch = "..."</code>).
+The <code>nros::main!()</code> expansion replaces the older
+<code>build.rs + include!(env!("OUT_DIR")/run_plan.rs)</code> shape end-to-end;
+new Entry pkgs no longer need a <code>build.rs</code> or a <code>nros-build</code>
+build-dep — just <code>nros</code> + the target board crate.</p>
 <p>Key rules:</p>
 <ul>
 <li><strong>One Entry pkg per board target.</strong> Want to run the same components on native POSIX, on a QEMU-MPS2-AN385 FreeRTOS target, and on a real ThreadX board? Three Entry pkgs (<code>robot_entry_native</code>, <code>robot_entry_qemu_freertos</code>, <code>robot_entry_acme_threadx</code>) sharing the same Component pkgs and (usually) the same <code>launch/system.launch.xml</code> via symlink or <code>&lt;include&gt;</code>.</li>
@@ -284,13 +286,16 @@ fn main() {
 <p><code>cargo build</code> at the workspace root builds everything via cargo’s native scheduler. <code>nros plan</code> reads <code>[workspace.metadata.nros] default_system</code> to pick the Entry pkg (or you pass <code>nros plan robot_entry_freertos</code> explicitly).</p>
 <p>For C++-majority or mixed workspaces, CMake is the top-level driver instead — see <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/multi-node-workspace-layout.md">the multi-node workspace design doc</a>.</p>
 <h2 id="single-component-pkg-convenience-cargo-run-just-works"><a class="header" href="#single-component-pkg-convenience-cargo-run-just-works">Single-Component-pkg convenience (<code>cargo run</code> Just Works)</a></h2>
-<p>For tiny fixtures and host-side dev loops, a Component pkg can declare itself as its own Entry pkg by adding <code>[package.metadata.nros.entry] deploy = "&lt;board&gt;"</code> to its <code>Cargo.toml</code>, alongside the usual <code>[package.metadata.nros.component]</code> and <code>[package.metadata.nros.deploy.&lt;target&gt;]</code> tables. <code>build.rs</code> calls the convenience helper:</p>
-<pre><code class="language-rust ignore">// build.rs
-fn main() {
-    nros_build::generate_single_node_main(nros_board_posix::PosixBoard).unwrap();
-}</code></pre>
-<p>That emits <em>both</em> <code>$OUT_DIR/run_plan.rs</code> <em>and</em> <code>$OUT_DIR/main.rs</code>. The <code>src/main.rs</code> stub just re-includes the generated body via <code>include!(concat!(env!("OUT_DIR"), "/main.rs"))</code>.</p>
-<p><code>cargo run</code> now boots the component without a sibling Entry pkg directory, without a launch file (one is synthesised in-memory), and without hand-written boot glue. This is the L.7 self-entry planner path (Phase 212.L.7 + N.5).</p>
+<p>For tiny fixtures and host-side dev loops, a Component pkg can declare itself as its own Entry pkg by adding <code>[package.metadata.nros.entry] deploy = "&lt;board&gt;"</code> to its <code>Cargo.toml</code>, alongside the usual <code>[package.metadata.nros.component]</code> and <code>[package.metadata.nros.deploy.&lt;target&gt;]</code> tables. <code>src/main.rs</code> collapses to one line:</p>
+<pre><code class="language-rust ignore">// src/main.rs
+nros::main!();</code></pre>
+<p>The macro reads <code>deploy = "&lt;board&gt;"</code> from this pkg’s own <code>Cargo.toml</code>,
+maps it to the right board crate, and emits
+<code>fn main()</code> + <code>&lt;this_pkg&gt;::register(runtime)?;</code> — the latter resolves
+through the companion <code>src/lib.rs</code> cargo auto-wires alongside the
+binary target. No <code>build.rs</code>, no launch file (one is synthesised
+in-memory), no hand-written boot glue. This is the L.7 self-entry
+planner path (Phase 212.L.7 + N.5 + N.9).</p>
 <p><strong>Limits of the convenience:</strong></p>
 <ul>
 <li><strong>Native only.</strong> Embedded boards (FreeRTOS, ThreadX, Zephyr, bare-metal) still require a hand-written Entry pkg — board init is non-trivial enough that hiding it behind a one-liner does more harm than good.</li>

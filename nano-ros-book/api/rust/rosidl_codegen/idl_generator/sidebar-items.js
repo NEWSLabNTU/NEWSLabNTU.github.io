@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["extract_annotations","generate_idl_file","idl_struct_to_message"],"struct":["GeneratedIdlCode"]};

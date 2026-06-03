@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CallbackEffectKind","CallbackKind","ComponentLanguage"],"struct":["CallbackEffect","SourceAction","SourceCallback","SourceMetadata","SourceMetadataTrace","SourceNode","SourceParameter","SourcePublisher","SourceService","SourceSubscriber","SourceTimer"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["GENERATED_HEADER_COMMENT"],"enum":["DriftStatus"],"fn":["check_drift","render_for_pkg"]};

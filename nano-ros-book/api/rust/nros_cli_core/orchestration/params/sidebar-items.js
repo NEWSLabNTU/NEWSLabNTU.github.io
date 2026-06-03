@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["effective_parameters","load_toml_values"],"struct":["ParameterInputs"]};

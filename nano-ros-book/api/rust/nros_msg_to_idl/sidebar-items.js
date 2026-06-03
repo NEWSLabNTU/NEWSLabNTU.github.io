@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ConvertError"],"fn":["emit_idl","idl_type_for","mangle_idl","msg_to_idl","parse_msg"],"struct":["Converter","Field","Message","RosType"]};

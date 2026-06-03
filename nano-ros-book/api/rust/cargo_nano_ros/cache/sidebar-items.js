@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CACHE_FILE_NAME"],"fn":["calculate_package_checksum"],"struct":["Cache","CacheEntry"]};

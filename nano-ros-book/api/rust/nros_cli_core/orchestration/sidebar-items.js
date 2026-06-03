@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["board_descriptor","build","cargo_metadata_schema","config","generate","launch_synth","manifest","metadata_build","names","nros_config","params","plan","planner","root_config","schema","sdk_index","sdk_store","source_metadata","workspace"]};

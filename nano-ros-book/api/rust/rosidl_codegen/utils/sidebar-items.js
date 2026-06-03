@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["extract_dependencies","needs_big_array","to_snake_case"]};

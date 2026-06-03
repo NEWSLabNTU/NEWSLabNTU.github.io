@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["endpoint_requirements","load_manifest"],"struct":["ManifestArtifact"]};
