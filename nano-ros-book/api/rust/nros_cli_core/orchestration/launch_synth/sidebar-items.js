@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["LaunchInput","LaunchResolveError"],"fn":["discover_exec_target","discover_pkg_name","enumerate_launch_files","resolve_launch","synthesise_xml"],"struct":["MaterialisedLaunch"]};
+window.SIDEBAR_ITEMS = {"enum":["LaunchInput","LaunchResolveError"],"fn":["discover_exec_target","discover_pkg_name","enumerate_launch_files","is_self_entry_pkg","resolve_launch","resolve_self_entry_launch","synthesise_xml"],"struct":["MaterialisedLaunch"]};

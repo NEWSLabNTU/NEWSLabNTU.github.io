@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-0dbcc82a.js";
+            window.path_to_searchindex_js = "searchindex-23c00160.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-92628a6c.js"></script>
@@ -3887,6 +3887,28 @@ std_msgs = { version = "*", default-features = false }
 example_interfaces = { version = "*", default-features = false }
 </code></pre>
 <p>The <code>.cargo/config.toml</code> patches redirect these to local paths.</p>
+<h3 id="why-msg-crates-are-rmw-agnostic"><a class="header" href="#why-msg-crates-are-rmw-agnostic">Why msg crates are RMW-agnostic</a></h3>
+<p>Generated msg crates carry <strong>only the wire-format data type</strong> — no
+backend-specific code, no per-RMW Cargo feature. A user manifest is
+the plain pair:</p>
+<pre><code class="language-toml">[dependencies]
+std_msgs = { version = "*", default-features = false }
+nros     = { version = "*", features = ["rmw-cyclonedds"] }   # RMW choice lives here
+</code></pre>
+<p>Transport choice and message schema are orthogonal concerns and the
+manifest reflects that. This matches upstream rclcpp + rclrs, which
+both ship msg packages RMW-agnostic and let the RMW pick which
+descriptor representation it wants at runtime.</p>
+<p>For DDS-based backends that need a per-type descriptor on the wire
+(Cyclone DDS today), the <code>nros-rmw-cyclonedds</code> shim builds those
+descriptors <strong>lazily on first pub/sub for a given message type</strong>,
+walks the static field schema exposed by <code>nros-serdes</code> (the
+<code>Message</code> trait with <code>const TYPE_NAME</code> + <code>const FIELDS</code>), and caches
+the result in a bounded <code>no_std</code> registry. No per-msg-pkg backend
+code is required.</p>
+<p>Tracking + sizing knob (<code>NROS_CYCLONEDDS_MAX_TYPES</code>): see
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/phase-212-ux-cargo-native-and-file-consolidation.md"><code>docs/roadmap/phase-212-ux-cargo-native-and-file-consolidation.md</code></a>
+section 212.K.7.</p>
 <h2 id="git-dependency-workflow"><a class="header" href="#git-dependency-workflow">Git Dependency Workflow</a></h2>
 <p>For projects that consume nros as a <strong>git dependency</strong> (not from within the nros repo), use <code>--nano-ros-git</code> instead of <code>--nano-ros-path</code>:</p>
 <p><strong>Step 1:</strong> Add git dependency to <code>Cargo.toml</code>:</p>
@@ -11075,6 +11097,29 @@ via <code>nros_rmw_cffi_register</code>. No <code>RustBackendAdapter</code> is i
 The Rust runtime sees these via the same registry; the
 <code>NANO_ROS_RMW=&lt;name&gt;</code> CMake selector flips a build-time macro that
 ensures the register call is wired into <code>nros::init</code>.</p>
+<h3 id="cyclone-dds-runtime-type-introspection-phase-212k7"><a class="header" href="#cyclone-dds-runtime-type-introspection-phase-212k7">Cyclone DDS: runtime type introspection (Phase 212.K.7)</a></h3>
+<p>The Cyclone DDS shim <strong>does not</strong> require per-type backend code on the
+generated msg crate. Phase 212.K.7 inverted the original design where
+each msg crate carried an optional <code>cyclonedds</code> Cargo feature plus a
+Cyclone-specific descriptor sidecar.</p>
+<p>In the runtime-introspection design every generated msg crate is
+purely the wire-format data type (<code>#[derive]</code>d struct + a tiny <code>impl nros_serdes::Message</code> exposing <code>const TYPE_NAME</code> + <code>const FIELDS</code>).
+On the first typed <code>create_publisher&lt;M&gt;</code> / <code>create_subscription&lt;M&gt;</code>
+for a given <code>M</code>, the <code>nros-rmw-cyclonedds</code> shim walks the static
+field schema, builds a Cyclone <code>ddsi_sertype</code> via Cyclone’s
+dynamic-type C API, and caches the pointer in a bounded
+<code>heapless::FnvIndexMap&lt;u64, NonNull&lt;ddsi_sertype&gt;, MAX_TYPES&gt;</code>
+guarded by a platform-selected mutex. Subsequent uses of the same
+<code>M</code> are hash-map hits.</p>
+<p>End state: no <code>&lt;msg-pkg&gt;/cyclonedds</code> Cargo feature anywhere, no
+per-msg-pkg backend code, no codegen branching on the active RMW.
+The shape matches upstream rclcpp’s introspection typesupport + rclrs’s
+plain <code>&lt;pkg&gt; = "*"</code> consumer manifest.</p>
+<p>Sizing knob: <code>NROS_CYCLONEDDS_MAX_TYPES</code> (default 32), wired through
+the existing <code>nros-sizes</code> build probe (same pattern as
+<code>EXECUTOR_OPAQUE_U64S</code>). See section 212.K.7 of
+<a href="../../docs/roadmap/phase-212-ux-cargo-native-and-file-consolidation.html"><code>docs/roadmap/phase-212-ux-cargo-native-and-file-consolidation.md</code></a>
+for the work-item ledger.</p>
 <h2 id="when-to-revisit"><a class="header" href="#when-to-revisit">When to revisit</a></h2>
 <p>This matrix is a snapshot. Update it when any backend’s situation
 changes:</p>
