@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Shell","Sub"],"fn":["run"],"struct":["Args","CleanArgs","DoctorArgs","EnvArgs","ListArgs","StatusArgs","SyncArgs"]};
