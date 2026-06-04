@@ -27,256 +27,300 @@
 <a href=#27 id=27 data-nosnippet>27</a>//! variant on the heap; the trait surface is slice-based so
 <a href=#28 id=28 data-nosnippet>28</a>//! both shapes work.
 <a href=#29 id=29 data-nosnippet>29</a>
-<a href=#30 id=30 data-nosnippet>30</a>/// Per-Node pkg `register` fn pointer (Phase 212.N.7 step-3.1).
-<a href=#31 id=31 data-nosnippet>31</a>///
-<a href=#32 id=32 data-nosnippet>32</a>/// Real signature lives in `nros::NodeRegisterFn` (see
-<a href=#33 id=33 data-nosnippet>33</a>/// `packages/core/nros/src/component_runtime.rs`). The platform
-<a href=#34 id=34 data-nosnippet>34</a>/// layer treats it as an opaque pointer so `nros-platform` does not
-<a href=#35 id=35 data-nosnippet>35</a>/// need to depend on `nros` (that would invert the dep graph). The
-<a href=#36 id=36 data-nosnippet>36</a>/// `ExecutorNodeRuntime` impl in `nros` `transmute`s back to
-<a href=#37 id=37 data-nosnippet>37</a>/// the typed signature at the FFI boundary.
-<a href=#38 id=38 data-nosnippet>38</a>///
-<a href=#39 id=39 data-nosnippet>39</a>/// `extern "Rust" fn()` is the smallest concrete `fn` type
-<a href=#40 id=40 data-nosnippet>40</a>/// (zero-arg, no return). Coercing the real typed fn pointer to
-<a href=#41 id=41 data-nosnippet>41</a>/// this anchor requires `core::mem::transmute` — non-`as`. The
-<a href=#42 id=42 data-nosnippet>42</a>/// macro emit (Phase 212.N.7 step-3.4) carries the transmute so
-<a href=#43 id=43 data-nosnippet>43</a>/// individual Node pkgs never spell it.
-<a href=#44 id=44 data-nosnippet>44</a></span><span class="kw">pub type </span>NodeRegisterFn = <span class="kw">extern </span><span class="string">"Rust" </span><span class="kw">fn</span>();
-<a href=#45 id=45 data-nosnippet>45</a>
-<a href=#46 id=46 data-nosnippet>46</a><span class="doccomment">/// Per-Node pkg `init` fn pointer (Phase 212.N.7 step-3.1).
-<a href=#47 id=47 data-nosnippet>47</a>///
-<a href=#48 id=48 data-nosnippet>48</a>/// See [`NodeRegisterFn`] for the opaque-pointer rationale.
-<a href=#49 id=49 data-nosnippet>49</a></span><span class="kw">pub type </span>NodeInitFn = <span class="kw">extern </span><span class="string">"Rust" </span><span class="kw">fn</span>();
-<a href=#50 id=50 data-nosnippet>50</a>
-<a href=#51 id=51 data-nosnippet>51</a><span class="doccomment">/// Per-Node pkg `dispatch` fn pointer (Phase 212.N.7 step-3.1).
-<a href=#52 id=52 data-nosnippet>52</a>///
-<a href=#53 id=53 data-nosnippet>53</a>/// See [`NodeRegisterFn`] for the opaque-pointer rationale.
-<a href=#54 id=54 data-nosnippet>54</a></span><span class="kw">pub type </span>NodeDispatchFn = <span class="kw">extern </span><span class="string">"Rust" </span><span class="kw">fn</span>();
+<a href=#30 id=30 data-nosnippet>30</a></span><span class="kw">use </span><span class="kw">super</span>::dispatch::DispatchStrategy;
+<a href=#31 id=31 data-nosnippet>31</a>
+<a href=#32 id=32 data-nosnippet>32</a><span class="doccomment">/// Layer-clean substitute for `nros::node_metadata::CallbackId` +
+<a href=#33 id=33 data-nosnippet>33</a>/// `nros::node::CallbackCtx` at the [`NodeDispatchRuntime`] boundary
+<a href=#34 id=34 data-nosnippet>34</a>/// (Phase 216.A.2). `nros-platform` sits below `nros` in the dep
+<a href=#35 id=35 data-nosnippet>35</a>/// graph, so the trait surface cannot reference those types
+<a href=#36 id=36 data-nosnippet>36</a>/// directly. The `nros`-side runtime impl wraps a real
+<a href=#37 id=37 data-nosnippet>37</a>/// `(CallbackId, &amp;mut CallbackCtx)` pair into this opaque shape
+<a href=#38 id=38 data-nosnippet>38</a>/// before invoking [`NodeDispatchRuntime::signal_callback`]; the
+<a href=#39 id=39 data-nosnippet>39</a>/// concrete dispatcher casts `ctx_ptr` back to
+<a href=#40 id=40 data-nosnippet>40</a>/// `&amp;mut nros::CallbackCtx&lt;'_&gt;` at the call site.
+<a href=#41 id=41 data-nosnippet>41</a>///
+<a href=#42 id=42 data-nosnippet>42</a>/// `#[repr(C)]` keeps the layout stable across the (same-language
+<a href=#43 id=43 data-nosnippet>43</a>/// today, FFI-shaped tomorrow) `nros-platform` ↔ `nros` boundary.
+<a href=#44 id=44 data-nosnippet>44</a></span><span class="attr">#[repr(C)]
+<a href=#45 id=45 data-nosnippet>45</a></span><span class="kw">pub struct </span>SignaledCallback&lt;<span class="lifetime">'a</span>&gt; {
+<a href=#46 id=46 data-nosnippet>46</a>    <span class="doccomment">/// Stable identifier string carried by `nros::CallbackId(&amp;'a str)`.
+<a href=#47 id=47 data-nosnippet>47</a>    </span><span class="kw">pub </span>cb_id: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str,
+<a href=#48 id=48 data-nosnippet>48</a>
+<a href=#49 id=49 data-nosnippet>49</a>    <span class="doccomment">/// Erased pointer to the `nros::CallbackCtx&lt;'_&gt;` the dispatcher
+<a href=#50 id=50 data-nosnippet>50</a>    /// will drive. The `nros`-side `NodeDispatchRuntime` impl casts
+<a href=#51 id=51 data-nosnippet>51</a>    /// back to `&amp;mut nros::CallbackCtx&lt;'_&gt;` before invoking the
+<a href=#52 id=52 data-nosnippet>52</a>    /// component body.
+<a href=#53 id=53 data-nosnippet>53</a>    </span><span class="kw">pub </span>ctx_ptr: <span class="kw-2">*mut </span>core::ffi::c_void,
+<a href=#54 id=54 data-nosnippet>54</a>}
 <a href=#55 id=55 data-nosnippet>55</a>
-<a href=#56 id=56 data-nosnippet>56</a><span class="doccomment">/// Per-Node pkg `tick` fn pointer (Phase 212.N.7 step-3.1).
+<a href=#56 id=56 data-nosnippet>56</a><span class="doccomment">/// Per-Node pkg `register` fn pointer (Phase 212.N.7 step-3.1).
 <a href=#57 id=57 data-nosnippet>57</a>///
-<a href=#58 id=58 data-nosnippet>58</a>/// See [`NodeRegisterFn`] for the opaque-pointer rationale.
-<a href=#59 id=59 data-nosnippet>59</a></span><span class="kw">pub type </span>NodeTickFn = <span class="kw">extern </span><span class="string">"Rust" </span><span class="kw">fn</span>();
-<a href=#60 id=60 data-nosnippet>60</a>
-<a href=#61 id=61 data-nosnippet>61</a><span class="doccomment">/// Node runtime sink the codegen-emitted `run_plan(runtime)`
-<a href=#62 id=62 data-nosnippet>62</a>/// body talks to (Phase 212.N.7 step-3.1).
-<a href=#63 id=63 data-nosnippet>63</a>///
-<a href=#64 id=64 data-nosnippet>64</a>/// Object-safe + `no_std`. The concrete impl
-<a href=#65 id=65 data-nosnippet>65</a>/// (`ExecutorNodeRuntime` in `nros`) owns the live executor;
-<a href=#66 id=66 data-nosnippet>66</a>/// `BoardEntry::run` installs it on the per-boot
-<a href=#67 id=67 data-nosnippet>67</a>/// [`RuntimeCtx::runtime`] slot before invoking the user `setup`
-<a href=#68 id=68 data-nosnippet>68</a>/// closure.
-<a href=#69 id=69 data-nosnippet>69</a>///
-<a href=#70 id=70 data-nosnippet>70</a>/// The fn-pointer parameters are the opaque
-<a href=#71 id=71 data-nosnippet>71</a>/// [`NodeRegisterFn`] / [`NodeInitFn`] /
-<a href=#72 id=72 data-nosnippet>72</a>/// [`NodeDispatchFn`] / [`NodeTickFn`] aliases — the
-<a href=#73 id=73 data-nosnippet>73</a>/// real-typed counterparts live in `nros`. The implementor
-<a href=#74 id=74 data-nosnippet>74</a>/// `mem::transmute`s back at the call site (see
-<a href=#75 id=75 data-nosnippet>75</a>/// `impl nros_platform::NodeDispatchRuntime for ExecutorNodeRuntime`
-<a href=#76 id=76 data-nosnippet>76</a>/// in `packages/core/nros/src/component_runtime.rs`).
-<a href=#77 id=77 data-nosnippet>77</a>///
+<a href=#58 id=58 data-nosnippet>58</a>/// Real signature lives in `nros::NodeRegisterFn` (see
+<a href=#59 id=59 data-nosnippet>59</a>/// `packages/core/nros/src/component_runtime.rs`). The platform
+<a href=#60 id=60 data-nosnippet>60</a>/// layer treats it as an opaque pointer so `nros-platform` does not
+<a href=#61 id=61 data-nosnippet>61</a>/// need to depend on `nros` (that would invert the dep graph). The
+<a href=#62 id=62 data-nosnippet>62</a>/// `ExecutorNodeRuntime` impl in `nros` `transmute`s back to
+<a href=#63 id=63 data-nosnippet>63</a>/// the typed signature at the FFI boundary.
+<a href=#64 id=64 data-nosnippet>64</a>///
+<a href=#65 id=65 data-nosnippet>65</a>/// `extern "Rust" fn()` is the smallest concrete `fn` type
+<a href=#66 id=66 data-nosnippet>66</a>/// (zero-arg, no return). Coercing the real typed fn pointer to
+<a href=#67 id=67 data-nosnippet>67</a>/// this anchor requires `core::mem::transmute` — non-`as`. The
+<a href=#68 id=68 data-nosnippet>68</a>/// macro emit (Phase 212.N.7 step-3.4) carries the transmute so
+<a href=#69 id=69 data-nosnippet>69</a>/// individual Node pkgs never spell it.
+<a href=#70 id=70 data-nosnippet>70</a></span><span class="kw">pub type </span>NodeRegisterFn = <span class="kw">extern </span><span class="string">"Rust" </span><span class="kw">fn</span>();
+<a href=#71 id=71 data-nosnippet>71</a>
+<a href=#72 id=72 data-nosnippet>72</a><span class="doccomment">/// Per-Node pkg `init` fn pointer (Phase 212.N.7 step-3.1).
+<a href=#73 id=73 data-nosnippet>73</a>///
+<a href=#74 id=74 data-nosnippet>74</a>/// See [`NodeRegisterFn`] for the opaque-pointer rationale.
+<a href=#75 id=75 data-nosnippet>75</a></span><span class="kw">pub type </span>NodeInitFn = <span class="kw">extern </span><span class="string">"Rust" </span><span class="kw">fn</span>();
+<a href=#76 id=76 data-nosnippet>76</a>
+<a href=#77 id=77 data-nosnippet>77</a><span class="doccomment">/// Per-Node pkg `dispatch` fn pointer (Phase 212.N.7 step-3.1).
 <a href=#78 id=78 data-nosnippet>78</a>///
-<a href=#79 id=79 data-nosnippet>79</a>/// Phase 214.K.1 — renamed from `NodeRuntime` to disambiguate from
-<a href=#80 id=80 data-nosnippet>80</a>/// the user-facing `nros::NodeRuntime` metadata-sink trait in
-<a href=#81 id=81 data-nosnippet>81</a>/// `packages/core/nros/src/node.rs:112`. The two traits live at
-<a href=#82 id=82 data-nosnippet>82</a>/// different layers (board-side dispatch sink vs user-side metadata
-<a href=#83 id=83 data-nosnippet>83</a>/// declaration sink) and the previous shared name forced explicit
-<a href=#84 id=84 data-nosnippet>84</a>/// `nros_platform::` / `nros::` qualification at every use site +
-<a href=#85 id=85 data-nosnippet>85</a>/// produced confusing `impl NodeRuntime for X` ambiguity. A
-<a href=#86 id=86 data-nosnippet>86</a>/// `#[deprecated]` `pub use NodeDispatchRuntime as NodeRuntime;`
-<a href=#87 id=87 data-nosnippet>87</a>/// re-export sits at the crate module level for one release cycle.
-<a href=#88 id=88 data-nosnippet>88</a></span><span class="kw">pub trait </span>NodeDispatchRuntime {
-<a href=#89 id=89 data-nosnippet>89</a>    <span class="doccomment">/// Register a single Node pkg by its four `extern "Rust"` fn
-<a href=#90 id=90 data-nosnippet>90</a>    /// pointers + a static name for diagnostics. Returns `Err(())`
-<a href=#91 id=91 data-nosnippet>91</a>    /// when the executor rejects the registration (no detail surfaces
-<a href=#92 id=92 data-nosnippet>92</a>    /// across the trait — Node pkgs map this back to
-<a href=#93 id=93 data-nosnippet>93</a>    /// [`RuntimeError::NodeRegister`] with the pkg name).
-<a href=#94 id=94 data-nosnippet>94</a>    ///
-<a href=#95 id=95 data-nosnippet>95</a>    /// `Result&lt;_, ()&gt;` is deliberate: the sole caller (the
-<a href=#96 id=96 data-nosnippet>96</a>    /// `nros::node!` macro expansion in `nros-macros`) discards the
-<a href=#97 id=97 data-nosnippet>97</a>    /// unit error and substitutes the static pkg name via
-<a href=#98 id=98 data-nosnippet>98</a>    /// `RuntimeError::NodeRegister(pkg)`. A bespoke error enum would
-<a href=#99 id=99 data-nosnippet>99</a>    /// add a one-shot variant nothing else consumes — `#[allow]`
-<a href=#100 id=100 data-nosnippet>100</a>    /// instead.
-<a href=#101 id=101 data-nosnippet>101</a>    </span><span class="attr">#[allow(clippy::result_unit_err)]
-<a href=#102 id=102 data-nosnippet>102</a>    </span><span class="kw">fn </span>register_dispatch_slot_dyn(
-<a href=#103 id=103 data-nosnippet>103</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#104 id=104 data-nosnippet>104</a>        register: NodeRegisterFn,
-<a href=#105 id=105 data-nosnippet>105</a>        init: NodeInitFn,
-<a href=#106 id=106 data-nosnippet>106</a>        dispatch: NodeDispatchFn,
-<a href=#107 id=107 data-nosnippet>107</a>        tick: NodeTickFn,
-<a href=#108 id=108 data-nosnippet>108</a>        name: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
-<a href=#109 id=109 data-nosnippet>109</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), ()&gt;;
-<a href=#110 id=110 data-nosnippet>110</a>
-<a href=#111 id=111 data-nosnippet>111</a>    <span class="doccomment">/// Drive the underlying executor for at most `timeout_ms`
-<a href=#112 id=112 data-nosnippet>112</a>    /// milliseconds. `Ok(())` on a clean spin (including timeout);
-<a href=#113 id=113 data-nosnippet>113</a>    /// `Err(())` if the executor surfaces a spin error.
-<a href=#114 id=114 data-nosnippet>114</a>    ///
-<a href=#115 id=115 data-nosnippet>115</a>    /// `Result&lt;_, ()&gt;` is deliberate: the board entry-point callers
-<a href=#116 id=116 data-nosnippet>116</a>    /// (`nros-board-{freertos,nuttx,threadx}` spin loops) only
-<a href=#117 id=117 data-nosnippet>117</a>    /// `{:?}`-print the error and `B::exit_failure()` — a typed enum
-<a href=#118 id=118 data-nosnippet>118</a>    /// would carry no extra info across the trait boundary, since the
-<a href=#119 id=119 data-nosnippet>119</a>    /// underlying `ExecutorError` from `nros::node_runtime` is mapped
-<a href=#120 id=120 data-nosnippet>120</a>    /// to `()` at the impl site (`impl NodeDispatchRuntime for
-<a href=#121 id=121 data-nosnippet>121</a>    /// ExecutorNodeRuntime`). `#[allow]` keeps the surface narrow.
-<a href=#122 id=122 data-nosnippet>122</a>    </span><span class="attr">#[allow(clippy::result_unit_err)]
-<a href=#123 id=123 data-nosnippet>123</a>    </span><span class="kw">fn </span>spin_once(<span class="kw-2">&amp;mut </span><span class="self">self</span>, timeout_ms: u32) -&gt; <span class="prelude-ty">Result</span>&lt;(), ()&gt;;
-<a href=#124 id=124 data-nosnippet>124</a>}
-<a href=#125 id=125 data-nosnippet>125</a>
-<a href=#126 id=126 data-nosnippet>126</a><span class="doccomment">/// No-op [`NodeDispatchRuntime`] for tests / placeholders. Every call
-<a href=#127 id=127 data-nosnippet>127</a>/// returns `Err(())` so callers that depend on a populated runtime
-<a href=#128 id=128 data-nosnippet>128</a>/// fail loud rather than silently no-op.
-<a href=#129 id=129 data-nosnippet>129</a>///
-<a href=#130 id=130 data-nosnippet>130</a>/// `BoardEntry::run` impls replace this with a real
-<a href=#131 id=131 data-nosnippet>131</a>/// `ExecutorNodeRuntime`-backed sink before invoking the user
-<a href=#132 id=132 data-nosnippet>132</a>/// `setup` closure.
-<a href=#133 id=133 data-nosnippet>133</a></span><span class="attr">#[derive(Debug, Default)]
-<a href=#134 id=134 data-nosnippet>134</a></span><span class="kw">pub struct </span>NullNodeRuntime;
-<a href=#135 id=135 data-nosnippet>135</a>
-<a href=#136 id=136 data-nosnippet>136</a><span class="kw">impl </span>NodeDispatchRuntime <span class="kw">for </span>NullNodeRuntime {
-<a href=#137 id=137 data-nosnippet>137</a>    <span class="kw">fn </span>register_dispatch_slot_dyn(
-<a href=#138 id=138 data-nosnippet>138</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#139 id=139 data-nosnippet>139</a>        _register: NodeRegisterFn,
-<a href=#140 id=140 data-nosnippet>140</a>        _init: NodeInitFn,
-<a href=#141 id=141 data-nosnippet>141</a>        _dispatch: NodeDispatchFn,
-<a href=#142 id=142 data-nosnippet>142</a>        _tick: NodeTickFn,
-<a href=#143 id=143 data-nosnippet>143</a>        _name: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
-<a href=#144 id=144 data-nosnippet>144</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), ()&gt; {
-<a href=#145 id=145 data-nosnippet>145</a>        <span class="prelude-val">Err</span>(())
-<a href=#146 id=146 data-nosnippet>146</a>    }
-<a href=#147 id=147 data-nosnippet>147</a>
-<a href=#148 id=148 data-nosnippet>148</a>    <span class="kw">fn </span>spin_once(<span class="kw-2">&amp;mut </span><span class="self">self</span>, _timeout_ms: u32) -&gt; <span class="prelude-ty">Result</span>&lt;(), ()&gt; {
-<a href=#149 id=149 data-nosnippet>149</a>        <span class="prelude-val">Err</span>(())
-<a href=#150 id=150 data-nosnippet>150</a>    }
-<a href=#151 id=151 data-nosnippet>151</a>}
-<a href=#152 id=152 data-nosnippet>152</a>
-<a href=#153 id=153 data-nosnippet>153</a><span class="doccomment">/// Runtime context handed to `BoardEntry::run(setup)`.
-<a href=#154 id=154 data-nosnippet>154</a>///
-<a href=#155 id=155 data-nosnippet>155</a>/// All three overlay slices may be empty. A board's launch overlay
-<a href=#156 id=156 data-nosnippet>156</a>/// typically populates `params` + `remaps`; `env` is rarely set on
-<a href=#157 id=157 data-nosnippet>157</a>/// embedded.
-<a href=#158 id=158 data-nosnippet>158</a></span><span class="kw">pub struct </span>RuntimeCtx&lt;<span class="lifetime">'a</span>&gt; {
-<a href=#159 id=159 data-nosnippet>159</a>    <span class="doccomment">/// `&lt;param name=… value=…/&gt;` from launch XML, or
-<a href=#160 id=160 data-nosnippet>160</a>    /// `-p name:=value` CLI overrides.
-<a href=#161 id=161 data-nosnippet>161</a>    </span><span class="kw">pub </span>params: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str, <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str)],
-<a href=#162 id=162 data-nosnippet>162</a>
-<a href=#163 id=163 data-nosnippet>163</a>    <span class="doccomment">/// Topic / service / action remaps: `(from, to)`.
-<a href=#164 id=164 data-nosnippet>164</a>    </span><span class="kw">pub </span>remaps: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str, <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str)],
-<a href=#165 id=165 data-nosnippet>165</a>
-<a href=#166 id=166 data-nosnippet>166</a>    <span class="doccomment">/// Environment-style key/value pairs (mostly POSIX). Empty on
-<a href=#167 id=167 data-nosnippet>167</a>    /// embedded boards.
-<a href=#168 id=168 data-nosnippet>168</a>    </span><span class="kw">pub </span>env: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str, <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str)],
+<a href=#79 id=79 data-nosnippet>79</a>/// See [`NodeRegisterFn`] for the opaque-pointer rationale.
+<a href=#80 id=80 data-nosnippet>80</a></span><span class="kw">pub type </span>NodeDispatchFn = <span class="kw">extern </span><span class="string">"Rust" </span><span class="kw">fn</span>();
+<a href=#81 id=81 data-nosnippet>81</a>
+<a href=#82 id=82 data-nosnippet>82</a><span class="doccomment">/// Per-Node pkg `tick` fn pointer (Phase 212.N.7 step-3.1).
+<a href=#83 id=83 data-nosnippet>83</a>///
+<a href=#84 id=84 data-nosnippet>84</a>/// See [`NodeRegisterFn`] for the opaque-pointer rationale.
+<a href=#85 id=85 data-nosnippet>85</a></span><span class="kw">pub type </span>NodeTickFn = <span class="kw">extern </span><span class="string">"Rust" </span><span class="kw">fn</span>();
+<a href=#86 id=86 data-nosnippet>86</a>
+<a href=#87 id=87 data-nosnippet>87</a><span class="doccomment">/// Node runtime sink the codegen-emitted `run_plan(runtime)`
+<a href=#88 id=88 data-nosnippet>88</a>/// body talks to (Phase 212.N.7 step-3.1).
+<a href=#89 id=89 data-nosnippet>89</a>///
+<a href=#90 id=90 data-nosnippet>90</a>/// Object-safe + `no_std`. The concrete impl
+<a href=#91 id=91 data-nosnippet>91</a>/// (`ExecutorNodeRuntime` in `nros`) owns the live executor;
+<a href=#92 id=92 data-nosnippet>92</a>/// `BoardEntry::run` installs it on the per-boot
+<a href=#93 id=93 data-nosnippet>93</a>/// [`RuntimeCtx::runtime`] slot before invoking the user `setup`
+<a href=#94 id=94 data-nosnippet>94</a>/// closure.
+<a href=#95 id=95 data-nosnippet>95</a>///
+<a href=#96 id=96 data-nosnippet>96</a>/// The fn-pointer parameters are the opaque
+<a href=#97 id=97 data-nosnippet>97</a>/// [`NodeRegisterFn`] / [`NodeInitFn`] /
+<a href=#98 id=98 data-nosnippet>98</a>/// [`NodeDispatchFn`] / [`NodeTickFn`] aliases — the
+<a href=#99 id=99 data-nosnippet>99</a>/// real-typed counterparts live in `nros`. The implementor
+<a href=#100 id=100 data-nosnippet>100</a>/// `mem::transmute`s back at the call site (see
+<a href=#101 id=101 data-nosnippet>101</a>/// `impl nros_platform::NodeDispatchRuntime for ExecutorNodeRuntime`
+<a href=#102 id=102 data-nosnippet>102</a>/// in `packages/core/nros/src/component_runtime.rs`).
+<a href=#103 id=103 data-nosnippet>103</a>///
+<a href=#104 id=104 data-nosnippet>104</a>///
+<a href=#105 id=105 data-nosnippet>105</a>/// Phase 214.K.1 — renamed from `NodeRuntime` to disambiguate from
+<a href=#106 id=106 data-nosnippet>106</a>/// the user-facing `nros::NodeRuntime` metadata-sink trait in
+<a href=#107 id=107 data-nosnippet>107</a>/// `packages/core/nros/src/node.rs:112`. The two traits live at
+<a href=#108 id=108 data-nosnippet>108</a>/// different layers (board-side dispatch sink vs user-side metadata
+<a href=#109 id=109 data-nosnippet>109</a>/// declaration sink) and the previous shared name forced explicit
+<a href=#110 id=110 data-nosnippet>110</a>/// `nros_platform::` / `nros::` qualification at every use site +
+<a href=#111 id=111 data-nosnippet>111</a>/// produced confusing `impl NodeRuntime for X` ambiguity. A
+<a href=#112 id=112 data-nosnippet>112</a>/// `#[deprecated]` `pub use NodeDispatchRuntime as NodeRuntime;`
+<a href=#113 id=113 data-nosnippet>113</a>/// re-export sits at the crate module level for one release cycle.
+<a href=#114 id=114 data-nosnippet>114</a></span><span class="kw">pub trait </span>NodeDispatchRuntime {
+<a href=#115 id=115 data-nosnippet>115</a>    <span class="doccomment">/// Register a single Node pkg by its four `extern "Rust"` fn
+<a href=#116 id=116 data-nosnippet>116</a>    /// pointers + a static name for diagnostics. Returns `Err(())`
+<a href=#117 id=117 data-nosnippet>117</a>    /// when the executor rejects the registration (no detail surfaces
+<a href=#118 id=118 data-nosnippet>118</a>    /// across the trait — Node pkgs map this back to
+<a href=#119 id=119 data-nosnippet>119</a>    /// [`RuntimeError::NodeRegister`] with the pkg name).
+<a href=#120 id=120 data-nosnippet>120</a>    ///
+<a href=#121 id=121 data-nosnippet>121</a>    /// `Result&lt;_, ()&gt;` is deliberate: the sole caller (the
+<a href=#122 id=122 data-nosnippet>122</a>    /// `nros::node!` macro expansion in `nros-macros`) discards the
+<a href=#123 id=123 data-nosnippet>123</a>    /// unit error and substitutes the static pkg name via
+<a href=#124 id=124 data-nosnippet>124</a>    /// `RuntimeError::NodeRegister(pkg)`. A bespoke error enum would
+<a href=#125 id=125 data-nosnippet>125</a>    /// add a one-shot variant nothing else consumes — `#[allow]`
+<a href=#126 id=126 data-nosnippet>126</a>    /// instead.
+<a href=#127 id=127 data-nosnippet>127</a>    </span><span class="attr">#[allow(clippy::result_unit_err)]
+<a href=#128 id=128 data-nosnippet>128</a>    </span><span class="kw">fn </span>register_dispatch_slot_dyn(
+<a href=#129 id=129 data-nosnippet>129</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#130 id=130 data-nosnippet>130</a>        register: NodeRegisterFn,
+<a href=#131 id=131 data-nosnippet>131</a>        init: NodeInitFn,
+<a href=#132 id=132 data-nosnippet>132</a>        dispatch: NodeDispatchFn,
+<a href=#133 id=133 data-nosnippet>133</a>        tick: NodeTickFn,
+<a href=#134 id=134 data-nosnippet>134</a>        name: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
+<a href=#135 id=135 data-nosnippet>135</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), ()&gt;;
+<a href=#136 id=136 data-nosnippet>136</a>
+<a href=#137 id=137 data-nosnippet>137</a>    <span class="doccomment">/// Drive the underlying executor for at most `timeout_ms`
+<a href=#138 id=138 data-nosnippet>138</a>    /// milliseconds. `Ok(())` on a clean spin (including timeout);
+<a href=#139 id=139 data-nosnippet>139</a>    /// `Err(())` if the executor surfaces a spin error.
+<a href=#140 id=140 data-nosnippet>140</a>    ///
+<a href=#141 id=141 data-nosnippet>141</a>    /// `Result&lt;_, ()&gt;` is deliberate: the board entry-point callers
+<a href=#142 id=142 data-nosnippet>142</a>    /// (`nros-board-{freertos,nuttx,threadx}` spin loops) only
+<a href=#143 id=143 data-nosnippet>143</a>    /// `{:?}`-print the error and `B::exit_failure()` — a typed enum
+<a href=#144 id=144 data-nosnippet>144</a>    /// would carry no extra info across the trait boundary, since the
+<a href=#145 id=145 data-nosnippet>145</a>    /// underlying `ExecutorError` from `nros::node_runtime` is mapped
+<a href=#146 id=146 data-nosnippet>146</a>    /// to `()` at the impl site (`impl NodeDispatchRuntime for
+<a href=#147 id=147 data-nosnippet>147</a>    /// ExecutorNodeRuntime`). `#[allow]` keeps the surface narrow.
+<a href=#148 id=148 data-nosnippet>148</a>    </span><span class="attr">#[allow(clippy::result_unit_err)]
+<a href=#149 id=149 data-nosnippet>149</a>    </span><span class="kw">fn </span>spin_once(<span class="kw-2">&amp;mut </span><span class="self">self</span>, timeout_ms: u32) -&gt; <span class="prelude-ty">Result</span>&lt;(), ()&gt;;
+<a href=#150 id=150 data-nosnippet>150</a>
+<a href=#151 id=151 data-nosnippet>151</a>    <span class="doccomment">/// Hand a signaled callback to the framework-side dispatcher
+<a href=#152 id=152 data-nosnippet>152</a>    /// (Phase 216.A.2). Only meaningful for `DispatchStrategy::Deferred`
+<a href=#153 id=153 data-nosnippet>153</a>    /// (RTIC / Embassy) runtimes — `Inline` runtimes drive callbacks
+<a href=#154 id=154 data-nosnippet>154</a>    /// directly from `spin_once` and never call this. The default panic
+<a href=#155 id=155 data-nosnippet>155</a>    /// surfaces the mis-wire loudly rather than silently dropping the
+<a href=#156 id=156 data-nosnippet>156</a>    /// callback signal.
+<a href=#157 id=157 data-nosnippet>157</a>    </span><span class="kw">fn </span>signal_callback(<span class="kw-2">&amp;mut </span><span class="self">self</span>, _cb: SignaledCallback&lt;<span class="lifetime">'_</span>&gt;) {
+<a href=#158 id=158 data-nosnippet>158</a>        <span class="macro">panic!</span>(<span class="string">"signal_callback not implemented for Inline runtime"</span>);
+<a href=#159 id=159 data-nosnippet>159</a>    }
+<a href=#160 id=160 data-nosnippet>160</a>
+<a href=#161 id=161 data-nosnippet>161</a>    <span class="doccomment">/// Declare how this runtime delivers callbacks (Phase 216.A.2).
+<a href=#162 id=162 data-nosnippet>162</a>    /// `nros check` (Phase 216.D.1) cross-validates each Node pkg's
+<a href=#163 id=163 data-nosnippet>163</a>    /// `Node::DISPATCH` against this value. Defaults to `Inline` so
+<a href=#164 id=164 data-nosnippet>164</a>    /// every existing impl reports the historical behavior unchanged.
+<a href=#165 id=165 data-nosnippet>165</a>    </span><span class="kw">fn </span>dispatch_strategy(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; DispatchStrategy {
+<a href=#166 id=166 data-nosnippet>166</a>        DispatchStrategy::Inline
+<a href=#167 id=167 data-nosnippet>167</a>    }
+<a href=#168 id=168 data-nosnippet>168</a>}
 <a href=#169 id=169 data-nosnippet>169</a>
-<a href=#170 id=170 data-nosnippet>170</a>    <span class="doccomment">/// Node runtime sink. `BoardEntry::run` populates this with
-<a href=#171 id=171 data-nosnippet>171</a>    /// the live `ExecutorNodeRuntime`-backed impl before invoking
-<a href=#172 id=172 data-nosnippet>172</a>    /// the user `setup` closure. The codegen-emitted
-<a href=#173 id=173 data-nosnippet>173</a>    /// `run_plan(runtime)` body calls
-<a href=#174 id=174 data-nosnippet>174</a>    /// `runtime.runtime.register_dispatch_slot_dyn(...)` once per
-<a href=#175 id=175 data-nosnippet>175</a>    /// Node pkg.
-<a href=#176 id=176 data-nosnippet>176</a>    ///
-<a href=#177 id=177 data-nosnippet>177</a>    /// Defaults to a [`NullNodeRuntime`] when the context is
-<a href=#178 id=178 data-nosnippet>178</a>    /// built via [`RuntimeCtx::with_runtime`]. That sink errors
-<a href=#179 id=179 data-nosnippet>179</a>    /// every call so test fixtures that forget to wire a real runtime
-<a href=#180 id=180 data-nosnippet>180</a>    /// fail loud.
-<a href=#181 id=181 data-nosnippet>181</a>    </span><span class="kw">pub </span>runtime: <span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span><span class="kw">dyn </span>NodeDispatchRuntime,
-<a href=#182 id=182 data-nosnippet>182</a>}
-<a href=#183 id=183 data-nosnippet>183</a>
-<a href=#184 id=184 data-nosnippet>184</a><span class="kw">impl </span>core::fmt::Debug <span class="kw">for </span>RuntimeCtx&lt;<span class="lifetime">'_</span>&gt; {
-<a href=#185 id=185 data-nosnippet>185</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>core::fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; core::fmt::Result {
-<a href=#186 id=186 data-nosnippet>186</a>        f.debug_struct(<span class="string">"RuntimeCtx"</span>)
-<a href=#187 id=187 data-nosnippet>187</a>            .field(<span class="string">"params"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.params)
-<a href=#188 id=188 data-nosnippet>188</a>            .field(<span class="string">"remaps"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.remaps)
-<a href=#189 id=189 data-nosnippet>189</a>            .field(<span class="string">"env"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.env)
-<a href=#190 id=190 data-nosnippet>190</a>            .field(<span class="string">"runtime"</span>, <span class="kw-2">&amp;</span><span class="string">"&lt;dyn NodeDispatchRuntime&gt;"</span>)
-<a href=#191 id=191 data-nosnippet>191</a>            .finish()
-<a href=#192 id=192 data-nosnippet>192</a>    }
-<a href=#193 id=193 data-nosnippet>193</a>}
-<a href=#194 id=194 data-nosnippet>194</a>
-<a href=#195 id=195 data-nosnippet>195</a><span class="kw">impl</span>&lt;<span class="lifetime">'a</span>&gt; RuntimeCtx&lt;<span class="lifetime">'a</span>&gt; {
-<a href=#196 id=196 data-nosnippet>196</a>    <span class="doccomment">/// Build a [`RuntimeCtx`] with no params / remaps / env and the
-<a href=#197 id=197 data-nosnippet>197</a>    /// given runtime sink. The common shape `BoardEntry::run`
-<a href=#198 id=198 data-nosnippet>198</a>    /// constructs after opening its executor.
-<a href=#199 id=199 data-nosnippet>199</a>    ///
-<a href=#200 id=200 data-nosnippet>200</a>    /// For test fixtures that don't need a populated runtime, pass a
-<a href=#201 id=201 data-nosnippet>201</a>    /// `&amp;mut NullNodeRuntime` — every call against the sink
-<a href=#202 id=202 data-nosnippet>202</a>    /// returns `Err(())`, surfacing the missing wiring.
-<a href=#203 id=203 data-nosnippet>203</a>    </span><span class="kw">pub fn </span>with_runtime(runtime: <span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span><span class="kw">dyn </span>NodeDispatchRuntime) -&gt; <span class="self">Self </span>{
-<a href=#204 id=204 data-nosnippet>204</a>        <span class="self">Self </span>{
-<a href=#205 id=205 data-nosnippet>205</a>            params: <span class="kw-2">&amp;</span>[],
-<a href=#206 id=206 data-nosnippet>206</a>            remaps: <span class="kw-2">&amp;</span>[],
-<a href=#207 id=207 data-nosnippet>207</a>            env: <span class="kw-2">&amp;</span>[],
-<a href=#208 id=208 data-nosnippet>208</a>            runtime,
-<a href=#209 id=209 data-nosnippet>209</a>        }
-<a href=#210 id=210 data-nosnippet>210</a>    }
-<a href=#211 id=211 data-nosnippet>211</a>
-<a href=#212 id=212 data-nosnippet>212</a>    <span class="doccomment">/// Build a [`RuntimeCtx`] with explicit overlay slices + runtime
-<a href=#213 id=213 data-nosnippet>213</a>    /// sink (Phase 212.N.7 step-3.2).
-<a href=#214 id=214 data-nosnippet>214</a>    </span><span class="kw">pub fn </span>new(
-<a href=#215 id=215 data-nosnippet>215</a>        runtime: <span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span><span class="kw">dyn </span>NodeDispatchRuntime,
-<a href=#216 id=216 data-nosnippet>216</a>        params: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str, <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str)],
-<a href=#217 id=217 data-nosnippet>217</a>        remaps: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str, <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str)],
-<a href=#218 id=218 data-nosnippet>218</a>        env: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str, <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str)],
-<a href=#219 id=219 data-nosnippet>219</a>    ) -&gt; <span class="self">Self </span>{
-<a href=#220 id=220 data-nosnippet>220</a>        <span class="self">Self </span>{
-<a href=#221 id=221 data-nosnippet>221</a>            params,
-<a href=#222 id=222 data-nosnippet>222</a>            remaps,
-<a href=#223 id=223 data-nosnippet>223</a>            env,
-<a href=#224 id=224 data-nosnippet>224</a>            runtime,
-<a href=#225 id=225 data-nosnippet>225</a>        }
-<a href=#226 id=226 data-nosnippet>226</a>    }
+<a href=#170 id=170 data-nosnippet>170</a><span class="doccomment">/// No-op [`NodeDispatchRuntime`] for tests / placeholders. Every call
+<a href=#171 id=171 data-nosnippet>171</a>/// returns `Err(())` so callers that depend on a populated runtime
+<a href=#172 id=172 data-nosnippet>172</a>/// fail loud rather than silently no-op.
+<a href=#173 id=173 data-nosnippet>173</a>///
+<a href=#174 id=174 data-nosnippet>174</a>/// `BoardEntry::run` impls replace this with a real
+<a href=#175 id=175 data-nosnippet>175</a>/// `ExecutorNodeRuntime`-backed sink before invoking the user
+<a href=#176 id=176 data-nosnippet>176</a>/// `setup` closure.
+<a href=#177 id=177 data-nosnippet>177</a></span><span class="attr">#[derive(Debug, Default)]
+<a href=#178 id=178 data-nosnippet>178</a></span><span class="kw">pub struct </span>NullNodeRuntime;
+<a href=#179 id=179 data-nosnippet>179</a>
+<a href=#180 id=180 data-nosnippet>180</a><span class="kw">impl </span>NodeDispatchRuntime <span class="kw">for </span>NullNodeRuntime {
+<a href=#181 id=181 data-nosnippet>181</a>    <span class="kw">fn </span>register_dispatch_slot_dyn(
+<a href=#182 id=182 data-nosnippet>182</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#183 id=183 data-nosnippet>183</a>        _register: NodeRegisterFn,
+<a href=#184 id=184 data-nosnippet>184</a>        _init: NodeInitFn,
+<a href=#185 id=185 data-nosnippet>185</a>        _dispatch: NodeDispatchFn,
+<a href=#186 id=186 data-nosnippet>186</a>        _tick: NodeTickFn,
+<a href=#187 id=187 data-nosnippet>187</a>        _name: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
+<a href=#188 id=188 data-nosnippet>188</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), ()&gt; {
+<a href=#189 id=189 data-nosnippet>189</a>        <span class="prelude-val">Err</span>(())
+<a href=#190 id=190 data-nosnippet>190</a>    }
+<a href=#191 id=191 data-nosnippet>191</a>
+<a href=#192 id=192 data-nosnippet>192</a>    <span class="kw">fn </span>spin_once(<span class="kw-2">&amp;mut </span><span class="self">self</span>, _timeout_ms: u32) -&gt; <span class="prelude-ty">Result</span>&lt;(), ()&gt; {
+<a href=#193 id=193 data-nosnippet>193</a>        <span class="prelude-val">Err</span>(())
+<a href=#194 id=194 data-nosnippet>194</a>    }
+<a href=#195 id=195 data-nosnippet>195</a>}
+<a href=#196 id=196 data-nosnippet>196</a>
+<a href=#197 id=197 data-nosnippet>197</a><span class="doccomment">/// Runtime context handed to `BoardEntry::run(setup)`.
+<a href=#198 id=198 data-nosnippet>198</a>///
+<a href=#199 id=199 data-nosnippet>199</a>/// All three overlay slices may be empty. A board's launch overlay
+<a href=#200 id=200 data-nosnippet>200</a>/// typically populates `params` + `remaps`; `env` is rarely set on
+<a href=#201 id=201 data-nosnippet>201</a>/// embedded.
+<a href=#202 id=202 data-nosnippet>202</a></span><span class="kw">pub struct </span>RuntimeCtx&lt;<span class="lifetime">'a</span>&gt; {
+<a href=#203 id=203 data-nosnippet>203</a>    <span class="doccomment">/// `&lt;param name=… value=…/&gt;` from launch XML, or
+<a href=#204 id=204 data-nosnippet>204</a>    /// `-p name:=value` CLI overrides.
+<a href=#205 id=205 data-nosnippet>205</a>    </span><span class="kw">pub </span>params: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str, <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str)],
+<a href=#206 id=206 data-nosnippet>206</a>
+<a href=#207 id=207 data-nosnippet>207</a>    <span class="doccomment">/// Topic / service / action remaps: `(from, to)`.
+<a href=#208 id=208 data-nosnippet>208</a>    </span><span class="kw">pub </span>remaps: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str, <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str)],
+<a href=#209 id=209 data-nosnippet>209</a>
+<a href=#210 id=210 data-nosnippet>210</a>    <span class="doccomment">/// Environment-style key/value pairs (mostly POSIX). Empty on
+<a href=#211 id=211 data-nosnippet>211</a>    /// embedded boards.
+<a href=#212 id=212 data-nosnippet>212</a>    </span><span class="kw">pub </span>env: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str, <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str)],
+<a href=#213 id=213 data-nosnippet>213</a>
+<a href=#214 id=214 data-nosnippet>214</a>    <span class="doccomment">/// Node runtime sink. `BoardEntry::run` populates this with
+<a href=#215 id=215 data-nosnippet>215</a>    /// the live `ExecutorNodeRuntime`-backed impl before invoking
+<a href=#216 id=216 data-nosnippet>216</a>    /// the user `setup` closure. The codegen-emitted
+<a href=#217 id=217 data-nosnippet>217</a>    /// `run_plan(runtime)` body calls
+<a href=#218 id=218 data-nosnippet>218</a>    /// `runtime.runtime.register_dispatch_slot_dyn(...)` once per
+<a href=#219 id=219 data-nosnippet>219</a>    /// Node pkg.
+<a href=#220 id=220 data-nosnippet>220</a>    ///
+<a href=#221 id=221 data-nosnippet>221</a>    /// Defaults to a [`NullNodeRuntime`] when the context is
+<a href=#222 id=222 data-nosnippet>222</a>    /// built via [`RuntimeCtx::with_runtime`]. That sink errors
+<a href=#223 id=223 data-nosnippet>223</a>    /// every call so test fixtures that forget to wire a real runtime
+<a href=#224 id=224 data-nosnippet>224</a>    /// fail loud.
+<a href=#225 id=225 data-nosnippet>225</a>    </span><span class="kw">pub </span>runtime: <span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span><span class="kw">dyn </span>NodeDispatchRuntime,
+<a href=#226 id=226 data-nosnippet>226</a>}
 <a href=#227 id=227 data-nosnippet>227</a>
-<a href=#228 id=228 data-nosnippet>228</a>    <span class="doccomment">/// Lookup a param by name; first match wins. Linear scan
-<a href=#229 id=229 data-nosnippet>229</a>    /// because the slice is typically small (≤ a dozen entries).
-<a href=#230 id=230 data-nosnippet>230</a>    </span><span class="kw">pub fn </span>param(<span class="kw-2">&amp;</span><span class="self">self</span>, name: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str&gt; {
-<a href=#231 id=231 data-nosnippet>231</a>        <span class="self">self</span>.params
-<a href=#232 id=232 data-nosnippet>232</a>            .iter()
-<a href=#233 id=233 data-nosnippet>233</a>            .find(|(k, <span class="kw">_</span>)| <span class="kw-2">*</span>k == name)
-<a href=#234 id=234 data-nosnippet>234</a>            .map(|(<span class="kw">_</span>, v)| <span class="kw-2">*</span>v)
-<a href=#235 id=235 data-nosnippet>235</a>    }
-<a href=#236 id=236 data-nosnippet>236</a>
-<a href=#237 id=237 data-nosnippet>237</a>    <span class="doccomment">/// Lookup a remap by the original (`from`) name; returns the
-<a href=#238 id=238 data-nosnippet>238</a>    /// rewritten name when remapped, else `None`.
-<a href=#239 id=239 data-nosnippet>239</a>    </span><span class="kw">pub fn </span>remap(<span class="kw-2">&amp;</span><span class="self">self</span>, from: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str&gt; {
-<a href=#240 id=240 data-nosnippet>240</a>        <span class="self">self</span>.remaps
-<a href=#241 id=241 data-nosnippet>241</a>            .iter()
-<a href=#242 id=242 data-nosnippet>242</a>            .find(|(k, <span class="kw">_</span>)| <span class="kw-2">*</span>k == from)
-<a href=#243 id=243 data-nosnippet>243</a>            .map(|(<span class="kw">_</span>, v)| <span class="kw-2">*</span>v)
-<a href=#244 id=244 data-nosnippet>244</a>    }
-<a href=#245 id=245 data-nosnippet>245</a>
-<a href=#246 id=246 data-nosnippet>246</a>    <span class="doccomment">/// Lookup an env entry by name.
-<a href=#247 id=247 data-nosnippet>247</a>    </span><span class="kw">pub fn </span>env_var(<span class="kw-2">&amp;</span><span class="self">self</span>, name: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str&gt; {
-<a href=#248 id=248 data-nosnippet>248</a>        <span class="self">self</span>.env.iter().find(|(k, <span class="kw">_</span>)| <span class="kw-2">*</span>k == name).map(|(<span class="kw">_</span>, v)| <span class="kw-2">*</span>v)
-<a href=#249 id=249 data-nosnippet>249</a>    }
-<a href=#250 id=250 data-nosnippet>250</a>}
-<a href=#251 id=251 data-nosnippet>251</a>
-<a href=#252 id=252 data-nosnippet>252</a><span class="doccomment">/// Error returned by the codegen-emitted `run_plan(runtime)` body
-<a href=#253 id=253 data-nosnippet>253</a>/// (Phase 212.N.4) and by Node pkg `register(runtime)` wrappers
-<a href=#254 id=254 data-nosnippet>254</a>/// (Phase 212.N.7 step-2).
-<a href=#255 id=255 data-nosnippet>255</a>///
-<a href=#256 id=256 data-nosnippet>256</a>/// `no_std`-safe — variants are string-typed so embedded Entry pkgs
-<a href=#257 id=257 data-nosnippet>257</a>/// don't need to pull `thiserror`/`anyhow` to print. The
-<a href=#258 id=258 data-nosnippet>258</a>/// out-of-tree `nros-build` codegen library re-exports this type so
-<a href=#259 id=259 data-nosnippet>259</a>/// emitted code references `::nros_platform::RuntimeError`, NOT
-<a href=#260 id=260 data-nosnippet>260</a>/// `::nros_build::RuntimeError` — the embedded Entry pkg's runtime
-<a href=#261 id=261 data-nosnippet>261</a>/// path then doesn't need `nros-build` as a runtime dep (build-dep
-<a href=#262 id=262 data-nosnippet>262</a>/// only).
-<a href=#263 id=263 data-nosnippet>263</a></span><span class="attr">#[derive(Debug)]
-<a href=#264 id=264 data-nosnippet>264</a>#[non_exhaustive]
-<a href=#265 id=265 data-nosnippet>265</a></span><span class="kw">pub enum </span>RuntimeError {
-<a href=#266 id=266 data-nosnippet>266</a>    <span class="doccomment">/// A node's `register(runtime)` call failed. The string carries the
-<a href=#267 id=267 data-nosnippet>267</a>    /// node pkg name.
-<a href=#268 id=268 data-nosnippet>268</a>    ///
-<a href=#269 id=269 data-nosnippet>269</a>    /// Phase 212.N.12 hard-renamed the legacy `ComponentRegister` variant
-<a href=#270 id=270 data-nosnippet>270</a>    /// to `NodeRegister` to match the rclcpp_components / ROS 2 launch.xml
-<a href=#271 id=271 data-nosnippet>271</a>    /// `&lt;node pkg=…&gt;` convention.
-<a href=#272 id=272 data-nosnippet>272</a>    </span>NodeRegister(<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str),
-<a href=#273 id=273 data-nosnippet>273</a>}
-<a href=#274 id=274 data-nosnippet>274</a>
-<a href=#275 id=275 data-nosnippet>275</a><span class="kw">impl </span>core::fmt::Display <span class="kw">for </span>RuntimeError {
-<a href=#276 id=276 data-nosnippet>276</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>core::fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; core::fmt::Result {
-<a href=#277 id=277 data-nosnippet>277</a>        <span class="kw">match </span><span class="self">self </span>{
-<a href=#278 id=278 data-nosnippet>278</a>            <span class="self">Self</span>::NodeRegister(msg) =&gt; <span class="macro">write!</span>(f, <span class="string">"node register failed: {msg}"</span>),
-<a href=#279 id=279 data-nosnippet>279</a>        }
-<a href=#280 id=280 data-nosnippet>280</a>    }
-<a href=#281 id=281 data-nosnippet>281</a>}
+<a href=#228 id=228 data-nosnippet>228</a><span class="kw">impl </span>core::fmt::Debug <span class="kw">for </span>RuntimeCtx&lt;<span class="lifetime">'_</span>&gt; {
+<a href=#229 id=229 data-nosnippet>229</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>core::fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; core::fmt::Result {
+<a href=#230 id=230 data-nosnippet>230</a>        f.debug_struct(<span class="string">"RuntimeCtx"</span>)
+<a href=#231 id=231 data-nosnippet>231</a>            .field(<span class="string">"params"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.params)
+<a href=#232 id=232 data-nosnippet>232</a>            .field(<span class="string">"remaps"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.remaps)
+<a href=#233 id=233 data-nosnippet>233</a>            .field(<span class="string">"env"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.env)
+<a href=#234 id=234 data-nosnippet>234</a>            .field(<span class="string">"runtime"</span>, <span class="kw-2">&amp;</span><span class="string">"&lt;dyn NodeDispatchRuntime&gt;"</span>)
+<a href=#235 id=235 data-nosnippet>235</a>            .finish()
+<a href=#236 id=236 data-nosnippet>236</a>    }
+<a href=#237 id=237 data-nosnippet>237</a>}
+<a href=#238 id=238 data-nosnippet>238</a>
+<a href=#239 id=239 data-nosnippet>239</a><span class="kw">impl</span>&lt;<span class="lifetime">'a</span>&gt; RuntimeCtx&lt;<span class="lifetime">'a</span>&gt; {
+<a href=#240 id=240 data-nosnippet>240</a>    <span class="doccomment">/// Build a [`RuntimeCtx`] with no params / remaps / env and the
+<a href=#241 id=241 data-nosnippet>241</a>    /// given runtime sink. The common shape `BoardEntry::run`
+<a href=#242 id=242 data-nosnippet>242</a>    /// constructs after opening its executor.
+<a href=#243 id=243 data-nosnippet>243</a>    ///
+<a href=#244 id=244 data-nosnippet>244</a>    /// For test fixtures that don't need a populated runtime, pass a
+<a href=#245 id=245 data-nosnippet>245</a>    /// `&amp;mut NullNodeRuntime` — every call against the sink
+<a href=#246 id=246 data-nosnippet>246</a>    /// returns `Err(())`, surfacing the missing wiring.
+<a href=#247 id=247 data-nosnippet>247</a>    </span><span class="kw">pub fn </span>with_runtime(runtime: <span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span><span class="kw">dyn </span>NodeDispatchRuntime) -&gt; <span class="self">Self </span>{
+<a href=#248 id=248 data-nosnippet>248</a>        <span class="self">Self </span>{
+<a href=#249 id=249 data-nosnippet>249</a>            params: <span class="kw-2">&amp;</span>[],
+<a href=#250 id=250 data-nosnippet>250</a>            remaps: <span class="kw-2">&amp;</span>[],
+<a href=#251 id=251 data-nosnippet>251</a>            env: <span class="kw-2">&amp;</span>[],
+<a href=#252 id=252 data-nosnippet>252</a>            runtime,
+<a href=#253 id=253 data-nosnippet>253</a>        }
+<a href=#254 id=254 data-nosnippet>254</a>    }
+<a href=#255 id=255 data-nosnippet>255</a>
+<a href=#256 id=256 data-nosnippet>256</a>    <span class="doccomment">/// Build a [`RuntimeCtx`] with explicit overlay slices + runtime
+<a href=#257 id=257 data-nosnippet>257</a>    /// sink (Phase 212.N.7 step-3.2).
+<a href=#258 id=258 data-nosnippet>258</a>    </span><span class="kw">pub fn </span>new(
+<a href=#259 id=259 data-nosnippet>259</a>        runtime: <span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span><span class="kw">dyn </span>NodeDispatchRuntime,
+<a href=#260 id=260 data-nosnippet>260</a>        params: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str, <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str)],
+<a href=#261 id=261 data-nosnippet>261</a>        remaps: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str, <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str)],
+<a href=#262 id=262 data-nosnippet>262</a>        env: <span class="kw-2">&amp;</span><span class="lifetime">'a </span>[(<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str, <span class="kw-2">&amp;</span><span class="lifetime">'a </span>str)],
+<a href=#263 id=263 data-nosnippet>263</a>    ) -&gt; <span class="self">Self </span>{
+<a href=#264 id=264 data-nosnippet>264</a>        <span class="self">Self </span>{
+<a href=#265 id=265 data-nosnippet>265</a>            params,
+<a href=#266 id=266 data-nosnippet>266</a>            remaps,
+<a href=#267 id=267 data-nosnippet>267</a>            env,
+<a href=#268 id=268 data-nosnippet>268</a>            runtime,
+<a href=#269 id=269 data-nosnippet>269</a>        }
+<a href=#270 id=270 data-nosnippet>270</a>    }
+<a href=#271 id=271 data-nosnippet>271</a>
+<a href=#272 id=272 data-nosnippet>272</a>    <span class="doccomment">/// Lookup a param by name; first match wins. Linear scan
+<a href=#273 id=273 data-nosnippet>273</a>    /// because the slice is typically small (≤ a dozen entries).
+<a href=#274 id=274 data-nosnippet>274</a>    </span><span class="kw">pub fn </span>param(<span class="kw-2">&amp;</span><span class="self">self</span>, name: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str&gt; {
+<a href=#275 id=275 data-nosnippet>275</a>        <span class="self">self</span>.params
+<a href=#276 id=276 data-nosnippet>276</a>            .iter()
+<a href=#277 id=277 data-nosnippet>277</a>            .find(|(k, <span class="kw">_</span>)| <span class="kw-2">*</span>k == name)
+<a href=#278 id=278 data-nosnippet>278</a>            .map(|(<span class="kw">_</span>, v)| <span class="kw-2">*</span>v)
+<a href=#279 id=279 data-nosnippet>279</a>    }
+<a href=#280 id=280 data-nosnippet>280</a>
+<a href=#281 id=281 data-nosnippet>281</a>    <span class="doccomment">/// Lookup a remap by the original (`from`) name; returns the
+<a href=#282 id=282 data-nosnippet>282</a>    /// rewritten name when remapped, else `None`.
+<a href=#283 id=283 data-nosnippet>283</a>    </span><span class="kw">pub fn </span>remap(<span class="kw-2">&amp;</span><span class="self">self</span>, from: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str&gt; {
+<a href=#284 id=284 data-nosnippet>284</a>        <span class="self">self</span>.remaps
+<a href=#285 id=285 data-nosnippet>285</a>            .iter()
+<a href=#286 id=286 data-nosnippet>286</a>            .find(|(k, <span class="kw">_</span>)| <span class="kw-2">*</span>k == from)
+<a href=#287 id=287 data-nosnippet>287</a>            .map(|(<span class="kw">_</span>, v)| <span class="kw-2">*</span>v)
+<a href=#288 id=288 data-nosnippet>288</a>    }
+<a href=#289 id=289 data-nosnippet>289</a>
+<a href=#290 id=290 data-nosnippet>290</a>    <span class="doccomment">/// Lookup an env entry by name.
+<a href=#291 id=291 data-nosnippet>291</a>    </span><span class="kw">pub fn </span>env_var(<span class="kw-2">&amp;</span><span class="self">self</span>, name: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'a </span>str&gt; {
+<a href=#292 id=292 data-nosnippet>292</a>        <span class="self">self</span>.env.iter().find(|(k, <span class="kw">_</span>)| <span class="kw-2">*</span>k == name).map(|(<span class="kw">_</span>, v)| <span class="kw-2">*</span>v)
+<a href=#293 id=293 data-nosnippet>293</a>    }
+<a href=#294 id=294 data-nosnippet>294</a>}
+<a href=#295 id=295 data-nosnippet>295</a>
+<a href=#296 id=296 data-nosnippet>296</a><span class="doccomment">/// Error returned by the codegen-emitted `run_plan(runtime)` body
+<a href=#297 id=297 data-nosnippet>297</a>/// (Phase 212.N.4) and by Node pkg `register(runtime)` wrappers
+<a href=#298 id=298 data-nosnippet>298</a>/// (Phase 212.N.7 step-2).
+<a href=#299 id=299 data-nosnippet>299</a>///
+<a href=#300 id=300 data-nosnippet>300</a>/// `no_std`-safe — variants are string-typed so embedded Entry pkgs
+<a href=#301 id=301 data-nosnippet>301</a>/// don't need to pull `thiserror`/`anyhow` to print. The
+<a href=#302 id=302 data-nosnippet>302</a>/// out-of-tree `nros-build` codegen library re-exports this type so
+<a href=#303 id=303 data-nosnippet>303</a>/// emitted code references `::nros_platform::RuntimeError`, NOT
+<a href=#304 id=304 data-nosnippet>304</a>/// `::nros_build::RuntimeError` — the embedded Entry pkg's runtime
+<a href=#305 id=305 data-nosnippet>305</a>/// path then doesn't need `nros-build` as a runtime dep (build-dep
+<a href=#306 id=306 data-nosnippet>306</a>/// only).
+<a href=#307 id=307 data-nosnippet>307</a></span><span class="attr">#[derive(Debug)]
+<a href=#308 id=308 data-nosnippet>308</a>#[non_exhaustive]
+<a href=#309 id=309 data-nosnippet>309</a></span><span class="kw">pub enum </span>RuntimeError {
+<a href=#310 id=310 data-nosnippet>310</a>    <span class="doccomment">/// A node's `register(runtime)` call failed. The string carries the
+<a href=#311 id=311 data-nosnippet>311</a>    /// node pkg name.
+<a href=#312 id=312 data-nosnippet>312</a>    ///
+<a href=#313 id=313 data-nosnippet>313</a>    /// Phase 212.N.12 hard-renamed the legacy `ComponentRegister` variant
+<a href=#314 id=314 data-nosnippet>314</a>    /// to `NodeRegister` to match the rclcpp_components / ROS 2 launch.xml
+<a href=#315 id=315 data-nosnippet>315</a>    /// `&lt;node pkg=…&gt;` convention.
+<a href=#316 id=316 data-nosnippet>316</a>    </span>NodeRegister(<span class="kw-2">&amp;</span><span class="lifetime">'static </span>str),
+<a href=#317 id=317 data-nosnippet>317</a>}
+<a href=#318 id=318 data-nosnippet>318</a>
+<a href=#319 id=319 data-nosnippet>319</a><span class="kw">impl </span>core::fmt::Display <span class="kw">for </span>RuntimeError {
+<a href=#320 id=320 data-nosnippet>320</a>    <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>core::fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; core::fmt::Result {
+<a href=#321 id=321 data-nosnippet>321</a>        <span class="kw">match </span><span class="self">self </span>{
+<a href=#322 id=322 data-nosnippet>322</a>            <span class="self">Self</span>::NodeRegister(msg) =&gt; <span class="macro">write!</span>(f, <span class="string">"node register failed: {msg}"</span>),
+<a href=#323 id=323 data-nosnippet>323</a>        }
+<a href=#324 id=324 data-nosnippet>324</a>    }
+<a href=#325 id=325 data-nosnippet>325</a>}
 </code></pre></div></section></main></body></html>
