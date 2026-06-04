@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_TYPES"],"fn":["global","register"],"struct":["TypeRegistry"]};

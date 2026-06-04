@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BridgeError","FieldKind"],"fn":["nros_cyclonedds_build_descriptor_from_schema","nros_rmw_cyclonedds_register_descriptor"],"struct":["NrosFieldDescriptor","NrosFieldKindDescriptor"]};

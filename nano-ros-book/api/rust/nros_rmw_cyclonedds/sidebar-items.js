@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["bridge","dynamic_type","sync","type_registry"]};
