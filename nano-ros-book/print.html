@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d1c8a7a1.js";
+            window.path_to_searchindex_js = "searchindex-561c57cf.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-f6dc63f1.js"></script>
+        <script src="toc-6a4419cb.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -2451,6 +2451,239 @@ board crate.</p>
 <li><a href="#from-an-app-node-to-a-workspace">From an app node to a workspace</a> — the full 3-role picture and when to use it.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="c--c-workspace-track"><a class="header" href="#c--c-workspace-track">C / C++ workspace track</a></h1>
+<p>The four previous chapters
+(<a href="#from-an-app-node-to-a-workspace">from-app-node</a>,
+<a href="#prepare-node-packages">node-pkgs</a>, <a href="#bringup-launch--systemtoml">bringup</a>,
+<a href="#entry-package-boot-on-a-board">entry-pkg</a>) describe the canonical three-role
+node + bringup + entry shape against the Rust path
+(<code>nros::node!(…)</code> + <code>nros::main!(launch = …)</code>). This chapter shows the
+<strong>C and C++ path</strong> through the same shape, role-for-role.</p>
+<p>Phase 219 closed the parity gap. Same launch.xml, same <code>package.xml</code>,
+same <code>system.toml</code>, same workspace pkg-index — the only thing that
+changes language-side is the cmake-fn / macro surface.</p>
+<h2 id="tldr--side-by-side"><a class="header" href="#tldr--side-by-side">TL;DR — side-by-side</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Role</th><th>Rust</th><th>C / C++</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Node pkg</strong></td><td><code>lib.rs</code> with <code>nros::node!(MyNode)</code> + <code>[package.metadata.nros.node]</code> in <code>Cargo.toml</code></td><td><code>Talker.{hpp,cpp}</code> declaring <code>register_node(NodeContext&amp;)</code> + <code>NROS_NODE_REGISTER(&lt;pkg&gt;::&lt;Class&gt;, "…")</code>; <code>CMakeLists.txt</code> calling <code>nano_ros_node_register(NAME … CLASS … SOURCES … DEPLOY native)</code></td></tr>
+<tr><td><strong>Bringup pkg</strong></td><td><code>package.xml</code> + <code>system.toml</code> + <code>launch/*.launch.xml</code> (no <code>Cargo.toml</code>)</td><td>identical (language-agnostic)</td></tr>
+<tr><td><strong>Entry pkg</strong></td><td><code>src/main.rs</code> with <code>nros::main!(launch = "demo_bringup:system.launch.xml")</code></td><td><code>src/main.cpp</code> with <code>NROS_MAIN(nros::board::NativeBoard, "demo_bringup:system.launch.xml")</code>; <code>CMakeLists.txt</code> calling <code>nano_ros_entry(NAME … LAUNCH "demo_bringup:system.launch.xml" DEPLOY native)</code></td></tr>
+<tr><td><strong>Workspace root</strong></td><td><code>Cargo.toml [workspace] members = […]</code></td><td><code>CMakeLists.txt</code> calling <code>nano_ros_workspace(BACKEND zenoh PLATFORM posix SUBDIRS src/talker_pkg src/listener_pkg src/robot_entry)</code></td></tr>
+<tr><td><strong>Build</strong></td><td><code>cargo build</code></td><td><code>cmake -S . -B build -DNANO_ROS_ROOT=&lt;path&gt;</code> + <code>cmake --build build</code></td></tr>
+<tr><td><strong>Boot</strong></td><td><code>cargo run -p robot_entry</code></td><td><code>./build/.../robot_entry</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The reference C++ workspace ships in-tree at
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/multi-node-workspace-cpp"><code>examples/templates/multi-node-workspace-cpp/</code></a>.
+Copy the whole directory, rename the packages.</p>
+<h2 id="workspace-layout"><a class="header" href="#workspace-layout">Workspace layout</a></h2>
+<p>Identical structure to the Rust template, swapping <code>Cargo.toml</code> →
+<code>CMakeLists.txt</code>:</p>
+<pre><code class="language-text">my_ws/
+├── CMakeLists.txt                # nano_ros_workspace(SUBDIRS …)
+└── src/
+    ├── talker_pkg/               # Node pkg (C++)
+    │   ├── package.xml
+    │   ├── CMakeLists.txt        # nano_ros_node_register(…)
+    │   └── src/{Talker.hpp,Talker.cpp}
+    ├── listener_pkg/             # Node pkg (C++)
+    │   ├── package.xml
+    │   ├── CMakeLists.txt
+    │   └── src/{Listener.hpp,Listener.cpp}
+    ├── demo_bringup/             # Bringup pkg (language-agnostic — copy/paste
+    │   ├── package.xml           #          works between Rust and C++ workspaces)
+    │   ├── system.toml
+    │   └── launch/system.launch.xml
+    └── robot_entry/              # Entry pkg (C++)
+        ├── package.xml
+        ├── CMakeLists.txt        # nano_ros_entry(LAUNCH …)
+        └── src/main.cpp          # NROS_MAIN(…) one-liner
+</code></pre>
+<h2 id="workspace-root"><a class="header" href="#workspace-root">Workspace root</a></h2>
+<p>Four declarations:</p>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
+project(my_ws LANGUAGES C CXX)
+include(&lt;nano-ros&gt;/cmake/NanoRosWorkspace.cmake)
+
+nano_ros_workspace(
+    BACKEND        zenoh                # zenoh | xrce | cyclonedds
+    PLATFORM       posix                # posix | … (default posix)
+    NANO_ROS_ROOT  &lt;path-to-nano-ros&gt;   # also: -D cache var, $NANO_ROS_ROOT,
+                                        # or auto-walk for nros-sdk-index.toml
+    SUBDIRS        src/talker_pkg
+                   src/listener_pkg
+                   src/robot_entry
+)
+</code></pre>
+<p><code>nano_ros_workspace()</code> (Phase 219.I) does the heavy lifting in one call:</p>
+<ol>
+<li>Sets <code>NANO_ROS_PLATFORM=posix</code> + <code>NANO_ROS_RMW=zenoh</code>.</li>
+<li><code>add_subdirectory(&lt;nano-ros&gt;)</code> <strong>once</strong> at root scope (so per-pkg
+subdirs don’t collide on re-include).</li>
+<li><code>include(NanoRosNodeRegister.cmake)</code> + <code>include(NanoRosEntry.cmake)</code>
+once.</li>
+<li><code>add_subdirectory(&lt;each member&gt;)</code> for each <code>SUBDIRS</code> entry.</li>
+</ol>
+<p>Subdir CMakeLists begin with the dual call:</p>
+<pre><code class="language-cmake">nano_ros_workspace_pkg_guard()  # no-op inside a workspace; bootstraps standalone solo
+</code></pre>
+<p>— the cmake equivalent of cargo <code>[workspace]</code> discipline. Every member
+compiles standalone (with <code>-DNANO_ROS_ROOT=&lt;path&gt;</code>) or as part of the
+workspace; the per-pkg CMakeLists doesn’t change between modes.</p>
+<h2 id="node-pkg"><a class="header" href="#node-pkg">Node pkg</a></h2>
+<p>Declarative — no <code>main()</code>. The pkg ships a class whose <code>register_node()</code>
+describes the entities the planned host runtime will instantiate:</p>
+<pre><code class="language-cmake"># src/talker_pkg/CMakeLists.txt
+cmake_minimum_required(VERSION 3.22)
+project(talker_pkg LANGUAGES C CXX)
+nano_ros_workspace_pkg_guard()
+nros_find_interfaces(LANGUAGE CPP SKIP_INSTALL)
+
+nano_ros_node_register(
+    NAME    talker
+    CLASS   talker_pkg::Talker     # §212.L.4 — class prefix must equal PROJECT_NAME
+    SOURCES src/Talker.cpp
+    DEPLOY  native)
+</code></pre>
+<pre><code class="language-cpp">// src/talker_pkg/src/Talker.cpp
+#include "Talker.hpp"
+#include "std_msgs.hpp"
+
+namespace talker_pkg {
+
+::nros::Result Talker::register_node(::nros::NodeContext&amp; ctx) {
+    ::nros::DeclaredNode node;
+    auto r = ctx.create_node(node, "node",
+        ::nros::NodeOptions::make("talker"));
+    if (!r.ok()) return r;
+    // … declare publisher, timer, callbacks …
+    return ctx.record_callback_effect(
+        "on_tick", ::nros::CallbackEffectKind::Publishes, "pub_chatter");
+}
+
+}  // namespace talker_pkg
+
+NROS_NODE_REGISTER(talker_pkg::Talker, "talker_pkg::Talker");
+</code></pre>
+<p>The macro at TU end lands the per-pkg mangled <code>__nros_component_talker_pkg_register</code>
+symbol (Phase 212.M.5.a.1) — the same ABI the Rust <code>nros::node!(Talker)</code>
+macro emits, so a C++ Node pkg drops into a Rust Entry pkg’s launch
+graph and vice-versa.</p>
+<p><code>nros new --component --lang cpp</code> scaffolds this exact shape:</p>
+<pre><code class="language-bash">$ nros new --component my-talker --lang cpp --use-case talker
+✓ Created nano-ros C++ Node pkg 'my-talker'
+  Class     : my_talker::Talker
+  Node      : talker
+  Kind      : declarative Node pkg (Phase 212.L.9)
+</code></pre>
+<h2 id="bringup-pkg"><a class="header" href="#bringup-pkg">Bringup pkg</a></h2>
+<p>Language-agnostic — copy verbatim from the
+<a href="#bringup-launch--systemtoml">bringup chapter</a>. <code>package.xml</code> +
+<code>system.toml</code> + <code>launch/system.launch.xml</code>. No <code>Cargo.toml</code>, no
+<code>CMakeLists.txt</code>. Stock ROS 2 launch.xml from nav2 / Autoware /
+turtlebot3 pastes in modulo unsupported tags.</p>
+<pre><code class="language-xml">&lt;!-- src/demo_bringup/launch/system.launch.xml --&gt;
+&lt;launch&gt;
+  &lt;node pkg="talker_pkg" exec="talker" name="talker"/&gt;
+  &lt;node pkg="listener_pkg" exec="listener" name="listener"/&gt;
+&lt;/launch&gt;
+</code></pre>
+<h2 id="entry-pkg"><a class="header" href="#entry-pkg">Entry pkg</a></h2>
+<p>The C++ Entry pkg’s <code>CMakeLists.txt</code> calls
+<code>nano_ros_entry(LAUNCH …)</code> — Phase 219.D added the <code>LAUNCH</code> keyword:</p>
+<pre><code class="language-cmake"># src/robot_entry/CMakeLists.txt
+cmake_minimum_required(VERSION 3.22)
+project(robot_entry LANGUAGES C CXX)
+nano_ros_workspace_pkg_guard()
+
+nano_ros_entry(
+    NAME    robot_entry
+    SOURCES src/main.cpp                              # user-authored
+    LAUNCH  "demo_bringup:system.launch.xml"          # Phase 219.D
+    DEPLOY  native)
+</code></pre>
+<p>At configure time the cmake fn shells <code>nros codegen entry --lang cpp</code>,
+emits <code>${CMAKE_BINARY_DIR}/nros_main_generated.cpp</code> (the canonical
+<code>int main()</code> body that calls every <code>__nros_component_&lt;pkg&gt;_register</code>
+in launch order), appends it to the target’s sources, and auto-links
+every <code>&lt;pkg&gt;_&lt;exec&gt;_component</code> static lib the launch XML named
+(Phase 219.J). The user’s <code>main.cpp</code> is a single declarative line:</p>
+<pre><code class="language-cpp">// src/robot_entry/src/main.cpp
+#include &lt;nros/main.hpp&gt;
+NROS_MAIN(nros::board::NativeBoard, "demo_bringup:system.launch.xml")
+</code></pre>
+<p><code>NROS_MAIN(...)</code> is a sentinel macro — the cmake fn owns the generated
+body, the user’s TU is documentation + IDE hint.</p>
+<p><code>nros new</code> scaffolds an Entry pkg:</p>
+<pre><code class="language-bash">$ nros new my-entry --lang cpp --platform native
+</code></pre>
+<h2 id="build--boot"><a class="header" href="#build--boot">Build + boot</a></h2>
+<pre><code class="language-bash">cmake -S . -B build -DNANO_ROS_ROOT=&lt;path-to-nano-ros&gt;
+cmake --build build
+./build/src/robot_entry/robot_entry
+</code></pre>
+<p>The build produces:</p>
+<ul>
+<li><code>src/talker_pkg/libtalker_pkg_talker_component.a</code> — the Node pkg static lib.</li>
+<li><code>src/listener_pkg/liblistener_pkg_listener_component.a</code> — ditto.</li>
+<li><code>src/robot_entry/robot_entry</code> — the Entry exe, with the generated
+<code>int main()</code> + register-call sequence + Board boot stub linked in.</li>
+</ul>
+<p><code>cmake configure</code> is incremental — pinned <code>CMAKE_CONFIGURE_DEPENDS</code> on
+every file <code>nros codegen entry</code> reads (depfile from the CLI), so any
+launch.xml / <code>package.xml</code> / Node pkg edit re-runs codegen.</p>
+<h2 id="what-runs-where"><a class="header" href="#what-runs-where">What runs where</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Concern</th><th>Lives in</th></tr>
+</thead>
+<tbody>
+<tr><td>Node entity declarations</td><td>Node pkg <code>register_node()</code></td></tr>
+<tr><td>Topology + launch args + per-target deploy</td><td>Bringup pkg <code>system.toml</code> + <code>launch/*.launch.xml</code></td></tr>
+<tr><td><code>int main()</code> + executor init + spin</td><td>Generated TU emitted by the Entry pkg’s cmake fn</td></tr>
+<tr><td>Board + RMW selection</td><td>Entry pkg’s <code>nano_ros_entry(BOARD …)</code> arg</td></tr>
+</tbody>
+</table>
+</div>
+<p>Same partition as the Rust track — the only thing that changes is the
+syntax the user types into the three pkgs.</p>
+<h2 id="c--c-scaffolding-via-nros-new"><a class="header" href="#c--c-scaffolding-via-nros-new">C / C++ scaffolding via <code>nros new</code></a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Command</th><th>Output</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros new &lt;name&gt; --lang cpp --platform native</code></td><td>C++ Entry pkg (single-Node self-bringup; swap in a multi-Node <code>LAUNCH</code> arg post-219.D)</td></tr>
+<tr><td><code>nros new &lt;name&gt; --lang c --platform native</code></td><td>C Entry pkg (same shape)</td></tr>
+<tr><td><code>nros new --component &lt;name&gt; --lang cpp --use-case talker</code></td><td>C++ Node pkg (declarative <code>register_node()</code> + <code>NROS_NODE_REGISTER</code>)</td></tr>
+<tr><td><code>nros new system &lt;name&gt;_bringup --components a,b</code></td><td>Bringup pkg (language-agnostic — works for both Rust and C++ workspaces)</td></tr>
+</tbody>
+</table>
+</div>
+<p>The C-side Component scaffold (<code>nros new --component … --lang c</code>) is
+<strong>deferred</strong> to a Phase 219 follow-up — the <code>NROS_COMPONENT(pkg, register_fn)</code> macro semantics need a 1-arg shim before a hand-rolled C
+scaffold matches the freertos fixture shape. Hand-written C Node pkgs
+that call the 2-arg form work today.</p>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<ul>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/multi-node-workspace-cpp"><code>examples/templates/multi-node-workspace-cpp/</code></a>
+— the canonical reference template (talker + listener Node pkgs +
+Bringup pkg + Entry pkg, all C++).</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/phase-219-cpp-entry-pkg.md">Phase 219 roadmap</a>
+— full landing order + acceptance bar.</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/phase-219-workflow-review.md">Phase 219 workflow review</a>
+— the 7-gap walkthrough that shaped the work plan.</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/multi-node-workspace-layout.md">Multi-node workspace layout design</a>
+§11 — LOCKED canonical shape (<code>Bringup + Node + Entry</code>).</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="troubleshooting--first-10-minutes"><a class="header" href="#troubleshooting--first-10-minutes">Troubleshooting — First 10 Minutes</a></h1>
 <p>The Linux starter walkthroughs assume <code>nros setup native --rmw zenoh</code>
 has run, <code>zenohd</code> is reachable, and the right Rust target is
@@ -2693,7 +2926,7 @@ data: 2
 <p>If you see all three of these — talker logging, ROS 2 echo
 output, and matching counter values — interop is verified
 end-to-end.</p>
-<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
+<h2 id="see-also-1"><a class="header" href="#see-also-1">See also</a></h2>
 <ul>
 <li><a href="#installation">Install + first build</a> — full setup walkthrough</li>
 <li><a href="#first-node--rust-linux">First Node — Rust</a> — the canonical Rust starter</li>
@@ -4605,7 +4838,7 @@ command, run/flash command, and deployment notes.</p>
 <blockquote>
 <p><strong>single-Node convenience:</strong> for a single-Node workspace on native hosts, a Node pkg can declare <code>[package.metadata.nros.entry] deploy = "&lt;board&gt;"</code> in its own <code>Cargo.toml</code> and skip the Entry pkg directory entirely — see <a href="#single-node-pkg-convenience-cargo-run-just-works">Single-Node-pkg convenience</a> below. Embedded boards still need a hand-written Entry pkg.</p>
 </blockquote>
-<h2 id="node-pkg"><a class="header" href="#node-pkg">Node pkg</a></h2>
+<h2 id="node-pkg-1"><a class="header" href="#node-pkg-1">Node pkg</a></h2>
 <p>A Node pkg is a normal Rust library (or C++ static library) with a few nano-ros-specific knobs:</p>
 <pre><code>src/talker_pkg/
 ├── Cargo.toml          # [lib] crate-type = ["rlib", "staticlib"]
@@ -4650,7 +4883,7 @@ into the Entry pkg directly.</p>
 <code>$(find &lt;pkg&gt;)</code> / <code>$(var)</code> / <code>$(env)</code> substitutions. Stock nav2/Autoware
 XML pastes in and Just Works (Python <code>.launch.py</code> is not supported yet).
 See <a href="#bringup-launch--systemtoml">the workspace bringup tutorial</a>.</p>
-<h2 id="entry-pkg"><a class="header" href="#entry-pkg">Entry pkg</a></h2>
+<h2 id="entry-pkg-1"><a class="header" href="#entry-pkg-1">Entry pkg</a></h2>
 <p>An Entry pkg is a binary crate that combines one or more Node pkgs with a board choice, a launch file, and per-board deploy config:</p>
 <pre><code>src/robot_entry/
 ├── Cargo.toml          # [[bin]] name = "robot_entry"
@@ -6251,7 +6484,7 @@ lists which <code>&lt;plat&gt; × &lt;lang&gt;</code> combinations ship a bridge
 </tbody>
 </table>
 </div>
-<h2 id="see-also-1"><a class="header" href="#see-also-1">See also</a></h2>
+<h2 id="see-also-2"><a class="header" href="#see-also-2">See also</a></h2>
 <ul>
 <li><a href="#rmw-backends-zenoh-xrce-dds-cyclone-dds">Choosing an RMW Backend</a> — single-
 backend selection criteria.</li>
@@ -6482,7 +6715,7 @@ sub.on_message_lost(|status| {
     // Tighten downstream filter, reduce work, coalesce, etc.
 })?;
 <span class="boring">}</span></code></pre>
-<h2 id="see-also-2"><a class="header" href="#see-also-2">See also</a></h2>
+<h2 id="see-also-3"><a class="header" href="#see-also-3">See also</a></h2>
 <ul>
 <li><a href="#rmw-api-differences-from-upstream-rmwh">RMW API: Differences from upstream <code>rmw.h</code></a>
 Section 8 — the design comparison this page expands on.</li>
@@ -7096,7 +7329,7 @@ the implementation is deferred to Phase 216.E.1.</p>
 </ul>
 <p>Until that work lands, <code>nros check</code> (Phase 216.D.1) rejects
 <code>DispatchStrategy::FromIsr</code> deployments with a clear diagnostic.</p>
-<h2 id="see-also-3"><a class="header" href="#see-also-3">See also</a></h2>
+<h2 id="see-also-4"><a class="header" href="#see-also-4">See also</a></h2>
 <ul>
 <li><a href="#dispatch-strategy">Dispatch Strategy (internals)</a> —
 the trichotomy and the per-Node-vs-per-callback rationale.</li>
@@ -7199,7 +7432,7 @@ taxonomy</a>, per
 <p>The Node pkg stays board-agnostic — <code>listener_pkg/</code> from the RTIC
 chapter could be deployed under Embassy by swapping the Entry pkg.
 That’s the point of the split.</p>
-<h3 id="entry-pkg-1"><a class="header" href="#entry-pkg-1">Entry pkg</a></h3>
+<h3 id="entry-pkg-2"><a class="header" href="#entry-pkg-2">Entry pkg</a></h3>
 <pre><code class="language-toml"># File: src/listener_entry/Cargo.toml
 [package]
 name    = "listener_entry"
@@ -7398,7 +7631,7 @@ hitting that case, file an issue with the call pattern that’s
 prompting it.</p>
 <p>Until then: spawn from sync. It’s two lines per callback and stays
 fully no-alloc.</p>
-<h2 id="see-also-4"><a class="header" href="#see-also-4">See also</a></h2>
+<h2 id="see-also-5"><a class="header" href="#see-also-5">See also</a></h2>
 <ul>
 <li><a href="#dispatch-strategy">Dispatch Strategy (internals)</a> —
 the trichotomy and the per-Node-vs-per-callback rationale.</li>
@@ -8135,7 +8368,7 @@ transport pattern via <code>nros_platform_*</code> C ABI (see
 <li>XRCE Agent deployment stays the same — point nano-ros’s XRCE
 backend at the same Agent.</li>
 </ul>
-<h2 id="see-also-5"><a class="header" href="#see-also-5">See also</a></h2>
+<h2 id="see-also-6"><a class="header" href="#see-also-6">See also</a></h2>
 <ul>
 <li><a href="https://github.com/jerry73204/nano-ros/blob/main/docs/research/build-config-deploy-comparison.md">Build / config / deploy workflow comparison</a>
 — the three workflow axes vs micro-ROS, Zenoh-pico, embedded DDS, Arduino-ROS
@@ -9087,7 +9320,7 @@ spin loop’s “where does the thread sleep” question maps as:</p>
 </div>
 <p>In all cases the user-visible API is <code>Executor::spin_once(timeout)</code>;
 the platform-correct sleep happens transparently underneath.</p>
-<h2 id="see-also-6"><a class="header" href="#see-also-6">See also</a></h2>
+<h2 id="see-also-7"><a class="header" href="#see-also-7">See also</a></h2>
 <ul>
 <li><a href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design</a> — the architectural reasons
 the runtime / RMW boundary is shaped the way it is.</li>
@@ -9594,7 +9827,7 @@ compile_error!("Enable at least one transport: `ethernet` or `serial`");</code><
 </table>
 </div>
 <p>The bare-metal <code>nros-board-mps2-an385</code> is the simplest starting point. The FreeRTOS variant shows how to add RTOS task creation and lwIP networking.</p>
-<h2 id="see-also-7"><a class="header" href="#see-also-7">See also</a></h2>
+<h2 id="see-also-8"><a class="header" href="#see-also-8">See also</a></h2>
 <ul>
 <li><a href="#custom-platform">Custom Platform</a> – writing the platform crate that sits underneath a board crate</li>
 <li><a href="#porting-overview">Porting Overview</a> – the three customization axes (RMW, platform, board)</li>
@@ -10373,7 +10606,7 @@ The board layer owns:</p>
 stay at <code>packages/core/nros-c/cmake/nros-&lt;rtos&gt;.cmake</code>. The
 modules <code>include(...)</code> those helpers — the per-platform file is the
 <strong>dispatch entry</strong>, not the implementation.</p>
-<h2 id="see-also-8"><a class="header" href="#see-also-8">See also</a></h2>
+<h2 id="see-also-9"><a class="header" href="#see-also-9">See also</a></h2>
 <ul>
 <li><a href="#custom-platform">Custom Platform</a> — Rust-side trait
 implementations (clock, alloc, threading, networking)</li>
@@ -10597,7 +10830,7 @@ real session). Run via:</p>
 <pre><code class="language-bash">cargo test -p nros-rmw-xrce --features platform-posix \
     --test custom_transport
 </code></pre>
-<h2 id="see-also-9"><a class="header" href="#see-also-9">See also</a></h2>
+<h2 id="see-also-10"><a class="header" href="#see-also-10">See also</a></h2>
 <ul>
 <li><a href="../../packages/core/nros-c/include/nros/nros_generated.h"><code>&lt;nros/transport.h&gt;</code></a> — C header</li>
 <li><a href="../../packages/core/nros-cpp/include/nros/transport.hpp"><code>&lt;nros/transport.hpp&gt;</code></a> — C++ header</li>
@@ -12378,7 +12611,7 @@ a <code>&lt;nros/rmw_ret.h&gt;</code> header change only.</li>
 </ul>
 <p><strong>Why same style.</strong> Named constants make <code>switch</code> statements
 possible at call sites; bare negative ints don’t.</p>
-<h2 id="see-also-10"><a class="header" href="#see-also-10">See also</a></h2>
+<h2 id="see-also-11"><a class="header" href="#see-also-11">See also</a></h2>
 <ul>
 <li><a href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design</a> — deeper architectural rationale (heap,
 threading, dispatch model) shared across all the points above.</li>
@@ -13108,7 +13341,7 @@ bar to this table.</p>
 (when present); reach out to the backend’s maintainer for
 fresh microbench numbers on a different target class than
 the ones above.</p>
-<h2 id="see-also-11"><a class="header" href="#see-also-11">See also</a></h2>
+<h2 id="see-also-12"><a class="header" href="#see-also-12">See also</a></h2>
 <ul>
 <li><a href="../../docs/roadmap/phase-115-runtime-transport-vtable.html">roadmap doc</a>
 — Appendix D carries LOC sizing, port shapes, and risk notes.</li>
@@ -13701,7 +13934,7 @@ header.</li>
 <p>Cross-target verification: the same probe runs for every target
 triple. There’s no per-platform branching — <code>size_of::&lt;T&gt;()</code> resolves
 to the right value at the target’s compile time.</p>
-<h2 id="see-also-12"><a class="header" href="#see-also-12">See also</a></h2>
+<h2 id="see-also-13"><a class="header" href="#see-also-13">See also</a></h2>
 <ul>
 <li><code>packages/core/nros-sizes-build/src/lib.rs</code> for the rlib probe
 implementation.</li>
@@ -14506,7 +14739,7 @@ impl ExecutableNode for Listener {
 <code>State</code> field, and the <code>on_callback</code> body. The closure body in the
 “before” version becomes the <code>if state.sub_chatter == cb { ... }</code>
 branch in the “after” version — same code, hoisted to a method.</p>
-<h2 id="see-also-13"><a class="header" href="#see-also-13">See also</a></h2>
+<h2 id="see-also-14"><a class="header" href="#see-also-14">See also</a></h2>
 <ul>
 <li><a href="#rtic-integration">RTIC Integration</a> — user-facing
 tutorial for the RTIC side of dispatch.</li>
@@ -15099,7 +15332,7 @@ self-heals rather than hard-failing.</li>
 by <code>just qemu setup-qemu</code> into <code>build/qemu/bin/</code>. The harness picks it up
 automatically (<code>nros_tests::qemu::qemu_system_arm_cmd()</code>); the system binary is
 the fallback. See <a href="#patched-qemu-system-arm-binary">Patched qemu-system-arm</a>.</p>
-<h2 id="see-also-14"><a class="header" href="#see-also-14">See also</a></h2>
+<h2 id="see-also-15"><a class="header" href="#see-also-15">See also</a></h2>
 <ul>
 <li><a href="#quick-reference-2">Build Commands</a> — the user-facing quick reference.</li>
 <li><a href="#zpico-sys-build-architecture">zpico-sys Build Architecture</a> — the zenoh-pico cross-compile.</li>
@@ -15156,7 +15389,7 @@ every active branch lands on 218)</li>
 <p>The Phase 218.E ABI guard checks the in-tree CLI build matches the
 runtime crates’ codegen ABI hash; opt out via <code>NROS_SKIP_VERSION_CHECK=1</code>
 when intentionally bisecting a CLI mismatch.</p>
-<h2 id="see-also-15"><a class="header" href="#see-also-15">See also</a></h2>
+<h2 id="see-also-16"><a class="header" href="#see-also-16">See also</a></h2>
 <ul>
 <li><a href="#build-system--caching">Build System &amp; Caching</a></li>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/development/sdk-tiers.md">SDK Tiers</a></li>
@@ -15965,7 +16198,7 @@ Suggested gates:</p>
 <p>Sum across all 9 sections (§1–9). Below ~50 / 70 you have
 foundational work to do; above ~62 / 70 you’re at production
 quality on every axis where nano-ros can be validated externally.</p>
-<h2 id="see-also-16"><a class="header" href="#see-also-16">See also</a></h2>
+<h2 id="see-also-17"><a class="header" href="#see-also-17">See also</a></h2>
 <ul>
 <li><a href="#real-time-analysis">Real-Time Analysis</a> — RT scheduling
 background + response-time formulas.</li>
@@ -16566,7 +16799,7 @@ previously-empty cell.</li>
 </div>
 <p>Per-platform deep-dives — toolchain setup, Kconfig variables,
 runner scripts — live in the <a href="getting-started">Platform Guides</a>.</p>
-<h2 id="see-also-17"><a class="header" href="#see-also-17">See Also</a></h2>
+<h2 id="see-also-18"><a class="header" href="#see-also-18">See Also</a></h2>
 <ul>
 <li><a href="#build-as-a-cmake-subdirectory">Build as a CMake subdirectory</a></li>
 <li><a href="#message-binding-generation">Message Generation</a></li>
@@ -17435,7 +17668,7 @@ libc required; bare-metal Cortex-A is not in the coverage matrix.</li>
 template is the canonical entry path — see
 <a href="#px4-autopilot-external-module">PX4 Autopilot</a>.</li>
 </ul>
-<h2 id="see-also-18"><a class="header" href="#see-also-18">See also</a></h2>
+<h2 id="see-also-19"><a class="header" href="#see-also-19">See also</a></h2>
 <ul>
 <li><a href="#introduction">Quick board check (intro)</a> — hobbyist-grade
 one-liner per chip.</li>
