@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-5cb08aa1.js";
+            window.path_to_searchindex_js = "searchindex-d1c8a7a1.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f6dc63f1.js"></script>
@@ -569,6 +569,14 @@ project tree (git submodule, <code>west</code> manifest, ESP-IDF component, etc.
 and built in-tree via <code>add_subdirectory(nano-ros)</code>. There is no binary
 tarball, no system-wide install step, no <code>find_package(NanoRos)</code>.</p>
 <blockquote>
+<p><strong><code>activate.sh</code> is the after-install step, NOT a prereq.</strong> Sourcing
+<code>activate.sh</code> (or <code>activate.fish</code>, or <code>direnv allow</code>) only wires the
+workspace env into a new shell — it presumes the <code>nros</code> binary
+already exists at <code>packages/cli/target/release/nros</code>. The three
+bootstrap paths below (A/B/C) are what produce that binary; the
+activate file is what makes it findable in every subsequent shell.</p>
+</blockquote>
+<blockquote>
 <p>See <a href="#build-as-a-cmake-subdirectory">build-as-subdirectory.md</a> for the
 canonical user incantation (4-line <code>CMakeLists.txt</code>). This page
 walks the surrounding workspace + per-target setup choices.</p>
@@ -629,21 +637,34 @@ per RMW</strong> — the cross-compiler, emulator, RMW host daemon, and any SDK
 sources a board needs are fetched from a pinned index and placed in a
 shared store (<code>~/.nros/sdk</code>). You do <strong>not</strong> install cross-toolchains by
 hand, and you do not need ROS 2 on the machine.</p>
-<h3 id="1-build-the-nros-cli-from-the-in-tree-sub-workspace-phase-218"><a class="header" href="#1-build-the-nros-cli-from-the-in-tree-sub-workspace-phase-218">1. Build the <code>nros</code> CLI from the in-tree sub-workspace (Phase 218)</a></h3>
-<pre><code class="language-bash">git clone https://github.com/NEWSLabNTU/nano-ros.git
+<h3 id="1-get-the-nros-cli-onto-path"><a class="header" href="#1-get-the-nros-cli-onto-path">1. Get the <code>nros</code> CLI onto PATH</a></h3>
+<p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
+<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
+<pre><code class="language-sh">git clone https://github.com/NEWSLabNTU/nano-ros.git
 cd nano-ros
-source ./activate.sh          # OR: direnv allow / source ./activate.fish
-just setup-cli                # builds packages/cli/target/release/nros
+./scripts/bootstrap.sh base
 </code></pre>
-<p><code>just setup-cli</code> runs <code>cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros</code>, producing the per-checkout binary
-at <code>packages/cli/target/release/nros</code>. Activating the workspace
-(<code>activate.sh</code> / <code>activate.fish</code> / <code>direnv allow</code>) puts that directory
-on <code>PATH</code>, so <code>nros --version</code> resolves to the in-tree build. <strong>One
-checkout = one CLI version = one runtime ABI</strong> — no global install,
-no <code>~/.nros/bin</code> PATH skew across worktrees.</p>
-<h3 id="2-activate-the-workspace-every-shell"><a class="header" href="#2-activate-the-workspace-every-shell">2. Activate the workspace (every shell)</a></h3>
-<p>Pick whichever fits your shell — all three wire the same env exports +
-PATH entries from the Phase 218.C SSoT <code>activate.sh</code>:</p>
+<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
+<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
+this shell.</p>
+<p><strong>B. Already have cargo</strong> (most contributors):</p>
+<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+export PATH="$PWD/packages/cli/target/release:$PATH"
+</code></pre>
+<p><strong>C. Tagged release, no Rust at all</strong>:</p>
+<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
+</code></pre>
+<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
+sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
+<p>All three paths produce the per-checkout binary at
+<code>packages/cli/target/release/nros</code>. <strong>One checkout = one CLI version =
+one runtime ABI</strong> — no global install, no <code>~/.nros/bin</code> PATH skew
+across worktrees.</p>
+<h3 id="2-activate-the-workspace-every-subsequent-shell"><a class="header" href="#2-activate-the-workspace-every-subsequent-shell">2. Activate the workspace (every subsequent shell)</a></h3>
+<p>The bootstrap path you ran in §1 left <code>nros</code> on PATH for <em>that</em> shell
+only. Every new shell needs the workspace env wired in. Pick whichever
+fits your shell — all three wire the same env exports + PATH entries
+from the Phase 218.C SSoT <code>activate.sh</code>:</p>
 <pre><code class="language-bash">direnv allow                  # auto-activates on `cd nano-ros` (recommended)
 source ./activate.sh          # bash / zsh, one-shot per shell
 source ./activate.fish        # fish, one-shot per shell
@@ -734,8 +755,8 @@ for the pattern.</p>
 toolchains a contributor gets are identical to a user’s.</p>
 <pre><code class="language-bash">git clone https://github.com/NEWSLabNTU/nano-ros.git
 cd nano-ros
+./scripts/bootstrap.sh base   # path A from §1 above; gets rustup + just + nros
 source ./activate.sh          # OR: direnv allow / source ./activate.fish
-just setup-cli                # build the in-tree nros CLI (Phase 218)
 just setup all                # provision every supported board's SDK/toolchain
 </code></pre>
 <p>Diagnose missing tools (read-only):</p>
@@ -773,18 +794,34 @@ about ten minutes. Uses the canonical Zenoh backend; no router needs
 to be pre-installed (the repo ships <code>zenohd</code>).</p>
 <blockquote>
 <p><strong>Stuck?</strong> See <a href="#troubleshooting--first-10-minutes">Troubleshooting — First 10 Minutes</a> for the common first-build errors.</p>
-<p><strong>Prereqs.</strong> Install the <code>nros</code> CLI and provision the native host.
-<code>nros setup native</code> installs the zenoh router (<code>zenohd</code>) into a
-shared store — no ROS 2 needed.</p>
-<pre><code class="language-bash"># Build the in-tree nros CLI (Phase 218):
-source ./activate.sh        # OR: direnv allow / source ./activate.fish
-just setup-cli
-
-# Provision the native host for the zenoh RMW:
-nros setup native --rmw zenoh
+</blockquote>
+<h2 id="prereqs"><a class="header" href="#prereqs">Prereqs</a></h2>
+<p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
+<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh base
+</code></pre>
+<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
+<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
+this shell.</p>
+<p><strong>B. Already have cargo</strong> (most contributors):</p>
+<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+export PATH="$PWD/packages/cli/target/release:$PATH"
+</code></pre>
+<p><strong>C. Tagged release, no Rust at all</strong>:</p>
+<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
+</code></pre>
+<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
+sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
+<p>Every subsequent shell sources the workspace env via one of:</p>
+<pre><code class="language-sh">direnv allow                  # if you use direnv
+source ./activate.sh          # bash / zsh
+source ./activate.fish        # fish
+</code></pre>
+<p>Then provision the native host (installs the zenoh router <code>zenohd</code>
+into a shared store — no ROS 2 needed):</p>
+<pre><code class="language-sh">nros setup native --rmw zenoh
 </code></pre>
 <p>See <a href="#installation">Install + first build (Linux)</a> for more.</p>
-</blockquote>
 <h2 id="project-layout"><a class="header" href="#project-layout">Project layout</a></h2>
 <p>The talker is a <strong>standalone Cargo package</strong> that pulls nano-ros in
 via a path dependency. Three files matter:</p>
@@ -941,18 +978,34 @@ Bare-metal Cortex-M3).</li>
 C. Uses CMake, the Zenoh backend, and <code>add_subdirectory</code> consumption.</p>
 <blockquote>
 <p><strong>Stuck?</strong> See <a href="#troubleshooting--first-10-minutes">Troubleshooting — First 10 Minutes</a> for the common first-build errors.</p>
-<p><strong>Prereqs.</strong> Install the <code>nros</code> CLI and provision the native host.
-<code>nros setup native</code> installs the zenoh router (<code>zenohd</code>) into a
-shared store — no ROS 2 needed.</p>
-<pre><code class="language-bash"># Build the in-tree nros CLI (Phase 218):
-source ./activate.sh        # OR: direnv allow / source ./activate.fish
-just setup-cli
-
-# Provision the native host for the zenoh RMW:
-nros setup native --rmw zenoh
+</blockquote>
+<h2 id="prereqs-1"><a class="header" href="#prereqs-1">Prereqs</a></h2>
+<p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
+<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh base
+</code></pre>
+<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
+<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
+this shell.</p>
+<p><strong>B. Already have cargo</strong> (most contributors):</p>
+<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+export PATH="$PWD/packages/cli/target/release:$PATH"
+</code></pre>
+<p><strong>C. Tagged release, no Rust at all</strong>:</p>
+<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
+</code></pre>
+<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
+sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
+<p>Every subsequent shell sources the workspace env via one of:</p>
+<pre><code class="language-sh">direnv allow                  # if you use direnv
+source ./activate.sh          # bash / zsh
+source ./activate.fish        # fish
+</code></pre>
+<p>Then provision the native host (installs the zenoh router <code>zenohd</code>
+into a shared store — no ROS 2 needed):</p>
+<pre><code class="language-sh">nros setup native --rmw zenoh
 </code></pre>
 <p>See <a href="#installation">Install + first build (Linux)</a> for more.</p>
-</blockquote>
 <h2 id="project-layout-1"><a class="header" href="#project-layout-1">Project layout</a></h2>
 <p>The talker is a <strong>standalone CMake project</strong> that pulls nano-ros via
 <code>add_subdirectory(&lt;repo-root&gt;)</code>. Four files matter:</p>
@@ -1106,18 +1159,34 @@ C++14. Uses CMake, the Zenoh backend, and <code>add_subdirectory</code>
 consumption.</p>
 <blockquote>
 <p><strong>Stuck?</strong> See <a href="#troubleshooting--first-10-minutes">Troubleshooting — First 10 Minutes</a> for the common first-build errors.</p>
-<p><strong>Prereqs.</strong> Install the <code>nros</code> CLI and provision the native host.
-<code>nros setup native</code> installs the zenoh router (<code>zenohd</code>) into a
-shared store — no ROS 2 needed.</p>
-<pre><code class="language-bash"># Build the in-tree nros CLI (Phase 218):
-source ./activate.sh        # OR: direnv allow / source ./activate.fish
-just setup-cli
-
-# Provision the native host for the zenoh RMW:
-nros setup native --rmw zenoh
+</blockquote>
+<h2 id="prereqs-2"><a class="header" href="#prereqs-2">Prereqs</a></h2>
+<p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
+<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh base
+</code></pre>
+<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
+<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
+this shell.</p>
+<p><strong>B. Already have cargo</strong> (most contributors):</p>
+<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+export PATH="$PWD/packages/cli/target/release:$PATH"
+</code></pre>
+<p><strong>C. Tagged release, no Rust at all</strong>:</p>
+<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
+</code></pre>
+<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
+sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
+<p>Every subsequent shell sources the workspace env via one of:</p>
+<pre><code class="language-sh">direnv allow                  # if you use direnv
+source ./activate.sh          # bash / zsh
+source ./activate.fish        # fish
+</code></pre>
+<p>Then provision the native host (installs the zenoh router <code>zenohd</code>
+into a shared store — no ROS 2 needed):</p>
+<pre><code class="language-sh">nros setup native --rmw zenoh
 </code></pre>
 <p>See <a href="#installation">Install + first build (Linux)</a> for more.</p>
-</blockquote>
 <h2 id="project-layout-2"><a class="header" href="#project-layout-2">Project layout</a></h2>
 <p>The talker is a <strong>standalone CMake project</strong> that pulls nano-ros via
 <code>add_subdirectory(&lt;repo-root&gt;)</code>. Two files matter:</p>
@@ -1668,6 +1737,31 @@ differ.</p>
 </li>
 </ol>
 <p>That’s when you split your project into the three-role model.</p>
+<h2 id="prereqs-3"><a class="header" href="#prereqs-3">Prereqs</a></h2>
+<p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
+<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh base
+</code></pre>
+<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
+<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
+this shell.</p>
+<p><strong>B. Already have cargo</strong> (most contributors):</p>
+<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+export PATH="$PWD/packages/cli/target/release:$PATH"
+</code></pre>
+<p><strong>C. Tagged release, no Rust at all</strong>:</p>
+<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
+</code></pre>
+<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
+sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
+<p>Every subsequent shell sources the workspace env via one of:</p>
+<pre><code class="language-sh">direnv allow                  # if you use direnv
+source ./activate.sh          # bash / zsh
+source ./activate.fish        # fish
+</code></pre>
+<p>Then provision the native host:</p>
+<pre><code class="language-sh">nros setup native --rmw zenoh
+</code></pre>
 <h2 id="the-three-roles"><a class="header" href="#the-three-roles">The three roles</a></h2>
 <p><strong>Node pkg</strong> — a <code>lib</code> crate that contains one node’s logic. It
 declares <code>nros::node!(T)</code> and carries
@@ -1703,17 +1797,20 @@ already know:</p>
 </thead>
 <tbody>
 <tr><td><code>ros2 pkg create</code></td><td><code>nros new &lt;name&gt; --platform &lt;plat&gt; [--lang &lt;lang&gt;]</code></td><td>scaffolds a Node pkg</td></tr>
-<tr><td><code>colcon build</code></td><td><code>cargo build</code> (Rust) / <code>cmake --build build</code> (C++)</td><td><code>nros build</code> delegates to these</td></tr>
-<tr><td><code>ros2 launch &lt;pkg&gt; &lt;file&gt;</code></td><td><code>nros launch &lt;bringup&gt; [--launch &lt;file&gt;]</code></td><td>host-side; no ament install</td></tr>
+<tr><td><code>colcon build</code></td><td><code>cargo build</code> (Rust) / <code>cmake --build build</code> (C++)</td><td>use the underlying tool directly</td></tr>
+<tr><td><code>ros2 launch &lt;pkg&gt; &lt;file&gt;</code></td><td><code>cargo run -p &lt;entry_pkg&gt;</code> (single-deploy)</td><td><code>nros launch</code> is deferred per Phase 222.D; composed Entry pkg IS the launch product</td></tr>
 <tr><td>(plan/validate)</td><td><code>nros plan</code> → <code>nros check</code></td><td>resolve + statically check the topology</td></tr>
 <tr><td><code>ros2 run &lt;pkg&gt; &lt;exe&gt;</code></td><td>run the Entry pkg binary (<code>cargo run</code>)</td><td>one Entry pkg per board</td></tr>
 </tbody>
 </table>
 </div>
-<p><code>nros build</code> and <code>nros deploy</code> exist in the CLI but <strong>delegate</strong> to
-the underlying build system — <code>cargo</code> for Rust, <code>cmake</code> for C/C++,
-<code>west</code> for Zephyr. Use those tools directly when you need fine-grained
-control; <code>nros build</code> is the convenience wrapper.</p>
+<p>Build verbs (<code>cargo</code> for Rust, <code>cmake</code> for C/C++, <code>west</code> for Zephyr,
+<code>idf.py</code> for ESP-IDF) are used directly — there is no <code>nros build</code>
+indirection. The composed Entry pkg binary IS the launch product:
+one Entry pkg = one binary = one process. Multi-process orchestration
+(equivalent to multiple <code>ros2 launch</code> nodes in separate processes) is
+a separate Entry pkg per deploy + a shell script / tmux session, not
+a CLI verb.</p>
 <h2 id="the-app-node-shape-stays-valid"><a class="header" href="#the-app-node-shape-stays-valid">The app-node shape stays valid</a></h2>
 <p>There is no obligation to restructure. If your project is one node on
 one board, the app-node shape (<code>src/main.rs</code> + one package = both
@@ -1743,6 +1840,32 @@ Next: <a href="#bringup-launch--systemtoml">Bringup: launch + system.toml</a></p
 It is a Rust library — a <code>[lib]</code> crate — that implements one node and
 registers it with <code>nros::node!(T)</code>.
 The Entry pkg is what boots the binary; the Node pkg is what runs inside it.</p>
+<hr>
+<h2 id="prereqs-4"><a class="header" href="#prereqs-4">Prereqs</a></h2>
+<p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
+<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh base
+</code></pre>
+<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
+<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
+this shell.</p>
+<p><strong>B. Already have cargo</strong> (most contributors):</p>
+<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+export PATH="$PWD/packages/cli/target/release:$PATH"
+</code></pre>
+<p><strong>C. Tagged release, no Rust at all</strong>:</p>
+<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
+</code></pre>
+<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
+sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
+<p>Every subsequent shell sources the workspace env via one of:</p>
+<pre><code class="language-sh">direnv allow                  # if you use direnv
+source ./activate.sh          # bash / zsh
+source ./activate.fish        # fish
+</code></pre>
+<p>Then provision the native host:</p>
+<pre><code class="language-sh">nros setup native --rmw zenoh
+</code></pre>
 <hr>
 <h2 id="scaffolding-a-node-pkg"><a class="header" href="#scaffolding-a-node-pkg">Scaffolding a Node pkg</a></h2>
 <p>Use <code>nros new</code> to create a skeleton:</p>
@@ -1912,6 +2035,32 @@ the per-target deploy config — all without any compiled code of its own.</p>
 <a href="#prepare-node-packages">Prepare node packages</a> guide. This page adds the
 <code>demo_bringup</code> layer between them and the Entry package that boots everything.</p>
 </blockquote>
+<hr>
+<h2 id="prereqs-5"><a class="header" href="#prereqs-5">Prereqs</a></h2>
+<p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
+<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh base
+</code></pre>
+<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
+<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
+this shell.</p>
+<p><strong>B. Already have cargo</strong> (most contributors):</p>
+<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+export PATH="$PWD/packages/cli/target/release:$PATH"
+</code></pre>
+<p><strong>C. Tagged release, no Rust at all</strong>:</p>
+<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
+</code></pre>
+<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
+sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
+<p>Every subsequent shell sources the workspace env via one of:</p>
+<pre><code class="language-sh">direnv allow                  # if you use direnv
+source ./activate.sh          # bash / zsh
+source ./activate.fish        # fish
+</code></pre>
+<p>Then provision the native host:</p>
+<pre><code class="language-sh">nros setup native --rmw zenoh
+</code></pre>
 <hr>
 <h2 id="what-a-bringup-pkg-is"><a class="header" href="#what-a-bringup-pkg-is">What a Bringup pkg is</a></h2>
 <p>A Bringup pkg is <strong>pure declarative</strong> — no <code>Cargo.toml</code>, no <code>CMakeLists.txt</code>,
@@ -2128,6 +2277,32 @@ pkg that describes which nodes should be launched.</p>
 <p>You have one Entry pkg per deploy target. A workspace targeting both a native
 workstation and an STM32F4 board has two Entry pkgs that reference the same
 Node pkgs; only the board and (optionally) the launch target differ.</p>
+<h2 id="prereqs-6"><a class="header" href="#prereqs-6">Prereqs</a></h2>
+<p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
+<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh base
+</code></pre>
+<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
+<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
+this shell.</p>
+<p><strong>B. Already have cargo</strong> (most contributors):</p>
+<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+export PATH="$PWD/packages/cli/target/release:$PATH"
+</code></pre>
+<p><strong>C. Tagged release, no Rust at all</strong>:</p>
+<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
+</code></pre>
+<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
+sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
+<p>Every subsequent shell sources the workspace env via one of:</p>
+<pre><code class="language-sh">direnv allow                  # if you use direnv
+source ./activate.sh          # bash / zsh
+source ./activate.fish        # fish
+</code></pre>
+<p>Then provision the native host (the canonical first Entry pkg target;
+for STM32F4 / Zephyr / ESP32 swap in the matching <code>nros setup</code> board):</p>
+<pre><code class="language-sh">nros setup native --rmw zenoh
+</code></pre>
 <h2 id="package-layout"><a class="header" href="#package-layout">Package layout</a></h2>
 <pre><code>src/robot_entry/
 ├── package.xml
@@ -4103,7 +4278,7 @@ and the Zephyr starter. The FVP is also <strong>not</strong> the same surface
 as Corellium’s AVH cloud FVP — AVH packages firmware as <code>.coreimg</code>
 and provisions via a remote API; local FVP loads a raw ELF via
 <code>-a cluster0.cpu*=&lt;elf&gt;</code>. AVH is out of scope for this chapter.</p>
-<h2 id="prereqs"><a class="header" href="#prereqs">Prereqs</a></h2>
+<h2 id="prereqs-7"><a class="header" href="#prereqs-7">Prereqs</a></h2>
 <ul>
 <li>A working Zephyr 3.7 workspace — run <code>nros setup zephyr</code> once if
 you haven’t (see the <a href="#zephyr-west-module">Zephyr starter</a>).</li>
@@ -9682,7 +9857,7 @@ guide (the Layer 1 contract overlays rely on).</li>
 <li>a hand-rolled FVP / qemu launch shell</li>
 </ul>
 <p>All of those are owned by the board crate. The consumer’s <code>CMakeLists.txt</code> declares which board it wants; nano-ros layers the rest in.</p>
-<h2 id="prereqs-1"><a class="header" href="#prereqs-1">Prereqs</a></h2>
+<h2 id="prereqs-8"><a class="header" href="#prereqs-8">Prereqs</a></h2>
 <p>Before importing a board crate, the consumer needs:</p>
 <ol>
 <li><strong>A Zephyr 3.7+ workspace managed by west.</strong> Zephyr 3.7 is the floor (the official in-tree <code>zephyr-lang-rust</code> module did not exist below it, so nothing earlier can link the nano-ros Rust staticlib); newer LTS lines work too.</li>
