@@ -433,353 +433,395 @@
 <a href=#433 id=433 data-nosnippet>433</a>        <span class="prelude-val">Ok</span>(())
 <a href=#434 id=434 data-nosnippet>434</a>    }
 <a href=#435 id=435 data-nosnippet>435</a>
-<a href=#436 id=436 data-nosnippet>436</a>    <span class="doccomment">/// Spin until the executor's halt flag is raised. Hosted-only; on
-<a href=#437 id=437 data-nosnippet>437</a>    /// bare-metal the BSP wraps `spin_once` in its own loop.
-<a href=#438 id=438 data-nosnippet>438</a>    </span><span class="attr">#[cfg(feature = <span class="string">"std"</span>)]
-<a href=#439 id=439 data-nosnippet>439</a>    </span><span class="kw">pub fn </span>spin(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;(), ExecutorError&gt; {
-<a href=#440 id=440 data-nosnippet>440</a>        <span class="comment">// 10 ms tick cadence — matches the existing executor spin
-<a href=#441 id=441 data-nosnippet>441</a>        // budgeting (see `Executor::spin_default`); short enough that
-<a href=#442 id=442 data-nosnippet>442</a>        // component `tick` hooks observe latency under one cycle.
-<a href=#443 id=443 data-nosnippet>443</a>        </span><span class="kw">let </span>tick = Duration::from_millis(<span class="number">10</span>);
-<a href=#444 id=444 data-nosnippet>444</a>        <span class="kw">while </span>!<span class="self">self</span>.executor.is_halted() {
-<a href=#445 id=445 data-nosnippet>445</a>            <span class="kw">let _ </span>= <span class="self">self</span>.executor.spin_once(tick);
-<a href=#446 id=446 data-nosnippet>446</a>            <span class="self">self</span>.run_ticks();
-<a href=#447 id=447 data-nosnippet>447</a>        }
-<a href=#448 id=448 data-nosnippet>448</a>        <span class="prelude-val">Ok</span>(())
-<a href=#449 id=449 data-nosnippet>449</a>    }
-<a href=#450 id=450 data-nosnippet>450</a>
-<a href=#451 id=451 data-nosnippet>451</a>    <span class="doccomment">/// Halt a running [`spin`](Self::spin). Idempotent.
-<a href=#452 id=452 data-nosnippet>452</a>    </span><span class="attr">#[cfg(feature = <span class="string">"std"</span>)]
-<a href=#453 id=453 data-nosnippet>453</a>    </span><span class="kw">pub fn </span>halt(<span class="kw-2">&amp;</span><span class="self">self</span>) {
-<a href=#454 id=454 data-nosnippet>454</a>        <span class="self">self</span>.executor.halt();
-<a href=#455 id=455 data-nosnippet>455</a>    }
-<a href=#456 id=456 data-nosnippet>456</a>
-<a href=#457 id=457 data-nosnippet>457</a>    <span class="kw">fn </span>run_ticks(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
-<a href=#458 id=458 data-nosnippet>458</a>        <span class="comment">// Per-component tick — each component's resolver is its own cell.
-<a href=#459 id=459 data-nosnippet>459</a>        // Actions are stubbed (M.5.a.2 ships pub/sub/timer; action goal
-<a href=#460 id=460 data-nosnippet>460</a>        // completion is a follow-up that needs the executor borrowed
-<a href=#461 id=461 data-nosnippet>461</a>        // tick-side).
-<a href=#462 id=462 data-nosnippet>462</a>        </span><span class="kw">for </span>cell <span class="kw">in </span><span class="kw-2">&amp;</span><span class="self">self</span>.components {
-<a href=#463 id=463 data-nosnippet>463</a>            <span class="kw">let </span>resolver = CellResolver {
-<a href=#464 id=464 data-nosnippet>464</a>                cell: cell.as_ref(),
-<a href=#465 id=465 data-nosnippet>465</a>            };
-<a href=#466 id=466 data-nosnippet>466</a>            <span class="kw">let </span><span class="kw-2">mut </span>actions = UnsupportedActions;
-<a href=#467 id=467 data-nosnippet>467</a>            <span class="kw">let </span><span class="kw-2">mut </span>clients = UnsupportedClients;
-<a href=#468 id=468 data-nosnippet>468</a>            <span class="kw">let </span><span class="kw-2">mut </span>ctx = TickCtx::new(<span class="kw-2">&amp;</span>resolver, <span class="kw-2">&amp;mut </span>actions, <span class="kw-2">&amp;mut </span>clients);
-<a href=#469 id=469 data-nosnippet>469</a>            <span class="kw">if let </span><span class="prelude-val">Ok</span>(<span class="kw-2">mut </span>slot) = cell.slot.try_borrow_mut() {
-<a href=#470 id=470 data-nosnippet>470</a>                slot.tick(<span class="kw-2">&amp;mut </span>ctx);
-<a href=#471 id=471 data-nosnippet>471</a>            }
-<a href=#472 id=472 data-nosnippet>472</a>        }
-<a href=#473 id=473 data-nosnippet>473</a>    }
-<a href=#474 id=474 data-nosnippet>474</a>}
-<a href=#475 id=475 data-nosnippet>475</a>
-<a href=#476 id=476 data-nosnippet>476</a><span class="comment">// =============================================================================
-<a href=#477 id=477 data-nosnippet>477</a>// Phase 212.N.7 step-3.3 — bridge to platform-side `NodeRuntime`.
-<a href=#478 id=478 data-nosnippet>478</a>// =============================================================================
-<a href=#479 id=479 data-nosnippet>479</a>//
-<a href=#480 id=480 data-nosnippet>480</a>// `nros_platform::NodeDispatchRuntime` is the codegen-emitted
-<a href=#481 id=481 data-nosnippet>481</a>// `run_plan(runtime)` body's sink: object-safe + `no_std`. The
-<a href=#482 id=482 data-nosnippet>482</a>// platform layer holds the four per-pkg fn pointers as opaque
-<a href=#483 id=483 data-nosnippet>483</a>// `extern "Rust" fn()` aliases (see
-<a href=#484 id=484 data-nosnippet>484</a>// `packages/core/nros-platform/src/board/runtime.rs`). This impl
-<a href=#485 id=485 data-nosnippet>485</a>// transmutes them back to the typed signatures defined in
-<a href=#486 id=486 data-nosnippet>486</a>// `crate::component_runtime` before forwarding to
-<a href=#487 id=487 data-nosnippet>487</a>// [`ExecutorNodeRuntime::register_dispatch_slot`].
-<a href=#488 id=488 data-nosnippet>488</a>//
-<a href=#489 id=489 data-nosnippet>489</a>// Why the transmute? `nros-platform` must not depend on `nros`
-<a href=#490 id=490 data-nosnippet>490</a>// (that would invert the dep graph). The typed fn-pointer
-<a href=#491 id=491 data-nosnippet>491</a>// signatures live in `nros` because they reference
-<a href=#492 id=492 data-nosnippet>492</a>// `NodeContext`, `CallbackCtx`, `TickCtx`, `CallbackId` —
-<a href=#493 id=493 data-nosnippet>493</a>// nros-only types. The platform-layer aliases anchor at the
-<a href=#494 id=494 data-nosnippet>494</a>// smallest concrete fn type so the macro emit (Phase 212.N.7
-<a href=#495 id=495 data-nosnippet>495</a>// step-3.4) can `mem::transmute` typed fn pointers into the
-<a href=#496 id=496 data-nosnippet>496</a>// opaque alias at the Node-pkg call site.
-<a href=#497 id=497 data-nosnippet>497</a>
-<a href=#498 id=498 data-nosnippet>498</a></span><span class="kw">impl </span>::nros_platform::NodeDispatchRuntime <span class="kw">for </span>ExecutorNodeRuntime {
-<a href=#499 id=499 data-nosnippet>499</a>    <span class="kw">fn </span>register_dispatch_slot_dyn(
-<a href=#500 id=500 data-nosnippet>500</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#501 id=501 data-nosnippet>501</a>        register: ::nros_platform::NodeRegisterFn,
-<a href=#502 id=502 data-nosnippet>502</a>        init: ::nros_platform::NodeInitFn,
-<a href=#503 id=503 data-nosnippet>503</a>        dispatch: ::nros_platform::NodeDispatchFn,
-<a href=#504 id=504 data-nosnippet>504</a>        tick: ::nros_platform::NodeTickFn,
-<a href=#505 id=505 data-nosnippet>505</a>        _name: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
-<a href=#506 id=506 data-nosnippet>506</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), ()&gt; {
-<a href=#507 id=507 data-nosnippet>507</a>        <span class="comment">// SAFETY: the four opaque `extern "Rust" fn()` aliases at the
-<a href=#508 id=508 data-nosnippet>508</a>        // platform layer were produced by `mem::transmute` from the
-<a href=#509 id=509 data-nosnippet>509</a>        // typed fn-pointer signatures defined in `component_runtime`
-<a href=#510 id=510 data-nosnippet>510</a>        // (the `nros::node!()` macro emit, Phase 212.N.7
-<a href=#511 id=511 data-nosnippet>511</a>        // step-3.4, carries the transmute on the Node-pkg side).
-<a href=#512 id=512 data-nosnippet>512</a>        // We transmute back here at the impl boundary.
-<a href=#513 id=513 data-nosnippet>513</a>        //
-<a href=#514 id=514 data-nosnippet>514</a>        // `extern "Rust" fn()` and `fn(...) -&gt; ...` share the same
-<a href=#515 id=515 data-nosnippet>515</a>        // ABI representation (one pointer); the transmute is purely a
-<a href=#516 id=516 data-nosnippet>516</a>        // type-level reinterpretation of the call site's argument
-<a href=#517 id=517 data-nosnippet>517</a>        // list. The `_name` arg is currently unused — kept on the
-<a href=#518 id=518 data-nosnippet>518</a>        // trait for diagnostics once `ExecutorError::Node`
-<a href=#519 id=519 data-nosnippet>519</a>        // surfaces the pkg name.
-<a href=#520 id=520 data-nosnippet>520</a>        </span><span class="kw">let </span>register_fn: NodeRegisterFn = <span class="kw">unsafe </span>{ core::mem::transmute(register) };
-<a href=#521 id=521 data-nosnippet>521</a>        <span class="kw">let </span>init_fn: NodeInitFn = <span class="kw">unsafe </span>{ core::mem::transmute(init) };
-<a href=#522 id=522 data-nosnippet>522</a>        <span class="kw">let </span>dispatch_fn: NodeDispatchFn = <span class="kw">unsafe </span>{ core::mem::transmute(dispatch) };
-<a href=#523 id=523 data-nosnippet>523</a>        <span class="kw">let </span>tick_fn: NodeTickFn = <span class="kw">unsafe </span>{ core::mem::transmute(tick) };
-<a href=#524 id=524 data-nosnippet>524</a>        <span class="self">self</span>.register_dispatch_slot(register_fn, init_fn, dispatch_fn, tick_fn)
-<a href=#525 id=525 data-nosnippet>525</a>            .map_err(|<span class="kw">_</span>| ())
-<a href=#526 id=526 data-nosnippet>526</a>    }
-<a href=#527 id=527 data-nosnippet>527</a>
-<a href=#528 id=528 data-nosnippet>528</a>    <span class="kw">fn </span>spin_once(<span class="kw-2">&amp;mut </span><span class="self">self</span>, timeout_ms: u32) -&gt; <span class="prelude-ty">Result</span>&lt;(), ()&gt; {
-<a href=#529 id=529 data-nosnippet>529</a>        <span class="self">Self</span>::spin_once(<span class="self">self</span>, Duration::from_millis(timeout_ms.into())).map_err(|<span class="kw">_</span>| ())
-<a href=#530 id=530 data-nosnippet>530</a>    }
-<a href=#531 id=531 data-nosnippet>531</a>}
-<a href=#532 id=532 data-nosnippet>532</a>
-<a href=#533 id=533 data-nosnippet>533</a><span class="comment">// =============================================================================
-<a href=#534 id=534 data-nosnippet>534</a>// Internal sink — bridges `NodeRuntime` declarations onto the
-<a href=#535 id=535 data-nosnippet>535</a>// live executor.
-<a href=#536 id=536 data-nosnippet>536</a>// =============================================================================
-<a href=#537 id=537 data-nosnippet>537</a>
-<a href=#538 id=538 data-nosnippet>538</a></span><span class="kw">struct </span>ExecutorSink&lt;<span class="lifetime">'a</span>&gt; {
-<a href=#539 id=539 data-nosnippet>539</a>    executor: <span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span>Executor,
-<a href=#540 id=540 data-nosnippet>540</a>    cell: Arc&lt;ComponentCell&gt;,
-<a href=#541 id=541 data-nosnippet>541</a>    <span class="doccomment">/// Per-registration node mapping: stable id → executor `NodeId`.
-<a href=#542 id=542 data-nosnippet>542</a>    </span>nodes: Vec&lt;(String, nros_node::executor::NodeId)&gt;,
-<a href=#543 id=543 data-nosnippet>543</a>}
-<a href=#544 id=544 data-nosnippet>544</a>
-<a href=#545 id=545 data-nosnippet>545</a><span class="kw">impl </span>ExecutorSink&lt;<span class="lifetime">'_</span>&gt; {
-<a href=#546 id=546 data-nosnippet>546</a>    <span class="kw">fn </span>lookup_node(<span class="kw-2">&amp;</span><span class="self">self</span>, stable_id: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;nros_node::executor::NodeId&gt; {
-<a href=#547 id=547 data-nosnippet>547</a>        <span class="self">self</span>.nodes
-<a href=#548 id=548 data-nosnippet>548</a>            .iter()
-<a href=#549 id=549 data-nosnippet>549</a>            .find(|(id, <span class="kw">_</span>)| id == stable_id)
-<a href=#550 id=550 data-nosnippet>550</a>            .map(|(<span class="kw">_</span>, n)| <span class="kw-2">*</span>n)
-<a href=#551 id=551 data-nosnippet>551</a>    }
-<a href=#552 id=552 data-nosnippet>552</a>}
-<a href=#553 id=553 data-nosnippet>553</a>
-<a href=#554 id=554 data-nosnippet>554</a><span class="kw">impl </span>NodeRuntime <span class="kw">for </span>ExecutorSink&lt;<span class="lifetime">'_</span>&gt; {
-<a href=#555 id=555 data-nosnippet>555</a>    <span class="kw">fn </span>create_node(<span class="kw-2">&amp;mut </span><span class="self">self</span>, id: MetaNodeId&lt;<span class="lifetime">'_</span>&gt;, options: NodeOptions&lt;<span class="lifetime">'_</span>&gt;) -&gt; NodeResult&lt;()&gt; {
-<a href=#556 id=556 data-nosnippet>556</a>        <span class="kw">if </span><span class="self">self</span>.nodes.iter().any(|(s, <span class="kw">_</span>)| s.as_str() == id.as_str()) {
-<a href=#557 id=557 data-nosnippet>557</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(NodeDeclError::Runtime);
-<a href=#558 id=558 data-nosnippet>558</a>        }
-<a href=#559 id=559 data-nosnippet>559</a>        <span class="kw">let </span>node_id = <span class="self">self
-<a href=#560 id=560 data-nosnippet>560</a>            </span>.executor
-<a href=#561 id=561 data-nosnippet>561</a>            .node_builder(options.name)
-<a href=#562 id=562 data-nosnippet>562</a>            .namespace(options.namespace)
-<a href=#563 id=563 data-nosnippet>563</a>            .domain_id(options.domain_id)
-<a href=#564 id=564 data-nosnippet>564</a>            .build()
-<a href=#565 id=565 data-nosnippet>565</a>            .map_err(|<span class="kw">_</span>| NodeDeclError::Runtime)<span class="question-mark">?</span>;
-<a href=#566 id=566 data-nosnippet>566</a>        <span class="self">self</span>.nodes.push((String::from(id.as_str()), node_id));
-<a href=#567 id=567 data-nosnippet>567</a>        <span class="prelude-val">Ok</span>(())
+<a href=#436 id=436 data-nosnippet>436</a>    <span class="doccomment">/// Phase 216.B.3 / C.3 follow-up — route a signaled callback to
+<a href=#437 id=437 data-nosnippet>437</a>    /// every registered component slot.
+<a href=#438 id=438 data-nosnippet>438</a>    ///
+<a href=#439 id=439 data-nosnippet>439</a>    /// The RTIC (`nros-board-rtic-stm32f4`) and Embassy
+<a href=#440 id=440 data-nosnippet>440</a>    /// (`nros-board-embassy-stm32f4`) dispatch tasks dequeue a
+<a href=#441 id=441 data-nosnippet>441</a>    /// [`nros_platform::SignaledCallback`] envelope from their SPSC
+<a href=#442 id=442 data-nosnippet>442</a>    /// queue / Embassy channel and need a routing entry point that
+<a href=#443 id=443 data-nosnippet>443</a>    /// hands the callback off to the right Node's `on_callback`
+<a href=#444 id=444 data-nosnippet>444</a>    /// trampoline. This method is that entry point.
+<a href=#445 id=445 data-nosnippet>445</a>    ///
+<a href=#446 id=446 data-nosnippet>446</a>    /// # Strategy — linear scan
+<a href=#447 id=447 data-nosnippet>447</a>    ///
+<a href=#448 id=448 data-nosnippet>448</a>    /// Each registered slot's `dispatch_fn` is the codegen-emitted
+<a href=#449 id=449 data-nosnippet>449</a>    /// `d()` trampoline from `nros::node!()` (see
+<a href=#450 id=450 data-nosnippet>450</a>    /// `packages/core/nros-macros/src/lib.rs`). That trampoline calls
+<a href=#451 id=451 data-nosnippet>451</a>    /// `&lt;NodeTy as ExecutableNode&gt;::on_callback`, whose body
+<a href=#452 id=452 data-nosnippet>452</a>    /// `match`es on the callback's own tag set
+<a href=#453 id=453 data-nosnippet>453</a>    /// (`Subscription` / `Timer` / `Service` / `Action` ids) and is a
+<a href=#454 id=454 data-nosnippet>454</a>    /// no-op for non-matching `cb_id`s. So a linear scan across every
+<a href=#455 id=455 data-nosnippet>455</a>    /// slot is correct — each slot self-filters and at most one
+<a href=#456 id=456 data-nosnippet>456</a>    /// component actually acts on a given `cb_id`. A focused
+<a href=#457 id=457 data-nosnippet>457</a>    /// `cb_id → slot` index is a separate follow-up; the trampoline's
+<a href=#458 id=458 data-nosnippet>458</a>    /// tag dispatch already gates the real work cheaply (string
+<a href=#459 id=459 data-nosnippet>459</a>    /// compare on statically known literals), so the linear scan is
+<a href=#460 id=460 data-nosnippet>460</a>    /// the minimum-viable wiring that closes the conceptual gap left
+<a href=#461 id=461 data-nosnippet>461</a>    /// by the B.3 / C.3 skeleton emits.
+<a href=#462 id=462 data-nosnippet>462</a>    ///
+<a href=#463 id=463 data-nosnippet>463</a>    /// # Borrow semantics
+<a href=#464 id=464 data-nosnippet>464</a>    ///
+<a href=#465 id=465 data-nosnippet>465</a>    /// Each `ComponentCell`'s slot lives behind a [`RefCell`]; the
+<a href=#466 id=466 data-nosnippet>466</a>    /// per-slot dispatch takes `try_borrow_mut` and is a no-op on
+<a href=#467 id=467 data-nosnippet>467</a>    /// re-entrancy. The runtime is single-threaded by construction
+<a href=#468 id=468 data-nosnippet>468</a>    /// (the dispatch task owns it via `&amp;mut self`), so the borrow
+<a href=#469 id=469 data-nosnippet>469</a>    /// always succeeds in normal flow.
+<a href=#470 id=470 data-nosnippet>470</a>    </span><span class="kw">pub fn </span>dispatch_callback(<span class="kw-2">&amp;mut </span><span class="self">self</span>, cb_id: <span class="kw-2">&amp;</span>str, ctx: <span class="kw-2">&amp;mut </span>CallbackCtx&lt;<span class="lifetime">'_</span>&gt;) {
+<a href=#471 id=471 data-nosnippet>471</a>        <span class="kw">for </span>cell <span class="kw">in </span><span class="kw-2">&amp;</span><span class="self">self</span>.components {
+<a href=#472 id=472 data-nosnippet>472</a>            <span class="kw">if let </span><span class="prelude-val">Ok</span>(<span class="kw-2">mut </span>slot) = cell.slot.try_borrow_mut() {
+<a href=#473 id=473 data-nosnippet>473</a>                slot.dispatch(cb_id, ctx);
+<a href=#474 id=474 data-nosnippet>474</a>            }
+<a href=#475 id=475 data-nosnippet>475</a>        }
+<a href=#476 id=476 data-nosnippet>476</a>    }
+<a href=#477 id=477 data-nosnippet>477</a>
+<a href=#478 id=478 data-nosnippet>478</a>    <span class="doccomment">/// Spin until the executor's halt flag is raised. Hosted-only; on
+<a href=#479 id=479 data-nosnippet>479</a>    /// bare-metal the BSP wraps `spin_once` in its own loop.
+<a href=#480 id=480 data-nosnippet>480</a>    </span><span class="attr">#[cfg(feature = <span class="string">"std"</span>)]
+<a href=#481 id=481 data-nosnippet>481</a>    </span><span class="kw">pub fn </span>spin(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="prelude-ty">Result</span>&lt;(), ExecutorError&gt; {
+<a href=#482 id=482 data-nosnippet>482</a>        <span class="comment">// 10 ms tick cadence — matches the existing executor spin
+<a href=#483 id=483 data-nosnippet>483</a>        // budgeting (see `Executor::spin_default`); short enough that
+<a href=#484 id=484 data-nosnippet>484</a>        // component `tick` hooks observe latency under one cycle.
+<a href=#485 id=485 data-nosnippet>485</a>        </span><span class="kw">let </span>tick = Duration::from_millis(<span class="number">10</span>);
+<a href=#486 id=486 data-nosnippet>486</a>        <span class="kw">while </span>!<span class="self">self</span>.executor.is_halted() {
+<a href=#487 id=487 data-nosnippet>487</a>            <span class="kw">let _ </span>= <span class="self">self</span>.executor.spin_once(tick);
+<a href=#488 id=488 data-nosnippet>488</a>            <span class="self">self</span>.run_ticks();
+<a href=#489 id=489 data-nosnippet>489</a>        }
+<a href=#490 id=490 data-nosnippet>490</a>        <span class="prelude-val">Ok</span>(())
+<a href=#491 id=491 data-nosnippet>491</a>    }
+<a href=#492 id=492 data-nosnippet>492</a>
+<a href=#493 id=493 data-nosnippet>493</a>    <span class="doccomment">/// Halt a running [`spin`](Self::spin). Idempotent.
+<a href=#494 id=494 data-nosnippet>494</a>    </span><span class="attr">#[cfg(feature = <span class="string">"std"</span>)]
+<a href=#495 id=495 data-nosnippet>495</a>    </span><span class="kw">pub fn </span>halt(<span class="kw-2">&amp;</span><span class="self">self</span>) {
+<a href=#496 id=496 data-nosnippet>496</a>        <span class="self">self</span>.executor.halt();
+<a href=#497 id=497 data-nosnippet>497</a>    }
+<a href=#498 id=498 data-nosnippet>498</a>
+<a href=#499 id=499 data-nosnippet>499</a>    <span class="kw">fn </span>run_ticks(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
+<a href=#500 id=500 data-nosnippet>500</a>        <span class="comment">// Per-component tick — each component's resolver is its own cell.
+<a href=#501 id=501 data-nosnippet>501</a>        // Actions are stubbed (M.5.a.2 ships pub/sub/timer; action goal
+<a href=#502 id=502 data-nosnippet>502</a>        // completion is a follow-up that needs the executor borrowed
+<a href=#503 id=503 data-nosnippet>503</a>        // tick-side).
+<a href=#504 id=504 data-nosnippet>504</a>        </span><span class="kw">for </span>cell <span class="kw">in </span><span class="kw-2">&amp;</span><span class="self">self</span>.components {
+<a href=#505 id=505 data-nosnippet>505</a>            <span class="kw">let </span>resolver = CellResolver {
+<a href=#506 id=506 data-nosnippet>506</a>                cell: cell.as_ref(),
+<a href=#507 id=507 data-nosnippet>507</a>            };
+<a href=#508 id=508 data-nosnippet>508</a>            <span class="kw">let </span><span class="kw-2">mut </span>actions = UnsupportedActions;
+<a href=#509 id=509 data-nosnippet>509</a>            <span class="kw">let </span><span class="kw-2">mut </span>clients = UnsupportedClients;
+<a href=#510 id=510 data-nosnippet>510</a>            <span class="kw">let </span><span class="kw-2">mut </span>ctx = TickCtx::new(<span class="kw-2">&amp;</span>resolver, <span class="kw-2">&amp;mut </span>actions, <span class="kw-2">&amp;mut </span>clients);
+<a href=#511 id=511 data-nosnippet>511</a>            <span class="kw">if let </span><span class="prelude-val">Ok</span>(<span class="kw-2">mut </span>slot) = cell.slot.try_borrow_mut() {
+<a href=#512 id=512 data-nosnippet>512</a>                slot.tick(<span class="kw-2">&amp;mut </span>ctx);
+<a href=#513 id=513 data-nosnippet>513</a>            }
+<a href=#514 id=514 data-nosnippet>514</a>        }
+<a href=#515 id=515 data-nosnippet>515</a>    }
+<a href=#516 id=516 data-nosnippet>516</a>}
+<a href=#517 id=517 data-nosnippet>517</a>
+<a href=#518 id=518 data-nosnippet>518</a><span class="comment">// =============================================================================
+<a href=#519 id=519 data-nosnippet>519</a>// Phase 212.N.7 step-3.3 — bridge to platform-side `NodeRuntime`.
+<a href=#520 id=520 data-nosnippet>520</a>// =============================================================================
+<a href=#521 id=521 data-nosnippet>521</a>//
+<a href=#522 id=522 data-nosnippet>522</a>// `nros_platform::NodeDispatchRuntime` is the codegen-emitted
+<a href=#523 id=523 data-nosnippet>523</a>// `run_plan(runtime)` body's sink: object-safe + `no_std`. The
+<a href=#524 id=524 data-nosnippet>524</a>// platform layer holds the four per-pkg fn pointers as opaque
+<a href=#525 id=525 data-nosnippet>525</a>// `extern "Rust" fn()` aliases (see
+<a href=#526 id=526 data-nosnippet>526</a>// `packages/core/nros-platform/src/board/runtime.rs`). This impl
+<a href=#527 id=527 data-nosnippet>527</a>// transmutes them back to the typed signatures defined in
+<a href=#528 id=528 data-nosnippet>528</a>// `crate::component_runtime` before forwarding to
+<a href=#529 id=529 data-nosnippet>529</a>// [`ExecutorNodeRuntime::register_dispatch_slot`].
+<a href=#530 id=530 data-nosnippet>530</a>//
+<a href=#531 id=531 data-nosnippet>531</a>// Why the transmute? `nros-platform` must not depend on `nros`
+<a href=#532 id=532 data-nosnippet>532</a>// (that would invert the dep graph). The typed fn-pointer
+<a href=#533 id=533 data-nosnippet>533</a>// signatures live in `nros` because they reference
+<a href=#534 id=534 data-nosnippet>534</a>// `NodeContext`, `CallbackCtx`, `TickCtx`, `CallbackId` —
+<a href=#535 id=535 data-nosnippet>535</a>// nros-only types. The platform-layer aliases anchor at the
+<a href=#536 id=536 data-nosnippet>536</a>// smallest concrete fn type so the macro emit (Phase 212.N.7
+<a href=#537 id=537 data-nosnippet>537</a>// step-3.4) can `mem::transmute` typed fn pointers into the
+<a href=#538 id=538 data-nosnippet>538</a>// opaque alias at the Node-pkg call site.
+<a href=#539 id=539 data-nosnippet>539</a>
+<a href=#540 id=540 data-nosnippet>540</a></span><span class="kw">impl </span>::nros_platform::NodeDispatchRuntime <span class="kw">for </span>ExecutorNodeRuntime {
+<a href=#541 id=541 data-nosnippet>541</a>    <span class="kw">fn </span>register_dispatch_slot_dyn(
+<a href=#542 id=542 data-nosnippet>542</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#543 id=543 data-nosnippet>543</a>        register: ::nros_platform::NodeRegisterFn,
+<a href=#544 id=544 data-nosnippet>544</a>        init: ::nros_platform::NodeInitFn,
+<a href=#545 id=545 data-nosnippet>545</a>        dispatch: ::nros_platform::NodeDispatchFn,
+<a href=#546 id=546 data-nosnippet>546</a>        tick: ::nros_platform::NodeTickFn,
+<a href=#547 id=547 data-nosnippet>547</a>        _name: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
+<a href=#548 id=548 data-nosnippet>548</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;(), ()&gt; {
+<a href=#549 id=549 data-nosnippet>549</a>        <span class="comment">// SAFETY: the four opaque `extern "Rust" fn()` aliases at the
+<a href=#550 id=550 data-nosnippet>550</a>        // platform layer were produced by `mem::transmute` from the
+<a href=#551 id=551 data-nosnippet>551</a>        // typed fn-pointer signatures defined in `component_runtime`
+<a href=#552 id=552 data-nosnippet>552</a>        // (the `nros::node!()` macro emit, Phase 212.N.7
+<a href=#553 id=553 data-nosnippet>553</a>        // step-3.4, carries the transmute on the Node-pkg side).
+<a href=#554 id=554 data-nosnippet>554</a>        // We transmute back here at the impl boundary.
+<a href=#555 id=555 data-nosnippet>555</a>        //
+<a href=#556 id=556 data-nosnippet>556</a>        // `extern "Rust" fn()` and `fn(...) -&gt; ...` share the same
+<a href=#557 id=557 data-nosnippet>557</a>        // ABI representation (one pointer); the transmute is purely a
+<a href=#558 id=558 data-nosnippet>558</a>        // type-level reinterpretation of the call site's argument
+<a href=#559 id=559 data-nosnippet>559</a>        // list. The `_name` arg is currently unused — kept on the
+<a href=#560 id=560 data-nosnippet>560</a>        // trait for diagnostics once `ExecutorError::Node`
+<a href=#561 id=561 data-nosnippet>561</a>        // surfaces the pkg name.
+<a href=#562 id=562 data-nosnippet>562</a>        </span><span class="kw">let </span>register_fn: NodeRegisterFn = <span class="kw">unsafe </span>{ core::mem::transmute(register) };
+<a href=#563 id=563 data-nosnippet>563</a>        <span class="kw">let </span>init_fn: NodeInitFn = <span class="kw">unsafe </span>{ core::mem::transmute(init) };
+<a href=#564 id=564 data-nosnippet>564</a>        <span class="kw">let </span>dispatch_fn: NodeDispatchFn = <span class="kw">unsafe </span>{ core::mem::transmute(dispatch) };
+<a href=#565 id=565 data-nosnippet>565</a>        <span class="kw">let </span>tick_fn: NodeTickFn = <span class="kw">unsafe </span>{ core::mem::transmute(tick) };
+<a href=#566 id=566 data-nosnippet>566</a>        <span class="self">self</span>.register_dispatch_slot(register_fn, init_fn, dispatch_fn, tick_fn)
+<a href=#567 id=567 data-nosnippet>567</a>            .map_err(|<span class="kw">_</span>| ())
 <a href=#568 id=568 data-nosnippet>568</a>    }
 <a href=#569 id=569 data-nosnippet>569</a>
-<a href=#570 id=570 data-nosnippet>570</a>    <span class="kw">fn </span>create_entity(<span class="kw-2">&amp;mut </span><span class="self">self</span>, metadata: EntityMetadata) -&gt; NodeResult&lt;()&gt; {
-<a href=#571 id=571 data-nosnippet>571</a>        <span class="kw">let </span>node = <span class="self">self
-<a href=#572 id=572 data-nosnippet>572</a>            </span>.lookup_node(metadata.node_id.as_str())
-<a href=#573 id=573 data-nosnippet>573</a>            .ok_or(NodeDeclError::Runtime)<span class="question-mark">?</span>;
-<a href=#574 id=574 data-nosnippet>574</a>        <span class="kw">match </span>metadata.kind {
-<a href=#575 id=575 data-nosnippet>575</a>            EntityKind::Publisher =&gt; {
-<a href=#576 id=576 data-nosnippet>576</a>                <span class="kw">let </span>handle = <span class="self">self
-<a href=#577 id=577 data-nosnippet>577</a>                    </span>.executor
-<a href=#578 id=578 data-nosnippet>578</a>                    .node_mut(node)
-<a href=#579 id=579 data-nosnippet>579</a>                    .create_generic_publisher(
-<a href=#580 id=580 data-nosnippet>580</a>                        metadata.source_name.as_str(),
-<a href=#581 id=581 data-nosnippet>581</a>                        metadata.type_name,
-<a href=#582 id=582 data-nosnippet>582</a>                        metadata.type_hash,
-<a href=#583 id=583 data-nosnippet>583</a>                    )
-<a href=#584 id=584 data-nosnippet>584</a>                    .map_err(|<span class="kw">_</span>| NodeDeclError::Runtime)<span class="question-mark">?</span>;
-<a href=#585 id=585 data-nosnippet>585</a>                <span class="kw">let </span>id_owned = String::from(metadata.id.as_str());
-<a href=#586 id=586 data-nosnippet>586</a>                <span class="self">self</span>.cell.publishers.borrow_mut().push((id_owned, handle));
-<a href=#587 id=587 data-nosnippet>587</a>                <span class="prelude-val">Ok</span>(())
-<a href=#588 id=588 data-nosnippet>588</a>            }
-<a href=#589 id=589 data-nosnippet>589</a>            EntityKind::Subscription =&gt; {
-<a href=#590 id=590 data-nosnippet>590</a>                <span class="kw">let </span>cb_id = metadata
-<a href=#591 id=591 data-nosnippet>591</a>                    .callback_id
-<a href=#592 id=592 data-nosnippet>592</a>                    .as_ref()
-<a href=#593 id=593 data-nosnippet>593</a>                    .ok_or(NodeDeclError::Runtime)<span class="question-mark">?</span>;
-<a href=#594 id=594 data-nosnippet>594</a>                <span class="kw">let </span>cb_id_owned = String::from(cb_id.as_str());
-<a href=#595 id=595 data-nosnippet>595</a>                <span class="kw">let </span>cell = <span class="self">self</span>.cell.clone();
-<a href=#596 id=596 data-nosnippet>596</a>                <span class="self">self</span>.executor
-<a href=#597 id=597 data-nosnippet>597</a>                    .node_mut(node)
-<a href=#598 id=598 data-nosnippet>598</a>                    .create_generic_subscription(
-<a href=#599 id=599 data-nosnippet>599</a>                        metadata.source_name.as_str(),
-<a href=#600 id=600 data-nosnippet>600</a>                        metadata.type_name,
-<a href=#601 id=601 data-nosnippet>601</a>                        metadata.type_hash,
-<a href=#602 id=602 data-nosnippet>602</a>                        <span class="kw">move </span>|payload: <span class="kw-2">&amp;</span>[u8]| {
-<a href=#603 id=603 data-nosnippet>603</a>                            dispatch_into_cell(<span class="kw-2">&amp;</span>cell, <span class="kw-2">&amp;</span>cb_id_owned, payload);
-<a href=#604 id=604 data-nosnippet>604</a>                        },
-<a href=#605 id=605 data-nosnippet>605</a>                    )
-<a href=#606 id=606 data-nosnippet>606</a>                    .map_err(|<span class="kw">_</span>| NodeDeclError::Runtime)<span class="question-mark">?</span>;
-<a href=#607 id=607 data-nosnippet>607</a>                <span class="prelude-val">Ok</span>(())
-<a href=#608 id=608 data-nosnippet>608</a>            }
-<a href=#609 id=609 data-nosnippet>609</a>            EntityKind::Timer =&gt; {
-<a href=#610 id=610 data-nosnippet>610</a>                <span class="kw">let </span>cb_id = metadata
-<a href=#611 id=611 data-nosnippet>611</a>                    .callback_id
-<a href=#612 id=612 data-nosnippet>612</a>                    .as_ref()
-<a href=#613 id=613 data-nosnippet>613</a>                    .ok_or(NodeDeclError::Runtime)<span class="question-mark">?</span>;
-<a href=#614 id=614 data-nosnippet>614</a>                <span class="kw">let </span>cb_id_owned = String::from(cb_id.as_str());
-<a href=#615 id=615 data-nosnippet>615</a>                <span class="kw">let </span>period_ms = metadata.period_ms.ok_or(NodeDeclError::Runtime)<span class="question-mark">?</span>;
-<a href=#616 id=616 data-nosnippet>616</a>                <span class="kw">let </span>cell = <span class="self">self</span>.cell.clone();
-<a href=#617 id=617 data-nosnippet>617</a>                <span class="self">self</span>.executor
-<a href=#618 id=618 data-nosnippet>618</a>                    .register_timer(
-<a href=#619 id=619 data-nosnippet>619</a>                        nros_node::TimerDuration::from_millis(period_ms),
-<a href=#620 id=620 data-nosnippet>620</a>                        <span class="kw">move </span>|| {
-<a href=#621 id=621 data-nosnippet>621</a>                            dispatch_into_cell(<span class="kw-2">&amp;</span>cell, <span class="kw-2">&amp;</span>cb_id_owned, <span class="kw-2">&amp;</span>[]);
-<a href=#622 id=622 data-nosnippet>622</a>                        },
-<a href=#623 id=623 data-nosnippet>623</a>                    )
-<a href=#624 id=624 data-nosnippet>624</a>                    .map_err(|<span class="kw">_</span>| NodeDeclError::Runtime)<span class="question-mark">?</span>;
-<a href=#625 id=625 data-nosnippet>625</a>                <span class="prelude-val">Ok</span>(())
-<a href=#626 id=626 data-nosnippet>626</a>            }
-<a href=#627 id=627 data-nosnippet>627</a>            EntityKind::ServiceServer
-<a href=#628 id=628 data-nosnippet>628</a>            | EntityKind::ServiceClient
-<a href=#629 id=629 data-nosnippet>629</a>            | EntityKind::ActionServer
-<a href=#630 id=630 data-nosnippet>630</a>            | EntityKind::ActionClient
-<a href=#631 id=631 data-nosnippet>631</a>            | EntityKind::Parameter =&gt; {
-<a href=#632 id=632 data-nosnippet>632</a>                <span class="comment">// M.5.a.2 ships pub / sub / timer wiring. Service / action /
-<a href=#633 id=633 data-nosnippet>633</a>                // parameter dispatch lands in M.5.a.4 — until then registration
-<a href=#634 id=634 data-nosnippet>634</a>                // succeeds (metadata is valid) and the callbacks simply never
-<a href=#635 id=635 data-nosnippet>635</a>                // fire. See the module-level "Coverage today" note.
-<a href=#636 id=636 data-nosnippet>636</a>                </span><span class="prelude-val">Ok</span>(())
-<a href=#637 id=637 data-nosnippet>637</a>            }
-<a href=#638 id=638 data-nosnippet>638</a>        }
-<a href=#639 id=639 data-nosnippet>639</a>    }
-<a href=#640 id=640 data-nosnippet>640</a>
-<a href=#641 id=641 data-nosnippet>641</a>    <span class="kw">fn </span>record_callback_effect(
-<a href=#642 id=642 data-nosnippet>642</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#643 id=643 data-nosnippet>643</a>        _callback_id: CallbackId&lt;<span class="lifetime">'_</span>&gt;,
-<a href=#644 id=644 data-nosnippet>644</a>        _kind: CallbackEffectKind,
-<a href=#645 id=645 data-nosnippet>645</a>        _entity_id: EntityId&lt;<span class="lifetime">'_</span>&gt;,
-<a href=#646 id=646 data-nosnippet>646</a>    ) -&gt; NodeResult&lt;()&gt; {
-<a href=#647 id=647 data-nosnippet>647</a>        <span class="comment">// Planner concern only — the live runtime doesn't need the
-<a href=#648 id=648 data-nosnippet>648</a>        // effect graph at spin time.
-<a href=#649 id=649 data-nosnippet>649</a>        </span><span class="prelude-val">Ok</span>(())
-<a href=#650 id=650 data-nosnippet>650</a>    }
-<a href=#651 id=651 data-nosnippet>651</a>}
-<a href=#652 id=652 data-nosnippet>652</a>
-<a href=#653 id=653 data-nosnippet>653</a><span class="kw">fn </span>dispatch_into_cell(cell: <span class="kw-2">&amp;</span>Arc&lt;ComponentCell&gt;, cb_id: <span class="kw-2">&amp;</span>str, payload: <span class="kw-2">&amp;</span>[u8]) {
-<a href=#654 id=654 data-nosnippet>654</a>    <span class="kw">let </span>resolver = CellResolver {
-<a href=#655 id=655 data-nosnippet>655</a>        cell: cell.as_ref(),
-<a href=#656 id=656 data-nosnippet>656</a>    };
-<a href=#657 id=657 data-nosnippet>657</a>    <span class="kw">let </span><span class="kw-2">mut </span>ctx = CallbackCtx::new(payload, <span class="kw-2">&amp;</span>resolver);
-<a href=#658 id=658 data-nosnippet>658</a>    <span class="comment">// If the slot is already borrowed (a re-entrant publish from a
-<a href=#659 id=659 data-nosnippet>659</a>    // tick hook on the same cell, etc.) we drop this dispatch. In
-<a href=#660 id=660 data-nosnippet>660</a>    // practice `try_borrow_mut` succeeds because subscription / timer
-<a href=#661 id=661 data-nosnippet>661</a>    // callbacks run sequentially under the single-threaded executor.
-<a href=#662 id=662 data-nosnippet>662</a>    </span><span class="kw">if let </span><span class="prelude-val">Ok</span>(<span class="kw-2">mut </span>slot) = cell.slot.try_borrow_mut() {
-<a href=#663 id=663 data-nosnippet>663</a>        slot.dispatch(cb_id, <span class="kw-2">&amp;mut </span>ctx);
-<a href=#664 id=664 data-nosnippet>664</a>    }
-<a href=#665 id=665 data-nosnippet>665</a>}
-<a href=#666 id=666 data-nosnippet>666</a>
-<a href=#667 id=667 data-nosnippet>667</a><span class="comment">// =============================================================================
-<a href=#668 id=668 data-nosnippet>668</a>// C-ABI bridge for the M.5.a.3 BSP baker.
-<a href=#669 id=669 data-nosnippet>669</a>// =============================================================================
-<a href=#670 id=670 data-nosnippet>670</a>
-<a href=#671 id=671 data-nosnippet>671</a></span><span class="doccomment">/// Type of the `extern "Rust"` register fn emitted by
-<a href=#672 id=672 data-nosnippet>672</a>/// [`nros::node!`](crate::node!). The Phase 212.M.5.a.1 macro
-<a href=#673 id=673 data-nosnippet>673</a>/// ABI is frozen; the BSP baker hands an array of these to
-<a href=#674 id=674 data-nosnippet>674</a>/// [`nros_run_components`].
-<a href=#675 id=675 data-nosnippet>675</a></span><span class="kw">pub type </span>NodeRegisterFn = <span class="kw">fn</span>(<span class="kw-2">&amp;mut </span>NodeContext&lt;<span class="lifetime">'_</span>&gt;) -&gt; NodeResult&lt;()&gt;;
-<a href=#676 id=676 data-nosnippet>676</a>
-<a href=#677 id=677 data-nosnippet>677</a><span class="doccomment">/// Phase 212.M.5.a.4 — type of the `extern "Rust"` `_init` fn emitted
-<a href=#678 id=678 data-nosnippet>678</a>/// alongside `_register` by [`nros::node!`](crate::node!).
-<a href=#679 id=679 data-nosnippet>679</a>/// Returns a leaked `Box` pointer to the component's `State`; the
-<a href=#680 id=680 data-nosnippet>680</a>/// BSP slot holds the pointer for the firmware lifetime.
-<a href=#681 id=681 data-nosnippet>681</a></span><span class="kw">pub type </span>NodeInitFn = <span class="kw">fn</span>() -&gt; <span class="kw-2">*mut </span>();
+<a href=#570 id=570 data-nosnippet>570</a>    <span class="kw">fn </span>spin_once(<span class="kw-2">&amp;mut </span><span class="self">self</span>, timeout_ms: u32) -&gt; <span class="prelude-ty">Result</span>&lt;(), ()&gt; {
+<a href=#571 id=571 data-nosnippet>571</a>        <span class="self">Self</span>::spin_once(<span class="self">self</span>, Duration::from_millis(timeout_ms.into())).map_err(|<span class="kw">_</span>| ())
+<a href=#572 id=572 data-nosnippet>572</a>    }
+<a href=#573 id=573 data-nosnippet>573</a>}
+<a href=#574 id=574 data-nosnippet>574</a>
+<a href=#575 id=575 data-nosnippet>575</a><span class="comment">// =============================================================================
+<a href=#576 id=576 data-nosnippet>576</a>// Internal sink — bridges `NodeRuntime` declarations onto the
+<a href=#577 id=577 data-nosnippet>577</a>// live executor.
+<a href=#578 id=578 data-nosnippet>578</a>// =============================================================================
+<a href=#579 id=579 data-nosnippet>579</a>
+<a href=#580 id=580 data-nosnippet>580</a></span><span class="kw">struct </span>ExecutorSink&lt;<span class="lifetime">'a</span>&gt; {
+<a href=#581 id=581 data-nosnippet>581</a>    executor: <span class="kw-2">&amp;</span><span class="lifetime">'a </span><span class="kw-2">mut </span>Executor,
+<a href=#582 id=582 data-nosnippet>582</a>    cell: Arc&lt;ComponentCell&gt;,
+<a href=#583 id=583 data-nosnippet>583</a>    <span class="doccomment">/// Per-registration node mapping: stable id → executor `NodeId`.
+<a href=#584 id=584 data-nosnippet>584</a>    </span>nodes: Vec&lt;(String, nros_node::executor::NodeId)&gt;,
+<a href=#585 id=585 data-nosnippet>585</a>}
+<a href=#586 id=586 data-nosnippet>586</a>
+<a href=#587 id=587 data-nosnippet>587</a><span class="kw">impl </span>ExecutorSink&lt;<span class="lifetime">'_</span>&gt; {
+<a href=#588 id=588 data-nosnippet>588</a>    <span class="kw">fn </span>lookup_node(<span class="kw-2">&amp;</span><span class="self">self</span>, stable_id: <span class="kw-2">&amp;</span>str) -&gt; <span class="prelude-ty">Option</span>&lt;nros_node::executor::NodeId&gt; {
+<a href=#589 id=589 data-nosnippet>589</a>        <span class="self">self</span>.nodes
+<a href=#590 id=590 data-nosnippet>590</a>            .iter()
+<a href=#591 id=591 data-nosnippet>591</a>            .find(|(id, <span class="kw">_</span>)| id == stable_id)
+<a href=#592 id=592 data-nosnippet>592</a>            .map(|(<span class="kw">_</span>, n)| <span class="kw-2">*</span>n)
+<a href=#593 id=593 data-nosnippet>593</a>    }
+<a href=#594 id=594 data-nosnippet>594</a>}
+<a href=#595 id=595 data-nosnippet>595</a>
+<a href=#596 id=596 data-nosnippet>596</a><span class="kw">impl </span>NodeRuntime <span class="kw">for </span>ExecutorSink&lt;<span class="lifetime">'_</span>&gt; {
+<a href=#597 id=597 data-nosnippet>597</a>    <span class="kw">fn </span>create_node(<span class="kw-2">&amp;mut </span><span class="self">self</span>, id: MetaNodeId&lt;<span class="lifetime">'_</span>&gt;, options: NodeOptions&lt;<span class="lifetime">'_</span>&gt;) -&gt; NodeResult&lt;()&gt; {
+<a href=#598 id=598 data-nosnippet>598</a>        <span class="kw">if </span><span class="self">self</span>.nodes.iter().any(|(s, <span class="kw">_</span>)| s.as_str() == id.as_str()) {
+<a href=#599 id=599 data-nosnippet>599</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(NodeDeclError::Runtime);
+<a href=#600 id=600 data-nosnippet>600</a>        }
+<a href=#601 id=601 data-nosnippet>601</a>        <span class="kw">let </span>node_id = <span class="self">self
+<a href=#602 id=602 data-nosnippet>602</a>            </span>.executor
+<a href=#603 id=603 data-nosnippet>603</a>            .node_builder(options.name)
+<a href=#604 id=604 data-nosnippet>604</a>            .namespace(options.namespace)
+<a href=#605 id=605 data-nosnippet>605</a>            .domain_id(options.domain_id)
+<a href=#606 id=606 data-nosnippet>606</a>            .build()
+<a href=#607 id=607 data-nosnippet>607</a>            .map_err(|<span class="kw">_</span>| NodeDeclError::Runtime)<span class="question-mark">?</span>;
+<a href=#608 id=608 data-nosnippet>608</a>        <span class="self">self</span>.nodes.push((String::from(id.as_str()), node_id));
+<a href=#609 id=609 data-nosnippet>609</a>        <span class="prelude-val">Ok</span>(())
+<a href=#610 id=610 data-nosnippet>610</a>    }
+<a href=#611 id=611 data-nosnippet>611</a>
+<a href=#612 id=612 data-nosnippet>612</a>    <span class="kw">fn </span>create_entity(<span class="kw-2">&amp;mut </span><span class="self">self</span>, metadata: EntityMetadata) -&gt; NodeResult&lt;()&gt; {
+<a href=#613 id=613 data-nosnippet>613</a>        <span class="kw">let </span>node = <span class="self">self
+<a href=#614 id=614 data-nosnippet>614</a>            </span>.lookup_node(metadata.node_id.as_str())
+<a href=#615 id=615 data-nosnippet>615</a>            .ok_or(NodeDeclError::Runtime)<span class="question-mark">?</span>;
+<a href=#616 id=616 data-nosnippet>616</a>        <span class="kw">match </span>metadata.kind {
+<a href=#617 id=617 data-nosnippet>617</a>            EntityKind::Publisher =&gt; {
+<a href=#618 id=618 data-nosnippet>618</a>                <span class="kw">let </span>handle = <span class="self">self
+<a href=#619 id=619 data-nosnippet>619</a>                    </span>.executor
+<a href=#620 id=620 data-nosnippet>620</a>                    .node_mut(node)
+<a href=#621 id=621 data-nosnippet>621</a>                    .create_generic_publisher(
+<a href=#622 id=622 data-nosnippet>622</a>                        metadata.source_name.as_str(),
+<a href=#623 id=623 data-nosnippet>623</a>                        metadata.type_name,
+<a href=#624 id=624 data-nosnippet>624</a>                        metadata.type_hash,
+<a href=#625 id=625 data-nosnippet>625</a>                    )
+<a href=#626 id=626 data-nosnippet>626</a>                    .map_err(|<span class="kw">_</span>| NodeDeclError::Runtime)<span class="question-mark">?</span>;
+<a href=#627 id=627 data-nosnippet>627</a>                <span class="kw">let </span>id_owned = String::from(metadata.id.as_str());
+<a href=#628 id=628 data-nosnippet>628</a>                <span class="self">self</span>.cell.publishers.borrow_mut().push((id_owned, handle));
+<a href=#629 id=629 data-nosnippet>629</a>                <span class="prelude-val">Ok</span>(())
+<a href=#630 id=630 data-nosnippet>630</a>            }
+<a href=#631 id=631 data-nosnippet>631</a>            EntityKind::Subscription =&gt; {
+<a href=#632 id=632 data-nosnippet>632</a>                <span class="kw">let </span>cb_id = metadata
+<a href=#633 id=633 data-nosnippet>633</a>                    .callback_id
+<a href=#634 id=634 data-nosnippet>634</a>                    .as_ref()
+<a href=#635 id=635 data-nosnippet>635</a>                    .ok_or(NodeDeclError::Runtime)<span class="question-mark">?</span>;
+<a href=#636 id=636 data-nosnippet>636</a>                <span class="kw">let </span>cb_id_owned = String::from(cb_id.as_str());
+<a href=#637 id=637 data-nosnippet>637</a>                <span class="kw">let </span>cell = <span class="self">self</span>.cell.clone();
+<a href=#638 id=638 data-nosnippet>638</a>                <span class="self">self</span>.executor
+<a href=#639 id=639 data-nosnippet>639</a>                    .node_mut(node)
+<a href=#640 id=640 data-nosnippet>640</a>                    .create_generic_subscription(
+<a href=#641 id=641 data-nosnippet>641</a>                        metadata.source_name.as_str(),
+<a href=#642 id=642 data-nosnippet>642</a>                        metadata.type_name,
+<a href=#643 id=643 data-nosnippet>643</a>                        metadata.type_hash,
+<a href=#644 id=644 data-nosnippet>644</a>                        <span class="kw">move </span>|payload: <span class="kw-2">&amp;</span>[u8]| {
+<a href=#645 id=645 data-nosnippet>645</a>                            dispatch_into_cell(<span class="kw-2">&amp;</span>cell, <span class="kw-2">&amp;</span>cb_id_owned, payload);
+<a href=#646 id=646 data-nosnippet>646</a>                        },
+<a href=#647 id=647 data-nosnippet>647</a>                    )
+<a href=#648 id=648 data-nosnippet>648</a>                    .map_err(|<span class="kw">_</span>| NodeDeclError::Runtime)<span class="question-mark">?</span>;
+<a href=#649 id=649 data-nosnippet>649</a>                <span class="prelude-val">Ok</span>(())
+<a href=#650 id=650 data-nosnippet>650</a>            }
+<a href=#651 id=651 data-nosnippet>651</a>            EntityKind::Timer =&gt; {
+<a href=#652 id=652 data-nosnippet>652</a>                <span class="kw">let </span>cb_id = metadata
+<a href=#653 id=653 data-nosnippet>653</a>                    .callback_id
+<a href=#654 id=654 data-nosnippet>654</a>                    .as_ref()
+<a href=#655 id=655 data-nosnippet>655</a>                    .ok_or(NodeDeclError::Runtime)<span class="question-mark">?</span>;
+<a href=#656 id=656 data-nosnippet>656</a>                <span class="kw">let </span>cb_id_owned = String::from(cb_id.as_str());
+<a href=#657 id=657 data-nosnippet>657</a>                <span class="kw">let </span>period_ms = metadata.period_ms.ok_or(NodeDeclError::Runtime)<span class="question-mark">?</span>;
+<a href=#658 id=658 data-nosnippet>658</a>                <span class="kw">let </span>cell = <span class="self">self</span>.cell.clone();
+<a href=#659 id=659 data-nosnippet>659</a>                <span class="self">self</span>.executor
+<a href=#660 id=660 data-nosnippet>660</a>                    .register_timer(
+<a href=#661 id=661 data-nosnippet>661</a>                        nros_node::TimerDuration::from_millis(period_ms),
+<a href=#662 id=662 data-nosnippet>662</a>                        <span class="kw">move </span>|| {
+<a href=#663 id=663 data-nosnippet>663</a>                            dispatch_into_cell(<span class="kw-2">&amp;</span>cell, <span class="kw-2">&amp;</span>cb_id_owned, <span class="kw-2">&amp;</span>[]);
+<a href=#664 id=664 data-nosnippet>664</a>                        },
+<a href=#665 id=665 data-nosnippet>665</a>                    )
+<a href=#666 id=666 data-nosnippet>666</a>                    .map_err(|<span class="kw">_</span>| NodeDeclError::Runtime)<span class="question-mark">?</span>;
+<a href=#667 id=667 data-nosnippet>667</a>                <span class="prelude-val">Ok</span>(())
+<a href=#668 id=668 data-nosnippet>668</a>            }
+<a href=#669 id=669 data-nosnippet>669</a>            EntityKind::ServiceServer
+<a href=#670 id=670 data-nosnippet>670</a>            | EntityKind::ServiceClient
+<a href=#671 id=671 data-nosnippet>671</a>            | EntityKind::ActionServer
+<a href=#672 id=672 data-nosnippet>672</a>            | EntityKind::ActionClient
+<a href=#673 id=673 data-nosnippet>673</a>            | EntityKind::Parameter =&gt; {
+<a href=#674 id=674 data-nosnippet>674</a>                <span class="comment">// M.5.a.2 ships pub / sub / timer wiring. Service / action /
+<a href=#675 id=675 data-nosnippet>675</a>                // parameter dispatch lands in M.5.a.4 — until then registration
+<a href=#676 id=676 data-nosnippet>676</a>                // succeeds (metadata is valid) and the callbacks simply never
+<a href=#677 id=677 data-nosnippet>677</a>                // fire. See the module-level "Coverage today" note.
+<a href=#678 id=678 data-nosnippet>678</a>                </span><span class="prelude-val">Ok</span>(())
+<a href=#679 id=679 data-nosnippet>679</a>            }
+<a href=#680 id=680 data-nosnippet>680</a>        }
+<a href=#681 id=681 data-nosnippet>681</a>    }
 <a href=#682 id=682 data-nosnippet>682</a>
-<a href=#683 id=683 data-nosnippet>683</a><span class="doccomment">/// Phase 212.M.5.a.4 — type of the `extern "Rust"` `_dispatch` fn the
-<a href=#684 id=684 data-nosnippet>684</a>/// macro emits per component. Wraps `ExecutableNode::on_callback`
-<a href=#685 id=685 data-nosnippet>685</a>/// with the type-erased `*mut ()` state argument.
-<a href=#686 id=686 data-nosnippet>686</a>///
-<a href=#687 id=687 data-nosnippet>687</a>/// `unsafe`: the `*mut ()` MUST be a value previously returned by the
-<a href=#688 id=688 data-nosnippet>688</a>/// matching [`NodeInitFn`] and not freed; the BSP holds both in a
-<a href=#689 id=689 data-nosnippet>689</a>/// paired index lookup.
-<a href=#690 id=690 data-nosnippet>690</a></span><span class="kw">pub type </span>NodeDispatchFn =
-<a href=#691 id=691 data-nosnippet>691</a>    <span class="kw">unsafe fn</span>(state: <span class="kw-2">*mut </span>(), callback: CallbackId&lt;<span class="lifetime">'_</span>&gt;, ctx: <span class="kw-2">&amp;mut </span>CallbackCtx&lt;<span class="lifetime">'_</span>&gt;);
-<a href=#692 id=692 data-nosnippet>692</a>
-<a href=#693 id=693 data-nosnippet>693</a><span class="doccomment">/// Phase 212.M.5.a.4 — type of the `extern "Rust"` `_tick` fn the macro
-<a href=#694 id=694 data-nosnippet>694</a>/// emits per component. Wraps `ExecutableNode::tick`. Same
-<a href=#695 id=695 data-nosnippet>695</a>/// `*mut ()` provenance contract as [`NodeDispatchFn`].
-<a href=#696 id=696 data-nosnippet>696</a></span><span class="kw">pub type </span>NodeTickFn = <span class="kw">unsafe fn</span>(state: <span class="kw-2">*mut </span>(), ctx: <span class="kw-2">&amp;mut </span>TickCtx&lt;<span class="lifetime">'_</span>&gt;);
-<a href=#697 id=697 data-nosnippet>697</a>
-<a href=#698 id=698 data-nosnippet>698</a><span class="doccomment">/// BSP shim — register every component against `runtime`, then spin
-<a href=#699 id=699 data-nosnippet>699</a>/// until halt. The Phase 212.M.5.a.3 baker's `system_main.rs` collects
-<a href=#700 id=700 data-nosnippet>700</a>/// the per-pkg `_register` / `_init` / `_dispatch` / `_tick` fn
-<a href=#701 id=701 data-nosnippet>701</a>/// pointers (M.5.a.4) and calls this with four parallel slices: index
-<a href=#702 id=702 data-nosnippet>702</a>/// `i` of each refers to the same component.
-<a href=#703 id=703 data-nosnippet>703</a>///
-<a href=#704 id=704 data-nosnippet>704</a>/// On entry the BSP runs each `_init` to obtain a leaked `Box&lt;State&gt;`
-<a href=#705 id=705 data-nosnippet>705</a>/// pointer, stores it inside a [`BspDispatchSlot`] paired with the
-<a href=#706 id=706 data-nosnippet>706</a>/// matching dispatch / tick fns, and runs the corresponding `_register`
-<a href=#707 id=707 data-nosnippet>707</a>/// under a private [`NodeContext`]. That wires nodes / pubs /
-<a href=#708 id=708 data-nosnippet>708</a>/// subs / timers onto the real executor AND lets the BSP-launched
-<a href=#709 id=709 data-nosnippet>709</a>/// component's `on_callback` / `tick` bodies fire from the spin loop.
-<a href=#710 id=710 data-nosnippet>710</a></span><span class="attr">#[cfg(feature = <span class="string">"std"</span>)]
-<a href=#711 id=711 data-nosnippet>711</a></span><span class="kw">pub fn </span>nros_run_components(
-<a href=#712 id=712 data-nosnippet>712</a>    runtime: <span class="kw-2">&amp;mut </span>ExecutorNodeRuntime,
-<a href=#713 id=713 data-nosnippet>713</a>    register_fns: <span class="kw-2">&amp;</span>[NodeRegisterFn],
-<a href=#714 id=714 data-nosnippet>714</a>    init_fns: <span class="kw-2">&amp;</span>[NodeInitFn],
-<a href=#715 id=715 data-nosnippet>715</a>    dispatch_fns: <span class="kw-2">&amp;</span>[NodeDispatchFn],
-<a href=#716 id=716 data-nosnippet>716</a>    tick_fns: <span class="kw-2">&amp;</span>[NodeTickFn],
-<a href=#717 id=717 data-nosnippet>717</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(), ExecutorError&gt; {
-<a href=#718 id=718 data-nosnippet>718</a>    <span class="macro">assert_eq!</span>(
-<a href=#719 id=719 data-nosnippet>719</a>        register_fns.len(),
-<a href=#720 id=720 data-nosnippet>720</a>        init_fns.len(),
-<a href=#721 id=721 data-nosnippet>721</a>        <span class="string">"register/init slice mismatch"
-<a href=#722 id=722 data-nosnippet>722</a>    </span>);
-<a href=#723 id=723 data-nosnippet>723</a>    <span class="macro">assert_eq!</span>(
-<a href=#724 id=724 data-nosnippet>724</a>        register_fns.len(),
-<a href=#725 id=725 data-nosnippet>725</a>        dispatch_fns.len(),
-<a href=#726 id=726 data-nosnippet>726</a>        <span class="string">"register/dispatch slice mismatch"
-<a href=#727 id=727 data-nosnippet>727</a>    </span>);
-<a href=#728 id=728 data-nosnippet>728</a>    <span class="macro">assert_eq!</span>(
-<a href=#729 id=729 data-nosnippet>729</a>        register_fns.len(),
-<a href=#730 id=730 data-nosnippet>730</a>        tick_fns.len(),
-<a href=#731 id=731 data-nosnippet>731</a>        <span class="string">"register/tick slice mismatch"
-<a href=#732 id=732 data-nosnippet>732</a>    </span>);
-<a href=#733 id=733 data-nosnippet>733</a>    <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..register_fns.len() {
-<a href=#734 id=734 data-nosnippet>734</a>        runtime.register_dispatch_slot(
-<a href=#735 id=735 data-nosnippet>735</a>            register_fns[i],
-<a href=#736 id=736 data-nosnippet>736</a>            init_fns[i],
-<a href=#737 id=737 data-nosnippet>737</a>            dispatch_fns[i],
-<a href=#738 id=738 data-nosnippet>738</a>            tick_fns[i],
-<a href=#739 id=739 data-nosnippet>739</a>        )<span class="question-mark">?</span>;
-<a href=#740 id=740 data-nosnippet>740</a>    }
-<a href=#741 id=741 data-nosnippet>741</a>    runtime.spin()
-<a href=#742 id=742 data-nosnippet>742</a>}
-<a href=#743 id=743 data-nosnippet>743</a>
-<a href=#744 id=744 data-nosnippet>744</a><span class="comment">// =============================================================================
-<a href=#745 id=745 data-nosnippet>745</a>// Tests
-<a href=#746 id=746 data-nosnippet>746</a>// =============================================================================
-<a href=#747 id=747 data-nosnippet>747</a>//
-<a href=#748 id=748 data-nosnippet>748</a>// Concrete `Executor` construction needs a real RMW backend session
-<a href=#749 id=749 data-nosnippet>749</a>// (with `rmw-cffi` on, `Executor::from_session` takes the cffi
-<a href=#750 id=750 data-nosnippet>750</a>// session). MockSession only exists when `rmw-cffi` is off — so the
-<a href=#751 id=751 data-nosnippet>751</a>// unit tests that exercise live timer firing live in
-<a href=#752 id=752 data-nosnippet>752</a>// `packages/testing/nros-tests/tests/phase212_m5a2_component_runtime.rs`
-<a href=#753 id=753 data-nosnippet>753</a>// gated behind the `component-runtime-test` feature (pulls
-<a href=#754 id=754 data-nosnippet>754</a>// `nros-rmw-zenoh`). The compile-only smoke here verifies the public
-<a href=#755 id=755 data-nosnippet>755</a>// types are reachable through the umbrella surface.
-<a href=#756 id=756 data-nosnippet>756</a>
-<a href=#757 id=757 data-nosnippet>757</a></span><span class="attr">#[cfg(test)]
-<a href=#758 id=758 data-nosnippet>758</a></span><span class="kw">mod </span>tests {
-<a href=#759 id=759 data-nosnippet>759</a>    <span class="kw">use </span>super::<span class="kw-2">*</span>;
-<a href=#760 id=760 data-nosnippet>760</a>    <span class="kw">use </span><span class="kw">crate</span>::node::Node;
-<a href=#761 id=761 data-nosnippet>761</a>
-<a href=#762 id=762 data-nosnippet>762</a>    <span class="attr">#[test]
-<a href=#763 id=763 data-nosnippet>763</a>    </span><span class="kw">fn </span>handle_slot_is_observable() {
-<a href=#764 id=764 data-nosnippet>764</a>        <span class="comment">// Trivial smoke — the handle type carries the slot index.
-<a href=#765 id=765 data-nosnippet>765</a>        </span><span class="kw">let </span>h = RegisteredNode::&lt;DummyComp&gt; {
-<a href=#766 id=766 data-nosnippet>766</a>            component_idx: <span class="number">7</span>,
-<a href=#767 id=767 data-nosnippet>767</a>            _phantom: PhantomData,
-<a href=#768 id=768 data-nosnippet>768</a>        };
-<a href=#769 id=769 data-nosnippet>769</a>        <span class="macro">assert_eq!</span>(h.slot(), <span class="number">7</span>);
-<a href=#770 id=770 data-nosnippet>770</a>    }
-<a href=#771 id=771 data-nosnippet>771</a>
-<a href=#772 id=772 data-nosnippet>772</a>    <span class="kw">struct </span>DummyComp;
-<a href=#773 id=773 data-nosnippet>773</a>    <span class="kw">impl </span>Node <span class="kw">for </span>DummyComp {
-<a href=#774 id=774 data-nosnippet>774</a>        <span class="kw">const </span>NAME: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"dummy"</span>;
-<a href=#775 id=775 data-nosnippet>775</a>        <span class="kw">fn </span>register(_ctx: <span class="kw-2">&amp;mut </span>NodeContext&lt;<span class="lifetime">'_</span>&gt;) -&gt; NodeResult&lt;()&gt; {
-<a href=#776 id=776 data-nosnippet>776</a>            <span class="prelude-val">Ok</span>(())
-<a href=#777 id=777 data-nosnippet>777</a>        }
-<a href=#778 id=778 data-nosnippet>778</a>    }
-<a href=#779 id=779 data-nosnippet>779</a>    <span class="kw">impl </span>ExecutableNode <span class="kw">for </span>DummyComp {
-<a href=#780 id=780 data-nosnippet>780</a>        <span class="kw">type </span>State = ();
-<a href=#781 id=781 data-nosnippet>781</a>        <span class="kw">fn </span>init() -&gt; <span class="self">Self</span>::State {}
-<a href=#782 id=782 data-nosnippet>782</a>        <span class="kw">fn </span>on_callback(_s: <span class="kw-2">&amp;mut </span>(), _cb: CallbackId&lt;<span class="lifetime">'_</span>&gt;, _ctx: <span class="kw-2">&amp;mut </span>CallbackCtx&lt;<span class="lifetime">'_</span>&gt;) {}
-<a href=#783 id=783 data-nosnippet>783</a>    }
+<a href=#683 id=683 data-nosnippet>683</a>    <span class="kw">fn </span>record_callback_effect(
+<a href=#684 id=684 data-nosnippet>684</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#685 id=685 data-nosnippet>685</a>        _callback_id: CallbackId&lt;<span class="lifetime">'_</span>&gt;,
+<a href=#686 id=686 data-nosnippet>686</a>        _kind: CallbackEffectKind,
+<a href=#687 id=687 data-nosnippet>687</a>        _entity_id: EntityId&lt;<span class="lifetime">'_</span>&gt;,
+<a href=#688 id=688 data-nosnippet>688</a>    ) -&gt; NodeResult&lt;()&gt; {
+<a href=#689 id=689 data-nosnippet>689</a>        <span class="comment">// Planner concern only — the live runtime doesn't need the
+<a href=#690 id=690 data-nosnippet>690</a>        // effect graph at spin time.
+<a href=#691 id=691 data-nosnippet>691</a>        </span><span class="prelude-val">Ok</span>(())
+<a href=#692 id=692 data-nosnippet>692</a>    }
+<a href=#693 id=693 data-nosnippet>693</a>}
+<a href=#694 id=694 data-nosnippet>694</a>
+<a href=#695 id=695 data-nosnippet>695</a><span class="kw">fn </span>dispatch_into_cell(cell: <span class="kw-2">&amp;</span>Arc&lt;ComponentCell&gt;, cb_id: <span class="kw-2">&amp;</span>str, payload: <span class="kw-2">&amp;</span>[u8]) {
+<a href=#696 id=696 data-nosnippet>696</a>    <span class="kw">let </span>resolver = CellResolver {
+<a href=#697 id=697 data-nosnippet>697</a>        cell: cell.as_ref(),
+<a href=#698 id=698 data-nosnippet>698</a>    };
+<a href=#699 id=699 data-nosnippet>699</a>    <span class="kw">let </span><span class="kw-2">mut </span>ctx = CallbackCtx::new(payload, <span class="kw-2">&amp;</span>resolver);
+<a href=#700 id=700 data-nosnippet>700</a>    <span class="comment">// If the slot is already borrowed (a re-entrant publish from a
+<a href=#701 id=701 data-nosnippet>701</a>    // tick hook on the same cell, etc.) we drop this dispatch. In
+<a href=#702 id=702 data-nosnippet>702</a>    // practice `try_borrow_mut` succeeds because subscription / timer
+<a href=#703 id=703 data-nosnippet>703</a>    // callbacks run sequentially under the single-threaded executor.
+<a href=#704 id=704 data-nosnippet>704</a>    </span><span class="kw">if let </span><span class="prelude-val">Ok</span>(<span class="kw-2">mut </span>slot) = cell.slot.try_borrow_mut() {
+<a href=#705 id=705 data-nosnippet>705</a>        slot.dispatch(cb_id, <span class="kw-2">&amp;mut </span>ctx);
+<a href=#706 id=706 data-nosnippet>706</a>    }
+<a href=#707 id=707 data-nosnippet>707</a>}
+<a href=#708 id=708 data-nosnippet>708</a>
+<a href=#709 id=709 data-nosnippet>709</a><span class="comment">// =============================================================================
+<a href=#710 id=710 data-nosnippet>710</a>// C-ABI bridge for the M.5.a.3 BSP baker.
+<a href=#711 id=711 data-nosnippet>711</a>// =============================================================================
+<a href=#712 id=712 data-nosnippet>712</a>
+<a href=#713 id=713 data-nosnippet>713</a></span><span class="doccomment">/// Type of the `extern "Rust"` register fn emitted by
+<a href=#714 id=714 data-nosnippet>714</a>/// [`nros::node!`](crate::node!). The Phase 212.M.5.a.1 macro
+<a href=#715 id=715 data-nosnippet>715</a>/// ABI is frozen; the BSP baker hands an array of these to
+<a href=#716 id=716 data-nosnippet>716</a>/// [`nros_run_components`].
+<a href=#717 id=717 data-nosnippet>717</a></span><span class="kw">pub type </span>NodeRegisterFn = <span class="kw">fn</span>(<span class="kw-2">&amp;mut </span>NodeContext&lt;<span class="lifetime">'_</span>&gt;) -&gt; NodeResult&lt;()&gt;;
+<a href=#718 id=718 data-nosnippet>718</a>
+<a href=#719 id=719 data-nosnippet>719</a><span class="doccomment">/// Phase 212.M.5.a.4 — type of the `extern "Rust"` `_init` fn emitted
+<a href=#720 id=720 data-nosnippet>720</a>/// alongside `_register` by [`nros::node!`](crate::node!).
+<a href=#721 id=721 data-nosnippet>721</a>/// Returns a leaked `Box` pointer to the component's `State`; the
+<a href=#722 id=722 data-nosnippet>722</a>/// BSP slot holds the pointer for the firmware lifetime.
+<a href=#723 id=723 data-nosnippet>723</a></span><span class="kw">pub type </span>NodeInitFn = <span class="kw">fn</span>() -&gt; <span class="kw-2">*mut </span>();
+<a href=#724 id=724 data-nosnippet>724</a>
+<a href=#725 id=725 data-nosnippet>725</a><span class="doccomment">/// Phase 212.M.5.a.4 — type of the `extern "Rust"` `_dispatch` fn the
+<a href=#726 id=726 data-nosnippet>726</a>/// macro emits per component. Wraps `ExecutableNode::on_callback`
+<a href=#727 id=727 data-nosnippet>727</a>/// with the type-erased `*mut ()` state argument.
+<a href=#728 id=728 data-nosnippet>728</a>///
+<a href=#729 id=729 data-nosnippet>729</a>/// `unsafe`: the `*mut ()` MUST be a value previously returned by the
+<a href=#730 id=730 data-nosnippet>730</a>/// matching [`NodeInitFn`] and not freed; the BSP holds both in a
+<a href=#731 id=731 data-nosnippet>731</a>/// paired index lookup.
+<a href=#732 id=732 data-nosnippet>732</a></span><span class="kw">pub type </span>NodeDispatchFn =
+<a href=#733 id=733 data-nosnippet>733</a>    <span class="kw">unsafe fn</span>(state: <span class="kw-2">*mut </span>(), callback: CallbackId&lt;<span class="lifetime">'_</span>&gt;, ctx: <span class="kw-2">&amp;mut </span>CallbackCtx&lt;<span class="lifetime">'_</span>&gt;);
+<a href=#734 id=734 data-nosnippet>734</a>
+<a href=#735 id=735 data-nosnippet>735</a><span class="doccomment">/// Phase 212.M.5.a.4 — type of the `extern "Rust"` `_tick` fn the macro
+<a href=#736 id=736 data-nosnippet>736</a>/// emits per component. Wraps `ExecutableNode::tick`. Same
+<a href=#737 id=737 data-nosnippet>737</a>/// `*mut ()` provenance contract as [`NodeDispatchFn`].
+<a href=#738 id=738 data-nosnippet>738</a></span><span class="kw">pub type </span>NodeTickFn = <span class="kw">unsafe fn</span>(state: <span class="kw-2">*mut </span>(), ctx: <span class="kw-2">&amp;mut </span>TickCtx&lt;<span class="lifetime">'_</span>&gt;);
+<a href=#739 id=739 data-nosnippet>739</a>
+<a href=#740 id=740 data-nosnippet>740</a><span class="doccomment">/// BSP shim — register every component against `runtime`, then spin
+<a href=#741 id=741 data-nosnippet>741</a>/// until halt. The Phase 212.M.5.a.3 baker's `system_main.rs` collects
+<a href=#742 id=742 data-nosnippet>742</a>/// the per-pkg `_register` / `_init` / `_dispatch` / `_tick` fn
+<a href=#743 id=743 data-nosnippet>743</a>/// pointers (M.5.a.4) and calls this with four parallel slices: index
+<a href=#744 id=744 data-nosnippet>744</a>/// `i` of each refers to the same component.
+<a href=#745 id=745 data-nosnippet>745</a>///
+<a href=#746 id=746 data-nosnippet>746</a>/// On entry the BSP runs each `_init` to obtain a leaked `Box&lt;State&gt;`
+<a href=#747 id=747 data-nosnippet>747</a>/// pointer, stores it inside a [`BspDispatchSlot`] paired with the
+<a href=#748 id=748 data-nosnippet>748</a>/// matching dispatch / tick fns, and runs the corresponding `_register`
+<a href=#749 id=749 data-nosnippet>749</a>/// under a private [`NodeContext`]. That wires nodes / pubs /
+<a href=#750 id=750 data-nosnippet>750</a>/// subs / timers onto the real executor AND lets the BSP-launched
+<a href=#751 id=751 data-nosnippet>751</a>/// component's `on_callback` / `tick` bodies fire from the spin loop.
+<a href=#752 id=752 data-nosnippet>752</a></span><span class="attr">#[cfg(feature = <span class="string">"std"</span>)]
+<a href=#753 id=753 data-nosnippet>753</a></span><span class="kw">pub fn </span>nros_run_components(
+<a href=#754 id=754 data-nosnippet>754</a>    runtime: <span class="kw-2">&amp;mut </span>ExecutorNodeRuntime,
+<a href=#755 id=755 data-nosnippet>755</a>    register_fns: <span class="kw-2">&amp;</span>[NodeRegisterFn],
+<a href=#756 id=756 data-nosnippet>756</a>    init_fns: <span class="kw-2">&amp;</span>[NodeInitFn],
+<a href=#757 id=757 data-nosnippet>757</a>    dispatch_fns: <span class="kw-2">&amp;</span>[NodeDispatchFn],
+<a href=#758 id=758 data-nosnippet>758</a>    tick_fns: <span class="kw-2">&amp;</span>[NodeTickFn],
+<a href=#759 id=759 data-nosnippet>759</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(), ExecutorError&gt; {
+<a href=#760 id=760 data-nosnippet>760</a>    <span class="macro">assert_eq!</span>(
+<a href=#761 id=761 data-nosnippet>761</a>        register_fns.len(),
+<a href=#762 id=762 data-nosnippet>762</a>        init_fns.len(),
+<a href=#763 id=763 data-nosnippet>763</a>        <span class="string">"register/init slice mismatch"
+<a href=#764 id=764 data-nosnippet>764</a>    </span>);
+<a href=#765 id=765 data-nosnippet>765</a>    <span class="macro">assert_eq!</span>(
+<a href=#766 id=766 data-nosnippet>766</a>        register_fns.len(),
+<a href=#767 id=767 data-nosnippet>767</a>        dispatch_fns.len(),
+<a href=#768 id=768 data-nosnippet>768</a>        <span class="string">"register/dispatch slice mismatch"
+<a href=#769 id=769 data-nosnippet>769</a>    </span>);
+<a href=#770 id=770 data-nosnippet>770</a>    <span class="macro">assert_eq!</span>(
+<a href=#771 id=771 data-nosnippet>771</a>        register_fns.len(),
+<a href=#772 id=772 data-nosnippet>772</a>        tick_fns.len(),
+<a href=#773 id=773 data-nosnippet>773</a>        <span class="string">"register/tick slice mismatch"
+<a href=#774 id=774 data-nosnippet>774</a>    </span>);
+<a href=#775 id=775 data-nosnippet>775</a>    <span class="kw">for </span>i <span class="kw">in </span><span class="number">0</span>..register_fns.len() {
+<a href=#776 id=776 data-nosnippet>776</a>        runtime.register_dispatch_slot(
+<a href=#777 id=777 data-nosnippet>777</a>            register_fns[i],
+<a href=#778 id=778 data-nosnippet>778</a>            init_fns[i],
+<a href=#779 id=779 data-nosnippet>779</a>            dispatch_fns[i],
+<a href=#780 id=780 data-nosnippet>780</a>            tick_fns[i],
+<a href=#781 id=781 data-nosnippet>781</a>        )<span class="question-mark">?</span>;
+<a href=#782 id=782 data-nosnippet>782</a>    }
+<a href=#783 id=783 data-nosnippet>783</a>    runtime.spin()
 <a href=#784 id=784 data-nosnippet>784</a>}
+<a href=#785 id=785 data-nosnippet>785</a>
+<a href=#786 id=786 data-nosnippet>786</a><span class="comment">// =============================================================================
+<a href=#787 id=787 data-nosnippet>787</a>// Tests
+<a href=#788 id=788 data-nosnippet>788</a>// =============================================================================
+<a href=#789 id=789 data-nosnippet>789</a>//
+<a href=#790 id=790 data-nosnippet>790</a>// Concrete `Executor` construction needs a real RMW backend session
+<a href=#791 id=791 data-nosnippet>791</a>// (with `rmw-cffi` on, `Executor::from_session` takes the cffi
+<a href=#792 id=792 data-nosnippet>792</a>// session). MockSession only exists when `rmw-cffi` is off — so the
+<a href=#793 id=793 data-nosnippet>793</a>// unit tests that exercise live timer firing live in
+<a href=#794 id=794 data-nosnippet>794</a>// `packages/testing/nros-tests/tests/phase212_m5a2_component_runtime.rs`
+<a href=#795 id=795 data-nosnippet>795</a>// gated behind the `component-runtime-test` feature (pulls
+<a href=#796 id=796 data-nosnippet>796</a>// `nros-rmw-zenoh`). The compile-only smoke here verifies the public
+<a href=#797 id=797 data-nosnippet>797</a>// types are reachable through the umbrella surface.
+<a href=#798 id=798 data-nosnippet>798</a>
+<a href=#799 id=799 data-nosnippet>799</a></span><span class="attr">#[cfg(test)]
+<a href=#800 id=800 data-nosnippet>800</a></span><span class="kw">mod </span>tests {
+<a href=#801 id=801 data-nosnippet>801</a>    <span class="kw">use </span>super::<span class="kw-2">*</span>;
+<a href=#802 id=802 data-nosnippet>802</a>    <span class="kw">use </span><span class="kw">crate</span>::node::Node;
+<a href=#803 id=803 data-nosnippet>803</a>
+<a href=#804 id=804 data-nosnippet>804</a>    <span class="attr">#[test]
+<a href=#805 id=805 data-nosnippet>805</a>    </span><span class="kw">fn </span>handle_slot_is_observable() {
+<a href=#806 id=806 data-nosnippet>806</a>        <span class="comment">// Trivial smoke — the handle type carries the slot index.
+<a href=#807 id=807 data-nosnippet>807</a>        </span><span class="kw">let </span>h = RegisteredNode::&lt;DummyComp&gt; {
+<a href=#808 id=808 data-nosnippet>808</a>            component_idx: <span class="number">7</span>,
+<a href=#809 id=809 data-nosnippet>809</a>            _phantom: PhantomData,
+<a href=#810 id=810 data-nosnippet>810</a>        };
+<a href=#811 id=811 data-nosnippet>811</a>        <span class="macro">assert_eq!</span>(h.slot(), <span class="number">7</span>);
+<a href=#812 id=812 data-nosnippet>812</a>    }
+<a href=#813 id=813 data-nosnippet>813</a>
+<a href=#814 id=814 data-nosnippet>814</a>    <span class="kw">struct </span>DummyComp;
+<a href=#815 id=815 data-nosnippet>815</a>    <span class="kw">impl </span>Node <span class="kw">for </span>DummyComp {
+<a href=#816 id=816 data-nosnippet>816</a>        <span class="kw">const </span>NAME: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str = <span class="string">"dummy"</span>;
+<a href=#817 id=817 data-nosnippet>817</a>        <span class="kw">fn </span>register(_ctx: <span class="kw-2">&amp;mut </span>NodeContext&lt;<span class="lifetime">'_</span>&gt;) -&gt; NodeResult&lt;()&gt; {
+<a href=#818 id=818 data-nosnippet>818</a>            <span class="prelude-val">Ok</span>(())
+<a href=#819 id=819 data-nosnippet>819</a>        }
+<a href=#820 id=820 data-nosnippet>820</a>    }
+<a href=#821 id=821 data-nosnippet>821</a>    <span class="kw">impl </span>ExecutableNode <span class="kw">for </span>DummyComp {
+<a href=#822 id=822 data-nosnippet>822</a>        <span class="kw">type </span>State = ();
+<a href=#823 id=823 data-nosnippet>823</a>        <span class="kw">fn </span>init() -&gt; <span class="self">Self</span>::State {}
+<a href=#824 id=824 data-nosnippet>824</a>        <span class="kw">fn </span>on_callback(_s: <span class="kw-2">&amp;mut </span>(), _cb: CallbackId&lt;<span class="lifetime">'_</span>&gt;, _ctx: <span class="kw-2">&amp;mut </span>CallbackCtx&lt;<span class="lifetime">'_</span>&gt;) {}
+<a href=#825 id=825 data-nosnippet>825</a>    }
+<a href=#826 id=826 data-nosnippet>826</a>}
 </code></pre></div></section></main></body></html>
