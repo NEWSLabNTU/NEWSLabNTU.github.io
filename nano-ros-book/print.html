@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-e30b5d87.js";
+            window.path_to_searchindex_js = "searchindex-f6ce9bd4.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-94691d90.js"></script>
+        <script src="toc-84b93f13.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -1989,6 +1989,12 @@ Linux host for integration testing and on an STM32F4 for
 production. The node logic is identical; only the boot and board
 differ.</p>
 </li>
+<li>
+<p><strong>Mixed implementation languages.</strong> You want to keep a C driver or
+legacy C node, but host the composed system in a C++ or Rust Entry
+pkg. The Node-pkg register ABI is language-neutral, so a C Node pkg
+can link into the same Entry binary as C++ or Rust Node pkgs.</p>
+</li>
 </ol>
 <p>That’s when you split your project into a multi-node workspace.</p>
 <h2 id="canonical-layout"><a class="header" href="#canonical-layout">Canonical layout</a></h2>
@@ -2026,6 +2032,7 @@ testing and a Cortex-M Entry pkg for hardware.</p>
 <li><strong>Bringup packages</strong> — launch XML, <code>system.toml</code>, remaps, parameters.</li>
 <li><strong>Entry packages</strong> — the board-specific binary that boots the topology.</li>
 <li><strong>C / C++ multi-node workspaces</strong> — the same structure through CMake.</li>
+<li><strong>Mixed-language workspaces</strong> — C Node pkgs hosted by C/C++ Entry pkgs.</li>
 <li><strong>Role reference</strong> — metadata fields and macro forms in reference style.</li>
 </ol>
 <h2 id="prereqs-3"><a class="header" href="#prereqs-3">Prereqs</a></h2>
@@ -2120,6 +2127,8 @@ the Entry pkg that boots everything together.</li>
 <li><a href="#c--c-multi-node-workspaces">C / C++ multi-node workspaces</a> — use the same
 project shape with CMake.</li>
 </ol>
+<p>For C Node pkgs hosted by a C++ Entry pkg, see
+<a href="#mixed-language-workspace">Mixed-language workspace</a>.</p>
 <p>For the full API reference covering all three roles, see
 <a href="#role-reference-node-bringup-and-entry-packages">Role reference</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -2971,11 +2980,103 @@ that call the 2-arg form work today.</p>
 Bringup pkg + Entry pkg, all C++).</li>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/phase-219-cpp-entry-pkg.md">Phase 219 roadmap</a>
 — full landing order + acceptance bar.</li>
-<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/phase-224-cpp-workspace-workflow-review.md">Phase 219 workflow review</a>
-— the 7-gap walkthrough that shaped the work plan.</li>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/multi-node-workspace-layout.md">Multi-node workspace layout design</a>
 §11 — LOCKED canonical shape (<code>Bringup + Node + Entry</code>).</li>
 </ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="mixed-language-workspace"><a class="header" href="#mixed-language-workspace">Mixed-language workspace</a></h1>
+<p>nano-ros Node pkgs are linked through a C ABI register trampoline, so
+one Entry pkg can host Node pkgs written in different languages. The
+native reference shape is:</p>
+<ul>
+<li>C Node pkg for C code you want to keep in C.</li>
+<li>C++ Entry pkg for the boot harness and generated launch wiring.</li>
+<li>Optional C++ Node pkgs in the same workspace.</li>
+<li>One Bringup pkg with the normal ROS 2 launch XML.</li>
+</ul>
+<p>The template is in
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/c-and-cpp-mixed-workspace"><code>examples/templates/c-and-cpp-mixed-workspace/</code></a>.
+For a pure-C Entry host, use
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/pure-c-workspace"><code>examples/templates/pure-c-workspace/</code></a>.</p>
+<h2 id="layout"><a class="header" href="#layout">Layout</a></h2>
+<pre><code class="language-text">my_ws/
+├── CMakeLists.txt
+└── src/
+    ├── c_talker_pkg/             # C Node pkg
+    ├── cpp_listener_pkg/         # C++ Node pkg
+    ├── demo_bringup/             # launch XML + system.toml
+    └── robot_entry/              # C++ Entry pkg
+</code></pre>
+<p>The root uses the same CMake workspace helper as the C++ track:</p>
+<pre><code class="language-cmake">include(&lt;nano-ros&gt;/cmake/NanoRosWorkspace.cmake)
+
+nano_ros_workspace(
+    BACKEND  zenoh
+    PLATFORM posix
+    SUBDIRS  src/c_talker_pkg
+             src/cpp_listener_pkg
+             src/robot_entry)
+</code></pre>
+<h2 id="c-node-pkg"><a class="header" href="#c-node-pkg">C Node pkg</a></h2>
+<p>A C Node pkg is declarative: it has no <code>main()</code>. It exports a package-
+mangled register symbol via <code>NROS_NODE_REGISTER(register_fn)</code>.</p>
+<pre><code class="language-cmake">nros_find_interfaces(LANGUAGE C SKIP_INSTALL)
+
+nano_ros_node_register(
+    NAME     talker
+    CLASS    c_talker_pkg::Talker
+    LANGUAGE C
+    SOURCES  src/Talker.c
+    DEPLOY   native)
+</code></pre>
+<pre><code class="language-c">#include &lt;nros/node_pkg.h&gt;
+
+static nros_ret_t register_talker(nros_node_context_t* ctx) {
+    /* declare node entities here */
+    return NROS_RET_OK;
+}
+
+NROS_NODE_REGISTER(register_talker);
+</code></pre>
+<p><code>nano_ros_node_register()</code> injects <code>NROS_PKG_NAME</code> and
+<code>NROS_NODE_CLASS_NAME</code>, so the C object exports the same register,
+presence, and class-name symbols as the C++ Node-pkg macro.</p>
+<h2 id="entry-pkg-1"><a class="header" href="#entry-pkg-1">Entry pkg</a></h2>
+<p>Use a C++ or Rust Entry pkg as the usual host for migration work. In the
+C++ template:</p>
+<pre><code class="language-cmake">nano_ros_entry(
+    NAME    robot_entry
+    SOURCES src/main.cpp
+    BOARD   native
+    LAUNCH  "demo_bringup:system.launch.xml"
+    DEPLOY  native)
+</code></pre>
+<p>The launch file names both Node pkgs:</p>
+<pre><code class="language-xml">&lt;launch&gt;
+  &lt;node pkg="c_talker_pkg" exec="talker" name="talker"/&gt;
+  &lt;node pkg="cpp_listener_pkg" exec="listener" name="listener"/&gt;
+&lt;/launch&gt;
+</code></pre>
+<p>The generated Entry translation unit calls each package’s
+<code>__nros_component_&lt;pkg&gt;_register</code> symbol and the CMake sidecar links
+the matching static libraries.</p>
+<p>For a pure-C workspace, the Entry pkg uses the same launch-driven shape
+with <code>LANG c</code>:</p>
+<pre><code class="language-cmake">nano_ros_entry(
+    NAME    robot_entry
+    SOURCES src/main.c
+    BOARD   native
+    LAUNCH  "demo_bringup:system.launch.xml"
+    LANG    c
+    DEPLOY  native)
+</code></pre>
+<h2 id="scaffolding"><a class="header" href="#scaffolding">Scaffolding</a></h2>
+<pre><code class="language-sh">nros new --component c_talker_pkg --lang c --use-case talker
+nros new --component cpp_listener_pkg --lang cpp --use-case listener
+nros new system demo_bringup --components c_talker_pkg,cpp_listener_pkg
+</code></pre>
+<p>For a complete working tree, copy the template instead of creating
+each package separately.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="role-reference-node-bringup-and-entry-packages"><a class="header" href="#role-reference-node-bringup-and-entry-packages">Role Reference: Node, Bringup, and Entry Packages</a></h1>
 <p>nano-ros multi-node workspaces split into <strong>three kinds of package</strong>:</p>
@@ -3033,7 +3134,7 @@ into the Entry pkg directly.</p>
 <code>$(find &lt;pkg&gt;)</code> / <code>$(var)</code> / <code>$(env)</code> substitutions. Stock nav2/Autoware
 XML pastes in and Just Works (Python <code>.launch.py</code> is not supported yet).
 See <a href="#bringup-packages">the workspace bringup tutorial</a>.</p>
-<h2 id="entry-pkg-1"><a class="header" href="#entry-pkg-1">Entry pkg</a></h2>
+<h2 id="entry-pkg-2"><a class="header" href="#entry-pkg-2">Entry pkg</a></h2>
 <p>An Entry pkg is a binary crate that combines one or more Node pkgs with a board choice, a launch file, and per-board deploy config:</p>
 <pre><code>src/robot_entry/
 ├── Cargo.toml          # [[bin]] name = "robot_entry"
@@ -5038,7 +5139,7 @@ nano-ros repo ships a top-level <code>CMakeLists.txt</code> that exposes
 everything via <code>add_subdirectory(...)</code>. No install step, no
 <code>find_package(NanoRos)</code>, no install prefix removed every
 last trace of that pipeline.</p>
-<h2 id="layout"><a class="header" href="#layout">Layout</a></h2>
+<h2 id="layout-1"><a class="header" href="#layout-1">Layout</a></h2>
 <pre><code>my_app/
 ├── CMakeLists.txt
 ├── main.c
@@ -7479,7 +7580,7 @@ taxonomy</a>, per
 <p>The Node pkg stays board-agnostic — <code>listener_pkg/</code> from the RTIC
 chapter could be deployed under Embassy by swapping the Entry pkg.
 That’s the point of the split.</p>
-<h3 id="entry-pkg-2"><a class="header" href="#entry-pkg-2">Entry pkg</a></h3>
+<h3 id="entry-pkg-3"><a class="header" href="#entry-pkg-3">Entry pkg</a></h3>
 <pre><code class="language-toml"># File: src/listener_entry/Cargo.toml
 [package]
 name    = "listener_entry"
@@ -13718,7 +13819,7 @@ system QEMU, those tests fall back to <code>[SKIPPED]</code>.</p>
 </ol>
 <p>Both problems disappear once tests use the patched build at
 <code>build/qemu/bin/qemu-system-arm</code>.</p>
-<h2 id="layout-1"><a class="header" href="#layout-1">Layout</a></h2>
+<h2 id="layout-2"><a class="header" href="#layout-2">Layout</a></h2>
 <pre><code>third-party/qemu/qemu/              # submodule, pinned to stable-11.0
 third-party/qemu/patches/           # patch series, applied on top
   0001-hw-net-lan9118-…patch
