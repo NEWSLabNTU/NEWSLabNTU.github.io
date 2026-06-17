@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["custom_transport","event","sync","traits"],"struct":["MessageInfo"]};
+window.SIDEBAR_ITEMS = {"mod":["custom_transport","event","sync","traits","type_descriptor"],"struct":["MessageInfo"]};

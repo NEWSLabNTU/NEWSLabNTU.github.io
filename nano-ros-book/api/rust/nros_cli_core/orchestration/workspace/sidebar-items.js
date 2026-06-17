@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["load_component_config","unique_paths"],"struct":["CargoComponentSummary","ComponentDeclaration","Package","Workspace"]};
+window.SIDEBAR_ITEMS = {"fn":["load_component_config","unique_paths"],"struct":["CargoComponentSummary","CmakeNodeSummary","ComponentDeclaration","Package","Workspace"]};

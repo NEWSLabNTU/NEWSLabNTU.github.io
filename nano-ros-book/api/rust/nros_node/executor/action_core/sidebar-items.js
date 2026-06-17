@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["ActionClientCore","ActionServerCore","CompletedResultEntry","PendingCancelRequest","RawActiveGoal","RawGoalRequest"]};
+window.SIDEBAR_ITEMS = {"struct":["ActionClientCore","ActionServerCore","CompletedResultEntry","PendingCancelRequest","PendingGetResult","RawActiveGoal","RawGoalRequest"]};

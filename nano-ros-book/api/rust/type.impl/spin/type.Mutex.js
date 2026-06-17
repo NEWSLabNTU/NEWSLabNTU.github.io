@@ -1,9 +1,0 @@
-(function() {
-    var type_impls = Object.fromEntries([["nros_rmw_cyclonedds",[["<details class=\"toggle implementors-toggle\" open><summary><section id=\"impl-RegistryMutexExt%3CT%3E-for-Mutex%3CT%3E\" class=\"impl\"><a class=\"src rightside\" href=\"src/nros_rmw_cyclonedds/sync.rs.html#73-78\">Source</a><a href=\"#impl-RegistryMutexExt%3CT%3E-for-Mutex%3CT%3E\" class=\"anchor\">§</a><h3 class=\"code-header\">impl&lt;T&gt; <a class=\"trait\" href=\"nros_rmw_cyclonedds/sync/trait.RegistryMutexExt.html\" title=\"trait nros_rmw_cyclonedds::sync::RegistryMutexExt\">RegistryMutexExt</a>&lt;T&gt; for <a class=\"type\" href=\"spin/type.Mutex.html\" title=\"type spin::Mutex\">Mutex</a>&lt;T&gt;</h3><span class=\"item-info\"><div class=\"stab portability\">Available on <strong>non-bare-metal</strong> only.</div></span></section></summary><div class=\"impl-items\"><section id=\"method.with\" class=\"method trait-impl\"><a class=\"src rightside\" href=\"src/nros_rmw_cyclonedds/sync.rs.html#74-77\">Source</a><a href=\"#method.with\" class=\"anchor\">§</a><h4 class=\"code-header\">fn <a href=\"nros_rmw_cyclonedds/sync/trait.RegistryMutexExt.html#tymethod.with\" class=\"fn\">with</a>&lt;R&gt;(&amp;self, f: impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.96.0/core/ops/function/trait.FnOnce.html\" title=\"trait core::ops::function::FnOnce\">FnOnce</a>(<a class=\"primitive\" href=\"https://doc.rust-lang.org/1.96.0/std/primitive.reference.html\">&amp;mut T</a>) -&gt; R) -&gt; R</h4></section></div></details>","RegistryMutexExt<T>","nros_rmw_cyclonedds::sync::hosted::RegistryMutex"]]]]);
-    if (window.register_type_impls) {
-        window.register_type_impls(type_impls);
-    } else {
-        window.pending_type_impls = type_impls;
-    }
-})()
-//{"start":55,"fragment_lengths":[1551]}

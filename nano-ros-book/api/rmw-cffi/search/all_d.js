@@ -9,5 +9,6 @@ var searchData=
   ['start_6',['Quick start',['../index.html#autotoc_md0',1,'']]],
   ['structure_7',['Vtable structure',['../index.html#autotoc_md1',1,'']]],
   ['sub_5fborrow_8',['sub_borrow',['../structnros__rmw__vtable__t.html#a7654e4c865d92674f87bf7ff58d06ecf',1,'nros_rmw_vtable_t']]],
-  ['sub_5frelease_9',['sub_release',['../structnros__rmw__vtable__t.html#ac6348c4a9ae9403e7146e74b104d8c92',1,'nros_rmw_vtable_t']]]
+  ['sub_5frelease_9',['sub_release',['../structnros__rmw__vtable__t.html#ac6348c4a9ae9403e7146e74b104d8c92',1,'nros_rmw_vtable_t']]],
+  ['subscriber_5fsupports_5fin_5fplace_10',['subscriber_supports_in_place',['../structnros__rmw__vtable__t.html#a15b062abdab20a1002f1cbfee430029a',1,'nros_rmw_vtable_t']]]
 ];

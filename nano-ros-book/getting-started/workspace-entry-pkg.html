@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-1193dcd4.js";
+            window.path_to_searchindex_js = "../searchindex-3eac8641.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-84b93f13.js"></script>
+        <script src="../toc-effe9594.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -311,6 +311,41 @@ cargo run -p native_entry
 <p>The canonical Rust workspace is at <code>examples/workspaces/rust/</code>.
 For Zephyr, QEMU, ESP-IDF, and other non-native targets, use the platform’s
 native build/run tool or the focused <code>just &lt;plat&gt; run</code> recipe.</p>
+<h2 id="running-on-zephyr"><a class="header" href="#running-on-zephyr">Running on Zephyr</a></h2>
+<p>On Zephyr the RTOS framework <em>is</em> the workflow: <code>west build</code> is the build
+verb, Kconfig selects the RMW, and the Entry is an ordinary Zephyr
+application. There is no <code>nros build</code> / <code>nros launch</code> build path here, and you
+do not type the RMW as a Cargo <code>--features</code> flag or bake the board into the
+package.</p>
+<pre><code class="language-sh">source ./activate.sh
+
+# Provision message bindings once. This is platform-agnostic workspace
+# provisioning (sibling to `west update` / `rosdep`), NOT a compile step —
+# the same `nros ws sync` output feeds every board and every RMW.
+nros ws sync
+
+# west is the build verb. Choose the board with `-b`, and select the RMW with
+# the matching Kconfig overlay via -DCONF_FILE. The Entry source never changes.
+west build -b native_sim/native/64 src/zephyr_entry \
+    -- -DCONF_FILE="prj.conf;prj-zenoh.conf"
+
+west build -t run            # native_sim; `west flash` for hardware
+</code></pre>
+<p>Swap <code>-b native_sim/native/64</code> for any other Zephyr board (<code>-b nrf52840dk/nrf52840</code>,
+<code>-b stm32f4_disco</code>, …) and <code>prj-zenoh.conf</code> for <code>prj-xrce.conf</code> /
+<code>prj-cyclonedds.conf</code> to pick a different RMW — nothing else changes. <strong>One
+Zephyr Entry pkg (<code>src/zephyr_entry/</code>) covers every Zephyr board</strong>: unlike the
+board-specific FreeRTOS / ThreadX Entries, Zephyr owns its board abstraction,
+so the board is chosen at <code>west build -b</code> time rather than baked into the
+package (see <a href="#one-entry-pkg-per-board">One Entry pkg per board</a>).</p>
+<p>The Entry source is identical to the native, FreeRTOS, and ThreadX Entries —
+the same one-line launch macro, with the launch file as the single source of
+truth for the node set:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// examples/workspaces/rust/src/zephyr_entry/src/lib.rs
+nros::main!(launch = "demo_bringup:system.launch.xml");
+<span class="boring">}</span></code></pre>
 <h2 id="one-entry-pkg-per-board"><a class="header" href="#one-entry-pkg-per-board">One Entry pkg per board</a></h2>
 <p>Each deploy target gets its own Entry pkg. A workspace that runs on both
 <code>native</code> and <code>embassy-stm32f4</code> would have two Entry pkgs that share the same
@@ -329,6 +364,12 @@ Node pkg library:</p>
 <p>Both reference the same <code>talker_pkg</code> and <code>listener_pkg</code> Node pkg rlibs. The
 board crate provides the <code>BoardEntry</code> impl and any hardware-specific
 initialisation; the Node pkgs are board-agnostic.</p>
+<p><strong>Zephyr is the exception — one Entry per <em>RTOS</em>, not per board.</strong> Zephyr
+already owns its board abstraction, so a single <code>zephyr_entry</code> covers
+<code>native_sim</code>, <code>nrf52</code>, <code>stm32</code>, <code>aemv8r</code>, … with the board chosen at
+<code>west build -b &lt;board&gt;</code> time. Contrast FreeRTOS / ThreadX, whose board crates
+are board-specific, so each of those Entries bakes one board. See
+<a href="#running-on-zephyr">Running on Zephyr</a>.</p>
 <p>The <code>examples/stm32f4/rust/talker-embassy/</code> example demonstrates the
 embedded shape: <code>deploy = "embassy-stm32f4"</code> + <code>nros::main!();</code> on a
 <code>no_std / no_main</code> binary that delegates everything to the <code>EmbassyStm32F4</code>

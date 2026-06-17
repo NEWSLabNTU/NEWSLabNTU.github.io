@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["has_type_descriptor_registrar","register_type_descriptor","set_type_descriptor_registrar"],"type":["TypeDescriptorRegistrar"]};

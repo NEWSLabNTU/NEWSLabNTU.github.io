@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_FIELDS","MAX_KINDS","MAX_NESTED_DEPTH","NAME_SLOT_LEN","SERVICE_HEADER_BYTES","TYPE_NAME_BUF_LEN"],"enum":["BuildError"],"struct":["DescriptorBuilder"],"type":["DescriptorPtr"]};

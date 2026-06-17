@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-1193dcd4.js";
+            window.path_to_searchindex_js = "../searchindex-3eac8641.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-84b93f13.js"></script>
+        <script src="../toc-effe9594.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -190,7 +190,7 @@ specific port’s Rust crate.</p>
 port, and why the shape is what it is. It is the implementation
 companion to <a href="../concepts/platform-model.html">Platform Model</a> (user-
 facing axis description) and
-<a href="../../docs/design/portable-rmw-platform-interface.html"><code>docs/design/portable-rmw-platform-interface.md</code></a>
+<a href="../../docs/design/0006-portable-rmw-platform-interface.html"><code>docs/design/0006-portable-rmw-platform-interface.md</code></a>
 (L0/L1/L2 design rationale across RMW + platform).</p>
 <h2 id="surface"><a class="header" href="#surface">Surface</a></h2>
 <p>Three hand-written headers under
@@ -201,7 +201,7 @@ facing axis description) and
 <tr><th>Header</th><th>Purpose</th><th>Symbol count</th></tr>
 </thead>
 <tbody>
-<tr><td><code>platform.h</code></td><td>Core kernel surface: clock, sleep, alloc, threading, scheduler, time, yield, random, critical section, opaque wake primitive.</td><td>57</td></tr>
+<tr><td><code>platform.h</code></td><td>Core kernel surface: clock, sleep, alloc + heap stats, threading, scheduler, time, yield, random, critical section, opaque wake primitive.</td><td>59</td></tr>
 <tr><td><code>platform_net.h</code></td><td>Network surface: TCP/UDP/multicast socket helpers, endpoint resolution, IVC.</td><td>29</td></tr>
 <tr><td><code>platform_timer.h</code></td><td>Periodic timer surface (<code>nros_platform_timer_*</code>).</td><td>8</td></tr>
 </tbody>
@@ -224,7 +224,7 @@ swap. Free symbols let the linker resolve calls direct, let LTO inline
 across the boundary, and let static analysis treat them like any other
 extern.</p>
 <p>The full rationale is in
-<a href="../../docs/design/portable-rmw-platform-interface.html"><code>docs/design/portable-rmw-platform-interface.md</code></a>
+<a href="../../docs/design/0006-portable-rmw-platform-interface.html"><code>docs/design/0006-portable-rmw-platform-interface.md</code></a>
 under “Platform ABI: free symbols (no vtable)”.</p>
 <h2 id="how-a-port-is-built"><a class="header" href="#how-a-port-is-built">How a port is built</a></h2>
 <p>A port can be written in either of two ways. The choice is per-port
@@ -342,10 +342,47 @@ is the global-registration shim.</li>
 binary semaphore that lets the executor block on RMW activity
 without burning a thread.</li>
 </ul>
-<p>The current canonical surface is 57 + 29 + 8 = <strong>94 symbols</strong> across
+<p>The current canonical surface is 59 + 29 + 8 = <strong>96 symbols</strong> across
 three headers, mirrored exactly by the Rust extern block, exported by
 six ports plus four bare-metal board crates, and gated by one drift
 script. Adding a capability touches all four columns in one PR.</p>
+<h2 id="the-scalar--opaque-struct-boundary-rfc-0034-d2"><a class="header" href="#the-scalar--opaque-struct-boundary-rfc-0034-d2">The scalar / opaque-struct boundary (RFC-0034 D2)</a></h2>
+<p>Not every kernel service unifies the same way. The ABI splits into two
+classes, and the split is a <strong>design boundary, not tech debt</strong>:</p>
+<ul>
+<li>
+<p><strong>Scalar services — fully unified.</strong> Alloc, sleep, clock, time, yield,
+random. Their ABI is plain scalars (sizes, millisecond counts, byte
+buffers) with no host-type in the signature, so a single canonical
+<code>nros_platform_*</code> symbol works for every RTOS and every consumer
+(core, RMW, vendored zenoh-pico/XRCE) funnels through it. The D8 gate
+(<code>check-no-direct-kernel-alloc.sh</code>) enforces this for allocation; the
+same pattern extends to the other scalars (the vendored <code>z_*</code>/<code>uxr_*</code>
+funnel is the CI-relink-gated remainder of phase-230).</p>
+</li>
+<li>
+<p><strong>Opaque-struct services — stay per-RTOS-vendored.</strong> Threading
+(<code>mutex</code>/<code>condvar</code>/<code>task</code>), the wake primitive, and network sockets
+carry RTOS-defined structs (<code>SemaphoreHandle_t</code>, <code>TX_MUTEX</code>,
+<code>struct k_mutex</code>, socket/<code>NX_*</code> control blocks) whose layout the
+vendor owns. A single C ABI cannot name those types portably, so each
+port vendors its own body and nano-ros exposes only opaque storage
+(<code>*_storage_size</code>/<code>*_storage_align</code> + an init/drop pair). This is why
+the ThreadX board’s <code>tx_byte_allocate</code> thread-stack / NetX-pool sites
+are <strong>not</strong> D8 violations — they are the <em>task</em> and <em>net</em> opaque
+services, allowed on a documented symbol-scoped lint allowlist.</p>
+</li>
+</ul>
+<p><strong>Escape hatch (if an opaque service must move later).</strong> The way out is
+NOT to widen the C ABI with host types; it is to pin a <strong>canonical
+fixed-layout struct</strong> in <code>platform.h</code>, give each port a compile-time
+<code>size_probe</code> / <code>_Static_assert</code> that the canonical layout is ≥ the
+vendor struct (so opaque storage stays sound), and let the port
+memcpy/place the vendor object inside the canonical slot. <strong>Net is the
+first candidate</strong> — <code>platform_net.h</code> already exposes 29 symbols over an
+opaque socket handle — but it is deferred (RFC-0034 “out of scope”)
+until there is a consumer that needs portable socket structs. Threads
+and sync are the least likely to move (deepest struct coupling).</p>
 
                     </main>
 

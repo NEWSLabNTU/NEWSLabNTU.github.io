@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-1193dcd4.js";
+            window.path_to_searchindex_js = "../searchindex-3eac8641.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-84b93f13.js"></script>
+        <script src="../toc-effe9594.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -178,45 +178,66 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="configuration-guide"><a class="header" href="#configuration-guide">Configuration Guide</a></h1>
-<p>A nano-ros project keeps configuration in <strong>one file per lane</strong> — no setting
-lives in two places. This guide covers what each file owns and the <code>nros.toml</code>
-format that carries all nano-ros runtime/deployment config.</p>
-<h2 id="one-lane-per-file"><a class="header" href="#one-lane-per-file">One lane per file</a></h2>
+<p>nano-ros config is <strong>language-agnostic</strong> and has <strong>one home per concern</strong> — no
+setting lives in two places. Workspace/system config lives in <code>Cargo.toml</code>
+metadata (Rust) or CMake (C/C++) plus a universal <code>system.toml</code>; <code>nros.toml</code> is
+<strong>narrowed</strong> to the embedded <em>direct-mode runtime file</em> a single-node app’s board
+parses at boot. This guide covers what each file owns and the <code>nros.toml</code> format.</p>
+<h2 id="one-home-per-concern"><a class="header" href="#one-home-per-concern">One home per concern</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>File</th><th>Owns</th><th>Per</th></tr>
 </thead>
 <tbody>
-<tr><td><code>Cargo.toml</code></td><td>Rust build: crate, language deps, the RMW <strong>feature menu</strong> (<code>rmw-zenoh</code>/<code>rmw-cyclonedds</code>/<code>rmw-xrce</code>)</td><td>Rust project</td></tr>
-<tr><td><code>CMakeLists.txt</code></td><td>C/C++ build: targets, language deps, <code>add_subdirectory(&lt;repo&gt;)</code>, the <code>NROS_RMW</code> option</td><td>C/C++ project</td></tr>
+<tr><td><code>Cargo.toml</code></td><td>Rust build: crate, language deps, the RMW <strong>feature menu</strong> (<code>rmw-zenoh</code>/<code>rmw-cyclonedds</code>/<code>rmw-xrce</code>); <strong>workspace/system config</strong> via <code>[workspace.metadata.nros]</code> + <code>[package.metadata.nros.{node,entry,application}]</code></td><td>Rust project</td></tr>
+<tr><td><code>CMakeLists.txt</code></td><td>C/C++ build: targets, language deps, <code>add_subdirectory(&lt;repo&gt;)</code>, the <code>NROS_RMW</code> option; node/entry registration via <code>nano_ros_node_register</code> / <code>nano_ros_entry</code></td><td>C/C++ project</td></tr>
 <tr><td><code>.cargo/config.toml</code></td><td><strong><code>[patch.crates-io]</code> dependency injection only</strong> (local crate + generated-msg paths), plus the cargo <code>[build]</code>/<code>[target]</code>/<code>[env]</code> knobs (target triple, runner, rustflags). <strong>No nano-ros runtime config.</strong></td><td>Rust project</td></tr>
 <tr><td><code>package.xml</code></td><td>ROS package identity + msg <code>&lt;depend&gt;</code>s (codegen input for <code>nros generate</code>)</td><td>all</td></tr>
-<tr><td><strong><code>nros.toml</code></strong></td><td><strong>All nano-ros runtime/deployment config</strong> — node, transport(s), scheduling</td><td>universal (Rust/C/C++)</td></tr>
+<tr><td><strong><code>system.toml</code></strong></td><td><strong>System topology</strong> — components, deploy targets, domain, RMW. The language-agnostic universal descriptor (same schema for Rust/C/C++). <strong>Optional for single-node</strong> (the toolchain synthesises an implicit 1-component system when absent).</td><td>bringup pkg</td></tr>
+<tr><td><strong><code>nros.toml</code></strong></td><td><strong>Embedded direct-mode runtime only</strong> — <code>[node]</code> / <code>[[transport]]</code> / <code>[node.rt]</code>, parsed by the board at boot. <strong>NOT a workspace manifest</strong> (a workspace-root <code>nros.toml</code> is rejected by the CLI).</td><td>embedded single-node app</td></tr>
 </tbody>
 </table>
 </div>
 <blockquote>
 <p><strong>Boundary rule.</strong> If a knob changes <em>what is compiled/linked</em>, it lives in the
-build file (<code>Cargo.toml</code> feature / <code>CMakeLists.txt</code> option). If it changes
-<em>what nano-ros does at run time</em>, it lives in <code>nros.toml</code>.</p>
+build file (<code>Cargo.toml</code> feature / <code>CMakeLists.txt</code> option). If it changes the
+<em>system topology</em> (components, deploy, domain, RMW), it lives in <code>system.toml</code>.
+If it is <em>what an embedded single-node board does at boot</em> (node identity,
+transports, RT), it lives in <code>nros.toml</code>.</p>
 </blockquote>
-<p>Full design rationale: <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/configuration-and-transports.md"><code>docs/design/configuration-and-transports.md</code></a>.
+<h3 id="config-home-by-language--scale"><a class="header" href="#config-home-by-language--scale">Config home by language × scale</a></h3>
+<p>Mirrors <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0004-configuration-and-transports.md">RFC-0004 §3</a>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th></th><th>Single-node</th><th>Workspace</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Rust</strong></td><td><code>Cargo.toml [package.metadata.nros.application]</code> (+ <code>nros::main!</code>); optional <code>system.toml</code> to pin rmw/domain</td><td>root <code>[workspace.metadata.nros]</code> + node <code>[package.metadata.nros.node]</code> + entry <code>[package.metadata.nros.entry]</code> + bringup <code>system.toml</code></td></tr>
+<tr><td><strong>C / C++</strong></td><td><code>CMakeLists.txt</code> (<code>NANO_ROS_PLATFORM/RMW</code>) + <code>package.xml</code>; optional <code>system.toml</code></td><td><code>nano_ros_node_register</code> / <code>nano_ros_entry</code> per pkg + <strong>same <code>system.toml</code></strong> + <code>package.xml</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The <strong>embedded</strong> single-node app that hand-writes <code>main()</code> (no codegen) is the
+case that keeps <code>nros.toml</code> — see below.</p>
+<p>Full design rationale: <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0004-configuration-and-transports.md">RFC-0004 (configuration &amp; transports)</a>;
+RMW backend selection &amp; lowering is <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0031-rmw-selection-and-lowering.md">RFC-0031</a>.
 For the multi-RMW runtime topic-forwarding bridge (a separate file/feature), see
 <a href="../reference/nros-bridge-toml.html"><code>nros-bridge.toml</code></a> — do not confuse it with
-this build/deploy <code>nros.toml</code>.</p>
-<h2 id="nrostoml"><a class="header" href="#nrostoml"><code>nros.toml</code></a></h2>
-<p>The single, language-agnostic nano-ros config. Read two ways from the same
-schema:</p>
-<ul>
-<li><strong>Direct mode</strong> — a hand-written single-node app reads <code>nros.toml</code> via the
-board <code>Config::from_toml</code> (compile-baked with <code>include_str!</code> on embedded;
-filesystem/env on hosted). No launch file, no planner. This is what the
-<code>examples/**</code> copy-out templates use.</li>
-<li><strong>Planned mode</strong> — the orchestration pipeline (launch files + <code>nros plan</code> →
-<code>nros-plan.json</code> → generated <code>main()</code>) consumes the same schema for multi-node
-systems.</li>
-</ul>
+the embedded-runtime <code>nros.toml</code>.</p>
+<h2 id="nrostoml--embedded-direct-mode-runtime"><a class="header" href="#nrostoml--embedded-direct-mode-runtime"><code>nros.toml</code> — embedded direct-mode runtime</a></h2>
+<p><code>nros.toml</code> is the <strong>embedded direct-mode runtime file</strong> for a hand-written
+single-node app. The board reads it via <code>Config::from_toml</code> (compile-baked with
+<code>include_str!</code> on embedded; filesystem/env on hosted) — no launch file, no
+planner, no generated <code>main()</code>. This is what the <code>examples/**</code> copy-out
+templates use (“boilerplate IS lesson”). It carries <code>[node]</code>, <code>[[transport]]</code>,
+and <code>[node.rt]</code> only.</p>
+<p>It is <strong>not</strong> a workspace manifest and <strong>not</strong> read by <code>nros plan</code>/<code>check</code>/<code>codegen-system</code> — a workspace-root <code>nros.toml</code> is rejected by the
+CLI (<code>nros migrate workspace</code>). Workspace/system config lives in <code>Cargo.toml</code>
+metadata + <code>system.toml</code> (see the matrix above). The retired <code>config.toml</code>
+(<code>[network]</code>/<code>[zenoh]</code>/<code>[scheduling]</code>) was folded into the <code>[node]</code> /
+<code>[[transport]]</code> / <code>[node.rt]</code> sections here.</p>
 <h3 id="shape"><a class="header" href="#shape">Shape</a></h3>
 <pre><code class="language-toml"># nros.toml
 
@@ -227,7 +248,8 @@ domain_id = 0              # ROS 2 domain ID (0–232)
                            # (the build file picks what is linked)
 
 # One transport per session. A single ethernet/wifi/serial entry is the
-# common case; multiple entries = a multi-RMW bridge (planned mode).
+# common case; multiple entries open via Executor::open_multi (multi-homed
+# or cross-RMW). In-process topic forwarding is the separate [[bridge]] path.
 [[transport]]
 kind    = "ethernet"       # ethernet | wifi | serial | can
 ip      = "10.0.2.10/24"   # CIDR — the prefix rides the address

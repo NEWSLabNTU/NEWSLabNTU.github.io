@@ -1,9 +1,9 @@
 (function() {
-    var type_impls = Object.fromEntries([["libc",[]],["nros_platform_cffi",[]],["zmij",[]]]);
+    var type_impls = Object.fromEntries([["getrandom",[]],["libc",[]],["linux_raw_sys",[]],["nros_platform_cffi",[]],["zmij",[]]]);
     if (window.register_type_impls) {
         window.register_type_impls(type_impls);
     } else {
         window.pending_type_impls = type_impls;
     }
 })()
-//{"start":55,"fragment_lengths":[11,26,12]}
+//{"start":55,"fragment_lengths":[16,12,21,26,12]}

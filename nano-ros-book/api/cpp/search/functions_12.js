@@ -11,5 +11,6 @@ var searchData=
   ['try_5frecv_5fraw_5fwith_5fattachment_8',['try_recv_raw_with_attachment',['../classnros_1_1Subscription.html#ac3097fc9efde51369ac190af408ef45a',1,'nros::Subscription']]],
   ['try_5frecv_5frequest_9',['try_recv_request',['../classnros_1_1Service.html#a4cf36676b75fd7ce67c2bf86e16b7dd1',1,'nros::Service']]],
   ['try_5frecv_5fsequence_10',['try_recv_sequence',['../classnros_1_1Subscription.html#a252b497886e5e8fc017b4d2b453ff22d',1,'nros::Subscription']]],
-  ['try_5ftake_11',['try_take',['../classnros_1_1Future.html#a2ef431f381dfe2500323ba7a67787073',1,'nros::Future']]]
+  ['try_5frecv_5fvalidated_11',['try_recv_validated',['../classnros_1_1Subscription.html#af901e9578961338f4da1e543bfb59312',1,'nros::Subscription']]],
+  ['try_5ftake_12',['try_take',['../classnros_1_1Future.html#a2ef431f381dfe2500323ba7a67787073',1,'nros::Future']]]
 ];

@@ -1,5 +1,9 @@
 var searchData=
 [
-  ['xrce_20dds_20backend_20xrce_5f_0',['XRCE-DDS Backend (XRCE_*)',['../configuration.html#autotoc_md213',1,'']]],
-  ['xrce_5f_1',['XRCE-DDS Backend (XRCE_*)',['../configuration.html#autotoc_md213',1,'']]]
+  ['zenoh_20backend_20zpico_5f_0',['Zenoh Backend (ZPICO_*)',['../configuration.html#autotoc_md215',1,'']]],
+  ['zenoh_20pico_20error_20codes_1',['zenoh-pico Error Codes',['../troubleshooting.html#autotoc_md227',1,'']]],
+  ['zenoh_20pico_20underlying_20errors_2',['zenoh-pico Underlying Errors',['../error_codes.html#autotoc_md229',1,'']]],
+  ['zenoh_20version_20mismatch_3',['zenoh Version Mismatch',['../troubleshooting.html#autotoc_md222',1,'']]],
+  ['zephyr_20integration_4',['Zephyr Integration',['../getting_started.html#autotoc_md211',1,'']]],
+  ['zpico_5f_5',['Zenoh Backend (ZPICO_*)',['../configuration.html#autotoc_md215',1,'']]]
 ];

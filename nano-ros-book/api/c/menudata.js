@@ -79,19 +79,11 @@ var menudata={children:[
 {text:"File List",url:"files.html"},
 {text:"Globals",url:"globals.html",children:[
 {text:"All",url:"globals.html",children:[
-{text:"k",url:"globals.html#index_k"},
-{text:"m",url:"globals_m.html#index_m"},
+{text:"m",url:"globals.html#index_m"},
 {text:"n",url:"globals_n.html#index_n"},
-{text:"o",url:"globals_o.html#index_o"},
-{text:"p",url:"globals_p.html#index_p"},
-{text:"v",url:"globals_v.html#index_v"},
-{text:"z",url:"globals_z.html#index_z"}]},
+{text:"o",url:"globals_o.html#index_o"}]},
 {text:"Functions",url:"globals_func.html",children:[
-{text:"k",url:"globals_func.html#index_k"},
-{text:"n",url:"globals_func_n.html#index_n"},
-{text:"p",url:"globals_func_p.html#index_p"},
-{text:"v",url:"globals_func_v.html#index_v"},
-{text:"z",url:"globals_func_z.html#index_z"}]},
+{text:"n",url:"globals_func.html#index_n"}]},
 {text:"Variables",url:"globals_vars.html"},
 {text:"Typedefs",url:"globals_type.html"},
 {text:"Enumerations",url:"globals_enum.html"},

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["DeployKind","EmitForm","ManifestKind","VendorDir"],"fn":["probe_manifest_kind","resolve_workspace_root"],"struct":["BridgeEndpoint","BridgeSpec","DeployConfigHook","DeployTarget","DomainGroup","OverlaySection","SchedulingSection","SystemSection","VendorSpec","WorkspaceConfig","WorkspaceSection"]};

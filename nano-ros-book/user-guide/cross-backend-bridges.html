@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-1193dcd4.js";
+            window.path_to_searchindex_js = "../searchindex-3eac8641.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-84b93f13.js"></script>
+        <script src="../toc-effe9594.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -220,9 +220,8 @@ The new Node’s <code>session_idx = N</code>.</li>
 </ol>
 <p><code>spin_once()</code> drains every session in turn. Handles created
 through a multi-Session Node route through
-<code>Executor::node_session_mut(node_id)</code> (Rust) or
-<code>node-&gt;executor</code> (C / C++) instead of the legacy support /
-session pointer kept for single-backend callers.</p>
+the node’s resolved session record instead of the legacy support/session
+pointer kept for single-backend callers.</p>
 <p><code>NodeRecord.session_idx</code> is the dispatch key. Print it to
 verify which session each Node landed on:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -373,10 +372,34 @@ build/xrce-agent/MicroXRCEAgent udp4 -p 8888 &amp;
 NROS_XRCE_LOCATOR=udp/127.0.0.1:8888 \
     cargo run -p native-rs-bridge-tt-zenoh-to-xrce
 </code></pre>
-<p>The same <code>node_builder(...).rmw(...)</code> pattern composes any pair
-of the surviving backends — swap the egress to
-<code>.rmw("cyclonedds")</code> (selected C++-side via
-<code>-DNANO_ROS_RMW=cyclonedds</code>) for a Zenoh → Cyclone DDS gateway.</p>
+<h3 id="examplesbridgestt-zenoh-to-cyclonedds"><a class="header" href="#examplesbridgestt-zenoh-to-cyclonedds"><code>examples/bridges/tt-zenoh-to-cyclonedds/</code></a></h3>
+<p>The stock-Cyclone-DDS sibling: same TT schedule, but the egress is
+<code>.rmw("cyclonedds")</code>, forwarding onto the DDS databus where a stock
+<code>rmw_cyclonedds_cpp</code> (e.g. an Autoware listener) or another nano-ros cyclonedds
+node receives the samples. <strong>One structural difference</strong> from the XRCE variant:
+Cyclone rejects a raw publisher whose topic type has no registered
+<code>dds_topic_descriptor_t</code>, so the egress type’s schema is staged <strong>before</strong> the
+raw publisher is created —</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// The Cyclone backend installs the registrar during its register():
+nros_rmw_cyclonedds_sys::register()?;
+// Stage std_msgs/msg/String's schema (NUL-terminated key — it is handed
+// straight to Cyclone's C descriptor table):
+nros_rmw::register_type_descriptor(
+    "std_msgs/msg/String\0",
+    &amp;[nros_serdes::schema::Field { name: "data\0", ty: FieldType::String, offset: 0 }],
+)?;
+let pub_out = node_out.create_publisher_raw("/chatter", "std_msgs/msg/String", hash)?;
+<span class="boring">}</span></code></pre>
+<p>XRCE registers lazily from name+hash; Cyclone needs the descriptor up front. The
+backend links the vendored CycloneDDS (no <code>-DNANO_ROS_RMW</code> needed for the Rust
+binary — the <code>nros-rmw-cyclonedds-sys</code> dep is the selection).</p>
+<pre><code class="language-sh">zenohd --listen tcp/127.0.0.1:7447 &amp;
+ROS_DOMAIN_ID=0 cargo run -p native-rs-bridge-tt-zenoh-to-cyclonedds
+# subscribe on Cyclone DDS /chatter (stock ROS 2 or a nano-ros cyclone node on
+# the same ROS_DOMAIN_ID) and publish on zenoh /chatter to see bridged samples.
+</code></pre>
 <h2 id="coverage-matrix"><a class="header" href="#coverage-matrix">Coverage matrix</a></h2>
 <p>Bridge examples live under
 <code>examples/bridges/&lt;name&gt;/</code> (cross-platform, transport-

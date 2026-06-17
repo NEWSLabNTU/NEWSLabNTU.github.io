@@ -8,5 +8,6 @@ var searchData=
   ['rmw_5fentity_2eh_5',['rmw_entity.h',['../rmw__entity_8h.html',1,'']]],
   ['rmw_5fevent_2eh_6',['rmw_event.h',['../rmw__event_8h.html',1,'']]],
   ['rmw_5fret_2eh_7',['rmw_ret.h',['../rmw__ret_8h.html',1,'']]],
-  ['rmw_5fvtable_2eh_8',['rmw_vtable.h',['../rmw__vtable_8h.html',1,'']]]
+  ['rmw_5fvtable_2eh_8',['rmw_vtable.h',['../rmw__vtable_8h.html',1,'']]],
+  ['rx_5fbuffer_5fhint_9',['rx_buffer_hint',['../structnros__rmw__qos__t.html#a88184a8d037014c677b508c395e90db9',1,'nros_rmw_qos_t']]]
 ];

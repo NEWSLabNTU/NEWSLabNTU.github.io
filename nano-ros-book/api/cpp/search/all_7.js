@@ -8,5 +8,6 @@ var searchData=
   ['buffer_20tuning_20nros_5f_5',['C++ API Buffer Tuning (NROS_*)',['../configuration.html#autotoc_md15',1,'']]],
   ['build_6',['build',['../classnros_1_1NodeBuilder.html#ae6b220defabd1ee57ceb5f9a0f541c25',1,'nros::NodeBuilder']]],
   ['build_20and_20run_7',['5. Build and Run',['../getting_started.html#autotoc_md10',1,'']]],
-  ['build_20issues_8',['Build Issues',['../troubleshooting.html#autotoc_md27',1,'']]]
+  ['build_20issues_8',['Build Issues',['../troubleshooting.html#autotoc_md27',1,'']]],
+  ['bytes_9',['bytes',['../structnros_1_1LeSpan.html#ad5d3f948f8135edd80b735a0c1b556d5',1,'nros::LeSpan']]]
 ];

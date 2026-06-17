@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["emit_run_plan"]};
+window.SIDEBAR_ITEMS = {"fn":["emit_run_plan","emit_run_plan_register_dispatch"]};

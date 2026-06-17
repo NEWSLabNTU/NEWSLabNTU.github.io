@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CAPABILITIES"],"fn":["capability"],"struct":["Capability"]};
