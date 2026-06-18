@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["DEFAULT_TIER"],"enum":["TierResolveError"],"fn":["resolve_tiers"],"struct":["ResolvedTier","ResolvedTierTable"]};
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_TIER"],"enum":["TierResolveError"],"fn":["collect_callback_groups","derive_target_rtos","resolve_system_tiers","resolve_tiers"],"struct":["ResolvedTier","ResolvedTierTable"]};
