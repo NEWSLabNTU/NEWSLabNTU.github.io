@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["expr","node"],"struct":["Ast","ParseError","Parsed","Syntax"]};

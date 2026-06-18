@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["scaffold_deploy"],"struct":["DeployScaffold"]};

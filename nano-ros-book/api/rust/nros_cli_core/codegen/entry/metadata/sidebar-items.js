@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["enrich_plan"],"struct":["ComponentIndex"]};

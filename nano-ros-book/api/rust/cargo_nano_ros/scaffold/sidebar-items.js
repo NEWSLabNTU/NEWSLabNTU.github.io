@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["scaffold_component","scaffold_package"],"struct":["ComponentScaffoldConfig","ScaffoldConfig"]};

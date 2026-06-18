@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["SetupCommand"],"fn":["activate_store_path","ensure_tools","resolve_packages","resolve_packages_with_rmw","run"],"struct":["Args","BoardSetupArgs"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Lang"],"fn":["run","run_rust"],"struct":["Args","RustArgs"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["evaluate","filter_manifest","should_include"]};

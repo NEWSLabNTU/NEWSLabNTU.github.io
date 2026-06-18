@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["CODEGEN_CONFIG_FILENAME"],"enum":["ConfigError","FieldKind","StorageMode"],"struct":["CapacityResolver","FieldStorage"]};

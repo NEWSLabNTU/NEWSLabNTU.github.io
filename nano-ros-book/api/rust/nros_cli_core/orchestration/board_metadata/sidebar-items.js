@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["compute_drift","parse_board_cmake","parse_board_metadata"],"struct":["BoardMetadata","DriftEntry"]};

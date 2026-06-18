@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["generate_package","generate_px4_msgs"],"struct":["GeneratedRustPackage"]};

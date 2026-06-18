@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["BoardLoadError","EntryKind","LinkKind","NetStack","PlatformKind","Toolchain"],"struct":["BoardCapabilities","BoardCatalog","BoardDescriptor","BoardEntry"]};

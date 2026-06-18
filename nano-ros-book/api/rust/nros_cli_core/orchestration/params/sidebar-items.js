@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["effective_parameters","last_block_source","load_sourced_toml_values","load_toml_values"],"struct":["ParameterInputs","SourcedToml"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["AnnotationValue","ConstantValue"],"struct":["Annotation","ConstantModule","EnumDef","EnumVariant","IdlConstant","IdlFile","IdlModule","IdlStruct","StructMember"]};

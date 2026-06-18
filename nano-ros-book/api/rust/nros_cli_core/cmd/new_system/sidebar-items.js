@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["run","scaffold_bringup","validate_bringup_name"],"struct":["Args","BringupScaffold","ScaffoldedBringup"]};

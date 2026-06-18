@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["check_plan_file","plan_system"],"struct":["CheckReport","PlanOptions","PlanningOutput"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["IdlTokenKind"],"struct":["IdlLexer","IdlToken","Span"]};

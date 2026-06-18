@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["CLI_VERSION","SKIP_ENV"],"enum":["Verb"],"fn":["check_workspace","check_workspaces","find_cargo_lock","find_monorepo_root","nros_core_version_in_lock","versions_match"]};

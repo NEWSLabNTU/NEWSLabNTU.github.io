@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["parse_ament_metadata","parse_ament_metadata_value"],"type":["AmentMetadata"]};

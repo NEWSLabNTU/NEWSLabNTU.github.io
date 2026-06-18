@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["discover_bringups","lint_bringup","lint_bringup_forbidden_surfaces"],"struct":["DiscoveredBringup"]};

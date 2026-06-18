@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["COMPONENT_CONFIG_VERSION","PLAN_VERSION","SOURCE_METADATA_VERSION"],"enum":["DeadlinePolicy","InterfaceKind","ParameterValue","QosDurability","QosHistory","QosLiveliness","QosReliability","SchedClass","SourceNameKind"],"struct":["EnvDecl","InterfaceRef","QosProfile","RemapRule","SourceLocation","SourceName"],"type":["ParameterTable"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["ConstantValue","FieldType","PrimitiveType"],"struct":["Action","ActionSpec","Constant","Field","Message","Service"]};

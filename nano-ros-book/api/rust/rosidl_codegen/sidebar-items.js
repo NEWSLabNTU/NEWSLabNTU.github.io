@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["config","generator","idl_generator","templates","types","utils"]};

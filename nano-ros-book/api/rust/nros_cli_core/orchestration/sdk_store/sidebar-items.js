@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["LOCK_FILE"],"enum":["InstallAction","ProvenanceKind","SourceDisposition"],"fn":["execute","plan_install","provision_source","store_root","tool_prefix"],"struct":["LockEntry","Provenance","SdkLock"]};

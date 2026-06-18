@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["discover_installed_ament_packages","discover_interface_packages_from_workspace","discover_workspace_packages"]};

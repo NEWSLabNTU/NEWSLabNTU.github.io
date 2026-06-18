@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["check_workspace","lint_class_pkg_prefix"],"struct":["WorkspaceLintReport"]};

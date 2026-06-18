@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["is_library_package"],"struct":["AmentInstaller"]};

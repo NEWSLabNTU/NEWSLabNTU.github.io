@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["build_pkg_index","detect_workspace_root"],"struct":["PkgIndex"]};

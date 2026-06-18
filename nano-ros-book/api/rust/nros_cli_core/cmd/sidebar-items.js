@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Cmd","MigrateSub"],"mod":["board","bringup","check","check_workspace","codegen","codegen_cyclonedds_descriptors","codegen_system","completions","config","doctor","emit_package_xml","explain","generate","generate_px4","metadata","migrate","new","new_system","plan","scaffold_deploy","setup","version","ws"]};
