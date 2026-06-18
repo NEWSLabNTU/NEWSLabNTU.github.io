@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["ExecutorError"],"fn":["install_node_typed","nros_run_components"],"struct":["ExecutorNodeRuntime","RegisteredNode"],"type":["NodeDispatchFn","NodeInitFn","NodeRegisterFn","NodeTickFn"]};
+window.SIDEBAR_ITEMS = {"enum":["ExecutorError"],"fn":["install_node_typed"],"struct":["ExecutorNodeRuntime","RegisteredNode"]};

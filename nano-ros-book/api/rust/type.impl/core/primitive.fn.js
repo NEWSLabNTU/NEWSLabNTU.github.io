@@ -1,9 +1,9 @@
 (function() {
-    var type_impls = Object.fromEntries([["nros_platform",[]],["nros_platform_cffi",[]]]);
+    var type_impls = Object.fromEntries([["nros_platform_cffi",[]]]);
     if (window.register_type_impls) {
         window.register_type_impls(type_impls);
     } else {
         window.pending_type_impls = type_impls;
     }
 })()
-//{"start":55,"fragment_lengths":[20,26]}
+//{"start":55,"fragment_lengths":[25]}
