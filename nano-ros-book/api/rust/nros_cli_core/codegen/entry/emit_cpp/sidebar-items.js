@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["emit","emit_typed"]};
+window.SIDEBAR_ITEMS = {"fn":["emit_typed"]};

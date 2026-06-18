@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3e39a500.js";
+            window.path_to_searchindex_js = "../searchindex-813bf061.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-effe9594.js"></script>
@@ -211,29 +211,52 @@ nano_ros_workspace(
              src/native_entry)
 </code></pre>
 <h2 id="c-node-pkg"><a class="header" href="#c-node-pkg">C Node pkg</a></h2>
-<p>A C Node pkg is declarative: it has no <code>main()</code>. It exports a package-
-mangled register symbol via <code>NROS_NODE_REGISTER(register_fn)</code>.</p>
-<pre><code class="language-cmake">nros_find_interfaces(LANGUAGE C SKIP_INSTALL)
-
+<p>A C Node pkg is a <strong>typed component</strong> (RFC-0043): no <code>main()</code>. It defines a
+state struct + a <code>configure(node, executor, self)</code> function and exports the
+C-ABI factory/configure seam via <code>NROS_C_COMPONENT(StateT, configure_fn)</code> — the
+typed Entry creates the node and runs <code>configure</code> on the real executor.</p>
+<pre><code class="language-cmake"># Raw `/chatter` publisher carries the type name as a string → no generated C
+# bindings needed (so no nros_find_interfaces for this pkg).
 nano_ros_node_register(
     NAME     talker
     CLASS    c_talker_pkg::Talker
     LANGUAGE C
+    TYPED
     SOURCES  src/Talker.c
     DEPLOY   native)
 </code></pre>
-<pre><code class="language-c">#include &lt;nros/node_pkg.h&gt;
+<pre><code class="language-c">#include &lt;stdint.h&gt;
+#include &lt;nros/component.h&gt;
 
-static nros_ret_t register_talker(nros_node_context_t* ctx) {
-    /* declare node entities here */
-    return NROS_RET_OK;
+typedef struct {
+    _Alignas(8) uint8_t pub[NROS_C_PUBLISHER_STORAGE_SIZE];
+    int32_t count;
+} c_talker_pkg_t;
+
+static void on_tick(void* ctx) {
+    c_talker_pkg_t* self = (c_talker_pkg_t*)ctx;
+    uint8_t buf[8] = {0x00, 0x01, 0x00, 0x00};  /* CDR_LE header + LE int32 */
+    buf[4] = (uint8_t)self-&gt;count;
+    (void)nros_cpp_publish_raw(self-&gt;pub, buf, sizeof(buf));
+    self-&gt;count++;
 }
 
-NROS_NODE_REGISTER(register_talker);
+static nros_ret_t talker_configure(const nros_cpp_node_t* node, void* executor,
+                                   c_talker_pkg_t* self) {
+    self-&gt;count = 0;
+    int32_t rc = nros_cpp_publisher_create(node, "/chatter",
+        "std_msgs::msg::dds_::Int32_", "", nros_c_qos_default(), self-&gt;pub);
+    if (rc != 0) return rc;
+    size_t timer;
+    return nros_cpp_timer_create(executor, /*period_ms=*/1000, on_tick, self, &amp;timer);
+}
+
+NROS_C_COMPONENT(c_talker_pkg_t, talker_configure)
 </code></pre>
-<p><code>nano_ros_node_register()</code> injects <code>NROS_PKG_NAME</code> and
-<code>NROS_NODE_CLASS_NAME</code>, so the C object exports the same register,
-presence, and class-name symbols as the C++ Node-pkg macro.</p>
+<p><code>nano_ros_node_register(... LANGUAGE C TYPED ...)</code> injects <code>NROS_PKG_NAME</code>, so
+<code>NROS_C_COMPONENT</code> exports the <code>__nros_c_component_&lt;pkg&gt;_{create,configure}</code>
+seam the typed Entry calls — interoperable with C++ <code>configure(Node&amp;)</code> and Rust
+<code>nros::node!</code> components in one launch graph.</p>
 <h2 id="entry-pkg"><a class="header" href="#entry-pkg">Entry pkg</a></h2>
 <p>Use a C++ or Rust Entry pkg as the usual host for migration work. In the
 C++ template:</p>

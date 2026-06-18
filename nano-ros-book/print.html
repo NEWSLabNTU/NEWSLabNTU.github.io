@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-3e39a500.js";
+            window.path_to_searchindex_js = "searchindex-813bf061.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-effe9594.js"></script>
@@ -2783,7 +2783,7 @@ changes language-side is the cmake-fn / macro surface.</p>
 <tr><th>Role</th><th>Rust</th><th>C / C++</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>Node pkg</strong></td><td><code>lib.rs</code> with <code>nros::node!(MyNode)</code> + <code>[package.metadata.nros.node]</code> in <code>Cargo.toml</code></td><td><code>Talker.{hpp,cpp}</code> declaring <code>register_node(NodeContext&amp;)</code> + <code>NROS_NODE_REGISTER(&lt;pkg&gt;::&lt;Class&gt;, "…")</code>; <code>CMakeLists.txt</code> calling <code>nano_ros_node_register(NAME … CLASS … SOURCES … DEPLOY native)</code></td></tr>
+<tr><td><strong>Node pkg</strong></td><td><code>lib.rs</code> with <code>nros::node!(MyNode)</code> + <code>[package.metadata.nros.node]</code> in <code>Cargo.toml</code></td><td><code>Talker.{hpp,cpp}</code> with a <code>configure(::nros::Node&amp;)</code> component method (C++) / <code>NROS_C_COMPONENT</code> (C); <code>CMakeLists.txt</code> calling <code>nano_ros_node_register(NAME … CLASS … SOURCES …)</code></td></tr>
 <tr><td><strong>Bringup pkg</strong></td><td><code>package.xml</code> + <code>system.toml</code> + <code>launch/*.launch.xml</code> (no <code>Cargo.toml</code>)</td><td>identical (language-agnostic)</td></tr>
 <tr><td><strong>Entry pkg</strong></td><td><code>src/main.rs</code> with <code>nros::main!(launch = "demo_bringup:system.launch.xml")</code></td><td><code>src/main.cpp</code> with <code>NROS_MAIN(nros::board::NativeBoard, "demo_bringup:system.launch.xml")</code>; <code>CMakeLists.txt</code> calling <code>nano_ros_entry(NAME … LAUNCH "demo_bringup:system.launch.xml" DEPLOY native)</code></td></tr>
 <tr><td><strong>Workspace root</strong></td><td><code>Cargo.toml [workspace] members = […]</code></td><td><code>CMakeLists.txt</code> calling <code>nano_ros_workspace(BACKEND zenoh PLATFORM posix SUBDIRS src/talker_pkg src/listener_pkg src/native_entry)</code></td></tr>
@@ -2850,8 +2850,11 @@ once.</li>
 compiles standalone (with <code>-DNANO_ROS_ROOT=&lt;path&gt;</code>) or as part of the
 workspace; the per-pkg CMakeLists doesn’t change between modes.</p>
 <h2 id="node-pkg"><a class="header" href="#node-pkg">Node pkg</a></h2>
-<p>Declarative — no <code>main()</code>. The pkg ships a class whose <code>register_node()</code>
-describes the entities the planned host runtime will instantiate:</p>
+<p>A <strong>typed component</strong> (RFC-0043) — no <code>main()</code>. The pkg ships a class with a
+<code>configure(::nros::Node&amp;)</code> method that creates real entities (a <code>Publisher</code>, a
+<code>Timer</code>) and binds member callbacks <strong>by identity</strong> (member-fn-pointer template
+param, no string callback name, no interpreter). The Entry pkg constructs the
+object and calls <code>configure(node)</code>; the executor dispatches the callbacks.</p>
 <pre><code class="language-cmake"># src/talker_pkg/CMakeLists.txt
 cmake_minimum_required(VERSION 3.22)
 project(talker_pkg LANGUAGES C CXX)
@@ -2861,39 +2864,61 @@ nros_find_interfaces(LANGUAGE CPP SKIP_INSTALL)
 nano_ros_node_register(
     NAME    talker
     CLASS   talker_pkg::Talker     # §212.L.4 — class prefix must equal PROJECT_NAME
-    SOURCES src/Talker.cpp
-    DEPLOY  native)
+    SOURCES src/Talker.cpp)
+
+target_link_libraries(talker_pkg_talker_component PUBLIC std_msgs__nano_ros_cpp)
 </code></pre>
-<pre><code class="language-cpp">// src/talker_pkg/src/Talker.cpp
-#include "Talker.hpp"
+<pre><code class="language-cpp">// src/talker_pkg/include/talker_pkg/Talker.hpp
+#pragma once
+#include &lt;nros/component.hpp&gt;
+#include &lt;nros/nros.hpp&gt;
 #include "std_msgs.hpp"
 
 namespace talker_pkg {
 
-::nros::Result Talker::register_node(::nros::NodeContext&amp; ctx) {
-    ::nros::DeclaredNode node;
-    auto r = ctx.create_node(node, "node",
-        ::nros::NodeOptions::make("talker"));
+class Talker {
+    ::nros::Publisher&lt;std_msgs::msg::Int32&gt; pub_;
+    ::nros::Timer timer_;
+    int count_ = 0;
+
+    void on_tick();  // real body; bound via &amp;Talker::on_tick (no name)
+
+  public:
+    ::nros::Result configure(::nros::Node&amp; node);
+};
+
+}  // namespace talker_pkg
+</code></pre>
+<pre><code class="language-cpp">// src/talker_pkg/src/Talker.cpp
+#include "talker_pkg/Talker.hpp"
+
+namespace talker_pkg {
+
+void Talker::on_tick() {
+    std_msgs::msg::Int32 m;
+    m.data = count_++;
+    (void)pub_.publish(m);
+}
+
+::nros::Result Talker::configure(::nros::Node&amp; node) {
+    ::nros::Result r = node.create_publisher(pub_, "/chatter");
     if (!r.ok()) return r;
-    // … declare publisher, timer, callbacks …
-    return ctx.record_callback_effect(
-        "on_tick", ::nros::CallbackEffectKind::Publishes, "pub_chatter");
+    // Member-fn-pointer-as-template-param → no-alloc trampoline; `this` is ctx.
+    return ::nros::bind_timer&lt;Talker, &amp;Talker::on_tick&gt;(node, timer_, 1000, this);
 }
 
 }  // namespace talker_pkg
-
-NROS_NODE_REGISTER(talker_pkg::Talker, "talker_pkg::Talker");
 </code></pre>
-<p>The macro at TU end lands the per-pkg mangled <code>__nros_component_talker_pkg_register</code>
-symbol (Phase 212.M.5.a.1) — the same ABI the Rust <code>nros::node!(Talker)</code>
-macro emits, so a C++ Node pkg drops into a Rust Entry pkg’s launch
-graph and vice-versa.</p>
-<p>The current compatibility scaffold for a C++ Node pkg is:</p>
+<p>The Entry pkg constructs <code>Talker</code> in static storage and calls <code>configure(node)</code>
+on the real executor — the same component model the Rust <code>nros::node!(Talker)</code> +
+the C <code>NROS_C_COMPONENT</code> paths use, so C++, C, and Rust Node pkgs interoperate in
+one launch graph.</p>
+<p>Scaffold a C++ Node pkg with:</p>
 <pre><code class="language-bash">$ nros new --component my-talker --lang cpp --use-case talker
 ✓ Created nano-ros C++ Node pkg 'my-talker'
   Class     : my_talker::Talker
   Node      : talker
-  Kind      : declarative Node pkg (Phase 212.L.9)
+  Kind      : typed component (RFC-0043)
 </code></pre>
 <h2 id="bringup-pkg"><a class="header" href="#bringup-pkg">Bringup pkg</a></h2>
 <p>Language-agnostic — copy verbatim from the
@@ -2921,12 +2946,13 @@ nano_ros_entry(
     LAUNCH  "demo_bringup:system.launch.xml"          # Phase 219.D
     DEPLOY  native)
 </code></pre>
-<p>At configure time the cmake fn shells <code>nros codegen entry --lang cpp</code>,
-emits <code>${CMAKE_BINARY_DIR}/nros_main_generated.cpp</code> (the canonical
-<code>int main()</code> body that calls every <code>__nros_component_&lt;pkg&gt;_register</code>
-in launch order), appends it to the target’s sources, and auto-links
-every <code>&lt;pkg&gt;_&lt;exec&gt;_component</code> static lib the launch XML named
-(Phase 219.J). The user’s <code>main.cpp</code> is a single declarative line:</p>
+<p>At configure time the cmake fn shells <code>nros codegen entry --lang cpp --typed</code>,
+emits <code>${CMAKE_BINARY_DIR}/native_entry_nros_main_generated.cpp</code> (the canonical
+<code>int main()</code> body that constructs each launch node’s component + calls
+<code>configure(node)</code> on the real executor via <code>NativeBoard::run_components</code>),
+appends it to the target’s sources, and auto-links every
+<code>&lt;pkg&gt;_&lt;exec&gt;_component</code> static lib the launch XML named (Phase 219.J). The
+user’s <code>main.cpp</code> is a single declarative line:</p>
 <pre><code class="language-cpp">// src/native_entry/src/main.cpp
 #include &lt;nros/main.hpp&gt;
 NROS_MAIN(nros::board::NativeBoard, "demo_bringup:system.launch.xml")
@@ -2961,7 +2987,7 @@ launch.xml / <code>package.xml</code> / Node pkg edit re-runs codegen.</p>
 <tr><th>Concern</th><th>Lives in</th></tr>
 </thead>
 <tbody>
-<tr><td>Node entity declarations</td><td>Node pkg <code>register_node()</code></td></tr>
+<tr><td>Node entities + real callbacks</td><td>Node pkg <code>configure(::nros::Node&amp;)</code></td></tr>
 <tr><td>Topology + launch args + per-target deploy</td><td>Bringup pkg <code>system.toml</code> + <code>launch/*.launch.xml</code></td></tr>
 <tr><td><code>int main()</code> + executor init + spin</td><td>Generated TU emitted by the Entry pkg’s cmake fn</td></tr>
 <tr><td>Board + RMW selection</td><td>Entry pkg’s <code>nano_ros_entry(BOARD …)</code> arg</td></tr>
@@ -3032,29 +3058,52 @@ nano_ros_workspace(
              src/native_entry)
 </code></pre>
 <h2 id="c-node-pkg"><a class="header" href="#c-node-pkg">C Node pkg</a></h2>
-<p>A C Node pkg is declarative: it has no <code>main()</code>. It exports a package-
-mangled register symbol via <code>NROS_NODE_REGISTER(register_fn)</code>.</p>
-<pre><code class="language-cmake">nros_find_interfaces(LANGUAGE C SKIP_INSTALL)
-
+<p>A C Node pkg is a <strong>typed component</strong> (RFC-0043): no <code>main()</code>. It defines a
+state struct + a <code>configure(node, executor, self)</code> function and exports the
+C-ABI factory/configure seam via <code>NROS_C_COMPONENT(StateT, configure_fn)</code> — the
+typed Entry creates the node and runs <code>configure</code> on the real executor.</p>
+<pre><code class="language-cmake"># Raw `/chatter` publisher carries the type name as a string → no generated C
+# bindings needed (so no nros_find_interfaces for this pkg).
 nano_ros_node_register(
     NAME     talker
     CLASS    c_talker_pkg::Talker
     LANGUAGE C
+    TYPED
     SOURCES  src/Talker.c
     DEPLOY   native)
 </code></pre>
-<pre><code class="language-c">#include &lt;nros/node_pkg.h&gt;
+<pre><code class="language-c">#include &lt;stdint.h&gt;
+#include &lt;nros/component.h&gt;
 
-static nros_ret_t register_talker(nros_node_context_t* ctx) {
-    /* declare node entities here */
-    return NROS_RET_OK;
+typedef struct {
+    _Alignas(8) uint8_t pub[NROS_C_PUBLISHER_STORAGE_SIZE];
+    int32_t count;
+} c_talker_pkg_t;
+
+static void on_tick(void* ctx) {
+    c_talker_pkg_t* self = (c_talker_pkg_t*)ctx;
+    uint8_t buf[8] = {0x00, 0x01, 0x00, 0x00};  /* CDR_LE header + LE int32 */
+    buf[4] = (uint8_t)self-&gt;count;
+    (void)nros_cpp_publish_raw(self-&gt;pub, buf, sizeof(buf));
+    self-&gt;count++;
 }
 
-NROS_NODE_REGISTER(register_talker);
+static nros_ret_t talker_configure(const nros_cpp_node_t* node, void* executor,
+                                   c_talker_pkg_t* self) {
+    self-&gt;count = 0;
+    int32_t rc = nros_cpp_publisher_create(node, "/chatter",
+        "std_msgs::msg::dds_::Int32_", "", nros_c_qos_default(), self-&gt;pub);
+    if (rc != 0) return rc;
+    size_t timer;
+    return nros_cpp_timer_create(executor, /*period_ms=*/1000, on_tick, self, &amp;timer);
+}
+
+NROS_C_COMPONENT(c_talker_pkg_t, talker_configure)
 </code></pre>
-<p><code>nano_ros_node_register()</code> injects <code>NROS_PKG_NAME</code> and
-<code>NROS_NODE_CLASS_NAME</code>, so the C object exports the same register,
-presence, and class-name symbols as the C++ Node-pkg macro.</p>
+<p><code>nano_ros_node_register(... LANGUAGE C TYPED ...)</code> injects <code>NROS_PKG_NAME</code>, so
+<code>NROS_C_COMPONENT</code> exports the <code>__nros_c_component_&lt;pkg&gt;_{create,configure}</code>
+seam the typed Entry calls — interoperable with C++ <code>configure(Node&amp;)</code> and Rust
+<code>nros::node!</code> components in one launch graph.</p>
 <h2 id="entry-pkg-1"><a class="header" href="#entry-pkg-1">Entry pkg</a></h2>
 <p>Use a C++ or Rust Entry pkg as the usual host for migration work. In the
 C++ template:</p>
@@ -3128,7 +3177,7 @@ Codegen owns the spin loop — your code only describes what the node
 <ul>
 <li><strong>No <code>fn main()</code>.</strong> A Node pkg builds as <code>rlib + staticlib</code> and is <em>linked into</em> an Entry pkg’s binary. Codegen synthesises the spin driver; you never hand-write one.</li>
 <li><strong><code>class</code> field must start with the pkg dir name.</strong> <code>nros check</code> rejects <code>class = "foo::Talker"</code> inside <code>src/talker_pkg/</code> — the pkg name and the class prefix are the same identity. (Phase 212.L.4.)</li>
-<li><strong>C++ analogue:</strong> <code>nano_ros_node_register(NAME … CLASS … SOURCES …)</code> cmake fn + <code>NROS_NODE(UserClass)</code> or <code>NROS_NODE_REGISTER(UserClass, "&lt;pkg&gt;::UserClass")</code> in the source. Same conceptual shape, no Cargo.toml.</li>
+<li><strong>C++ / C analogue:</strong> <code>nano_ros_node_register(NAME … CLASS … SOURCES …)</code> cmake fn + a typed component in the source — C++ a <code>configure(::nros::Node&amp;)</code> method, C a <code>NROS_C_COMPONENT(StateT, configure_fn)</code> seam (RFC-0043). Same conceptual shape, no Cargo.toml.</li>
 <li><strong><code>package.xml</code> is mandatory.</strong> Even pure-Rust Node pkgs ship one — <code>&lt;exec_depend&gt;</code> lines drive ROS 2 launch discovery when the system runs through <code>ros2 launch</code> outside the nano-ros toolchain.</li>
 </ul>
 <h2 id="bringup-pkg-optional"><a class="header" href="#bringup-pkg-optional">Bringup pkg (optional)</a></h2>
