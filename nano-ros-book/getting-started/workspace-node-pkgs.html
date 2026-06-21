@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-875cf1f8.js";
+            window.path_to_searchindex_js = "../searchindex-316dd32a.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-effe9594.js"></script>
@@ -341,6 +341,58 @@ entries. Minimal example:</p>
 </code></pre>
 <p>If your node uses no external message packages, the <code>&lt;depend&gt;</code> line can be
 omitted.</p>
+<hr>
+<h2 id="services--clients"><a class="header" href="#services--clients">Services &amp; clients</a></h2>
+<h3 id="server-responds-to-requests"><a class="header" href="#server-responds-to-requests">Server (responds to requests)</a></h3>
+<p>Declare the service in <code>Node::register</code> and handle requests in the node body.</p>
+<ul>
+<li>
+<p><strong>Rust</strong> — declare a service edge in <code>register</code>; requests dispatch into
+<code>ExecutableNode::on_callback</code> like any other callback (read the request and
+write the reply through the <code>CallbackCtx</code>).</p>
+</li>
+<li>
+<p><strong>C++/C</strong> (the <code>configure(Node&amp;)</code> component shape) — bind a <strong>typed</strong> member
+with <code>nros::bind_service</code>:</p>
+<pre><code class="language-cpp">// Response on_request(const Request&amp;) — no hand-rolled CDR.
+AddTwoInts::Response on_add(const AddTwoInts::Request&amp; req) {
+    AddTwoInts::Response r; r.sum = req.a + req.b; return r;
+}
+::nros::Result configure(::nros::Node&amp; node) {
+    return ::nros::bind_service&lt;AddTwoInts, MyServer, &amp;MyServer::on_add&gt;(
+        node, "/add_two_ints", this);   // service-type name from AddTwoInts::TYPE_NAME
+}
+</code></pre>
+<p><code>bind_service</code> deserializes the request into the generated <code>Svc::Request</code>,
+calls your typed member, and serializes the returned <code>Svc::Response</code> — no
+manual byte offsets. (<code>bind_service_raw&lt;&amp;method&gt;</code> is still available for the
+rare hand-rolled case.)</p>
+</li>
+</ul>
+<h3 id="client-issues-requests--call-from-tick-not-on_callback"><a class="header" href="#client-issues-requests--call-from-tick-not-on_callback">Client (issues requests) — call from <code>tick</code>, not <code>on_callback</code></a></h3>
+<p>A node <strong>cannot</strong> make a blocking service/action client call from
+<code>on_callback</code>: that runs while the executor is mid-dispatch, so a blocking call
+would deadlock the spin. Client calls go on the <strong>separate per-spin hook</strong>
+<code>ExecutableNode::tick(&amp;mut TickCtx)</code>, which the executor runs once per
+<code>spin_once</code> <em>between</em> callback dispatch:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn on_callback(state: &amp;mut State, cb: Callback&lt;'_&gt;, ctx: &amp;mut CallbackCtx&lt;'_&gt;) {
+    // ...decide a request is needed; just arm a flag / stash args:
+    state.want_call = true;
+}
+
+fn tick(state: &amp;mut State, ctx: &amp;mut TickCtx&lt;'_&gt;) {
+    if state.want_call {
+        state.want_call = false;
+        let reply = ctx.call_for_name("add_two_ints", &amp;request);  // blocking, safe here
+        // ...use reply
+    }
+}
+<span class="boring">}</span></code></pre>
+<p>The two-surface pattern (arm in <code>on_callback</code>, call in <code>tick</code>) is the supported
+way to drive a client from a declarative node. See
+<code>examples/workspaces/rust/.../service_client_pkg</code> for the reference.</p>
 <hr>
 <h2 id="building"><a class="header" href="#building">Building</a></h2>
 <p>From the workspace root, sync generated interfaces first, then let Cargo
