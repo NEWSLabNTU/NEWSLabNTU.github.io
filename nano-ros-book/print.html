@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-848f72ed.js";
+            window.path_to_searchindex_js = "searchindex-3dbdda5b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-effe9594.js"></script>
+        <script src="toc-706f4c53.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -194,10 +194,11 @@ as well as Linux and *BSD. The entire core stack is <code>no_std</code> compatib
 
 <p>Four layers, swappable independently: the same node code runs over any RMW
 backend on any platform. Here is a complete Linux publisher — register a
-backend, open the executor, publish <code>std_msgs/Int32</code> on <code>/chatter</code> once a
-second:</p>
-<pre class="playground"><code class="language-rust">use nros::prelude::*;
-use std_msgs::msg::Int32;
+backend, open the executor, publish <code>std_msgs/String</code> (<code>Hello World: N</code>)
+on <code>/chatter</code> once a second:</p>
+<pre class="playground"><code class="language-rust">use core::fmt::Write as _;
+use nros::prelude::*;
+use std_msgs::msg::String as StringMsg;
 
 fn main() {
     // Pick the backend at compile time; this one line registers it.
@@ -207,13 +208,15 @@ fn main() {
     let mut executor: Executor = Executor::open(&amp;config).unwrap();
 
     let mut node = executor.create_node("talker").unwrap();
-    let publisher = node.create_publisher::&lt;Int32&gt;("/chatter").unwrap();
+    let publisher = node.create_publisher::&lt;StringMsg&gt;("/chatter").unwrap();
 
     let mut count = 0i32;
     executor
         .register_timer(nros::TimerDuration::from_millis(1000), move || {
-            publisher.publish(&amp;Int32 { data: count }).unwrap();
             count += 1;
+            let mut msg = StringMsg::default();
+            let _ = write!(msg.data, "Hello World: {count}");
+            publisher.publish(&amp;msg).unwrap();
         })
         .unwrap();
 
@@ -787,7 +790,7 @@ for the one-page rewrite.</p>
 <li><a href="#first-node--c-linux">First Node — C</a> — build + run a C talker on Linux</li>
 <li><a href="#first-node--c-linux-1">First Node — C++</a> — build + run a C++ talker on Linux</li>
 <li><a href="#build-as-a-cmake-subdirectory">Build as Subdirectory</a> — CMake consumption walkthrough</li>
-<li><a href="#c-api">C API</a> — API entry points and CMake integration</li>
+<li><a href="#c-api-1">C API</a> — API entry points and CMake integration</li>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/multi-package-workspace"><code>examples/templates/multi-package-workspace/</code></a> — full mixed C / C++ / Rust example</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -840,9 +843,12 @@ via a path dependency. Three files matter:</p>
 — no <code>nros.toml</code> is needed. The <code>nros.toml</code> shape used by embedded
 targets shows up under the Embedded Starters section.</p>
 <p>The <code>Cargo.toml</code> is the contract that wires nano-ros into your
-package. The in-tree talker is a <strong>member of the nano-ros workspace</strong>,
-so it does NOT carry a <code>[workspace]</code> table — <code>cargo</code> walks up and
-picks up the root <code>Cargo.toml</code>. Verbatim from
+package. Every example is its own standalone Cargo root (an empty
+<code>[workspace]</code> table stops <code>cargo</code> walking up the filesystem), and
+nano-ros crates are declared <strong>registry-style</strong> (<code>version = "*"</code>);
+the example’s tracked <code>.cargo/config.toml</code> carries an auto-managed
+<code>[patch.crates-io]</code> block (written by <code>nros sync</code>) that resolves them
+into a nano-ros checkout. Verbatim from
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/native/rust/talker/Cargo.toml"><code>examples/native/rust/talker/Cargo.toml</code></a>
 (trimmed to the docs-relevant fields — the in-tree file also exposes
 <code>rmw-cyclonedds</code> / <code>rmw-xrce</code> features for the multi-RMW build path):</p>
@@ -859,31 +865,33 @@ path = "src/main.rs"
 
 [features]
 default   = ["rmw-zenoh"]
-rmw-zenoh = ["dep:nros-rmw-zenoh"]
+rmw-zenoh = ["dep:nros-rmw-zenoh", "nros-board-native/rmw-zenoh"]
 
 [dependencies]
-nros = { path = "../../../../packages/core/nros",
-         default-features = false,
-         features = ["std", "rmw-cffi", "platform-posix"] }
-nros-platform-cffi = { path = "../../../../packages/core/nros-platform-cffi",
-                       features = ["posix-c-port"] }
-nros-rmw-zenoh = { path = "../../../../packages/zpico/nros-rmw-zenoh",
+nros = { version = "*", default-features = false,
+         features = ["std", "rmw-cffi", "ros-humble"] }
+nros-platform-cffi = { version = "*", features = ["posix-c-port"] }
+nros-board-native = { version = "*", default-features = false }
+nros-rmw-zenoh = { version = "*", default-features = false,
                    features = ["std", "platform-posix", "ros-humble"],
                    optional = true }
 std_msgs = { version = "*", default-features = false }
 log = "0.4"
 env_logger = "0.11"
+
+[workspace]
 </code></pre>
-<p><strong>Copying this out of the workspace?</strong> Once you move the directory
-elsewhere on disk, the path deps no longer resolve and there is no
-parent workspace to inherit from. Two options:</p>
-<ol>
-<li>Replace each <code>path = "../../../../packages/..."</code> with an absolute
-path to your nano-ros checkout, AND add an empty <code>[workspace]</code>
-table to stop cargo walking further up the filesystem.</li>
-<li>Keep it inside <code>examples/</code> in your own fork of nano-ros — the
-simpler path while you’re learning the API.</li>
-</ol>
+<p><strong>Copying this out of the workspace?</strong> That is the intended workflow —
+nano-ros crates are not published to crates.io, so the <code>version = "*"</code>
+deps resolve through the <code>[patch.crates-io]</code> block in
+<code>.cargo/config.toml</code>, and <code>nros sync</code> rewrites that block (plus the
+generated message crates) for wherever the directory lives now:</p>
+<pre><code class="language-bash">cp -r examples/native/rust/talker ~/my-talker &amp;&amp; cd ~/my-talker
+NROS_REPO_DIR=/path/to/nano-ros nros sync
+cargo build &amp;&amp; RUST_LOG=info cargo run
+</code></pre>
+<p>Prefer vendoring instead? <code>examples/templates/multi-package-workspace/</code>
+documents the path-dep workspace layout.</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
 <p>Three runtime knobs, each overridable at three layers (defaults →
 <code>config.toml</code> → env vars):</p>
@@ -917,14 +925,16 @@ zenohd                               # installed by `nros setup native`
 
 # Terminal 2 — the talker. The talker logs via `log::info!`, so set
 # RUST_LOG=info — without it `env_logger` only shows errors and the
-# `Published: N` lines stay hidden.
+# `Publishing:` lines stay hidden.
 cd examples/native/rust/talker
 RUST_LOG=info cargo run
 # Expected output (on stderr):
-#   [INFO  native_rs_talker] nros Native Talker (Zenoh Transport)
-#   [INFO  native_rs_talker] =========================================
-#   [INFO  native_rs_talker] Published: 0
-#   [INFO  native_rs_talker] Published: 1
+#   [INFO  talker] nros Native Talker
+#   [INFO  talker] =========================================
+#   [INFO  talker] Node created: talker
+#   [INFO  talker] Publisher created for topic: /chatter
+#   [INFO  talker] Publishing: 'Hello World: 1'
+#   [INFO  talker] Publishing: 'Hello World: 2'
 #   …
 </code></pre>
 <p>That’s the nano-ros side fully working. <strong>Optional step:</strong> verify
@@ -941,18 +951,19 @@ ros2 run rmw_zenoh_cpp rmw_zenohd &amp;       # in its own subshell
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <p>If <code>ros2 topic echo</code> shows no output despite the talker printing
-<code>Published:</code>, the routers aren’t peering — confirm both processes
+<code>Publishing:</code>, the routers aren’t peering — confirm both processes
 point at the same port (default <code>tcp/127.0.0.1:7447</code>).</p>
-<p><strong>Readiness signal.</strong> Within 5 seconds of <code>RUST_LOG=info cargo run</code>,
-the talker should print <code>Published: 0</code> (the Rust talker pre-publishes
-<code>0</code> before the counter advances). If no <code>Published:</code> line in 30
+<p><strong>Readiness signal.</strong> Within ~6 seconds of <code>RUST_LOG=info cargo run</code>
+(session open + the first 1 s timer tick), the talker should print
+<code>Publishing: 'Hello World: 1'</code> — the count starts at 1, matching the
+official ROS 2 <code>demo_nodes_cpp</code> talker. If no <code>Publishing:</code> line in 30
 seconds:</p>
 <ol>
 <li>Confirm <code>RUST_LOG</code> is set. Without <code>RUST_LOG=info</code> (or <code>debug</code>),
-<code>env_logger</code> filters out the <code>Published:</code> lines and the run looks
+<code>env_logger</code> filters out the <code>Publishing:</code> lines and the run looks
 silent even when it’s working.</li>
 <li>Confirm <code>zenohd</code> is running (terminal 1). Without it, the talker
 blocks on <code>Executor::open</code> indefinitely.</li>
@@ -963,8 +974,8 @@ open session” — usually a wrong locator or wrong port.</li>
 <h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>
 <p>Canonical, copy-out:
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/native/rust/talker"><code>examples/native/rust/talker/</code></a></p>
-<p>Copy the directory, rename the package, and your starter is ready to
-modify.</p>
+<p>Copy the directory, run <code>NROS_REPO_DIR=&lt;nano-ros checkout&gt; nros sync</code>
+inside it, rename the package, and your starter is ready to modify.</p>
 <h2 id="next"><a class="header" href="#next">Next</a></h2>
 <ul>
 <li>Add a subscription:
@@ -1070,7 +1081,7 @@ stub that wires signal handling and forwards to your function.</p>
 #include "std_msgs.h"
 
 int nros_app_main(int argc, char** argv) {
-    // 1. nros_init() — opens the zenoh session
+    // 1. nros_support_init() — opens the zenoh session
     // 2. nros_executor_init() / nros_node_init()
     // 3. std_msgs_msg_int32_publisher_init() — typed publisher
     // 4. nros_timer_init() with a 1 Hz period + publish callback
@@ -1112,11 +1123,9 @@ zenohd                               # installed by `nros setup native`
 cd examples/native/c/talker
 ./build/c_talker
 # Expected output:
-#   nros C Talker
-#   =================
-#   Published: 0
-#   Published: 1
-#   Published: 2
+#   Publishing: 'Hello World: 1'
+#   Publishing: 'Hello World: 2'
+#   Publishing: 'Hello World: 3'
 #   …
 
 # 3. Verify from stock ROS 2:
@@ -1125,12 +1134,13 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
-<p><strong>Readiness signal.</strong> Within 5 seconds of <code>./build/c_talker</code>, the
-binary should print <code>Published: 0</code> on stdout — Rust + C + C++ all
-start the counter at 0 (Phase 208.D.9). If no <code>Published:</code> line
-in 30 seconds:</p>
+<p><strong>Readiness signal.</strong> Within ~6 seconds of <code>./build/c_talker</code> (session
+open + the first 1 s timer tick), the binary should print
+<code>Publishing: 'Hello World: 1'</code> on stdout — Rust + C + C++ all start
+the count at 1, matching the official ROS 2 demo talker. If no
+<code>Publishing:</code> line in 30 seconds:</p>
 <ol>
 <li>Confirm <code>zenohd</code> is running (terminal 1). Without it,
 <code>nros_support_init</code> returns immediately with <code>-4</code>
@@ -1254,7 +1264,7 @@ int nros_app_main(int argc, char** argv) {
     nros::Node node;
     NROS_TRY_RET(nros::create_node(node, "talker"), 1);
 
-    nros::Publisher&lt;std_msgs::msg::Int32&gt; pub;
+    nros::Publisher&lt;std_msgs::msg::String&gt; pub;
     NROS_TRY_RET(node.create_publisher(pub, "/chatter"), 1);
 
     // ... register a timer + spin
@@ -1295,8 +1305,14 @@ zenohd
 cd examples/native/cpp/talker
 ./build/cpp_talker
 # Expected:
-#   Published: 0
-#   Published: 1
+#   nros C++ Talker
+#   ===================
+#   Node created: talker
+#
+#   Publishing messages (Ctrl+C to exit)...
+#
+#   Publishing: 'Hello World: 1'
+#   Publishing: 'Hello World: 2'
 #   …
 
 # 3. Verify from stock ROS 2:
@@ -1305,11 +1321,13 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
-<p><strong>Readiness signal.</strong> Within 5 seconds of <code>./build/cpp_talker</code>, the
-binary should print <code>Published: 0</code> — Rust + C + C++ all start the
-counter at 0 (Phase 208.D.9). If no <code>Published:</code> line in 30 seconds:</p>
+<p><strong>Readiness signal.</strong> Within ~6 seconds of <code>./build/cpp_talker</code>
+(session open + the first 1 s timer tick), the binary should print
+<code>Publishing: 'Hello World: 1'</code> — Rust + C + C++ all start the count
+at 1, matching the official ROS 2 demo talker. If no <code>Publishing:</code>
+line in 30 seconds:</p>
 <ol>
 <li>Confirm <code>zenohd</code> is running (terminal 1). Without it,
 <code>nros::init</code> returns <code>-100</code> (TransportError) — the
@@ -1720,22 +1738,23 @@ error you see usually points at one of the predictable misses below.</p>
 paraphrase. If your error text matches, the fix on the right is the
 one to try.</p>
 <h2 id="a-build-failures-cargo--cmake"><a class="header" href="#a-build-failures-cargo--cmake">A. Build failures (cargo / cmake)</a></h2>
-<h3 id="a1-missing-path-deps-onto-in-tree-crates"><a class="header" href="#a1-missing-path-deps-onto-in-tree-crates">A1. Missing path-deps onto in-tree crates</a></h3>
+<h3 id="a1-nros-crates-dont-resolve-missing--stale-patch-block"><a class="header" href="#a1-nros-crates-dont-resolve-missing--stale-patch-block">A1. nros crates don’t resolve (missing / stale patch block)</a></h3>
 <pre><code>error[E0432]: unresolved import `nros`
 error: failed to load source for dependency `nros`
-error: could not find `nros-rmw-zenoh`
+error: no matching package named `nros` found
 </code></pre>
-<p>The example’s <code>Cargo.toml</code> carries a path-dep onto the in-tree
-<code>packages/core/nros*</code> crates (the canonical copy-out shape). When
-the example is cargo-built from a stripped-down checkout (e.g. you
-vendored only the example dir into your own workspace), those
-<code>path = "../../../../packages/…"</code> entries resolve to nothing. Fix
-one of:</p>
-<ul>
-<li>Build inside a full nano-ros checkout, OR</li>
-<li>Rewrite the <code>path = …</code> entries to <code>git = …</code> against
-<code>github.com/NEWSLabNTU/nano-ros</code> and pin a rev.</li>
-</ul>
+<p>The example’s <code>Cargo.toml</code> declares nano-ros crates registry-style
+(<code>nros = { version = "*" }</code> — they are not published to crates.io);
+the example’s <code>.cargo/config.toml</code> carries the <code># nros-managed</code>
+<code>[patch.crates-io]</code> block that resolves them into a nano-ros
+checkout. This error means the patch block is missing or its
+relative paths no longer reach a checkout (typical right after
+copying the example somewhere else). Fix:</p>
+<pre><code class="language-bash">cd &lt;the example dir&gt;
+NROS_REPO_DIR=/path/to/nano-ros nros sync
+</code></pre>
+<p>which regenerates the message crates and rewrites the patch block
+for the example’s current location.</p>
 <p>This is <strong>not</strong> an <code>nros setup</code> issue — <code>nros setup</code> only fetches
 the SDK / source-package payload (zenoh-pico, mbedtls, cyclonedds,
 …); it does not synthesise missing Cargo dependencies.</p>
@@ -1880,7 +1899,7 @@ ros2 topic echo /chatter  # … nothing
 <code>ros2 topic echo</code> defaults to <code>RELIABLE</code>. The QoS-mismatched
 subscriber is created but receives no data. Force best-effort on
 the echo:</p>
-<pre><code class="language-bash">ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+<pre><code class="language-bash">ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <h2 id="d-doctor--last-resort"><a class="header" href="#d-doctor--last-resort">D. Doctor + last-resort</a></h2>
 <h3 id="d1-use-the-per-platform-doctor-first"><a class="header" href="#d1-use-the-per-platform-doctor-first">D1. Use the per-platform doctor first</a></h3>
@@ -1923,31 +1942,29 @@ minutes.</p>
 <p>A correctly-running Rust Linux talker
 (<code>examples/native/rust/talker</code>) prints something like this on
 stderr (with <code>RUST_LOG=info</code>):</p>
-<pre><code class="language-text">[INFO  native_rs_talker] nros Native Talker (Zenoh Transport)
-[INFO  native_rs_talker] =========================================
-[INFO  native_rs_talker] Node created: talker
-[INFO  native_rs_talker] Publisher created for topic: /chatter
-[INFO  native_rs_talker] Published: 0
-[INFO  native_rs_talker] Published: 1
-[INFO  native_rs_talker] Published: 2
+<pre><code class="language-text">[INFO  talker] nros Native Talker
+[INFO  talker] =========================================
+[INFO  talker] Node created: talker
+[INFO  talker] Publisher created for topic: /chatter
+[INFO  talker] Publishing: 'Hello World: 1'
+[INFO  talker] Publishing: 'Hello World: 2'
+[INFO  talker] Publishing: 'Hello World: 3'
 </code></pre>
 <p>A correctly-running C talker (<code>examples/native/c/talker</code>) prints
 on stdout:</p>
-<pre><code class="language-text">nros C Talker
-=================
-Published: 0
-Published: 1
-Published: 2
+<pre><code class="language-text">Publishing: 'Hello World: 1'
+Publishing: 'Hello World: 2'
+Publishing: 'Hello World: 3'
 </code></pre>
-<p>A correctly-running C++ talker prints the same <code>Published: N</code>
-line once per second.</p>
-<p>The ROS 2 side (<code>ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort</code> with
+<p>A correctly-running C++ talker prints the same
+<code>Publishing: 'Hello World: N'</code> line once per second.</p>
+<p>The ROS 2 side (<code>ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort</code> with
 <code>RMW_IMPLEMENTATION=rmw_zenoh_cpp</code>) should see:</p>
-<pre><code class="language-text">data: 0
+<pre><code class="language-text">data: 'Hello World: 1'
 ---
-data: 1
+data: 'Hello World: 2'
 ---
-data: 2
+data: 'Hello World: 3'
 ---
 </code></pre>
 <p>If you see all three of these — talker logging, ROS 2 echo
@@ -1957,7 +1974,7 @@ end-to-end.</p>
 <ul>
 <li><a href="#installation">Install + first build</a> — full setup walkthrough</li>
 <li><a href="#first-node--rust-linux">First Node — Rust</a> — the canonical Rust starter</li>
-<li><a href="#troubleshooting-4">Troubleshooting</a> — broader
+<li><a href="#troubleshooting-5">Troubleshooting</a> — broader
 issue-by-issue reference for post-first-build problems</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -3484,16 +3501,17 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <p>QEMU exits via Ctrl-A x.</p>
 <p>For batch testing without manual QEMU launches: <code>just freertos test</code> runs every E2E (pub/sub, service, action) against a temporary
 in-test zenohd.</p>
 <p><strong>Readiness signal.</strong> Within ~20 seconds of QEMU boot, the talker
-should print <code>Published: 0</code> on its semihosting stdout (the Rust
-talker pre-publishes <code>0</code> before the first counter bump). QEMU
-cold-boot through FreeRTOS init + lwIP DHCP + zenoh session open
-typically takes 10–15 s. If no <code>Published:</code> line in 30 seconds:</p>
+should print <code>Publishing: 'Hello World: 1'</code> on its semihosting
+stdout — the count starts at 1, matching the official ROS 2 demo
+talker. QEMU cold-boot through FreeRTOS init + lwIP DHCP + zenoh
+session open typically takes 10–15 s. If no <code>Publishing:</code> line in
+30 seconds:</p>
 <ol>
 <li>Confirm <code>zenohd</code> is running on the host (Slirp forwards
 <code>10.0.2.2:7451</code> → host:7451). Without it the talker retries the
@@ -3533,7 +3551,7 @@ care of the rest.</p>
 <blockquote>
 <p><strong>Contributor path?</strong> Building nano-ros’s own Zephyr examples
 straight from this repository (no west-managed workspace) is
-covered at <a href="getting-started/zephyr.html">Zephyr (contributor)</a>. The page below is
+covered at <a href="#zephyr-contributor--in-tree-workflow">Zephyr (contributor)</a>. The page below is
 the canonical user entry.</p>
 </blockquote>
 <blockquote>
@@ -3603,39 +3621,93 @@ application sits beside both:</p>
 <li><code>target_sources</code>. <strong>No <code>add_subdirectory(&lt;nano-ros&gt;)</code></strong> is needed;
 the module shell handles it once <code>CONFIG_NROS=y</code> flips on.</li>
 </ul>
-<p>A minimal <code>apps/my_app/</code> looks like this (mirrors
+<p>A minimal <code>apps/my_app/</code> looks like this — the shipped
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/zephyr/c/talker"><code>examples/zephyr/c/talker/</code></a>
-with the names stripped to the essentials):</p>
+quoted directly (only the project/class names are trimmed to <code>my_app</code>), so
+this page can’t drift from the real API surface. It is a <strong>stateful C
+component</strong> (a struct + a <code>configure</code> function, RFC-0043 / phase-244.C2) —
+not a hand-written <code>main()</code> — because the Zephyr typed carrier generates
+the entry point and calls into the component by identity:</p>
 <pre><code class="language-cmake"># apps/my_app/CMakeLists.txt
 cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(my_app)
-target_sources(app PRIVATE src/main.c)
-</code></pre>
-<pre><code class="language-c">// apps/my_app/src/main.c
-#include &lt;nros/nros.h&gt;
-#include &lt;nros/publisher.h&gt;
-#include &lt;std_msgs/msg/int32.h&gt;
 
-int main(void) {
-    nros_init_args_t args = nros_init_args_default();
-    nros_context_t ctx;
-    nros_init(&amp;args, &amp;ctx);
-    nros_node_t node;
-    nros_create_node(&amp;ctx, "my_app", &amp;node);
-    nros_publisher_t pub;
-    nros_create_publisher(&amp;node, std_msgs__msg__Int32_type_support(),
-                          "/chatter", &amp;pub);
-    std_msgs__msg__Int32 msg = { .data = 0 };
-    while (nros_ok(&amp;ctx)) {
-        nros_publish(&amp;pub, &amp;msg);
-        msg.data++;
-        k_sleep(K_SECONDS(1));
-    }
-    return 0;
-}
+set(NANO_ROS_PLATFORM zephyr)
+include("${NROS_REPO_DIR}/cmake/NanoRosNodeRegister.cmake")
+
+nano_ros_node_register(
+    NAME      talker
+    CLASS     my_app::Talker
+    LANGUAGE  C
+    TYPED
+    SOURCES   src/Talker.c
+    DEPLOY    zephyr)
 </code></pre>
-<p><code>prj.conf</code> is the one shown in <a href="#configure-4">Configure</a> below.</p>
+<pre><code class="language-c">// apps/my_app/src/Talker.c
+// `talker_configure` creates a raw publisher on `/chatter` + a timer that
+// publishes a CDR-encoded Int32 counter each tick. `NROS_C_COMPONENT` emits
+// the C-ABI factory/configure the Zephyr typed Entry carrier calls.
+#include &lt;stddef.h&gt;
+#include &lt;stdint.h&gt;
+#include &lt;stdio.h&gt;
+
+#include &lt;nros/component.h&gt;
+
+typedef struct {
+    _Alignas(8) uint8_t pub[NROS_C_PUBLISHER_STORAGE_SIZE];
+    int32_t count;
+} talker_t;
+
+static void write_u32_le(uint8_t* p, uint32_t v) {
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v &gt;&gt; 8);
+    p[2] = (uint8_t)(v &gt;&gt; 16);
+    p[3] = (uint8_t)(v &gt;&gt; 24);
+}
+
+static void on_tick(void* ctx) {
+    talker_t* self = (talker_t*)ctx;
+    /* std_msgs/Int32 CDR: 4-byte encapsulation header (CDR_LE) + int32 data. */
+    uint8_t buf[8];
+    buf[0] = 0x00;
+    buf[1] = 0x01;
+    buf[2] = 0x00;
+    buf[3] = 0x00;
+    write_u32_le(buf + 4, (uint32_t)self-&gt;count);
+    if (nros_cpp_publish_raw(self-&gt;pub, buf, sizeof(buf)) == 0) {
+        printf("Published: %d\n", (int)self-&gt;count);
+    }
+    self-&gt;count++;
+}
+
+static nros_ret_t talker_configure(const nros_cpp_node_t* node, void* executor, talker_t* self) {
+    self-&gt;count = 0;
+    int32_t rc = nros_cpp_publisher_create(node, "/chatter", "std_msgs::msg::dds_::Int32_", "",
+                                           nros_c_qos_default(), self-&gt;pub);
+    if (rc != 0) {
+        return rc;
+    }
+    size_t timer_handle;
+    return nros_cpp_timer_create(executor, /*period_ms=*/500, on_tick, self, &amp;timer_handle);
+}
+
+NROS_C_COMPONENT(talker_t, talker_configure)
+</code></pre>
+<p>See <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/templates/zephyr-byo/app/src/Talker.c"><code>examples/templates/zephyr-byo/app/src/Talker.c</code></a>
+for the up-to-date source (this is that BYO starter’s talker, only stripped
+of its file header comment; the canonical in-tree
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/zephyr/c/talker"><code>examples/zephyr/c/talker/</code></a>
+uses the generated <strong>typed</strong> <code>std_msgs/String</code> bindings instead of raw CDR).
+Note the <code>nros_cpp_*</code> symbol prefix: those are C-ABI
+functions from <code>nros-cpp</code> (the <code>cpp</code> is a namespace prefix, not C++
+linkage) — a C component links against them directly, and shares the same
+executor + node as a C++ component would.</p>
+<p><code>prj.conf</code> is the one shown in <a href="#configure-4">Configure</a> below — note it needs
+<strong>both</strong> <code>CONFIG_NROS_C_API=y</code> and <code>CONFIG_NROS_CPP_API=y</code>: the typed
+Zephyr carrier that drives this component’s <code>configure</code> is C++, so the
+<code>nros-cpp</code> header surface must be on the app include path even though
+<code>Talker.c</code> itself is C.</p>
 <h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
 <p><code>nros setup</code> provisions the parts nano-ros owns — the <strong>RMW host daemon</strong>
 (<code>zenohd</code> / Micro-XRCE-DDS agent) and the <strong>RMW transport submodules</strong>
@@ -3773,21 +3845,28 @@ west build -t run
 # native_sim:
 ./build/zephyr/zephyr.exe
 
-# 3. Verify from stock ROS 2 in another terminal:
+# 3. Verify from stock ROS 2 in another terminal. Match the message
+# type to the app you booted: the canonical in-tree talker publishes
+# std_msgs/String; the raw BYO Talker.c shown above publishes
+# std_msgs/Int32.
 source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort   # just zephyr talker
+# ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort  # BYO my_app
 </code></pre>
-<p>The Zephyr boot banner runs first, then nano-ros prints
-<code>Published: 0</code>, <code>Published: 1</code>, … as the talker fires — Rust + C +
-C++ all start at 0 (Phase 208.D.9).</p>
-<p><strong>Readiness signal.</strong> On <code>native_sim</code>, expect <code>Published: 0</code>
-within 5 seconds of <code>just zephyr talker</code> (or
+<p>The Zephyr boot banner runs first, then the talker fires: the
+canonical in-tree talker prints <code>Publishing: 'Hello World: 1'</code>,
+<code>Publishing: 'Hello World: 2'</code>, … (Rust + C + C++ all count from
+1, matching the official ROS 2 demo talker); the raw BYO <code>Talker.c</code>
+above prints <code>Published: 0</code>, <code>Published: 1</code>, …</p>
+<p><strong>Readiness signal.</strong> On <code>native_sim</code>, expect the first publish line
+(<code>Publishing: 'Hello World: 1'</code> for <code>just zephyr talker</code>;
+<code>Published: 0</code> for the BYO app) within 5 seconds of boot (or
 <code>./build/zephyr/zephyr.exe</code>); on <code>qemu_cortex_a9</code> expect it within
-~15 seconds (QEMU cold boot + Zephyr init). If no <code>Published:</code> line
+~15 seconds (QEMU cold boot + Zephyr init). If no publish line
 in 30 seconds:</p>
 <ol>
 <li>Confirm <code>CONFIG_NROS=y</code> lit up via <code>west build -t menuconfig</code>;
@@ -3876,8 +3955,298 @@ add a board-specific overlay to your <code>prj.conf</code>.</li>
 <a href="#rmw-backends-zenoh-xrce-dds-cyclone-dds">Choosing an RMW Backend</a> for the
 required Kconfig deltas.</li>
 <li>Build nano-ros’s own Zephyr examples without west:
-<a href="getting-started/zephyr.html">Zephyr (contributor)</a>.</li>
+<a href="#zephyr-contributor--in-tree-workflow">Zephyr (contributor)</a>.</li>
 </ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="zephyr-contributor--in-tree-workflow"><a class="header" href="#zephyr-contributor--in-tree-workflow">Zephyr (contributor / in-tree workflow)</a></h1>
+<blockquote>
+<p><strong>Looking for the user-facing path?</strong> This page covers building
+nano-ros’s own Zephyr examples from this repository.
+If you’re consuming nano-ros as a Zephyr module in YOUR Zephyr
+workspace, see <a href="#zephyr-west-module">Integration: Zephyr (<code>west</code> module)</a>
+instead.</p>
+</blockquote>
+<p>Complete setup procedure for Zephyr <code>native_sim</code> testing. Networking uses
+<strong>NSOS</strong> (Native Sim Offloaded Sockets) — each socket call is forwarded to
+the host kernel, so tests run on <code>127.0.0.1</code> without TAP devices, bridges,
+or <code>sudo</code>.</p>
+<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
+<p>nros uses an <strong>in-tree Zephyr workspace</strong> at <code>zephyr-workspace/</code> (gitignored).
+Set <code>$NROS_ZEPHYR_WORKSPACE</code> to install elsewhere.</p>
+<pre><code>nros/
+├── scripts/zephyr/
+│   ├── setup.sh                      # Initialize workspace
+│   ├── migrate-workspace.sh          # Move legacy sibling install in-tree
+│   ├── downloads/                    # SDK tarball cache (gitignored)
+│   └── sdk/                          # Installed Zephyr SDK (gitignored)
+├── zephyr/                           # Zephyr module definition
+│   ├── Kconfig                       # RMW backend, API selection, tuning
+│   ├── CMakeLists.txt                # Transport C sources + nros-c build
+│   └── cmake/                        # nros_cargo_build(), nros_generate_interfaces()
+├── examples/zephyr/
+│   ├── rust/                   # Rust + zenoh (talker, listener, ...)
+│   ├── rust/xrce/                    # Rust + XRCE-DDS (talker, listener)
+│   ├── c/                      # C + zenoh (talker, listener)
+│   └── c/xrce/                       # C + XRCE-DDS (talker, listener)
+├── west.yml                          # West manifest
+└── zephyr-workspace/                 # Created by setup.sh (gitignored)
+    ├── nros -&gt; ../                   # Symlink back to repo root
+    ├── zephyr/                       # Zephyr RTOS v3.7.0
+    └── modules/                      # HALs, zephyr-lang-rust
+</code></pre>
+<h3 id="migrating-from-the-legacy-sibling-layout"><a class="header" href="#migrating-from-the-legacy-sibling-layout">Migrating from the legacy sibling layout</a></h3>
+<p>Legacy setups put the workspace at <code>../nano-ros-workspace/</code> with an
+in-tree symlink. Both layouts work — <code>just zephyr</code> recipes auto-detect — but
+to consolidate run:</p>
+<pre><code class="language-bash">./scripts/zephyr/migrate-workspace.sh --dry-run     # preview
+./scripts/zephyr/migrate-workspace.sh               # execute
+</code></pre>
+<h2 id="prerequisites-1"><a class="header" href="#prerequisites-1">Prerequisites</a></h2>
+<p>Build the in-tree <code>nros</code> CLI (Phase 218), then let it provision the toolchain:</p>
+<pre><code class="language-bash">source ./activate.sh        # OR: direnv allow / source ./activate.fish
+just setup-cli              # builds packages/cli/target/release/nros
+</code></pre>
+<p><code>nros setup</code> ships prebuilt toolchains per platform per RMW — the
+cross-compiler, emulator, RMW host daemon, and SDK sources (including the Zephyr
+west workspace + Zephyr SDK bits) are fetched from a pinned index into a shared
+store at <code>${NROS_HOME:-~/.nros}/sdk</code>. You do not hand-install a cross-toolchain, and you do not
+need ROS 2 installed.</p>
+<h2 id="step-1-initialize-workspace-one-time"><a class="header" href="#step-1-initialize-workspace-one-time">Step 1: Initialize Workspace (One-Time)</a></h2>
+<pre><code class="language-bash">nros setup zephyr --rmw zenoh      # --rmw defaults to zenoh; xrce | cyclonedds also valid
+source ./setup.bash
+</code></pre>
+<p>This provisions:</p>
+<ul>
+<li>The Zephyr west workspace + Zephyr SDK bits</li>
+<li>The emulator</li>
+<li>The RMW host daemon (<code>zenohd</code> for zenoh, the Micro-XRCE-DDS agent for xrce)</li>
+<li>The in-tree workspace at <code>zephyr-workspace/</code> (gitignored; auto-detects legacy <code>../nano-ros-workspace/</code>), with nros symlinked in</li>
+<li>Rust embedded targets</li>
+</ul>
+<blockquote>
+<p><strong>Contributors:</strong> the in-tree <code>just zephyr setup</code> recipe still works and now
+delegates to <code>nros setup zephyr</code> under the hood.</p>
+</blockquote>
+<p>The RMW host daemon must be <strong>running</strong> before any example: <code>zenohd</code> for zenoh,
+the Micro-XRCE-DDS agent for xrce. <code>nros setup zephyr --rmw &lt;rmw&gt;</code> installs it.</p>
+<h2 id="step-2-networking"><a class="header" href="#step-2-networking">Step 2: Networking</a></h2>
+<p>No network setup is required. <code>native_sim</code> uses the NSOS offloaded-sockets
+driver, enabled by <code>boards/native_sim_native_64.conf</code> in each example:</p>
+<pre><code>CONFIG_ETH_NATIVE_POSIX=n
+CONFIG_NET_SOCKETS_OFFLOAD=y
+CONFIG_NET_NATIVE_OFFLOADED_SOCKETS=y
+</code></pre>
+<p>With NSOS, Zephyr’s socket API goes straight to host syscalls. Bind to
+<code>127.0.0.1</code> and reach <code>zenohd</code> / the XRCE Agent on the host loopback just
+like any other native test. Multiple <code>native_sim</code> processes can coexist
+without bridge configuration.</p>
+<h2 id="step-3-build-and-run-zephyr-examples"><a class="header" href="#step-3-build-and-run-zephyr-examples">Step 3: Build and Run Zephyr Examples</a></h2>
+<pre><code class="language-bash"># Source environment
+source zephyr-workspace/env.sh
+
+# Build Zephyr talker (Rust + zenoh, default backend)
+cd zephyr-workspace
+west build -b native_sim/native/64 nros/examples/zephyr/rust/talker
+
+# Run (no sudo needed)
+./build/zephyr/zephyr.exe
+</code></pre>
+<h2 id="rmw-backend-selection"><a class="header" href="#rmw-backend-selection">RMW Backend Selection</a></h2>
+<p>nros supports three RMW backends on Zephyr, selected via <code>prj.conf</code>:</p>
+<h3 id="zenoh-default"><a class="header" href="#zenoh-default">Zenoh (default)</a></h3>
+<p>Connects to a zenoh router. Requires POSIX API for zenoh-pico threads.</p>
+<pre><code class="language-ini">CONFIG_NROS=y
+# CONFIG_NROS_RMW_ZENOH=y  # default, can be omitted
+CONFIG_NROS_ZENOH_LOCATOR="tcp/127.0.0.1:7456"
+CONFIG_POSIX_API=y
+CONFIG_MAX_PTHREAD_MUTEX_COUNT=32
+CONFIG_MAX_PTHREAD_COND_COUNT=16
+</code></pre>
+<h3 id="xrce-dds"><a class="header" href="#xrce-dds">XRCE-DDS</a></h3>
+<p>Connects to a Micro-XRCE-DDS Agent over UDP. Requires BSD sockets.</p>
+<pre><code class="language-ini">CONFIG_NROS=y
+CONFIG_NROS_RMW_XRCE=y
+CONFIG_NROS_XRCE_AGENT_ADDR="127.0.0.1"
+CONFIG_NROS_XRCE_AGENT_PORT=2018
+CONFIG_NET_SOCKETS=y
+</code></pre>
+<h3 id="cyclone-dds"><a class="header" href="#cyclone-dds">Cyclone DDS</a></h3>
+<p>Brokerless RTPS, wire-compatible with stock ROS 2 (<code>rmw_cyclonedds_cpp</code>).
+Cyclone’s source is C++, so <code>CONFIG_CPP=y</code> is required even for Rust
+callers. Cyclone is resource-heavy — it needs a large heap, libc malloc
+arena, and pthread pools. The bool prerequisites (thread-local storage,
+dynamic threads, <code>NET_TCP</code>, …) are <code>select</code>ed automatically by
+<code>CONFIG_NROS_RMW_CYCLONEDDS</code> in <code>zephyr/Kconfig</code>; the size knobs stay in
+<code>prj.conf</code>:</p>
+<pre><code class="language-ini">CONFIG_NROS=y
+CONFIG_NROS_RMW_CYCLONEDDS=y
+CONFIG_CPP=y
+CONFIG_NROS_CYCLONE_DOMAIN_ID=0
+CONFIG_POSIX_API=y
+CONFIG_NET_IPV4_IGMP=y                  # RTPS SPDP uses UDP multicast
+CONFIG_MAIN_STACK_SIZE=524288
+CONFIG_HEAP_MEM_POOL_SIZE=4194304
+CONFIG_COMMON_LIBC_MALLOC_ARENA_SIZE=16777216
+CONFIG_DYNAMIC_THREAD_STACK_SIZE=32768
+</code></pre>
+<p>On <code>native_sim</code>, add the NSOS host-socket offload
+(<code>CONFIG_NET_SOCKETS_OFFLOAD=y</code> + <code>CONFIG_NET_NATIVE_OFFLOADED_SOCKETS=y</code>)
+so discovery uses host BSD sockets instead of zeth/TAP. See
+<code>examples/zephyr/rust/talker/prj-cyclonedds.conf</code> for the full overlay.</p>
+<h2 id="api-selection"><a class="header" href="#api-selection">API Selection</a></h2>
+<p>Choose between Rust and C APIs via <code>prj.conf</code>:</p>
+<h3 id="rust-api-default"><a class="header" href="#rust-api-default">Rust API (default)</a></h3>
+<pre><code class="language-ini">CONFIG_NROS_RUST_API=y
+CONFIG_RUST=y
+CONFIG_RUST_ALLOC=y
+</code></pre>
+<p>CMakeLists.txt uses <code>rust_cargo_application()</code>:</p>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.20.0)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(my_example)
+rust_cargo_application()
+</code></pre>
+<h3 id="c-api"><a class="header" href="#c-api">C API</a></h3>
+<pre><code class="language-ini">CONFIG_NROS_C_API=y
+</code></pre>
+<p>CMakeLists.txt uses <code>nros_generate_interfaces()</code>:</p>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.20.0)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(my_example)
+nros_generate_interfaces(std_msgs "msg/Int32.msg")
+target_sources(app PRIVATE src/main.c)
+</code></pre>
+<h2 id="kconfig-reference"><a class="header" href="#kconfig-reference">Kconfig Reference</a></h2>
+<p>All options are under <code>menuconfig NROS</code> in <code>zephyr/Kconfig</code>.</p>
+<h3 id="common-options"><a class="header" href="#common-options">Common Options</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>CONFIG_NROS</code></td><td>bool</td><td>n</td><td>Enable nros module</td></tr>
+<tr><td><code>CONFIG_NROS_RUST_API</code></td><td>bool</td><td>y</td><td>Use Rust API</td></tr>
+<tr><td><code>CONFIG_NROS_C_API</code></td><td>bool</td><td>n</td><td>Use C API</td></tr>
+<tr><td><code>CONFIG_NROS_DOMAIN_ID</code></td><td>int</td><td>0</td><td>ROS 2 domain ID</td></tr>
+<tr><td><code>CONFIG_NROS_INIT_DELAY_MS</code></td><td>int</td><td>2000</td><td>Network init wait (ms)</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="zenoh-options-visible-when-config_nros_rmw_zenohy"><a class="header" href="#zenoh-options-visible-when-config_nros_rmw_zenohy">Zenoh Options (visible when <code>CONFIG_NROS_RMW_ZENOH=y</code>)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>CONFIG_NROS_ZENOH_LOCATOR</code></td><td>string</td><td><code>"tcp/127.0.0.1:7456"</code></td><td>Router address</td></tr>
+<tr><td><code>CONFIG_NROS_ZENOH_MULTI_THREAD</code></td><td>bool</td><td>y</td><td>Zenoh-pico multithreading</td></tr>
+<tr><td><code>CONFIG_NROS_ZENOH_PUBLICATION</code></td><td>bool</td><td>y</td><td>Publication support</td></tr>
+<tr><td><code>CONFIG_NROS_ZENOH_SUBSCRIPTION</code></td><td>bool</td><td>y</td><td>Subscription support</td></tr>
+<tr><td><code>CONFIG_NROS_ZENOH_QUERY</code></td><td>bool</td><td>y</td><td>Service client support</td></tr>
+<tr><td><code>CONFIG_NROS_ZENOH_QUERYABLE</code></td><td>bool</td><td>y</td><td>Service server support</td></tr>
+<tr><td><code>CONFIG_NROS_ZENOH_LINK_TCP</code></td><td>bool</td><td>y</td><td>TCP transport link</td></tr>
+<tr><td><code>CONFIG_NROS_MAX_PUBLISHERS</code></td><td>int</td><td>8</td><td>Max concurrent publishers</td></tr>
+<tr><td><code>CONFIG_NROS_MAX_SUBSCRIBERS</code></td><td>int</td><td>8</td><td>Max concurrent subscribers</td></tr>
+<tr><td><code>CONFIG_NROS_MAX_QUERYABLES</code></td><td>int</td><td>8</td><td>Max concurrent queryables</td></tr>
+<tr><td><code>CONFIG_NROS_FRAG_MAX_SIZE</code></td><td>int</td><td>2048</td><td>Max reassembled message size</td></tr>
+<tr><td><code>CONFIG_NROS_BATCH_UNICAST_SIZE</code></td><td>int</td><td>1024</td><td>Max unicast batch size</td></tr>
+<tr><td><code>CONFIG_NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td>int</td><td>1024</td><td>Per-subscriber buffer</td></tr>
+<tr><td><code>CONFIG_NROS_SERVICE_BUFFER_SIZE</code></td><td>int</td><td>1024</td><td>Per-service buffer</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="xrce-options-visible-when-config_nros_rmw_xrcey"><a class="header" href="#xrce-options-visible-when-config_nros_rmw_xrcey">XRCE Options (visible when <code>CONFIG_NROS_RMW_XRCE=y</code>)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>CONFIG_NROS_XRCE_AGENT_ADDR</code></td><td>string</td><td><code>"127.0.0.1"</code></td><td>Agent IP address</td></tr>
+<tr><td><code>CONFIG_NROS_XRCE_AGENT_PORT</code></td><td>int</td><td>2018</td><td>Agent UDP port</td></tr>
+<tr><td><code>CONFIG_NROS_XRCE_TRANSPORT_MTU</code></td><td>int</td><td>512</td><td>Transport MTU</td></tr>
+<tr><td><code>CONFIG_NROS_XRCE_MAX_SUBSCRIBERS</code></td><td>int</td><td>8</td><td>Max concurrent subscribers</td></tr>
+<tr><td><code>CONFIG_NROS_XRCE_MAX_SERVICE_SERVERS</code></td><td>int</td><td>4</td><td>Max service servers</td></tr>
+<tr><td><code>CONFIG_NROS_XRCE_MAX_SERVICE_CLIENTS</code></td><td>int</td><td>4</td><td>Max service clients</td></tr>
+<tr><td><code>CONFIG_NROS_XRCE_BUFFER_SIZE</code></td><td>int</td><td>1024</td><td>Per-slot buffer size</td></tr>
+<tr><td><code>CONFIG_NROS_XRCE_STREAM_HISTORY</code></td><td>int</td><td>4</td><td>Reliable stream depth (2-16)</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="c-api-options-visible-when-config_nros_c_apiy"><a class="header" href="#c-api-options-visible-when-config_nros_c_apiy">C API Options (visible when <code>CONFIG_NROS_C_API=y</code>)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>CONFIG_NROS_C_MAX_HANDLES</code></td><td>int</td><td>16</td><td>Max executor handles</td></tr>
+<tr><td><code>CONFIG_NROS_C_MAX_SUBSCRIPTIONS</code></td><td>int</td><td>8</td><td>Max subscriptions</td></tr>
+<tr><td><code>CONFIG_NROS_C_MAX_TIMERS</code></td><td>int</td><td>8</td><td>Max timers</td></tr>
+<tr><td><code>CONFIG_NROS_C_MAX_SERVICES</code></td><td>int</td><td>4</td><td>Max services</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="e2e-testing"><a class="header" href="#e2e-testing">E2E Testing</a></h2>
+<pre><code class="language-bash"># Zenoh examples
+just zephyr build           # Build Rust zenoh examples
+just zephyr build-c         # Build C zenoh examples
+just zephyr test            # Run zenoh E2E tests
+
+# XRCE examples
+just zephyr build-xrce      # Build all XRCE examples (Rust + C)
+just zephyr test-xrce       # Run XRCE E2E tests
+
+# All examples
+just zephyr build-all       # Build everything
+just zephyr ci              # Doctor + test (CI shortcut)
+</code></pre>
+<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Issue</th><th>Solution</th></tr>
+</thead>
+<tbody>
+<tr><td><code>west: command not found</code></td><td>Run <code>pip3 install --user west</code> and add <code>~/.local/bin</code> to PATH</td></tr>
+<tr><td><code>Connection refused</code></td><td>Start <code>zenohd</code> / <code>MicroXRCEAgent</code> on the host loopback (e.g. <code>tcp/127.0.0.1:7456</code>)</td></tr>
+<tr><td><code>Build fails</code></td><td>Source environment: <code>source zephyr-workspace/env.sh</code></td></tr>
+<tr><td><code>XRCE Agent not found</code></td><td>Provision the xrce daemon: <code>nros setup zephyr --rmw xrce</code></td></tr>
+<tr><td>Zenoh mutex exhaustion</td><td>Increase <code>CONFIG_MAX_PTHREAD_MUTEX_COUNT</code> (default 5 is too low)</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="network-architecture"><a class="header" href="#network-architecture">Network Architecture</a></h2>
+<p>With NSOS, Zephyr sockets are forwarded to host syscalls — there is no
+emulated L2/L3 stack to configure, no static IP, and no bridge.</p>
+<pre><code>┌─────────────────────────────────────────────────────────────┐
+│                      Host (Linux)                            │
+│                                                              │
+│   ┌────────────────────┐       ┌────────────────────────┐   │
+│   │ zephyr.exe talker  │       │ zephyr.exe listener    │   │
+│   │ (native_sim+NSOS)  │       │ (native_sim+NSOS)      │   │
+│   └─────────┬──────────┘       └──────────┬─────────────┘   │
+│             │ host socket() via NSOS       │                │
+│             ▼                              ▼                │
+│                 127.0.0.1 (loopback)                        │
+│             │                              │                │
+│             ▼                              ▼                │
+│   ┌────────────────────┐       ┌────────────────────────┐   │
+│   │ zenohd             │       │ MicroXRCEAgent         │   │
+│   │ tcp/127.0.0.1:7456 │       │ udp/127.0.0.1:2018     │   │
+│   └────────────────────┘       └────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+</code></pre>
+<h2 id="updating-the-workspace"><a class="header" href="#updating-the-workspace">Updating the Workspace</a></h2>
+<p>To update Zephyr and modules to latest versions specified in <code>west.yml</code>:</p>
+<pre><code class="language-bash">cd zephyr-workspace
+west update
+</code></pre>
+<p>To completely recreate the workspace:</p>
+<pre><code class="language-bash">just zephyr setup --force
+</code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="nuttx-appsexternal"><a class="header" href="#nuttx-appsexternal">NuttX (apps/external)</a></h1>
 <p>Single-node starter on NuttX. nano-ros plugs into the standard NuttX
@@ -3887,7 +4256,7 @@ own kernel build and you want to add ROS 2 communication.</p>
 <blockquote>
 <p><strong>Contributor path?</strong> Building nano-ros’s own NuttX QEMU examples
 straight from this repository (no NuttX-managed workspace) is
-covered at <a href="getting-started/nuttx.html">NuttX (contributor)</a>. The page below is
+covered at <a href="#nuttx-contributor--in-tree-workflow">NuttX (contributor)</a>. The page below is
 the canonical user entry.</p>
 </blockquote>
 <blockquote>
@@ -4038,12 +4407,13 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <p><strong>Readiness signal.</strong> After typing the app’s NSH command (e.g.
-<code>nuttx_c_talker</code>), expect <code>Published: 0</code> on the NSH console within
-5 seconds — Rust + C + C++ all start the counter at 0
-(Phase 208.D.9). If no <code>Published:</code> line:</p>
+<code>nuttx_c_talker</code>), expect <code>Publishing: 'Hello World: 1'</code> on the NSH
+console within ~6 seconds — Rust + C + C++ talkers all start the
+count at 1, matching the official ROS 2 demo talker. If no
+<code>Publishing:</code> line:</p>
 <ol>
 <li>Confirm the app actually ran — <code>ps</code> should show your task.</li>
 <li>Confirm networking — <code>ifconfig</code> shows a configured interface.
@@ -4102,8 +4472,156 @@ one <code>libnros_c.a</code> build via the external-app shell.</li>
 Zephyr DDS profile under
 <a href="#rmw-backends-zenoh-xrce-dds-cyclone-dds">Choosing an RMW Backend</a>).</li>
 <li>Build nano-ros’s own NuttX QEMU tests without a NuttX-managed
-workspace: <a href="getting-started/nuttx.html">NuttX (contributor)</a>.</li>
+workspace: <a href="#nuttx-contributor--in-tree-workflow">NuttX (contributor)</a>.</li>
 </ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="nuttx-contributor--in-tree-workflow"><a class="header" href="#nuttx-contributor--in-tree-workflow">NuttX (contributor / in-tree workflow)</a></h1>
+<blockquote>
+<p><strong>Looking for the user-facing path?</strong> This page covers building
+nano-ros’s own NuttX examples on QEMU from this repository.
+If you’re integrating nano-ros into YOUR NuttX app at
+<code>apps/external/nano-ros/</code>, see
+<a href="#nuttx-appsexternal">Integration: NuttX external app</a> instead.</p>
+</blockquote>
+<p>nano-ros runs on NuttX, targeting QEMU ARM virt (Cortex-A7 + virtio-net).
+NuttX provides POSIX-compatible BSD sockets, which makes it the most
+straightforward RTOS port – zenoh-pico uses the same socket API as on Linux.</p>
+<h2 id="overview-1"><a class="header" href="#overview-1">Overview</a></h2>
+<p>The NuttX platform uses:</p>
+<ul>
+<li><strong>NuttX RTOS</strong> – POSIX-compliant real-time OS with BSD socket support</li>
+<li><strong>BSD sockets</strong> – standard socket API provided by NuttX’s network stack</li>
+<li><strong>zenoh-pico</strong> – Zenoh transport over NuttX sockets (same code path as POSIX)</li>
+<li><strong>virtio-net</strong> – NuttX built-in Ethernet driver (no custom driver needed)</li>
+</ul>
+<p>Board crate: <code>nros-board-nuttx-qemu-arm</code> (in <code>packages/boards/</code>).</p>
+<h3 id="why-nuttx-is-simpler-than-freertos"><a class="header" href="#why-nuttx-is-simpler-than-freertos">Why NuttX Is Simpler Than FreeRTOS</a></h3>
+<p>NuttX is the simplest RTOS platform to port because of its strong POSIX
+compliance (POSIX.1-2008: pthreads, BSD sockets, <code>select()</code>,
+<code>clock_gettime()</code>):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Aspect</th><th>NuttX</th><th>FreeRTOS</th></tr>
+</thead>
+<tbody>
+<tr><td>zenoh-pico layer</td><td>Reuses <code>unix/</code> platform</td><td>Dedicated <code>freertos/</code> platform</td></tr>
+<tr><td>Networking</td><td>Built-in BSD sockets</td><td>External lwIP</td></tr>
+<tr><td>Ethernet driver</td><td>NuttX virtio-net (built-in)</td><td>Custom LAN9118 lwIP netif</td></tr>
+<tr><td>Rust target</td><td><code>armv7a-nuttx-eabi</code> with <code>std</code></td><td><code>thumbv7m-none-eabi</code> (<code>no_std</code>)</td></tr>
+<tr><td>Build integration</td><td>NuttX build system + cargo</td><td>cc crate compiles FreeRTOS + lwIP</td></tr>
+<tr><td>QEMU machine</td><td><code>virt</code> (Cortex-A7)</td><td><code>mps2-an385</code> (Cortex-M3)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Because NuttX supports Rust <code>std</code>, examples use standard <code>fn main()</code> entry
+points and <code>println!</code> – no semihosting or custom panic handlers needed.</p>
+<h2 id="setup-1"><a class="header" href="#setup-1">Setup</a></h2>
+<p><code>nros setup qemu-arm-nuttx</code> provisions everything this board needs —
+the NuttX cross-compiler, <code>qemu-system-arm</code>, the NuttX source tree,
+and the RMW host daemon — into the shared store at <code>~/.nros/sdk</code>. No
+hand-installed cross-toolchain and no ROS 2 install required.</p>
+<p>Build the in-tree <code>nros</code> CLI (Phase 218), then provision the board
+(<code>--rmw</code> defaults to <code>zenoh</code>):</p>
+<pre><code class="language-bash">source ./activate.sh        # OR: direnv allow / source ./activate.fish
+just setup-cli              # builds packages/cli/target/release/nros
+nros setup qemu-arm-nuttx --rmw zenoh
+</code></pre>
+<p>As a contributor, <code>just nuttx setup</code> remains available and now
+delegates to <code>nros setup qemu-arm-nuttx</code> for the toolchain/SDK
+provisioning while also staging the external apps.</p>
+<p>The NuttX sources land in <code>third-party/nuttx/nuttx/</code> and
+<code>third-party/nuttx/nuttx-apps/</code>. Override the paths with environment
+variables if your sources are elsewhere:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>NUTTX_DIR</code></td><td><code>third-party/nuttx/nuttx</code></td><td>NuttX RTOS source</td></tr>
+<tr><td><code>NUTTX_APPS_DIR</code></td><td><code>third-party/nuttx/nuttx-apps</code></td><td>NuttX apps source</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="prerequisites-2"><a class="header" href="#prerequisites-2">Prerequisites</a></h3>
+<p>The <code>nros setup qemu-arm-nuttx</code> step above provisions the
+<code>qemu-system-arm</code> emulator and the <code>arm-none-eabi-gcc</code> cross-compiler
+used for NuttX kernel compilation. The one host-side tool you still
+supply yourself:</p>
+<ul>
+<li>Rust nightly toolchain (NuttX targets are Tier 3, require <code>-Z build-std</code>)</li>
+</ul>
+<h2 id="building-1"><a class="header" href="#building-1">Building</a></h2>
+<pre><code class="language-bash">just nuttx build
+</code></pre>
+<p>This cross-compiles all NuttX examples for <code>armv7a-nuttx-eabi</code> using
+<code>cargo +nightly build --release</code>. The examples link against NuttX’s POSIX
+layer, which provides sockets, pthreads, and standard I/O.</p>
+<h3 id="available-examples"><a class="header" href="#available-examples">Available Examples</a></h3>
+<p>All examples are in <code>examples/qemu-arm-nuttx/rust/</code>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Example</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>talker</code></td><td>Publishes <code>std_msgs/String</code> on <code>/chatter</code></td></tr>
+<tr><td><code>listener</code></td><td>Subscribes to <code>std_msgs/String</code> on <code>/chatter</code></td></tr>
+<tr><td><code>service-server</code></td><td>Serves <code>AddTwoInts</code> on <code>/add_two_ints</code></td></tr>
+<tr><td><code>service-client</code></td><td>Calls <code>AddTwoInts</code> on <code>/add_two_ints</code></td></tr>
+<tr><td><code>action-server</code></td><td>Serves <code>Fibonacci</code> action on <code>/fibonacci</code></td></tr>
+<tr><td><code>action-client</code></td><td>Sends <code>Fibonacci</code> goal on <code>/fibonacci</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="testing"><a class="header" href="#testing">Testing</a></h2>
+<pre><code class="language-bash">just test-nuttx
+</code></pre>
+<p>Tests run under <code>qemu-system-arm -M virt</code> with TAP networking. Each QEMU
+instance connects to the host bridge (<code>br-qemu</code>) via TAP devices for
+zenohd communication. The test infrastructure builds a NuttX kernel image
+with the example app embedded, boots it in QEMU, and verifies message
+exchange.</p>
+<h3 id="network-configuration"><a class="header" href="#network-configuration">Network Configuration</a></h3>
+<p>NuttX QEMU instances use the same IP scheme as other QEMU board crates:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Role</th><th>IP Address</th><th>TAP Device</th></tr>
+</thead>
+<tbody>
+<tr><td>Talker/Publisher</td><td>192.0.3.10</td><td>tap-qemu0</td></tr>
+<tr><td>Listener/Sub</td><td>192.0.3.11</td><td>tap-qemu1</td></tr>
+<tr><td>Service Server</td><td>192.0.3.12</td><td>tap-qemu0</td></tr>
+<tr><td>Service Client</td><td>192.0.3.13</td><td>tap-qemu1</td></tr>
+<tr><td>zenohd (host)</td><td>192.0.3.1</td><td>br-qemu</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="architecture"><a class="header" href="#architecture">Architecture</a></h2>
+<h3 id="board-crate"><a class="header" href="#board-crate">Board Crate</a></h3>
+<p>The <code>nros-board-nuttx-qemu-arm</code> board crate follows the standard <code>Config</code> / <code>run()</code> pattern documented in the <a href="#custom-board-package">Custom Board Package</a> guide. It provides network and node configuration presets (<code>talker()</code>, <code>listener()</code>, <code>server()</code>, <code>client()</code>).</p>
+<p>Unlike bare-metal and FreeRTOS board crates, there is no custom hardware
+initialization, no network stack setup, and no task creation. NuttX’s kernel
+boots the hardware, initializes virtio-net, and starts the application
+before <code>main()</code> runs. Because NuttX supports Rust <code>std</code>, examples use standard
+<code>fn main()</code> entry points.</p>
+<h3 id="nuttx-defconfig"><a class="header" href="#nuttx-defconfig">NuttX Defconfig</a></h3>
+<p>The QEMU board configuration lives in
+<code>packages/boards/nros-board-nuttx-qemu-arm/nuttx-config/</code> and enables:</p>
+<ul>
+<li><code>CONFIG_NET</code> – networking subsystem</li>
+<li><code>CONFIG_NET_TCP</code> / <code>CONFIG_NET_UDP</code> – TCP/UDP protocols</li>
+<li><code>CONFIG_DRIVERS_VIRTIO</code> + <code>CONFIG_DRIVERS_VIRTIO_NET</code> – virtio Ethernet</li>
+<li><code>CONFIG_PTHREAD_MUTEX_TYPES</code> – POSIX mutex types (for zenoh-pico)</li>
+<li><code>CONFIG_DEV_URANDOM</code> – <code>/dev/urandom</code> for session ID generation</li>
+<li><code>CONFIG_DEFAULT_TASK_STACKSIZE=8192</code> – adequate stack for nros apps</li>
+<li><code>CONFIG_BUILD_FLAT</code> – flat memory model (no MMU protection)</li>
+</ul>
+<h2 id="status"><a class="header" href="#status">Status</a></h2>
+<p>NuttX platform support is complete: feature flags, build integration,
+six Rust examples, E2E network tests, and documentation.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="threadx-linux-sim--risc-v64-qemu"><a class="header" href="#threadx-linux-sim--risc-v64-qemu">ThreadX (Linux sim / RISC-V64 QEMU)</a></h1>
 <p>Single-node starter on Microsoft Azure RTOS ThreadX + NetX Duo (BSD
@@ -4121,11 +4639,11 @@ for the per-RMW cell status.</p>
 <blockquote>
 <p><strong>Prereqs.</strong> Install the <code>nros</code> CLI once, then run
 <code>nros setup &lt;board&gt; --rmw &lt;rmw&gt;</code> for the flavour you need (see
-<a href="#setup-1">Setup</a>). It provisions the cross-compiler, emulator, RMW host
+<a href="#setup-2">Setup</a>). It provisions the cross-compiler, emulator, RMW host
 daemon, and ThreadX/NetX sources — no hand-installed <code>riscv64</code> cross
 toolchain, <code>qemu-system-riscv64</code>, or ROS 2 required.</p>
 </blockquote>
-<h2 id="setup-1"><a class="header" href="#setup-1">Setup</a></h2>
+<h2 id="setup-2"><a class="header" href="#setup-2">Setup</a></h2>
 <p><code>nros setup</code> is the single canonical command to prepare a machine to build
 nano-ros for a board. It ships prebuilt toolchains per platform per RMW — the
 cross-compiler, emulator, RMW host daemon, and SDK sources (the ThreadX/NetX
@@ -4138,7 +4656,7 @@ just setup-cli              # builds packages/cli/target/release/nros
 <p>Provision the ThreadX flavour you need (+ the RMW):</p>
 <pre><code class="language-bash">nros setup threadx-linux --rmw zenoh          # POSIX-sim flavour; --rmw defaults to zenoh
 nros setup qemu-riscv64-threadx --rmw zenoh   # only if you need the RISC-V64 QEMU flow
-source ./setup.bash
+source ./activate.sh
 </code></pre>
 <p>The RMW host daemon must be <strong>running</strong> before any example: <code>zenohd</code> for zenoh,
 the Micro-XRCE-DDS agent for xrce. <code>nros setup … --rmw &lt;rmw&gt;</code> installs it.</p>
@@ -4228,11 +4746,9 @@ builds finish in seconds.</p>
 # matching just recipe — same binary the example dir builds.
 just threadx_linux zenohd &amp;
 just threadx_linux talker
-# Expected (per src/main.rs structured logs):
-#   Declaring publisher on /chatter (std_msgs/Int32)
-#   Publisher declared
-#   Published: 0
-#   Published: 1
+# Expected (per src/lib.rs structured logs):
+#   Publishing: 'Hello World: 1'
+#   Publishing: 'Hello World: 2'
 #   ...
 
 # threadx-riscv64 (QEMU virt). Same shape — zenohd on 7453 first,
@@ -4247,15 +4763,15 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <p>For batch testing: <code>just threadx_linux test</code> runs every pubsub /
 service / action against an in-test zenohd.</p>
-<p><strong>Readiness signal.</strong> threadx-linux: <code>Published: 0</code> within 3
-seconds of <code>just threadx_linux talker</code> <strong>on a warm cache</strong>; a cold
-first run rebuilds the Rust example (~80 s on a fresh checkout)
-before the first publish lands. threadx-riscv64 (QEMU): within
-~15 seconds of QEMU boot. If no <code>Published:</code> line:</p>
+<p><strong>Readiness signal.</strong> threadx-linux: <code>Publishing: 'Hello World: 1'</code>
+within a few seconds of <code>just threadx_linux talker</code> <strong>on a warm
+cache</strong>; a cold first run rebuilds the Rust example (~80 s on a
+fresh checkout) before the first publish lands. threadx-riscv64
+(QEMU): within ~15 seconds of QEMU boot. If no <code>Publishing:</code> line:</p>
 <ol>
 <li>Confirm <code>zenohd</code> reachable on the locator from <code>nros.toml</code>
 (threadx-linux uses <code>127.0.0.1</code>; riscv64 QEMU uses <code>10.0.2.2</code>).</li>
@@ -4298,7 +4814,7 @@ the chosen RMW host daemon from a pinned index into the shared
 store at <code>~/.nros/sdk</code> — you do not hand-install cross-compilers,
 and you do not need ROS 2 installed.</p>
 </blockquote>
-<h2 id="setup-2"><a class="header" href="#setup-2">Setup</a></h2>
+<h2 id="setup-3"><a class="header" href="#setup-3">Setup</a></h2>
 <p>Build the in-tree <code>nros</code> CLI (Phase 218):</p>
 <pre><code class="language-bash">source ./activate.sh        # OR: direnv allow / source ./activate.fish
 just setup-cli              # builds packages/cli/target/release/nros
@@ -4366,11 +4882,9 @@ just esp32 build-qemu
 just esp32 zenohd &amp;
 # Then boot the talker binary in qemu-system-riscv32 (esp32c3):
 just esp32 talker
-# Expected serial output (per src/main.rs):
-#   Declaring publisher on /chatter (std_msgs/Int32)
-#   Publisher declared
-#   Published: 0
-#   Published: 1
+# Expected serial output (per src/lib.rs):
+#   Publishing: 'Hello World: 1'
+#   Publishing: 'Hello World: 2'
 #   ...
 
 # Verify from stock ROS 2 on the same network:
@@ -4379,12 +4893,12 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <p><strong>Readiness signal.</strong> QEMU ESP32: ~15 seconds <strong>after</strong> a warm cache —
 the <code>just esp32 talker</code> recipe re-runs <code>build-qemu</code> every invocation,
 so a first / cold run adds ~25 s of build time on top. If no
-<code>Published:</code> line:</p>
+<code>Publishing:</code> line:</p>
 <ol>
 <li>Wrong locator → talker logs <code>zenoh open failed</code> and retries.
 Confirm <code>zenohd</code> is reachable on the host IP (<code>10.0.2.2:7454</code>).</li>
@@ -4492,7 +5006,7 @@ idf.py -p /dev/ttyUSB0 flash monitor
 # Expected serial output:
 #   I (1234) nano-ros: Wi-Fi connected
 #   I (1456) nano-ros: zenoh session opened
-#   I (1567) nano-ros: Published: 0
+#   I (2567) nano-ros: Publishing: 'Hello World: 1'
 
 # Verify from stock ROS 2 on the same network:
 source /opt/ros/humble/setup.bash
@@ -4500,15 +5014,16 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <p>QEMU ESP32 testing path: see the <code>just esp_idf</code> recipes — they
 boot the IDF binary in <code>qemu-system-xtensa</code> via Espressif’s
 patched QEMU.</p>
 <p><strong>Readiness signal.</strong> After <code>idf.py flash monitor</code>, expect
 <code>I (XXXX) nano-ros: Wi-Fi connected</code> followed by
-<code>I (XXXX) nano-ros: Published: 0</code> within 10 seconds — Rust + C + C++
-all start the counter at 0 (Phase 208.D.9). If no <code>Published:</code> line:</p>
+<code>I (XXXX) nano-ros: Publishing: 'Hello World: 1'</code> within 10 seconds
+— Rust + C + C++ talkers all start the count at 1, matching the
+official ROS 2 demo talker. If no <code>Publishing:</code> line:</p>
 <ol>
 <li>Wi-Fi creds — IDF Kconfig under <code>Component config → nano-ros</code>
 must carry SSID + password OR your <code>nros.toml</code> must.</li>
@@ -4640,11 +5155,9 @@ just qemu zenohd &amp;
 #    no `-nic socket,model=lan9118,…`, so a plain `cargo run` boots
 #    QEMU without networking):
 just qemu talker
-# Expected serial-over-semihosting output (per src/main.rs):
-#   Declaring publisher on /chatter (std_msgs/Int32)
-#   Publisher declared
-#   Published: 0
-#   Published: 1
+# Expected serial-over-semihosting output (per src/lib.rs):
+#   Publishing: 'Hello World: 1'
+#   Publishing: 'Hello World: 2'
 #   ...
 
 # 3. Verify from stock ROS 2:
@@ -4653,14 +5166,14 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <p>QEMU exits via Ctrl-A x.</p>
 <p><strong>Readiness signal.</strong> Within ~15 seconds of QEMU boot (no RTOS
 init delay, but smoltcp + zenoh handshake still takes a few
-seconds), expect <code>Published: 0</code> on semihosting stdout (the Rust
-talker pre-publishes <code>0</code> before the counter advances). If no
-<code>Published:</code> line:</p>
+seconds), expect <code>Publishing: 'Hello World: 1'</code> on semihosting
+stdout — the count starts at 1, matching the official ROS 2 demo
+talker. If no <code>Publishing:</code> line:</p>
 <ol>
 <li><code>zenohd</code> not running — talker spins on smoltcp poll until
 killed.</li>
@@ -4857,6 +5370,61 @@ the standard PX4-ROS bridge with nano-ros on the autopilot side.</li>
 <a href="#nuttx-appsexternal">NuttX starter</a>.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="px4-integration-shell"><a class="header" href="#px4-integration-shell">PX4 (integration shell)</a></h1>
+<blockquote>
+<p><strong>Contributor docs?</strong> Building nano-ros’s PX4 example from this
+repository is covered at <a href="#px4-autopilot-external-module">PX4 (contributor)</a>.</p>
+</blockquote>
+<p>nano-ros lifts the PX4 <code>EXTERNAL_MODULES_LOCATION</code> pattern into a
+generic copy-out template under
+<code>integrations/px4/module-template/</code>. Downstream PX4 apps vendor the
+template, customise it, and point <code>EXTERNAL_MODULES_LOCATION</code> at
+their copy.</p>
+<h2 id="prereqs-7"><a class="header" href="#prereqs-7">Prereqs</a></h2>
+<ul>
+<li>PX4-Autopilot checkout (<code>git clone https://github.com/PX4/PX4-Autopilot</code>)</li>
+<li>The full PX4 SITL build toolchain (<code>make px4_sitl_default</code> works
+standalone)</li>
+</ul>
+<p>For nano-ros’s in-repo PX4 checks:</p>
+<pre><code class="language-bash">just setup px4              # equivalent to: just px4 setup
+just px4 doctor
+</code></pre>
+<h2 id="one-liner-vendor"><a class="header" href="#one-liner-vendor">One-liner vendor</a></h2>
+<pre><code class="language-bash">cp -r /path/to/nano-ros/integrations/px4/module-template \
+      ./my-px4-modules
+</code></pre>
+<h2 id="layout-px4-enforces-this-exactly"><a class="header" href="#layout-px4-enforces-this-exactly">Layout (PX4 enforces this exactly)</a></h2>
+<pre><code>my-px4-modules/
+└── src/
+    ├── CMakeLists.txt                       (lists module names)
+    └── modules/
+        └── nano_ros_app/
+            ├── CMakeLists.txt               (px4_add_module)
+            └── nano_ros_app.cpp             (module body)
+</code></pre>
+<p>Rename <code>nano_ros_app</code> consistently in all three places when adapting
+for your own module.</p>
+<h2 id="build-11"><a class="header" href="#build-11">Build</a></h2>
+<pre><code class="language-bash">export EXTERNAL_MODULES_LOCATION=$PWD/my-px4-modules
+export NANO_ROS_DIR=/path/to/nano-ros
+make -C $PX4_AUTOPILOT_DIR px4_sitl_default
+</code></pre>
+<p>PX4’s build picks up the module via <code>&lt;location&gt;/src/CMakeLists.txt</code>.
+The module CMakeLists pulls in nano-ros C++ headers via
+<code>$NANO_ROS_DIR</code>.</p>
+<h2 id="reference"><a class="header" href="#reference">Reference</a></h2>
+<p>The validated end-to-end SITL pattern (with the Rust-side
+<code>nros-rmw-cffi_register</code> weak-stub trick) lives at
+<code>examples/px4/cpp/uorb/</code>. Use that as the source of truth for the
+register-check shape; this template is the generic shell for
+downstreams writing their own modules.</p>
+<h2 id="registry-note"><a class="header" href="#registry-note">Registry note</a></h2>
+<p>PX4 has no central module registry. Downstreams vendor the template
+via <code>git submodule</code> or <code>cp -r</code>. See
+<a href="../docs/release/registry-publishing.html">Registry Publishing</a> for
+the cross-ecosystem comparison.</p>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="arm-fvp-fvp_baser_aemv8r"><a class="header" href="#arm-fvp-fvp_baser_aemv8r">ARM FVP (<code>FVP_BaseR_AEMv8R</code>)</a></h1>
 <p>Run nano-ros on Arm’s <code>Base_RevC AEMv8-R</code> Fast Models — the
 Cortex-A SMP profile under Zephyr 3.7 (board id
@@ -4888,7 +5456,7 @@ and the Zephyr starter. The FVP is also <strong>not</strong> the same surface
 as Corellium’s AVH cloud FVP — AVH packages firmware as <code>.coreimg</code>
 and provisions via a remote API; local FVP loads a raw ELF via
 <code>-a cluster0.cpu*=&lt;elf&gt;</code>. AVH is out of scope for this chapter.</p>
-<h2 id="prereqs-7"><a class="header" href="#prereqs-7">Prereqs</a></h2>
+<h2 id="prereqs-8"><a class="header" href="#prereqs-8">Prereqs</a></h2>
 <ul>
 <li>A working Zephyr 3.7 workspace — run <code>nros setup zephyr</code> once if
 you haven’t (see the <a href="#zephyr-west-module">Zephyr starter</a>).</li>
@@ -4931,7 +5499,7 @@ hard-fails — gated) when the FVP can’t be resolved via
 <code>just zephyr run-fvp-aemv8r{,-cyclonedds}</code> recipes do the
 equivalent inline via <code>scripts/zephyr/resolve-fvp-bin.sh</code> and
 skip with a clear hint when the binary can’t be found.</p>
-<h2 id="build-11"><a class="header" href="#build-11">Build</a></h2>
+<h2 id="build-12"><a class="header" href="#build-12">Build</a></h2>
 <p>The build half is unchanged from Phase 117.13 / 117.14:</p>
 <pre><code class="language-bash"># Phase 117.13 — Zephyr-only talker.
 just zephyr build-fvp-aemv8r
@@ -4979,20 +5547,20 @@ the talker. The exact line counts depend on <code>CONFIG_BOOT_BANNER</code>
 and your locator config, but the markers to look for are:</p>
 <pre><code class="language-text">*** Booting Zephyr OS build v3.7.0 ***
 [00:00:00.xxx,000] &lt;inf&gt; nros: session up (domain 0)
-Published: 0/1
-Published: 1/2
+Publishing: 'Hello World: 1'
+Publishing: 'Hello World: 2'
 ...
 </code></pre>
 <p>For the cpp/cyclonedds recipe, the same banner is followed by
-Cyclone DDS reader-match logs and <code>std_msgs/Int32</code> publish lines.
+Cyclone DDS reader-match logs and <code>std_msgs/String</code> publish lines.
 Verify ROS 2 interop by running a sibling listener in another
 terminal:</p>
 <pre><code class="language-bash"># stock ROS 2 — reads the FVP's Cyclone DDS publisher
-ros2 topic echo /chatter std_msgs/msg/Int32
+ros2 topic echo /chatter std_msgs/msg/String
 </code></pre>
-<p>The same <code>std_msgs/Int32</code> payload + byte-equal CDR framing must
-appear on both sides — that’s the Phase 117 stock-RMW interop
-contract.</p>
+<p>The same <code>std_msgs/String</code> payload (<code>Hello World: N</code>) + byte-equal
+CDR framing must appear on both sides — that’s the Phase 117
+stock-RMW interop contract.</p>
 <h2 id="cross-references"><a class="header" href="#cross-references">Cross-references</a></h2>
 <ul>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/phase-217-arm-fvp-local-runtime.md"><code>docs/roadmap/phase-217-arm-fvp-local-runtime.md</code></a>
@@ -5026,7 +5594,7 @@ subscriber.</li>
 interop before moving to an RTOS.</li>
 <li>Your deployment target is Linux, *BSD, or an embedded Linux system.</li>
 </ul>
-<h2 id="setup-3"><a class="header" href="#setup-3">Setup</a></h2>
+<h2 id="setup-4"><a class="header" href="#setup-4">Setup</a></h2>
 <p>Build the in-tree <code>nros</code> CLI (Phase 218), then provision the native
 host. For a host build there is no cross-toolchain to fetch — <code>nros setup native</code> installs only the RMW host daemon (<code>zenohd</code> for zenoh,
 the Micro-XRCE-DDS agent for xrce) into a shared store. ROS 2 is not
@@ -5052,23 +5620,30 @@ nros setup native --rmw zenoh        # or: --rmw xrce / --rmw cyclonedds
 └── src/
     └── main.rs         # or main.c / main.cpp
 </code></pre>
-<p>Keep package beside <code>nano-ros</code> in workspace <code>src/</code>. Use path
-dependencies for Rust or <code>add_subdirectory(&lt;path-to-nano-ros&gt;)</code> for
-C/C++.</p>
+<p>Examples are copy-out ready: for Rust, <code>cp -r</code> the example, run
+<code>NROS_REPO_DIR=&lt;nano-ros checkout&gt; nros sync</code>, and <code>cargo build</code>;
+for C/C++, <code>cp -r</code> and configure with
+<code>-DNANO_ROS_ROOT=&lt;nano-ros checkout&gt;</code> (or export <code>NROS_REPO_DIR</code>) —
+the example <code>CMakeLists.txt</code> resolves the checkout via its
+<code>NANO_ROS_ROOT</code> guard.</p>
 <h2 id="code-example"><a class="header" href="#code-example">Code Example</a></h2>
 <p>Rust publisher skeleton:</p>
-<pre><code class="language-rust ignore">use nros::prelude::*;
+<pre><code class="language-rust ignore">use core::fmt::Write as _;
+use nros::prelude::*;
+use std_msgs::msg::String as StringMsg;
 
 fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
     let config = ExecutorConfig::from_env().node_name("talker");
     let mut executor = Executor::open(&amp;config)?;
     let mut node = executor.create_node("talker")?;
-    let publisher = node.create_publisher::&lt;std_msgs::msg::Int32&gt;("/chatter")?;
+    let publisher = node.create_publisher::&lt;StringMsg&gt;("/chatter")?;
 
-    let mut msg = std_msgs::msg::Int32 { data: 0 };
+    let mut count = 0i32;
     loop {
+        count += 1;
+        let mut msg = StringMsg::default();
+        let _ = write!(msg.data, "Hello World: {count}");
         publisher.publish(&amp;msg)?;
-        msg.data += 1;
         executor.spin_once(100);
     }
 }</code></pre>
@@ -5275,12 +5850,16 @@ manifests into the same root CMake. Each shell is a
 ~20-line wrapper around <code>add_subdirectory(&lt;repo&gt;)</code>.</p>
 <h2 id="worked-example"><a class="header" href="#worked-example">Worked example</a></h2>
 <p>The <code>examples/native/c/talker/CMakeLists.txt</code> is the canonical
-copy-out template — 20 lines including codegen + per-app fixup. All
-83 in-tree C/C++ examples follow the same shape after.</p>
+copy-out template: it resolves the nano-ros checkout root once
+(<code>-DNANO_ROS_ROOT</code> cache var → <code>NROS_REPO_DIR</code> env var → in-repo
+walk-up), includes the workspace helpers, generates the message
+bindings (<code>nros_find_interfaces</code>), and declares the app via
+<code>nano_ros_entry(...)</code> — ~55 lines including codegen + per-app fixup.
+All in-tree C/C++ examples follow the same shape.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="message-binding-generation"><a class="header" href="#message-binding-generation">Message Binding Generation</a></h1>
 <p>nros uses generated Rust bindings for ROS 2 message types. The <code>nros generate-rust</code> command generates <code>no_std</code> compatible bindings from <code>package.xml</code> dependencies.</p>
-<h2 id="overview"><a class="header" href="#overview">Overview</a></h2>
+<h2 id="overview-2"><a class="header" href="#overview-2">Overview</a></h2>
 <p>The binding generator lives in the in-tree CLI sub-workspace at <code>packages/cli/</code> and provides:</p>
 <ul>
 <li><code>nros</code> standalone binary</li>
@@ -5288,7 +5867,7 @@ copy-out template — 20 lines including codegen + per-app fixup. All
 <li>Automatic dependency resolution via ament index or bundled interfaces</li>
 <li><code>.cargo/config.toml</code> generation for crate patches</li>
 </ul>
-<h2 id="prerequisites-1"><a class="header" href="#prerequisites-1">Prerequisites</a></h2>
+<h2 id="prerequisites-3"><a class="header" href="#prerequisites-3">Prerequisites</a></h2>
 <ol>
 <li>
 <p><strong>package.xml in project root</strong> - Declares ROS interface dependencies</p>
@@ -5371,13 +5950,13 @@ walks the static field schema exposed by <code>nros-serdes</code> (the
 the result in a bounded <code>no_std</code> registry. No per-msg-pkg backend
 code is required.</p>
 <p>Tracking + sizing knob (<code>NROS_CYCLONEDDS_MAX_TYPES</code>): see
-<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/phase-212-ux-cargo-native-and-file-consolidation.md"><code>docs/roadmap/phase-212-ux-cargo-native-and-file-consolidation.md</code></a>
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/archived/phase-212-ux-cargo-native-and-file-consolidation.md"><code>docs/roadmap/archived/phase-212-ux-cargo-native-and-file-consolidation.md</code></a>
 section 212.K.7.</p>
 <h2 id="git-dependency-workflow"><a class="header" href="#git-dependency-workflow">Git Dependency Workflow</a></h2>
 <p>For projects that consume nros as a <strong>git dependency</strong> (not from within the nros repo), use <code>--nano-ros-git</code> instead of <code>--nano-ros-path</code>:</p>
 <p><strong>Step 1:</strong> Add git dependency to <code>Cargo.toml</code>:</p>
 <pre><code class="language-toml">[dependencies]
-nros = { git = "https://github.com/jerry73204/nano-ros", default-features = false, features = ["std"] }
+nros = { git = "https://github.com/NEWSLabNTU/nano-ros", default-features = false, features = ["std"] }
 std_msgs = { version = "*", default-features = false }
 </code></pre>
 <p><strong>Step 2:</strong> Create <code>package.xml</code> (same as above).</p>
@@ -5387,8 +5966,8 @@ nros generate-rust --config --nano-ros-git
 </code></pre>
 <p>This generates <code>.cargo/config.toml</code> with git-based patches:</p>
 <pre><code class="language-toml">[patch.crates-io]
-nros-core = { git = "https://github.com/jerry73204/nano-ros" }
-nros-serdes = { git = "https://github.com/jerry73204/nano-ros" }
+nros-core = { git = "https://github.com/NEWSLabNTU/nano-ros" }
+nros-serdes = { git = "https://github.com/NEWSLabNTU/nano-ros" }
 std_msgs = { path = "generated/std_msgs" }
 builtin_interfaces = { path = "generated/builtin_interfaces" }
 </code></pre>
@@ -5485,7 +6064,7 @@ ROS 2 environment:</p>
 </ul>
 <p>These are located at <code>packages/codegen/interfaces/</code>. When a ROS 2 environment is sourced,
 the ament index takes precedence over bundled files.</p>
-<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
+<h2 id="troubleshooting-1"><a class="header" href="#troubleshooting-1">Troubleshooting</a></h2>
 <p><strong>“Package ‘X’ not found in ament index or bundled interfaces”</strong></p>
 <ul>
 <li>For standard types (<code>std_msgs</code>, <code>builtin_interfaces</code>): should work without ROS 2</li>
@@ -6018,7 +6597,7 @@ no Fatal).</p>
 </ul>
 <p>Each demonstrates per-severity macros + the runtime threshold
 filter.</p>
-<h2 id="reference"><a class="header" href="#reference">Reference</a></h2>
+<h2 id="reference-1"><a class="header" href="#reference-1">Reference</a></h2>
 <ul>
 <li><code>packages/core/nros-log/</code> — facade crate.</li>
 <li><code>packages/core/nros-platform-cffi/include/nros/platform.h</code> —
@@ -6188,7 +6767,7 @@ just esp32 talker
 <h2 id="verify"><a class="header" href="#verify">Verify</a></h2>
 <p>After deployment, verify from ROS 2 side:</p>
 <pre><code class="language-bash">ros2 topic list
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <p>If discovery works but samples do not arrive, check domain ID, router
 mode, QoS reliability, and platform network setup.</p>
@@ -6198,7 +6777,7 @@ mode, QoS reliability, and platform network setup.</p>
 <a href="https://github.com/ros2/rmw_zenoh">rmw_zenoh_cpp</a> middleware. Both sides
 connect to the same zenohd router and exchange CDR-encoded messages with
 compatible key expressions.</p>
-<h2 id="prerequisites-2"><a class="header" href="#prerequisites-2">Prerequisites</a></h2>
+<h2 id="prerequisites-4"><a class="header" href="#prerequisites-4">Prerequisites</a></h2>
 <ul>
 <li><a href="https://docs.ros.org/en/humble/Installation.html">ROS 2 Humble</a> installed</li>
 <li><code>rmw_zenoh_cpp</code> package (<code>sudo apt install ros-humble-rmw-zenoh-cpp</code> on
@@ -6218,12 +6797,12 @@ RUST_LOG=info cargo run
 source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <p>You should see the ROS 2 listener printing messages published by nano-ros:</p>
-<pre><code>data: 1
+<pre><code>data: 'Hello World: 1'
 ---
-data: 2
+data: 'Hello World: 2'
 ---
 </code></pre>
 <h2 id="the-other-direction"><a class="header" href="#the-other-direction">The Other Direction</a></h2>
@@ -6236,7 +6815,7 @@ RUST_LOG=info cargo run
 source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
-ros2 topic pub /chatter std_msgs/msg/Int32 "{data: 42}" --qos-reliability best_effort
+ros2 topic pub /chatter std_msgs/msg/String "{data: 'Hello from ROS 2'}" --qos-reliability best_effort
 </code></pre>
 <h2 id="discovery"><a class="header" href="#discovery">Discovery</a></h2>
 <p>nano-ros publishes ROS 2-compatible liveliness tokens, so standard ROS 2
@@ -6259,7 +6838,7 @@ ROS_DOMAIN_ID=42 ros2 topic echo /chatter ...  # ROS 2 side
 <h3 id="qos"><a class="header" href="#qos">QoS</a></h3>
 <p>nano-ros defaults to BEST_EFFORT reliability and VOLATILE durability. When
 using ROS 2 subscribers, match the QoS:</p>
-<pre><code class="language-bash">ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+<pre><code class="language-bash">ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <p>Without <code>--qos-reliability best_effort</code>, ROS 2 defaults to RELIABLE, which
 won’t match the nano-ros publisher’s BEST_EFFORT QoS.</p>
@@ -6273,7 +6852,7 @@ router. Force client mode with:</p>
 <p>nano-ros uses the same wire format as <code>rmw_zenoh_cpp</code>:</p>
 <ul>
 <li><strong>Data key expression</strong>: <code>&lt;domain_id&gt;/&lt;topic&gt;/&lt;type&gt;/TypeHashNotSupported</code>
-(Humble). Example: <code>0/chatter/std_msgs::msg::dds_::Int32_/TypeHashNotSupported</code></li>
+(Humble). Example: <code>0/chatter/std_msgs::msg::dds_::String_/TypeHashNotSupported</code></li>
 <li><strong>Liveliness tokens</strong>: <code>@ros2_lv/&lt;domain&gt;/&lt;zid&gt;/0/...</code> for discovery</li>
 <li><strong>Message encoding</strong>: CDR little-endian with 4-byte encapsulation header
 <code>[0x00, 0x01, 0x00, 0x00]</code></li>
@@ -6284,7 +6863,7 @@ appended via Zenoh attachment</li>
 <p>Iron uses actual type hashes (<code>RIHS01_&lt;sha256&gt;</code>) instead of
 <code>TypeHashNotSupported</code>. nano-ros currently supports Humble only. Iron support
 is planned.</p>
-<h2 id="troubleshooting-1"><a class="header" href="#troubleshooting-1">Troubleshooting</a></h2>
+<h2 id="troubleshooting-2"><a class="header" href="#troubleshooting-2">Troubleshooting</a></h2>
 <p><strong>Topic not visible in <code>ros2 topic list</code>:</strong>
 Ensure both nano-ros and ROS 2 use the same domain ID and that
 <code>rmw_zenoh_cpp</code> is in client mode pointing to the same router.</p>
@@ -6846,7 +7425,7 @@ is platform-specific. The
 matrix</a>
 lists which <code>&lt;plat&gt; × &lt;lang&gt;</code> combinations ship a bridge today
 (a bridge spans RMW backends by nature, so RMW is not a directory axis).</p>
-<h2 id="troubleshooting-2"><a class="header" href="#troubleshooting-2">Troubleshooting</a></h2>
+<h2 id="troubleshooting-3"><a class="header" href="#troubleshooting-3">Troubleshooting</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -7103,7 +7682,7 @@ comparison.</li>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="serial-transport"><a class="header" href="#serial-transport">Serial Transport</a></h1>
 <p>This guide covers using serial (UART) transport with nros on embedded targets. Serial transport connects an MCU directly to a zenoh router over UART, without needing an IP stack.</p>
-<h2 id="overview-1"><a class="header" href="#overview-1">Overview</a></h2>
+<h2 id="overview-3"><a class="header" href="#overview-3">Overview</a></h2>
 <p>nros supports two transport mechanisms for connecting embedded devices to a zenoh network:</p>
 <div class="table-wrapper">
 <table>
@@ -7124,7 +7703,7 @@ comparison.</li>
 <li><strong>Debugging</strong> — Serial output is visible in any terminal, easy to inspect</li>
 <li><strong>Mixed topology</strong> — Some nodes on Ethernet, others on serial, all bridged through zenohd</li>
 </ul>
-<h3 id="architecture"><a class="header" href="#architecture">Architecture</a></h3>
+<h3 id="architecture-1"><a class="header" href="#architecture-1">Architecture</a></h3>
 <pre><code>┌──────────┐     UART      ┌──────────────┐     TCP      ┌──────────┐
 │   MCU    │───────────────│   zenohd     │─────────────│  ROS 2   │
 │  (nros)  │  COBS frames  │  (router)    │  zenoh net   │  node    │
@@ -7199,7 +7778,7 @@ cargo build --release
 z_sub -k "0/chatter/**"
 
 # Or from a ROS 2 node
-ros2 topic echo /chatter std_msgs/msg/Int32
+ros2 topic echo /chatter std_msgs/msg/String
 </code></pre>
 <h2 id="configuration-2"><a class="header" href="#configuration-2">Configuration</a></h2>
 <h3 id="serial-config"><a class="header" href="#serial-config">Serial Config</a></h3>
@@ -7302,7 +7881,7 @@ runner = "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -semihos
 <h3 id="buffer-sizing"><a class="header" href="#buffer-sizing">Buffer Sizing</a></h3>
 <p>zenoh-pico serial uses a 1500-byte MTU with COBS framing. The maximum wire frame is 1516 bytes. <code>zpico-serial</code> uses a 2048-byte RX ring buffer per port, which accommodates one full frame plus overhead.</p>
 <p>For high-throughput scenarios, ensure the MCU’s UART FIFO is drained frequently by calling <code>executor.spin_once()</code> in a tight loop.</p>
-<h2 id="troubleshooting-3"><a class="header" href="#troubleshooting-3">Troubleshooting</a></h2>
+<h2 id="troubleshooting-4"><a class="header" href="#troubleshooting-4">Troubleshooting</a></h2>
 <h3 id="session-open-failed-or-handshake-timeout"><a class="header" href="#session-open-failed-or-handshake-timeout">“Session open failed” or Handshake Timeout</a></h3>
 <p>The zenoh serial handshake (Init → Ack) must complete within zenoh-pico’s timeout. Common causes:</p>
 <ul>
@@ -8017,7 +8596,7 @@ the 3-pkg-role taxonomy in full.</li>
 cooperative model alongside RTIC, RTOS, and POSIX.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="troubleshooting-4"><a class="header" href="#troubleshooting-4">Troubleshooting</a></h1>
+<h1 id="troubleshooting-5"><a class="header" href="#troubleshooting-5">Troubleshooting</a></h1>
 <p>Common issues and solutions when working with nros.</p>
 <h2 id="zenoh-pico-multiple-client-issues"><a class="header" href="#zenoh-pico-multiple-client-issues">zenoh-pico Multiple Client Issues</a></h2>
 <h3 id="symptoms"><a class="header" href="#symptoms">Symptoms</a></h3>
@@ -8121,7 +8700,7 @@ the matching router from the submodule.</p>
 <p>The <code>--seed</code> parameter initializes the test entropy source with a different value, producing different random numbers and thus different ephemeral ports.</p>
 <p><strong>For automated tests</strong>: The test framework (<code>packages/testing/nros-tests</code>) automatically assigns unique seeds to each process.</p>
 <h3 id="cyclone-dds-two-native_sim-nodes-never-discover-each-other"><a class="header" href="#cyclone-dds-two-native_sim-nodes-never-discover-each-other">Cyclone DDS: Two native_sim Nodes Never Discover Each Other</a></h3>
-<p><strong>Symptom</strong>: Two native_sim nodes with the <strong>Cyclone DDS</strong> RMW (e.g. talker + listener) each start, the publisher reports <code>Published: N</code>, but the subscriber stays at <code>Received: 0</code> — no abort, no error.</p>
+<p><strong>Symptom</strong>: Two native_sim nodes with the <strong>Cyclone DDS</strong> RMW (e.g. talker + listener) each start, the publisher reports <code>Publishing: 'Hello World: N'</code>, but the subscriber never prints an <code>I heard:</code> line — no abort, no error.</p>
 <p><strong>Root Cause</strong>: Same fixed-entropy issue as above. Cyclone derives each participant’s DDSI <strong>GUID prefix</strong> from the entropy source; with identical entropy, both processes get the <em>same</em> GUID. DDSI requires per-participant unique GUIDs — a node treats SPDP from a peer that shares its own GUID as a self-announcement and drops it, so the two never form a proxy-participant pair and discovery never closes.</p>
 <p><strong>Solution</strong>: Pass different <code>--seed</code> values per instance (exactly as above):</p>
 <pre><code class="language-bash">./build-listener/zephyr/zephyr.exe --seed=11
@@ -8339,8 +8918,8 @@ fn my_callback(data: *const u8, len: usize, ctx: *mut c_void) {
 <p>Coming from <code>rclcpp</code>, <code>rclrs</code>, or <code>rclc</code>? This page calls out where
 nano-ros looks the same, where it diverges, and the reason behind each
 choice. It is an <em>orientation</em> page — the per-language API references
-(<a href="#rust-api">Rust</a> / <a href="#c-api">C</a> /
-<a href="#c-api-1">C++</a>) cover the surface itself.</p>
+(<a href="#rust-api">Rust</a> / <a href="#c-api-1">C</a> /
+<a href="#c-api-2">C++</a>) cover the surface itself.</p>
 <p>The short version: nano-ros keeps ROS 2’s vocabulary (Node, Publisher,
 Subscription, Service, Client, ActionServer, ActionClient, Timer,
 Executor, QoS, message codegen) so existing nodes port cleanly. The
@@ -8383,8 +8962,8 @@ executor dispatches them. <code>rclrs</code> &lt;0.7 was manual-poll only. <code
 exposes both but treats manual-poll as the second-class path.</p>
 <p>nano-ros treats them as equals. A subscription created via
 <code>node.create_subscription(...)</code> exposes <code>try_recv()</code>. A subscription
-registered via <code>executor.add_subscription(callback)</code> runs the callback
-during <code>spin_once</code>. Pick whichever fits the control loop.</p>
+registered via <code>executor.node_mut(nid).create_subscription::&lt;M, _&gt;("/topic", callback)</code>
+runs the callback during <code>spin_once</code>. Pick whichever fits the control loop.</p>
 <p><strong>Why.</strong> Embedded apps often want the predictability of an explicit
 poll inside a real-time loop. Callback dispatch is great for
 event-driven services but adds indirection that real-time engineers
@@ -8639,14 +9218,14 @@ root). Compatible with tokio out of the box.</li>
 <li>Same C names where they map (<code>nros_node_init</code>, <code>nros_publisher_init</code>,
 <code>nros_subscription_init</code>). Memory ownership rules are the same — the
 caller owns storage, the API initialises it.</li>
-<li>See the <a href="#c-api">C API reference</a> for the full
+<li>See the <a href="#c-api-1">C API reference</a> for the full
 surface.</li>
 </ul>
 <h2 id="going-deeper"><a class="header" href="#going-deeper">Going deeper</a></h2>
 <ul>
 <li>API surface, type by type → per-language references at
-<a href="#rust-api">Rust</a> / <a href="#c-api">C</a> /
-<a href="#c-api-1">C++</a>.</li>
+<a href="#rust-api">Rust</a> / <a href="#c-api-1">C</a> /
+<a href="#c-api-2">C++</a>.</li>
 <li>Why the executor / RMW / platform layers split this way →
 <a href="#architecture-overview">Architecture Overview</a>.</li>
 <li>Cooperative <code>no_std + nostd-runtime</code> model → <a href="#std-and-alloc-requirements">no_std Support</a>.</li>
@@ -8744,7 +9323,7 @@ backend at the same Agent.</li>
 </ul>
 <h2 id="see-also-6"><a class="header" href="#see-also-6">See also</a></h2>
 <ul>
-<li><a href="https://github.com/jerry73204/nano-ros/blob/main/docs/research/build-config-deploy-comparison.md">Build / config / deploy workflow comparison</a>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/research/build-config-deploy-comparison.md">Build / config / deploy workflow comparison</a>
 — historical comparison of the three workflow axes vs micro-ROS, Zenoh-pico,
 embedded DDS, and Arduino-ROS.</li>
 <li><a href="#rmw-backends-zenoh-xrce-dds-cyclone-dds">Choosing an RMW Backend</a> — the
@@ -8761,7 +9340,7 @@ porters coming from rclcpp / rclrs / rclc.</li>
 <p>This scaffold maps standard ROS 2 concepts to nano-ros pages. It is not
 an API reference; use it as a checklist when moving an existing
 <code>rclcpp</code>, <code>rclc</code>, or <code>rclrs</code> node toward nano-ros.</p>
-<h2 id="setup-4"><a class="header" href="#setup-4">Setup</a></h2>
+<h2 id="setup-5"><a class="header" href="#setup-5">Setup</a></h2>
 <p>Standard ROS 2 usually starts from a distro install and a runtime RMW
 choice. nano-ros starts from a source checkout + a compile-time target
 tuple:</p>
@@ -9194,7 +9773,7 @@ linked guide.</p>
 <tr><td><strong>Zephyr user (any board)</strong></td><td><code>west</code> + DTS overlays. Vendor HALs come as Zephyr modules.</td><td><a href="#zephyr-west-module">Zephyr integration shell</a> — <code>projects:</code> entry in your <code>west.yml</code>.</td></tr>
 <tr><td><strong>ESP-IDF user (any ESP32 chip)</strong></td><td><code>idf.py build</code>.</td><td><a href="#esp32-esp-idf-component">ESP-IDF integration shell</a> — <code>idf.py add-dependency nano-ros</code>.</td></tr>
 <tr><td><strong>NuttX user (any board)</strong></td><td>NuttX <code>apps/external/</code> + Kconfig.</td><td><a href="#nuttx-appsexternal">NuttX integration shell</a> — symlink under <code>apps/external/</code>.</td></tr>
-<tr><td><strong>PX4 user</strong></td><td>PX4 build pipeline.</td><td><a href="getting-started/integration-px4.html">PX4 integration shell</a> — <code>EXTERNAL_MODULES_LOCATION</code>.</td></tr>
+<tr><td><strong>PX4 user</strong></td><td>PX4 build pipeline.</td><td><a href="#px4-integration-shell">PX4 integration shell</a> — <code>EXTERNAL_MODULES_LOCATION</code>.</td></tr>
 <tr><td><strong>Niche RTOS / vendor fork</strong></td><td>Stock RTOS kernel + vendor driver SDK. Cargo-driven build.</td><td>Generic board crate + <strong>vendor overlay crate</strong> (~50 LOC). See the <a href="#vendor-overlay-board-crate">Vendor Overlay cookbook</a>.</td></tr>
 </tbody>
 </table>
@@ -10463,7 +11042,7 @@ guide (the Layer 1 contract overlays rely on).</li>
 <li>a hand-rolled FVP / qemu launch shell</li>
 </ul>
 <p>All of those are owned by the board crate. The consumer’s <code>CMakeLists.txt</code> declares which board it wants; nano-ros layers the rest in.</p>
-<h2 id="prereqs-8"><a class="header" href="#prereqs-8">Prereqs</a></h2>
+<h2 id="prereqs-9"><a class="header" href="#prereqs-9">Prereqs</a></h2>
 <p>Before importing a board crate, the consumer needs:</p>
 <ol>
 <li><strong>A Zephyr 3.7+ workspace managed by west.</strong> Zephyr 3.7 is the floor (the official in-tree <code>zephyr-lang-rust</code> module did not exist below it, so nothing earlier can link the nano-ros Rust staticlib); newer LTS lines work too.</li>
@@ -11653,9 +12232,11 @@ VLE-encoded <code>gid_length</code> prefix.</li>
 <li><strong>DDS</strong>: sample identity and source timestamp fall out of the DDS
 sample info — your backend only has to forward them.</li>
 </ul>
-<p>If you skip this, <code>add_subscription_with_info()</code> on consumers always
-reports <code>MessageInfo::default()</code>, and downstream features (safety-e2e
-checks, source-timestamp ordering) silently degrade.</p>
+<p>If you skip this, subscriptions built with the <code>.message_info()</code> builder
+(<code>node.subscription(topic).generic(...).message_info().build(cb)</code>, or
+<code>.typed::&lt;M&gt;().message_info()</code>) on consumers always report
+<code>MessageInfo::default()</code>, and downstream features (safety-e2e checks,
+source-timestamp ordering) silently degrade.</p>
 <h3 id="3-actions-decompose-into-five-underlying-channels"><a class="header" href="#3-actions-decompose-into-five-underlying-channels">3. Actions decompose into five underlying channels</a></h3>
 <p>ROS 2 actions are not a transport primitive — they are a pattern built
 on services and topics. Each action server exposes:</p>
@@ -12089,7 +12670,7 @@ cause 4-tuple collisions when the next QEMU instance reuses the same source port
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="client-library-model-nros-vs-rclc--rclcpp--rclrs"><a class="header" href="#client-library-model-nros-vs-rclc--rclcpp--rclrs">Client Library Model: nros vs rclc / rclcpp / rclrs</a></h1>
 <p>The RMW layer decouples the transport from the client library. The <em>client library</em> is the user-facing API on top of RMW: nodes, executors, publishers, subscribers, services, clients, callbacks, futures. ROS 2 ships three: <strong>rclc</strong> (C, MCU-focused), <strong>rclcpp</strong> (C++, desktop), and <strong>rclrs</strong> (Rust, experimental). nano-ros adds a fourth – the <code>nros-node</code> crate plus its <code>nros-c</code> / <code>nros-cpp</code> wrappers.</p>
-<p>This page explains the shape of nros-node and how it differs from the three official client libraries. For trait signatures see <a href="#rust-api">Rust API</a> / <a href="#c-api">C API</a> / <a href="#c-api-1">C++ API</a>.</p>
+<p>This page explains the shape of nros-node and how it differs from the three official client libraries. For trait signatures see <a href="#rust-api">Rust API</a> / <a href="#c-api-1">C API</a> / <a href="#c-api-2">C++ API</a>.</p>
 <h2 id="side-by-side-1"><a class="header" href="#side-by-side-1">Side-by-side</a></h2>
 <div class="table-wrapper">
 <table>
@@ -13036,7 +13617,7 @@ writing a new port, see <a href="#custom-platform">Custom Platform</a>.</p>
 <p>Bare-metal platforms back this with a bump allocator (<code>linked-list-allocator</code> or <code>embedded-alloc</code>). RTOS platforms back it with <code>pvPortMalloc</code> (FreeRTOS), <code>tx_byte_allocate</code> (ThreadX), <code>k_malloc</code> (Zephyr), or <code>malloc</code> (NuttX, POSIX). zenoh-pico’s working set is ~64 KB total; the allocator must have at least that much budget, ideally more.</p>
 <h3 id="threading--platformthreading"><a class="header" href="#threading--platformthreading">Threading – <code>PlatformThreading</code></a></h3>
 <p>Three sub-areas: tasks (spawn/join/exit), mutexes (regular + recursive), and condition variables. Single-threaded targets (bare-metal) provide stub implementations: <code>task_init</code> returns -1 (so zenoh-pico’s lease task spawn fails gracefully and the application drives lease-keepalive itself), and <code>mutex_lock</code>/<code>condvar_wait</code> are no-ops that always succeed.</p>
-<p>The condvar API is the load-bearing one: zenoh-pico’s blocking <code>z_get</code> and the C++ <code>Future::wait</code> both block on a condvar that the receive callback signals. On single-threaded platforms there is no thread to block, so the blocking C++ wait paths are not used (the <a href="#c-api-1">C++ action client status note</a> covers the migration to non-blocking polling).</p>
+<p>The condvar API is the load-bearing one: zenoh-pico’s blocking <code>z_get</code> and the C++ <code>Future::wait</code> both block on a condvar that the receive callback signals. On single-threaded platforms there is no thread to block, so the blocking C++ wait paths are not used (the <a href="#c-api-2">C++ action client status note</a> covers the migration to non-blocking polling).</p>
 <h3 id="sleep--random--wall-time"><a class="header" href="#sleep--random--wall-time">Sleep / Random / Wall-time</a></h3>
 <p>Three small zenoh-pico-only traits grouped for convenience:</p>
 <ul>
@@ -13781,7 +14362,7 @@ C++ vtable consumer with PX4 SDK integration.</li>
 <p>This document describes how nros communicates with standard ROS 2 nodes using <code>rmw_zenoh_cpp</code>.</p>
 <h2 id="status-working"><a class="header" href="#status-working">Status: WORKING</a></h2>
 <p>nros &lt;-&gt; ROS 2 rmw_zenoh communication is fully operational as of January 2025.</p>
-<h2 id="architecture-1"><a class="header" href="#architecture-1">Architecture</a></h2>
+<h2 id="architecture-2"><a class="header" href="#architecture-2">Architecture</a></h2>
 <pre><code>┌─────────────────────────┐          ┌─────────────────────────┐
 │   ROS 2 Node            │          │   nros Node             │
 │   (rmw_zenoh_cpp)       │&lt;--------&gt;│   (zenoh-pico)          │
@@ -13802,7 +14383,7 @@ cargo run -p native-rs-talker --features zenoh -- --tcp 127.0.0.1:7447
 source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <h2 id="protocol-requirements"><a class="header" href="#protocol-requirements">Protocol Requirements</a></h2>
 <h3 id="1-data-topic-key-expression-format"><a class="header" href="#1-data-topic-key-expression-format">1. Data Topic Key Expression Format</a></h3>
@@ -13811,7 +14392,7 @@ ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
 </code></pre>
 <p><strong>Important:</strong> For Humble, use <code>TypeHashNotSupported</code> as the type hash (no <code>RIHS01_</code> prefix).</p>
 <p>Example:</p>
-<pre><code>0/chatter/std_msgs::msg::dds_::Int32_/TypeHashNotSupported
+<pre><code>0/chatter/std_msgs::msg::dds_::String_/TypeHashNotSupported
 </code></pre>
 <p><strong>Note:</strong> Newer ROS 2 versions (Iron+) use <code>RIHS01_&lt;hash&gt;</code> format with actual type hashes.</p>
 <p>Implementation: <code>TopicInfo::to_key()</code> in the transport traits module</p>
@@ -13890,8 +14471,8 @@ fn to_hex_string(&amp;self) -&gt; String {
 <p><strong>Cause:</strong> Data keyexpr format mismatch.</p>
 <p><strong>Solution:</strong> For Humble, don’t use <code>RIHS01_</code> prefix in data keyexprs:</p>
 <ul>
-<li>Wrong: <code>0/chatter/std_msgs::msg::dds_::Int32_/RIHS01_TypeHashNotSupported</code></li>
-<li>Correct: <code>0/chatter/std_msgs::msg::dds_::Int32_/TypeHashNotSupported</code></li>
+<li>Wrong: <code>0/chatter/std_msgs::msg::dds_::String_/RIHS01_TypeHashNotSupported</code></li>
+<li>Correct: <code>0/chatter/std_msgs::msg::dds_::String_/TypeHashNotSupported</code></li>
 </ul>
 <h3 id="issue-topic-not-visible-in-ros2-topic-list"><a class="header" href="#issue-topic-not-visible-in-ros2-topic-list">Issue: Topic not visible in ros2 topic list</a></h3>
 <p><strong>Symptom:</strong> nros publishes but ROS 2 doesn’t see the topic.</p>
@@ -13906,7 +14487,7 @@ fn to_hex_string(&amp;self) -&gt; String {
 <p><strong>Symptom:</strong> ROS 2 logs QoS incompatibility or subscriber doesn’t receive.</p>
 <p><strong>Cause:</strong> Publisher and subscriber QoS don’t match.</p>
 <p><strong>Solution:</strong> Use BEST_EFFORT for both:</p>
-<pre><code class="language-bash">ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+<pre><code class="language-bash">ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <h3 id="issue-rmw_zenoh-not-connecting-to-router"><a class="header" href="#issue-rmw_zenoh-not-connecting-to-router">Issue: rmw_zenoh not connecting to router</a></h3>
 <p><strong>Symptom:</strong> rmw_zenoh uses peer mode by default, not connecting to zenohd.</p>
@@ -14111,7 +14692,7 @@ build/qemu/share/qemu/…             # firmware, etc.
 <p><code>stable-11.0</code> is QEMU 11.0.x — already past the 7.2 cutoff for
 <code>-netdev dgram unix</code> and recent enough that the patch series is
 small.</p>
-<h2 id="build-12"><a class="header" href="#build-12">Build</a></h2>
+<h2 id="build-13"><a class="header" href="#build-13">Build</a></h2>
 <p><code>just qemu setup-qemu</code> (pulled in by <code>just setup qemu</code> and
 <code>just setup all</code>) does the full
 build:</p>
@@ -15182,7 +15763,7 @@ locked spec.</li>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="real-time-analysis"><a class="header" href="#real-time-analysis">Real-Time Analysis</a></h1>
 <p>This chapter describes static analysis methods and tools for detecting anti-patterns that violate real-time guarantees in Rust embedded applications.</p>
-<h2 id="overview-2"><a class="header" href="#overview-2">Overview</a></h2>
+<h2 id="overview-4"><a class="header" href="#overview-4">Overview</a></h2>
 <p>Real-time systems require deterministic execution times. Common anti-patterns that break real-time guarantees include:</p>
 <div class="table-wrapper">
 <table>
@@ -17111,14 +17692,20 @@ name = "talker"
 path = "src/main.rs"
 
 [dependencies]
-nros = { path = "../../../../packages/core/nros",
-         default-features = false,
-         features = ["std", "rmw-cffi", "platform-posix"] }
-nros-rmw-zenoh = { path = "../../../../packages/zpico/nros-rmw-zenoh",
+nros = { version = "*", default-features = false,
+         features = ["std", "rmw-cffi", "ros-humble"] }
+nros-rmw-zenoh = { version = "*",
                    features = ["std", "platform-posix", "ros-humble"] }
 
 [workspace]
 </code></pre>
+<p>nano-ros crates are declared <strong>registry-style</strong> (phase-277 W6): they are
+not on crates.io, so the example’s tracked <code>.cargo/config.toml</code> carries
+the <code># nros-managed</code> <code>[patch.crates-io]</code> block resolving them into the
+checkout. After adding/renaming nros deps or msg <code>&lt;depend&gt;</code> rows, re-run
+<code>NROS_REPO_DIR=&lt;repo root&gt; nros sync</code> in the example dir and commit the
+rewritten <code>.cargo/config.toml</code>. This is what makes the copy-out promise
+real — a copied example re-runs <code>nros sync</code> at its new location.</p>
 <p><code>cargo build</code> / <code>cargo run</code> from inside the example directory is the
 canonical invocation. There is no workspace-wide <code>cargo build</code> that
 picks up examples — they are explicitly out-of-workspace.</p>
@@ -17132,7 +17719,16 @@ project(my_example LANGUAGES C CXX)
 set(NANO_ROS_PLATFORM &lt;plat&gt;)
 set(NANO_ROS_RMW      &lt;rmw&gt;)
 set(NANO_ROS_BOARD    &lt;board&gt;)        # embedded only
-add_subdirectory(&lt;rel-path-to-repo-root&gt; nano_ros)
+# Phase-277 W6 standard root guard: cache var &gt; NROS_REPO_DIR env &gt; walk-up.
+if(NOT DEFINED NANO_ROS_ROOT)
+    if(DEFINED ENV{NROS_REPO_DIR} AND NOT "$ENV{NROS_REPO_DIR}" STREQUAL "")
+        set(NANO_ROS_ROOT "$ENV{NROS_REPO_DIR}")
+    else()
+        get_filename_component(NANO_ROS_ROOT
+            "${CMAKE_CURRENT_SOURCE_DIR}/&lt;rel-path-to-repo-root&gt;" ABSOLUTE)
+    endif()
+endif()
+add_subdirectory("${NANO_ROS_ROOT}" nano_ros)
 
 add_executable(my_example src/main.c)
 target_link_libraries(my_example PRIVATE NanoRos::NanoRos)
@@ -17259,7 +17855,7 @@ entry points:</p>
 </code></pre>
 <p>For a narrower local iteration, run <code>just check</code> and <code>just test</code>.</p>
 <p>For platform-specific CI, use <code>just &lt;platform&gt; ci</code> (e.g., <code>just freertos ci</code>).</p>
-<h2 id="testing"><a class="header" href="#testing">Testing</a></h2>
+<h2 id="testing-1"><a class="header" href="#testing-1">Testing</a></h2>
 <p>nano-ros has several test tiers, each with its own just recipe:</p>
 <div class="table-wrapper">
 <table>
@@ -17634,7 +18230,7 @@ custom RMW backend or porting to a new platform — see
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/zpico/nros-rmw-zenoh"><code>nros-rmw-zenoh</code></a> — zenoh-pico backend internals</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="c-api"><a class="header" href="#c-api">C API</a></h1>
+<h1 id="c-api-1"><a class="header" href="#c-api-1">C API</a></h1>
 <p>The C user-facing surface lives in <strong><code>packages/core/nros-c/include/nros/*.h</code></strong>.
 Generated by Doxygen; always reflects the current <code>main</code> branch.</p>
 <h2 id="api-reference-1"><a class="header" href="#api-reference-1">API reference</a></h2>
@@ -17727,7 +18323,7 @@ the user API — they document the C vtables for porters writing a custom RMW
 backend or platform port. See <a href="#rmw-api">RMW API</a> and
 <a href="#platform-api">Platform API</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="c-api-1"><a class="header" href="#c-api-1">C++ API</a></h1>
+<h1 id="c-api-2"><a class="header" href="#c-api-2">C++ API</a></h1>
 <p>The C++ user-facing surface lives in
 <strong><code>packages/core/nros-cpp/include/nros/*.hpp</code></strong>. Generated by Doxygen;
 always reflects the current <code>main</code> branch.</p>
@@ -17781,8 +18377,8 @@ xdg-open target/doc/cpp-api/html/index.html
 <p>The RMW (ROS middleware) vtable is the porting boundary between
 nano-ros and a concrete pub/sub transport (zenoh-pico, XRCE-DDS,
 Cyclone DDS, uORB, …). RMW is <strong>internal</strong> — user
-applications use the <a href="#rust-api">Rust</a> / <a href="#c-api">C</a> /
-<a href="#c-api-1">C++</a> APIs, not the vtable directly.</p>
+applications use the <a href="#rust-api">Rust</a> / <a href="#c-api-1">C</a> /
+<a href="#c-api-2">C++</a> APIs, not the vtable directly.</p>
 <h2 id="canonical-reference"><a class="header" href="#canonical-reference">Canonical reference</a></h2>
 <p>The C vtable <code>nros_rmw_vtable_t</code> is the source of truth. Every
 function pointer’s brief, parameter docs, ownership rules
@@ -17835,7 +18431,7 @@ implementation; the source is the worked example to copy.</p>
 concrete OS / RTOS / bare-metal target. Each platform provides a
 clock, optionally a heap, optionally threading, optionally
 networking. Platform is <strong>internal</strong> — user applications use the
-<a href="#rust-api">Rust</a> / <a href="#c-api">C</a> / <a href="#c-api-1">C++</a> APIs, not
+<a href="#rust-api">Rust</a> / <a href="#c-api-1">C</a> / <a href="#c-api-2">C++</a> APIs, not
 the platform vtable directly.</p>
 <h2 id="canonical-reference-1"><a class="header" href="#canonical-reference-1">Canonical reference</a></h2>
 <p>The C vtable in
@@ -18349,7 +18945,7 @@ cd examples/native/rust/talker &amp;&amp; RUST_LOG=info cargo run --features zen
 # Terminal 3: ROS 2 listener
 source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <h2 id="actions"><a class="header" href="#actions">Actions</a></h2>
 <pre><code class="language-bash"># Terminal 1: Router
@@ -18429,7 +19025,7 @@ just zephyr test-xrce   # Run XRCE tests
 Set <code>$NROS_ZEPHYR_WORKSPACE</code> to install elsewhere. Legacy sibling installs
 at <code>../nano-ros-workspace/</code> are auto-detected; run
 <code>./scripts/zephyr/migrate-workspace.sh</code> to consolidate.</p>
-<p>See <a href="getting-started/zephyr.html">Zephyr</a> for full details.</p>
+<p>See <a href="#zephyr-contributor--in-tree-workflow">Zephyr</a> for full details.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="nros-bridgetoml--bridge-configuration-schema"><a class="header" href="#nros-bridgetoml--bridge-configuration-schema"><code>nros-bridge.toml</code> — bridge configuration schema</a></h1>
 <p>Consumed by <code>nros::run_from_config</code> (Rust) and the future C/C++ mirror

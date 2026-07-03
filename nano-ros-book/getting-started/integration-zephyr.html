@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-848f72ed.js";
+            window.path_to_searchindex_js = "../searchindex-3dbdda5b.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-effe9594.js"></script>
+        <script src="../toc-706f4c53.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -256,39 +256,93 @@ application sits beside both:</p>
 <li><code>target_sources</code>. <strong>No <code>add_subdirectory(&lt;nano-ros&gt;)</code></strong> is needed;
 the module shell handles it once <code>CONFIG_NROS=y</code> flips on.</li>
 </ul>
-<p>A minimal <code>apps/my_app/</code> looks like this (mirrors
+<p>A minimal <code>apps/my_app/</code> looks like this — the shipped
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/zephyr/c/talker"><code>examples/zephyr/c/talker/</code></a>
-with the names stripped to the essentials):</p>
+quoted directly (only the project/class names are trimmed to <code>my_app</code>), so
+this page can’t drift from the real API surface. It is a <strong>stateful C
+component</strong> (a struct + a <code>configure</code> function, RFC-0043 / phase-244.C2) —
+not a hand-written <code>main()</code> — because the Zephyr typed carrier generates
+the entry point and calls into the component by identity:</p>
 <pre><code class="language-cmake"># apps/my_app/CMakeLists.txt
 cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(my_app)
-target_sources(app PRIVATE src/main.c)
-</code></pre>
-<pre><code class="language-c">// apps/my_app/src/main.c
-#include &lt;nros/nros.h&gt;
-#include &lt;nros/publisher.h&gt;
-#include &lt;std_msgs/msg/int32.h&gt;
 
-int main(void) {
-    nros_init_args_t args = nros_init_args_default();
-    nros_context_t ctx;
-    nros_init(&amp;args, &amp;ctx);
-    nros_node_t node;
-    nros_create_node(&amp;ctx, "my_app", &amp;node);
-    nros_publisher_t pub;
-    nros_create_publisher(&amp;node, std_msgs__msg__Int32_type_support(),
-                          "/chatter", &amp;pub);
-    std_msgs__msg__Int32 msg = { .data = 0 };
-    while (nros_ok(&amp;ctx)) {
-        nros_publish(&amp;pub, &amp;msg);
-        msg.data++;
-        k_sleep(K_SECONDS(1));
-    }
-    return 0;
-}
+set(NANO_ROS_PLATFORM zephyr)
+include("${NROS_REPO_DIR}/cmake/NanoRosNodeRegister.cmake")
+
+nano_ros_node_register(
+    NAME      talker
+    CLASS     my_app::Talker
+    LANGUAGE  C
+    TYPED
+    SOURCES   src/Talker.c
+    DEPLOY    zephyr)
 </code></pre>
-<p><code>prj.conf</code> is the one shown in <a href="#configure">Configure</a> below.</p>
+<pre><code class="language-c">// apps/my_app/src/Talker.c
+// `talker_configure` creates a raw publisher on `/chatter` + a timer that
+// publishes a CDR-encoded Int32 counter each tick. `NROS_C_COMPONENT` emits
+// the C-ABI factory/configure the Zephyr typed Entry carrier calls.
+#include &lt;stddef.h&gt;
+#include &lt;stdint.h&gt;
+#include &lt;stdio.h&gt;
+
+#include &lt;nros/component.h&gt;
+
+typedef struct {
+    _Alignas(8) uint8_t pub[NROS_C_PUBLISHER_STORAGE_SIZE];
+    int32_t count;
+} talker_t;
+
+static void write_u32_le(uint8_t* p, uint32_t v) {
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v &gt;&gt; 8);
+    p[2] = (uint8_t)(v &gt;&gt; 16);
+    p[3] = (uint8_t)(v &gt;&gt; 24);
+}
+
+static void on_tick(void* ctx) {
+    talker_t* self = (talker_t*)ctx;
+    /* std_msgs/Int32 CDR: 4-byte encapsulation header (CDR_LE) + int32 data. */
+    uint8_t buf[8];
+    buf[0] = 0x00;
+    buf[1] = 0x01;
+    buf[2] = 0x00;
+    buf[3] = 0x00;
+    write_u32_le(buf + 4, (uint32_t)self-&gt;count);
+    if (nros_cpp_publish_raw(self-&gt;pub, buf, sizeof(buf)) == 0) {
+        printf("Published: %d\n", (int)self-&gt;count);
+    }
+    self-&gt;count++;
+}
+
+static nros_ret_t talker_configure(const nros_cpp_node_t* node, void* executor, talker_t* self) {
+    self-&gt;count = 0;
+    int32_t rc = nros_cpp_publisher_create(node, "/chatter", "std_msgs::msg::dds_::Int32_", "",
+                                           nros_c_qos_default(), self-&gt;pub);
+    if (rc != 0) {
+        return rc;
+    }
+    size_t timer_handle;
+    return nros_cpp_timer_create(executor, /*period_ms=*/500, on_tick, self, &amp;timer_handle);
+}
+
+NROS_C_COMPONENT(talker_t, talker_configure)
+</code></pre>
+<p>See <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/templates/zephyr-byo/app/src/Talker.c"><code>examples/templates/zephyr-byo/app/src/Talker.c</code></a>
+for the up-to-date source (this is that BYO starter’s talker, only stripped
+of its file header comment; the canonical in-tree
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/zephyr/c/talker"><code>examples/zephyr/c/talker/</code></a>
+uses the generated <strong>typed</strong> <code>std_msgs/String</code> bindings instead of raw CDR).
+Note the <code>nros_cpp_*</code> symbol prefix: those are C-ABI
+functions from <code>nros-cpp</code> (the <code>cpp</code> is a namespace prefix, not C++
+linkage) — a C component links against them directly, and shares the same
+executor + node as a C++ component would.</p>
+<p><code>prj.conf</code> is the one shown in <a href="#configure">Configure</a> below — note it needs
+<strong>both</strong> <code>CONFIG_NROS_C_API=y</code> and <code>CONFIG_NROS_CPP_API=y</code>: the typed
+Zephyr carrier that drives this component’s <code>configure</code> is C++, so the
+<code>nros-cpp</code> header surface must be on the app include path even though
+<code>Talker.c</code> itself is C.</p>
 <h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
 <p><code>nros setup</code> provisions the parts nano-ros owns — the <strong>RMW host daemon</strong>
 (<code>zenohd</code> / Micro-XRCE-DDS agent) and the <strong>RMW transport submodules</strong>
@@ -426,21 +480,28 @@ west build -t run
 # native_sim:
 ./build/zephyr/zephyr.exe
 
-# 3. Verify from stock ROS 2 in another terminal:
+# 3. Verify from stock ROS 2 in another terminal. Match the message
+# type to the app you booted: the canonical in-tree talker publishes
+# std_msgs/String; the raw BYO Talker.c shown above publishes
+# std_msgs/Int32.
 source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
-ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort   # just zephyr talker
+# ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort  # BYO my_app
 </code></pre>
-<p>The Zephyr boot banner runs first, then nano-ros prints
-<code>Published: 0</code>, <code>Published: 1</code>, … as the talker fires — Rust + C +
-C++ all start at 0 (Phase 208.D.9).</p>
-<p><strong>Readiness signal.</strong> On <code>native_sim</code>, expect <code>Published: 0</code>
-within 5 seconds of <code>just zephyr talker</code> (or
+<p>The Zephyr boot banner runs first, then the talker fires: the
+canonical in-tree talker prints <code>Publishing: 'Hello World: 1'</code>,
+<code>Publishing: 'Hello World: 2'</code>, … (Rust + C + C++ all count from
+1, matching the official ROS 2 demo talker); the raw BYO <code>Talker.c</code>
+above prints <code>Published: 0</code>, <code>Published: 1</code>, …</p>
+<p><strong>Readiness signal.</strong> On <code>native_sim</code>, expect the first publish line
+(<code>Publishing: 'Hello World: 1'</code> for <code>just zephyr talker</code>;
+<code>Published: 0</code> for the BYO app) within 5 seconds of boot (or
 <code>./build/zephyr/zephyr.exe</code>); on <code>qemu_cortex_a9</code> expect it within
-~15 seconds (QEMU cold boot + Zephyr init). If no <code>Published:</code> line
+~15 seconds (QEMU cold boot + Zephyr init). If no publish line
 in 30 seconds:</p>
 <ol>
 <li>Confirm <code>CONFIG_NROS=y</code> lit up via <code>west build -t menuconfig</code>;
@@ -540,7 +601,7 @@ required Kconfig deltas.</li>
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../getting-started/integration-nuttx.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../getting-started/zephyr.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -554,7 +615,7 @@ required Kconfig deltas.</li>
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../getting-started/integration-nuttx.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../getting-started/zephyr.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
