@@ -35,7 +35,7 @@ var searchData=
   ['std_20tt_32',['Freestanding vs &lt;tt&gt;std&lt;/tt&gt;',['../index.html#autotoc_md5',1,'']]],
   ['std_5fcompat_2ehpp_33',['std_compat.hpp',['../std__compat_8hpp.html',1,'']]],
   ['storage_20sizes_34',['C++ Storage Sizes',['../configuration.html#autotoc_md16',1,'']]],
-  ['stream_35',['stream',['../classnros_1_1Subscription.html#a581129bc58db878f55db7f6a396c6d76',1,'nros::Subscription::stream()'],['../classnros_1_1Subscription.html#a557985e6b0aae567ff4224ba15a05745',1,'nros::Subscription::stream() const'],['../classnros_1_1Stream.html#a58dec41d8ab90b0527b9e50ed16b8d34',1,'nros::Stream::Stream(Stream &amp;&amp;other) noexcept'],['../classnros_1_1Stream.html#a6b3ff13e41e3688053ce6453fe57b983',1,'nros::Stream::Stream()'],['../classnros_1_1Stream.html',1,'nros::Stream&lt; T &gt;']]],
+  ['stream_35',['stream',['../classnros_1_1Stream.html#a58dec41d8ab90b0527b9e50ed16b8d34',1,'nros::Stream::Stream(Stream &amp;&amp;other) noexcept'],['../classnros_1_1Stream.html#a6b3ff13e41e3688053ce6453fe57b983',1,'nros::Stream::Stream()'],['../classnros_1_1Subscription.html#a581129bc58db878f55db7f6a396c6d76',1,'nros::Subscription::stream()'],['../classnros_1_1Subscription.html#a557985e6b0aae567ff4224ba15a05745',1,'nros::Subscription::stream() const'],['../classnros_1_1Stream.html',1,'nros::Stream&lt; T &gt;']]],
   ['stream_2ehpp_36',['stream.hpp',['../stream_8hpp.html',1,'']]],
   ['stream_3c_20feedbacktype_20_3e_37',['Stream&lt; FeedbackType &gt;',['../classnros_1_1Stream.html',1,'nros']]],
   ['stream_3c_20m_20_3e_38',['Stream&lt; M &gt;',['../classnros_1_1Stream.html',1,'nros']]],

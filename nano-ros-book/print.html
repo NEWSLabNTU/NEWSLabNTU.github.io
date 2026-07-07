@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d9cadbbd.js";
+            window.path_to_searchindex_js = "searchindex-4ccebcd9.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-706f4c53.js"></script>
+        <script src="toc-ed309ed7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -7679,6 +7679,144 @@ treatment of event callbacks.</li>
 <li><a href="#differences-from-standard-ros-2">Differences from ROS 2</a> — broader surface
 comparison.</li>
 </ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="tx-throughput--latency-tuning"><a class="header" href="#tx-throughput--latency-tuning">TX Throughput &amp; Latency Tuning</a></h1>
+<p><em>(zenoh-pico RMW — Zephyr, FreeRTOS, NuttX, ThreadX, POSIX; phases 279/282, issue #145)</em></p>
+<p>Every nano-ros language front-end (Rust, C, C++) publishes through the same
+shared transport path (the zpico shim → zenoh-pico), so the knobs on this page
+apply uniformly to all of them. They matter most on <strong>Zephyr</strong>, where the
+kernel’s socket layer serializes send/recv per file descriptor: the zenoh-pico
+read task holds the session socket for a full receive window
+(<code>CONFIG_NROS_ZENOH_SOCKET_TIMEOUT_MS</code>, default 100 ms), so <strong>without tuning,
+total image tx throughput is capped at roughly one socket send per window —
+about 9 msg/s at the default</strong>, regardless of how many publishers the image
+runs or how fast they publish.</p>
+<h2 id="the-decision-tree"><a class="header" href="#the-decision-tree">The decision tree</a></h2>
+<pre><code class="language-text">Is total publish rate comfortably under ~1 msg per socket window?
+├── yes → no tuning needed (the defaults are fine)
+└── no
+    ├── Lots of small/medium messages, latency budget ≥ one flush period?
+    │   └── TX batching: CONFIG_NROS_ZENOH_TX_BATCH=y  (or ZPICO_TX_BATCH=1)
+    │       └── still tx-bound under a tight-loop / bursty publisher?
+    │           └── add CONFIG_NROS_ZENOH_TX_SPLIT_LOCK=y (ZPICO_TX_SPLIT_LOCK=1)
+    ├── A specific topic needs per-sample latency &lt; the flush period?
+    │   └── declare THAT publisher express (tx_express QoS) — it bypasses
+    │       the batch; keep the rest batched
+    └── Everything is latency-critical at high rate?
+        └── lower CONFIG_NROS_ZENOH_SOCKET_TIMEOUT_MS (e.g. 5 ms) — more
+            send windows per second at the cost of read-task wakeups; batching
+            still composes on top
+</code></pre>
+<h2 id="measured-effect-zephyr-native_sim-64-b-messages-100-ms-socket-timeout"><a class="header" href="#measured-effect-zephyr-native_sim-64-b-messages-100-ms-socket-timeout">Measured effect (Zephyr native_sim, 64 B messages, 100 ms socket timeout)</a></h2>
+<p>Streaming (tight-loop publisher, 5000 messages, deep-ring listener):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>configuration</th><th>talker completes?</th><th>throughput</th><th>vs baseline</th></tr>
+</thead>
+<tbody>
+<tr><td>defaults</td><td>no (~33 s window)</td><td>~9 msg/s</td><td>1×</td></tr>
+<tr><td><code>TX_BATCH</code></td><td>no</td><td>~136 msg/s</td><td>~15×</td></tr>
+<tr><td><code>TX_BATCH</code> + <code>TX_SPLIT_LOCK</code></td><td><strong>yes (27.7 s)</strong></td><td><strong>~181 msg/s</strong></td><td><strong>~20×</strong></td></tr>
+</tbody>
+</table>
+</div>
+<p>Timer-paced tiers (100 Hz control + 10 Hz telemetry, one session, phase-279
+harness): defaults 8.6 msg/s total → batch + flush thread 34.1 → + split lock
+43.2, with the 10 Hz tier at its ideal rate. Delivery integrity is validated
+in every configuration.</p>
+<p>Express-vs-batched (same batching image, 200 messages at 5 ms pacing, native):
+the batched topic arrives in flush-cadence bursts (21 inter-arrival gaps of
+~50 ms), the express topic arrives continuously (zero gaps &gt; 25 ms, max gap
+5 ms). On Zephyr an express publisher sends each sample immediately and is
+therefore paced by the socket window instead — use express for <strong>low-rate,
+latency-sensitive</strong> topics (control setpoints, e-stop), never for streams.</p>
+<h2 id="the-knobs"><a class="header" href="#the-knobs">The knobs</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>knob</th><th>Zephyr (Kconfig)</th><th>cargo lanes (env at build)</th><th>C/C++ cmake lanes</th><th>default</th></tr>
+</thead>
+<tbody>
+<tr><td>socket recv window</td><td><code>CONFIG_NROS_ZENOH_SOCKET_TIMEOUT_MS</code></td><td>— (posix doesn’t serialize per-fd)</td><td>—</td><td>100 ms</td></tr>
+<tr><td>tx batching</td><td><code>CONFIG_NROS_ZENOH_TX_BATCH=y</code></td><td><code>ZPICO_TX_BATCH=1</code></td><td><code>-DZPICO_TX_BATCH=1</code> via <code>NROS_CMAKE_EXTRA_DEFS</code></td><td>off</td></tr>
+<tr><td>flush cadence</td><td><code>CONFIG_NROS_ZENOH_TX_BATCH_FLUSH_MS</code></td><td><code>ZPICO_TX_BATCH_FLUSH_MS</code></td><td><code>-DZPICO_TX_BATCH_FLUSH_MS=&lt;ms&gt;</code></td><td>50 ms</td></tr>
+<tr><td>split tx locking</td><td><code>CONFIG_NROS_ZENOH_TX_SPLIT_LOCK=y</code></td><td><code>ZPICO_TX_SPLIT_LOCK=1</code></td><td><code>-DZ_FEATURE_TX_SPLIT_LOCK=1</code> (shared config)</td><td>off</td></tr>
+<tr><td>per-publisher express</td><td><code>tx_express</code> in the QoS profile (all languages, below)</td><td>same</td><td>same</td><td>off</td></tr>
+</tbody>
+</table>
+</div>
+<p>All of these are <strong>compile-time</strong> knobs (embedded images have no runtime
+config), and all default <strong>off</strong> — an untuned build is byte-identical to
+pre-279 behavior.</p>
+<h3 id="what-each-one-does"><a class="header" href="#what-each-one-does">What each one does</a></h3>
+<p><strong>TX batching</strong> (<code>TX_BATCH</code>): publishes append to the transport write buffer
+and ship as one socket send per flush instead of one send per put. Throughput
+then scales with messages-per-flush. A dedicated flush thread (spawned
+automatically on multi-threaded platforms; ThreadX stays spin-driven because
+it runs no background tasks) flushes every <code>TX_BATCH_FLUSH_MS</code>. Batching adds
+up to one flush period of publish latency; service requests/replies always
+bypass the batch. <strong>Do not enable for timer-paced low-rate systems</strong> — with
+≤1 message per flush period there is nothing to coalesce and the flush
+overhead measurably hurts (phase-279 negative result).</p>
+<p><strong>Flush cadence</strong> (<code>TX_BATCH_FLUSH_MS</code>): bounds the extra latency batching
+adds. Lower = fresher samples, more (smaller) sends. 50 ms is a good default
+for telemetry; drop toward 10–20 ms if your latency budget demands it.</p>
+<p><strong>Split tx locking</strong> (<code>TX_SPLIT_LOCK</code>, requires <code>TX_BATCH</code>): the flush
+<em>steals</em> the pending batch (buffer swap) and performs the socket write under a
+separate link mutex, so publishers keep appending while the send is in
+flight; a batch-overflow parks the full buffer instead of blocking the
+publishing thread. Wire order still equals SN order. This is what lets a
+tight-loop publisher actually saturate the path (~181 msg/s above). Fork-local
+<code>Z_FEATURE_TX_SPLIT_LOCK</code>; it gates transport-struct fields, so it must be set
+in the <strong>shared</strong> generated zenoh config (the build front-ends above do this
+for you — never define it for a single translation unit).</p>
+<p><strong>Flush-thread attributes</strong>: platforms that need explicit task priorities /
+stack sizes can call <code>zpico_set_flush_task_config(priority, stack_bytes)</code>
+before session open (mirrors <code>zpico_set_task_config</code> for the read/lease
+tasks; FreeRTOS applies name/priority/stack, POSIX-like platforms stack size
+only).</p>
+<h2 id="per-publisher-express-tx_express"><a class="header" href="#per-publisher-express-tx_express">Per-publisher express (<code>tx_express</code>)</a></h2>
+<p>Marks one publisher’s samples “express”: they carry the zenoh EXPRESS wire
+flag and bypass tx batching — sent immediately even in a batching image. A
+transport hint, not a DDS policy: no RxO matching, ignored on subscriptions
+and by non-batching backends.</p>
+<p>Rust:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// builder
+let pub_ = node.publisher("/cmd_vel").typed::&lt;Twist&gt;().tx_express(true).build()?;
+// or via the QoS profile
+let qos = nros::QosSettings::RELIABLE.tx_express(true);
+let pub_ = node.create_publisher_with_qos::&lt;Twist&gt;("/cmd_vel", qos)?;
+<span class="boring">}</span></code></pre>
+<p>C:</p>
+<pre><code class="language-c">nros_qos_t qos = NROS_QOS_DEFAULT;
+qos.tx_express = 1;
+nros_publisher_init_with_qos(&amp;pub, &amp;node, "/cmd_vel", ts, &amp;qos);
+</code></pre>
+<p>C++:</p>
+<pre><code class="language-cpp">auto pub = node.create_publisher&lt;Twist&gt;("/cmd_vel", nros::QoS().tx_express(true));
+</code></pre>
+<h2 id="pitfalls"><a class="header" href="#pitfalls">Pitfalls</a></h2>
+<ul>
+<li><strong>Benchmark listeners need a deep rx ring.</strong> A batched publisher delivers a
+whole wire batch as one callback burst; the per-subscriber SPSC ring depth
+is compile-time (<code>ZPICO_SUBSCRIBER_RING_DEPTH</code>, default 4, drop-newest) —
+build measurement sinks with e.g. <code>ZPICO_SUBSCRIBER_RING_DEPTH=1024</code> or the
+numbers undercount by &gt;10×.</li>
+<li><strong>Express ≠ fast on Zephyr.</strong> Express bypasses the batch, so each sample
+pays the socket-window wait itself. Reserve it for topics whose <em>rate</em> is
+low but whose <em>latency</em> matters.</li>
+<li><strong>Don’t flush from your own timers/executor threads.</strong> The dedicated flush
+thread exists because flushing from tier threads stalls the very timers
+that generate the puts (phase-279 measured it slower than no batching).</li>
+</ul>
+<p>Benchmarks and procedures: <code>packages/testing/nros-bench/stress-zenoh-zephyr/</code>
+(streaming) and <code>packages/testing/nros-tests/tests/w1_zephyr_tx_throughput_measure.rs</code>
+(timer tiers). Background: <code>docs/roadmap/archived/phase-279-*.md</code>,
+<code>docs/roadmap/phase-282-*.md</code>, and
+<a href="../../docs/reference/platform-implementation-notes.html">platform implementation notes</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="serial-transport"><a class="header" href="#serial-transport">Serial Transport</a></h1>
 <p>This guide covers using serial (UART) transport with nros on embedded targets. Serial transport connects an MCU directly to a zenoh router over UART, without needing an IP stack.</p>
@@ -16763,7 +16901,7 @@ relies on manual comparison with the production source code.</p>
 </table>
 </div>
 <p>Document the trust level of each proof in the module-level doc comment.</p>
-<h2 id="pitfalls"><a class="header" href="#pitfalls">Pitfalls</a></h2>
+<h2 id="pitfalls-1"><a class="header" href="#pitfalls-1">Pitfalls</a></h2>
 <h3 id="verify--true-on-production-crates"><a class="header" href="#verify--true-on-production-crates"><code>verify = true</code> on production crates</a></h3>
 <p><strong>Never</strong> add <code>[package.metadata.verus] verify = true</code> to a production crate
 that contains function pointers, <code>dyn Trait</code>, or closures. Verus will attempt

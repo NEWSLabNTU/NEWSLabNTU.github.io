@@ -12,5 +12,6 @@ var searchData=
   ['try_5frecv_5frequest_9',['try_recv_request',['../classnros_1_1Service.html#a4cf36676b75fd7ce67c2bf86e16b7dd1',1,'nros::Service']]],
   ['try_5frecv_5fsequence_10',['try_recv_sequence',['../classnros_1_1Subscription.html#a252b497886e5e8fc017b4d2b453ff22d',1,'nros::Subscription']]],
   ['try_5frecv_5fvalidated_11',['try_recv_validated',['../classnros_1_1Subscription.html#af901e9578961338f4da1e543bfb59312',1,'nros::Subscription']]],
-  ['try_5ftake_12',['try_take',['../classnros_1_1Future.html#a2ef431f381dfe2500323ba7a67787073',1,'nros::Future']]]
+  ['try_5ftake_12',['try_take',['../classnros_1_1Future.html#a2ef431f381dfe2500323ba7a67787073',1,'nros::Future']]],
+  ['tx_5fexpress_13',['tx_express',['../classnros_1_1QoS.html#a6382a7775dacc48cfaf4879fbdbf9f37',1,'nros::QoS::tx_express(bool on)'],['../classnros_1_1QoS.html#ad485e9f2073cd3f7785c9bfd8a88ce3c',1,'nros::QoS::tx_express() const']]]
 ];

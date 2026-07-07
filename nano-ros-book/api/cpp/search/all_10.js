@@ -7,7 +7,7 @@ var searchData=
   ['lifespan_5fms_4',['lifespan_ms',['../structnros__cpp__qos__t.html#a29db633ac0596441675b753643aca318',1,'nros_cpp_qos_t::lifespan_ms'],['../classnros_1_1QoS.html#a9bb4de5a1fd07a0118cee7291f957a62',1,'nros::QoS::lifespan_ms(uint32_t ms)'],['../classnros_1_1QoS.html#a214fe9834a6b64209313589d8960948a',1,'nros::QoS::lifespan_ms() const']]],
   ['lifetime_5',['Move and Lifetime',['../troubleshooting.html#autotoc_md28',1,'']]],
   ['listener_6',['6. Listener',['../getting_started.html#autotoc_md11',1,'']]],
-  ['liveliness_7',['liveliness',['../classnros_1_1QoS.html#a497f4d113a1a0ab61027aadda17bd0f7',1,'nros::QoS::Liveliness'],['../classnros_1_1QoS.html#abe379b32fdc851efeb868cc1852bff11',1,'nros::QoS::liveliness(Liveliness kind)']]],
+  ['liveliness_7',['liveliness',['../classnros_1_1QoS.html#abe379b32fdc851efeb868cc1852bff11',1,'nros::QoS::liveliness(Liveliness kind)'],['../classnros_1_1QoS.html#a497f4d113a1a0ab61027aadda17bd0f7',1,'nros::QoS::Liveliness']]],
   ['liveliness_5fkind_8',['liveliness_kind',['../structnros__cpp__qos__t.html#a6a8fcd5426353cf7e455ba58ff2b2884',1,'nros_cpp_qos_t']]],
   ['liveliness_5flease_5fms_9',['liveliness_lease_ms',['../classnros_1_1QoS.html#ab8d0118c330899610a94b9e73d9ad51a',1,'nros::QoS::liveliness_lease_ms() const'],['../classnros_1_1QoS.html#af41d376daf59c2b2e2cd2d0301aa9269',1,'nros::QoS::liveliness_lease_ms(uint32_t ms)'],['../structnros__cpp__qos__t.html#a25e7b4cf526c3c400dc81f2693e5bce4',1,'nros_cpp_qos_t::liveliness_lease_ms']]],
   ['liveliness_5fraw_10',['liveliness_raw',['../classnros_1_1QoS.html#a9fce802290b08a39f056c5a41157c786',1,'nros::QoS']]],
