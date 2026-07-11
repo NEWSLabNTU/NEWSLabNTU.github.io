@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-74221e30.js";
+            window.path_to_searchindex_js = "searchindex-0386aff0.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-ed309ed7.js"></script>
@@ -573,14 +573,36 @@ example before moving to a platform-specific guide.</p>
 <p>nano-ros is distributed as <strong>source</strong>, vendored into the consumer’s
 project tree (git submodule, <code>west</code> manifest, ESP-IDF component, etc.)
 and built in-tree via <code>add_subdirectory(nano-ros)</code>. There is no binary
-tarball, no system-wide install step, no <code>find_package(NanoRos)</code>.</p>
+tarball, no system-wide install step, no <code>find_package(NanoRos)</code>, and
+no prebuilt <code>nros</code> CLI.</p>
+<h2 id="the-whole-flow-end-to-end"><a class="header" href="#the-whole-flow-end-to-end">The whole flow, end to end</a></h2>
+<p>Four steps take a bare machine to a building project; each is detailed
+in a section below.</p>
+<pre><code class="language-sh"># 1. Pull the source at a pinned version (or `main` for latest):
+git clone --branch nros-v0.5.0 https://github.com/NEWSLabNTU/nano-ros.git
+cd nano-ros
+
+# 2. Build the `nros` CLI from source (installs rustup if needed):
+./scripts/bootstrap.sh
+
+# 3. Wire the workspace env into this (and every future) shell:
+source ./activate.sh          # or: direnv allow / source ./activate.fish
+
+# 4. Provision the toolchains + RMW daemon for your target:
+nros setup &lt;board&gt; --rmw &lt;zenoh|xrce|cyclonedds&gt;    # e.g. `native`
+</code></pre>
+<p>Then point <strong>your project’s manifest</strong> at the checkout — Pattern A/B
+below for CMake (the <code>add_subdirectory</code> / <code>-DNANO_ROS_ROOT</code> guard), or
+the <a href="#rust-only-consumers">Rust-only consumers</a> path dependency. See
+<a href="#pinning-a-version">Pinning a version</a> for how the tag relates to
+<code>nros version</code>.</p>
 <blockquote>
 <p><strong><code>activate.sh</code> is the after-install step, NOT a prereq.</strong> Sourcing
 <code>activate.sh</code> (or <code>activate.fish</code>, or <code>direnv allow</code>) only wires the
 workspace env into a new shell — it presumes the <code>nros</code> binary
-already exists at <code>packages/cli/target/release/nros</code>. The three
-bootstrap paths below (A/B/C) are what produce that binary; the
-activate file is what makes it findable in every subsequent shell.</p>
+already exists at <code>packages/cli/target/release/nros</code>. The bootstrap
+front door below is what produces that binary; the activate file is
+what makes it findable in every subsequent shell.</p>
 </blockquote>
 <blockquote>
 <p>See <a href="#build-as-a-cmake-subdirectory">build-as-subdirectory.md</a> for the
@@ -644,25 +666,22 @@ sources a board needs are fetched from a pinned index and placed in a
 shared store (<code>~/.nros/sdk</code>). You do <strong>not</strong> install cross-toolchains by
 hand, and you do not need ROS 2 on the machine.</p>
 <h3 id="1-get-the-nros-cli-onto-path"><a class="header" href="#1-get-the-nros-cli-onto-path">1. Get the <code>nros</code> CLI onto PATH</a></h3>
-<p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
-<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
+<p>nano-ros is a <strong>source distribution</strong> — there is no prebuilt <code>nros</code>
+download. One front door from a fresh checkout (<code>just</code> is NOT a
+prereq; rustup is installed on demand):</p>
 <pre><code class="language-sh">git clone https://github.com/NEWSLabNTU/nano-ros.git
 cd nano-ros
-./scripts/bootstrap.sh base
+./scripts/bootstrap.sh
 </code></pre>
-<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
-<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
-this shell.</p>
-<p><strong>B. Already have cargo</strong> (most contributors):</p>
-<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+<p>Builds the in-tree <code>nros</code> CLI <strong>from source</strong> at
+<code>packages/cli/target/release/nros</code> and leaves it on PATH for this
+shell.</p>
+<p>Already have cargo? The equivalent by hand (same build, same binary):</p>
+<pre><code class="language-sh">git submodule update --init packages/cli/third-party/ros-launch-manifest
+cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
 export PATH="$PWD/packages/cli/target/release:$PATH"
 </code></pre>
-<p><strong>C. Tagged release, no Rust at all</strong>:</p>
-<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
-</code></pre>
-<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
-sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
-<p>All three paths produce the per-checkout binary at
+<p>Both produce the per-checkout binary at
 <code>packages/cli/target/release/nros</code>. <strong>One checkout = one CLI version =
 one runtime ABI</strong> — no global install, no <code>~/.nros/bin</code> PATH skew
 across worktrees.</p>
@@ -743,8 +762,16 @@ because it depends transitively on C/C++ submodules (zenoh-pico,
 mbedtls); <code>nros-core</code> isn’t carved out for crates.io either, to
 avoid a hybrid distribution model with version drift between the
 crates.io snapshot and in-repo HEAD.</p>
-<p>Rust packages consume nano-ros via path dependency on the
-in-workspace checkout:</p>
+<p>Rust packages consume nano-ros one of two ways:</p>
+<ul>
+<li><strong>Registry-style names + patch redirection</strong> (what every shipped
+example uses): declare <code>nros = { version = "*" }</code> (+ msg crates) and
+let <code>nros sync</code> write the <code># nros-managed</code> <code>[patch.crates-io]</code> block
+into <code>.cargo/config.toml</code>, resolving the names into the checkout
+(<code>NROS_REPO_DIR</code> names it). Copy the project anywhere; re-run
+<code>nros sync</code> to re-point.</li>
+<li><strong>Explicit path dependency</strong> on the in-workspace checkout:</li>
+</ul>
 <pre><code class="language-toml">[dependencies]
 nros = { path = "src/nano-ros/packages/core/nros",
          default-features = false,
@@ -754,6 +781,27 @@ nros = { path = "src/nano-ros/packages/core/nros",
 when needed — see
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/multi-package-workspace/src/pkg_rust_publisher"><code>examples/templates/multi-package-workspace/src/pkg_rust_publisher/</code></a>
 for the pattern.</p>
+<h2 id="pinning-a-version"><a class="header" href="#pinning-a-version">Pinning a version</a></h2>
+<p>Consumers pin the <strong>source tree</strong>, not a package: clone (or submodule)
+at a <code>nros-v&lt;X.Y.Z&gt;</code> git tag —</p>
+<pre><code class="language-sh">git clone --branch nros-v0.5.0 https://github.com/NEWSLabNTU/nano-ros.git
+# or, as a submodule in your project:
+git submodule add -b main https://github.com/NEWSLabNTU/nano-ros third_party/nano-ros
+git -C third_party/nano-ros checkout nros-v0.5.0
+</code></pre>
+<p>The tag names the <strong>bundle version</strong>: the <code>nros</code> CLI built from that
+tree prints the same number (<code>nros version</code> → <code>nros 0.5.0</code>; the
+<code>scripts/check-version-lockstep.sh</code> gate + <code>bootstrap.sh shell-doctor</code>
+enforce binary↔tree agreement), and the tree’s committed
+<code>nros-sdk-index.toml</code> pins the exact toolchain/SDK versions
+<code>nros setup</code> will provision for it. One tag therefore fixes the whole
+surface: runtime source, CLI behavior, and provisioned toolchains.
+Upgrading = checking out a newer tag and re-running
+<code>./scripts/bootstrap.sh</code> (rebuilds the CLI to match) + <code>nros setup</code>
+(reconciles the SDK store against the new index; already-current
+packages are no-ops). See
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/development/versioning.md">versioning</a>
+for how the bundle number is chosen.</p>
 <h2 id="contributor-setup-working-on-nano-ros-itself"><a class="header" href="#contributor-setup-working-on-nano-ros-itself">Contributor setup (working on nano-ros itself)</a></h2>
 <p>Contributors clone the repo and drive everything through <code>just</code>. The
 <code>just</code> setup recipes are thin wrappers over the same <code>nros setup</code> index —
@@ -803,21 +851,17 @@ to be pre-installed (the repo ships <code>zenohd</code>).</p>
 </blockquote>
 <h2 id="prereqs"><a class="header" href="#prereqs">Prereqs</a></h2>
 <p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
-<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
-<pre><code class="language-sh">./scripts/bootstrap.sh base
+<p><strong>A. Front door</strong> (bare machine OK — no Rust, no <code>just</code>):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh
 </code></pre>
-<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
-<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
-this shell.</p>
-<p><strong>B. Already have cargo</strong> (most contributors):</p>
-<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+<p>Installs rustup if needed and builds the in-tree <code>nros</code> CLI from
+source at <code>packages/cli/target/release/nros</code>, leaving it on PATH for
+this shell (nano-ros is a source distribution — no prebuilt <code>nros</code>).</p>
+<p><strong>B. Already have cargo</strong> (equivalent — same build, same binary):</p>
+<pre><code class="language-sh">git submodule update --init packages/cli/third-party/ros-launch-manifest
+cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
 export PATH="$PWD/packages/cli/target/release:$PATH"
 </code></pre>
-<p><strong>C. Tagged release, no Rust at all</strong>:</p>
-<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
-</code></pre>
-<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
-sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
 <p>Every subsequent shell sources the workspace env via one of:</p>
 <pre><code class="language-sh">direnv allow                  # if you use direnv
 source ./activate.sh          # bash / zsh
@@ -993,21 +1037,17 @@ C. Uses CMake, the Zenoh backend, and <code>add_subdirectory</code> consumption.
 </blockquote>
 <h2 id="prereqs-1"><a class="header" href="#prereqs-1">Prereqs</a></h2>
 <p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
-<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
-<pre><code class="language-sh">./scripts/bootstrap.sh base
+<p><strong>A. Front door</strong> (bare machine OK — no Rust, no <code>just</code>):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh
 </code></pre>
-<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
-<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
-this shell.</p>
-<p><strong>B. Already have cargo</strong> (most contributors):</p>
-<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+<p>Installs rustup if needed and builds the in-tree <code>nros</code> CLI from
+source at <code>packages/cli/target/release/nros</code>, leaving it on PATH for
+this shell (nano-ros is a source distribution — no prebuilt <code>nros</code>).</p>
+<p><strong>B. Already have cargo</strong> (equivalent — same build, same binary):</p>
+<pre><code class="language-sh">git submodule update --init packages/cli/third-party/ros-launch-manifest
+cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
 export PATH="$PWD/packages/cli/target/release:$PATH"
 </code></pre>
-<p><strong>C. Tagged release, no Rust at all</strong>:</p>
-<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
-</code></pre>
-<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
-sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
 <p>Every subsequent shell sources the workspace env via one of:</p>
 <pre><code class="language-sh">direnv allow                  # if you use direnv
 source ./activate.sh          # bash / zsh
@@ -1172,21 +1212,17 @@ consumption.</p>
 </blockquote>
 <h2 id="prereqs-2"><a class="header" href="#prereqs-2">Prereqs</a></h2>
 <p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
-<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
-<pre><code class="language-sh">./scripts/bootstrap.sh base
+<p><strong>A. Front door</strong> (bare machine OK — no Rust, no <code>just</code>):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh
 </code></pre>
-<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
-<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
-this shell.</p>
-<p><strong>B. Already have cargo</strong> (most contributors):</p>
-<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+<p>Installs rustup if needed and builds the in-tree <code>nros</code> CLI from
+source at <code>packages/cli/target/release/nros</code>, leaving it on PATH for
+this shell (nano-ros is a source distribution — no prebuilt <code>nros</code>).</p>
+<p><strong>B. Already have cargo</strong> (equivalent — same build, same binary):</p>
+<pre><code class="language-sh">git submodule update --init packages/cli/third-party/ros-launch-manifest
+cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
 export PATH="$PWD/packages/cli/target/release:$PATH"
 </code></pre>
-<p><strong>C. Tagged release, no Rust at all</strong>:</p>
-<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
-</code></pre>
-<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
-sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
 <p>Every subsequent shell sources the workspace env via one of:</p>
 <pre><code class="language-sh">direnv allow                  # if you use direnv
 source ./activate.sh          # bash / zsh
@@ -2050,21 +2086,17 @@ testing and a Cortex-M Entry pkg for hardware.</p>
 </ol>
 <h2 id="prereqs-3"><a class="header" href="#prereqs-3">Prereqs</a></h2>
 <p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
-<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
-<pre><code class="language-sh">./scripts/bootstrap.sh base
+<p><strong>A. Front door</strong> (bare machine OK — no Rust, no <code>just</code>):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh
 </code></pre>
-<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
-<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
-this shell.</p>
-<p><strong>B. Already have cargo</strong> (most contributors):</p>
-<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+<p>Installs rustup if needed and builds the in-tree <code>nros</code> CLI from
+source at <code>packages/cli/target/release/nros</code>, leaving it on PATH for
+this shell (nano-ros is a source distribution — no prebuilt <code>nros</code>).</p>
+<p><strong>B. Already have cargo</strong> (equivalent — same build, same binary):</p>
+<pre><code class="language-sh">git submodule update --init packages/cli/third-party/ros-launch-manifest
+cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
 export PATH="$PWD/packages/cli/target/release:$PATH"
 </code></pre>
-<p><strong>C. Tagged release, no Rust at all</strong>:</p>
-<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
-</code></pre>
-<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
-sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
 <p>Every subsequent shell sources the workspace env via one of:</p>
 <pre><code class="language-sh">direnv allow                  # if you use direnv
 source ./activate.sh          # bash / zsh
@@ -2158,21 +2190,17 @@ The Entry pkg is what boots the binary; the Node pkg is what runs inside it.</p>
 <hr>
 <h2 id="prereqs-4"><a class="header" href="#prereqs-4">Prereqs</a></h2>
 <p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
-<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
-<pre><code class="language-sh">./scripts/bootstrap.sh base
+<p><strong>A. Front door</strong> (bare machine OK — no Rust, no <code>just</code>):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh
 </code></pre>
-<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
-<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
-this shell.</p>
-<p><strong>B. Already have cargo</strong> (most contributors):</p>
-<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+<p>Installs rustup if needed and builds the in-tree <code>nros</code> CLI from
+source at <code>packages/cli/target/release/nros</code>, leaving it on PATH for
+this shell (nano-ros is a source distribution — no prebuilt <code>nros</code>).</p>
+<p><strong>B. Already have cargo</strong> (equivalent — same build, same binary):</p>
+<pre><code class="language-sh">git submodule update --init packages/cli/third-party/ros-launch-manifest
+cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
 export PATH="$PWD/packages/cli/target/release:$PATH"
 </code></pre>
-<p><strong>C. Tagged release, no Rust at all</strong>:</p>
-<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
-</code></pre>
-<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
-sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
 <p>Every subsequent shell sources the workspace env via one of:</p>
 <pre><code class="language-sh">direnv allow                  # if you use direnv
 source ./activate.sh          # bash / zsh
@@ -2400,21 +2428,17 @@ the per-target deploy config — all without any compiled code of its own.</p>
 <hr>
 <h2 id="prereqs-5"><a class="header" href="#prereqs-5">Prereqs</a></h2>
 <p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
-<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
-<pre><code class="language-sh">./scripts/bootstrap.sh base
+<p><strong>A. Front door</strong> (bare machine OK — no Rust, no <code>just</code>):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh
 </code></pre>
-<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
-<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
-this shell.</p>
-<p><strong>B. Already have cargo</strong> (most contributors):</p>
-<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+<p>Installs rustup if needed and builds the in-tree <code>nros</code> CLI from
+source at <code>packages/cli/target/release/nros</code>, leaving it on PATH for
+this shell (nano-ros is a source distribution — no prebuilt <code>nros</code>).</p>
+<p><strong>B. Already have cargo</strong> (equivalent — same build, same binary):</p>
+<pre><code class="language-sh">git submodule update --init packages/cli/third-party/ros-launch-manifest
+cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
 export PATH="$PWD/packages/cli/target/release:$PATH"
 </code></pre>
-<p><strong>C. Tagged release, no Rust at all</strong>:</p>
-<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
-</code></pre>
-<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
-sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
 <p>Every subsequent shell sources the workspace env via one of:</p>
 <pre><code class="language-sh">direnv allow                  # if you use direnv
 source ./activate.sh          # bash / zsh
@@ -2634,21 +2658,17 @@ workstation and an STM32F4 board has two Entry pkgs that reference the same
 Node pkgs; only the board and (optionally) the launch target differ.</p>
 <h2 id="prereqs-6"><a class="header" href="#prereqs-6">Prereqs</a></h2>
 <p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
-<p><strong>A. Bare machine</strong> (no Rust, no <code>just</code>, no cargo):</p>
-<pre><code class="language-sh">./scripts/bootstrap.sh base
+<p><strong>A. Front door</strong> (bare machine OK — no Rust, no <code>just</code>):</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh
 </code></pre>
-<p>Installs rustup, just, builds the in-tree <code>nros</code> CLI at
-<code>packages/cli/target/release/nros</code>, leaves the binary on PATH for
-this shell.</p>
-<p><strong>B. Already have cargo</strong> (most contributors):</p>
-<pre><code class="language-sh">cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+<p>Installs rustup if needed and builds the in-tree <code>nros</code> CLI from
+source at <code>packages/cli/target/release/nros</code>, leaving it on PATH for
+this shell (nano-ros is a source distribution — no prebuilt <code>nros</code>).</p>
+<p><strong>B. Already have cargo</strong> (equivalent — same build, same binary):</p>
+<pre><code class="language-sh">git submodule update --init packages/cli/third-party/ros-launch-manifest
+cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
 export PATH="$PWD/packages/cli/target/release:$PATH"
 </code></pre>
-<p><strong>C. Tagged release, no Rust at all</strong>:</p>
-<pre><code class="language-sh">./scripts/install-nros-prebuilt.sh
-</code></pre>
-<p>Downloads the matching <code>nros-&lt;triple&gt;.tar.gz</code> from the GitHub release,
-sha256-verifies, installs to <code>packages/cli/target/release/nros</code>.</p>
 <p>Every subsequent shell sources the workspace env via one of:</p>
 <pre><code class="language-sh">direnv allow                  # if you use direnv
 source ./activate.sh          # bash / zsh
@@ -18080,20 +18100,17 @@ diagnostics, and board introspection.</p>
 directly.</p>
 <h2 id="install"><a class="header" href="#install">Install</a></h2>
 <p>The <code>nros</code> CLI ships from the in-tree sub-workspace at <code>packages/cli/</code>
-(Phase 218). <strong>Recommended</strong> — bootstrap, then activate the workspace
-to put it on PATH:</p>
-<pre><code class="language-sh">./scripts/bootstrap.sh base
+(Phase 218). nano-ros is a <strong>source distribution</strong> — there is no
+prebuilt <code>nros</code> download (phase-288 D1/D2). One front door — bootstrap
+(builds the CLI from source; installs rustup if needed), then activate
+the workspace to put it on PATH:</p>
+<pre><code class="language-sh">./scripts/bootstrap.sh
 source ./activate.sh        # OR: direnv allow / source ./activate.fish
 </code></pre>
-<p>Alternatives (same binary, same location):</p>
-<ul>
-<li>Already have cargo:
+<p>Equivalent, if you already have cargo (same build, same binary):
 <code>git submodule update --init packages/cli/third-party/ros-launch-manifest</code>
 then <code>cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros</code>
-(bootstrap runs both for you).</li>
-<li>Tagged checkout, no Rust toolchain: <code>./scripts/install-nros-prebuilt.sh</code>
-(downloads the prebuilt from the nano-ros-sdk Releases).</li>
-</ul>
+(bootstrap runs both for you; <code>just setup-cli</code> is the internal alias).</p>
 <p>The resulting binary lives at <code>packages/cli/target/release/nros</code>. One
 checkout = one CLI version = one runtime ABI; contributors with
 multiple nano-ros worktrees get per-tree CLIs with no global PATH
