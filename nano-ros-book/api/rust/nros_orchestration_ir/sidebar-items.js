@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["DEFAULT_TIER"],"enum":["TierResolveError"],"fn":["board_path_for","resolve_tiers"],"struct":["CallbackGroupDecl","CallbackGroupOverride","NodeOverride","ResolvedTier","ResolvedTierTable","TierDef","TierRtosSpec"]};
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_TIER"],"enum":["TierResolveError"],"fn":["board_path_for","resolve_tiers","validate_tier_platform_applicability"],"struct":["CallbackGroupDecl","CallbackGroupOverride","NodeOverride","ResolvedTier","ResolvedTierTable","TierDef","TierRtosSpec"]};
