@@ -1,5 +1,4 @@
 var searchData=
 [
-  ['canceled_0',['Canceled',['../namespacenros.html#a824c95a7f291e516552584a26eb63c04a0e22fe7d45f8e5632a4abf369b24e29c',1,'nros']]],
-  ['canceling_1',['Canceling',['../namespacenros.html#a824c95a7f291e516552584a26eb63c04a8452baa7ceca9feac301db63d024dd64',1,'nros']]]
+  ['badsequence_0',['BadSequence',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19ea6f24339485d48019eae57c475dd87e85',1,'nros']]]
 ];

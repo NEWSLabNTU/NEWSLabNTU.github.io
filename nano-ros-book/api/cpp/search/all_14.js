@@ -16,6 +16,7 @@ var searchData=
   ['publisher_13',['publisher',['../classnros_1_1Publisher.html#a7a9995c78c2b7a088700794118c30b3a',1,'nros::Publisher::Publisher(Publisher &amp;&amp;other)'],['../classnros_1_1Publisher.html#a1fa7bb0524188ee99b5dc7c0246f4f94',1,'nros::Publisher::Publisher()'],['../classnros_1_1Publisher.html',1,'nros::Publisher&lt; M &gt;']]],
   ['publisher_2ehpp_14',['publisher.hpp',['../publisher_8hpp.html',1,'']]],
   ['publisher_5ftopic_5fname_5fmax_15',['PUBLISHER_TOPIC_NAME_MAX',['../namespacenros.html#a402f430635d567ed8d545d570f4d8306',1,'nros']]],
-  ['pubsub_16',['pubsub',['../group__grp__pubsub.html',1,'']]],
-  ['push_5fback_17',['push_back',['../structnros_1_1FixedSequence.html#a375ec699a66408b656c10a4ccdc9fd4b',1,'nros::FixedSequence']]]
+  ['publishfailed_16',['PublishFailed',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19ea69a09127619d061c68ed85a8abe2899e',1,'nros']]],
+  ['pubsub_17',['pubsub',['../group__grp__pubsub.html',1,'']]],
+  ['push_5fback_18',['push_back',['../structnros_1_1FixedSequence.html#a375ec699a66408b656c10a4ccdc9fd4b',1,'nros::FixedSequence']]]
 ];

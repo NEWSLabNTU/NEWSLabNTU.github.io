@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['succeeded_0',['Succeeded',['../namespacenros.html#a824c95a7f291e516552584a26eb63c04a66d02c2f8a582446f8dd8752366002b5',1,'nros']]]
+  ['publishfailed_0',['PublishFailed',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19ea69a09127619d061c68ed85a8abe2899e',1,'nros']]]
 ];
