@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_MONITORS","MAX_VIOLATIONS","RATE_CHECK_INTERVAL_US"],"struct":["MonitorSpec","PubMonitorCell","Violation"]};
+window.SIDEBAR_ITEMS = {"constant":["MAX_MONITORS","MAX_VIOLATIONS","RATE_CHECK_INTERVAL_US"],"fn":["peek_stamp_us"],"struct":["AgeMonitorSpec","MonitorSpec","PubMonitorCell","SubMonitorCell","Violation"]};
