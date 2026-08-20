@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -199,6 +199,7 @@ just build                 # workspace + transports (fast inner loop)
 just build-examples        # + every example
 just build-all             # + test fixtures (everything test-all consumes)
 just build-test-fixtures   # just the fixtures + writes the test-all stamp
+just build-test-fixtures lane=native   # only what tier 1 (`just ci`) runs
 
 just test-unit             # ~5s          ⊂
 just test-integration      # ~30s         ⊂
@@ -314,31 +315,83 @@ tool, SDK dirs) are injected by the recipe via <code>NROS_CMAKE_EXTRA_DEFS</code
 <p>A prebuilt fixture that’s silently stale would let <code>test-all</code> run against the
 wrong binary. The discipline:</p>
 <ul>
-<li><strong>Presence gate.</strong> <code>build-test-fixtures</code> stamps <code>target/nextest/.fixtures-built</code>;
-<code>test-all</code>’s <code>_require-fixtures</code> fast-fails (~1 s) with a hint if it’s absent
-(bypass: <code>NROS_SKIP_FIXTURE_CHECK=1</code>).</li>
-<li><strong>Rust cells.</strong> <code>scripts/test/rust-fixture-stale.sh</code> reuses cargo’s own
+<li>
+<p><strong>Coverage gate.</strong> <code>build-test-fixtures</code> stamps <code>target/nextest/.fixtures-built</code>
+with the <strong>lane and the fixture coordinates it built</strong>, not just a timestamp;
+<code>test-all</code>’s <code>_require-fixtures</code> fast-fails (~1 s) if the stamp is absent <em>or
+does not cover</em> the <strong>run</strong> implied by <code>NROS_FIXTURE_LANE</code> (bypass:
+<code>NROS_SKIP_FIXTURE_CHECK=1</code>). So a <code>lane=native</code> build satisfies <code>just ci</code>
+(tier 1) and is correctly rejected by an unscoped <code>test-all</code>. A pre-issue-0393
+timestamp-only stamp is read as <code>lane=all</code>, which is what it meant.</p>
+<p>Note “the run”, not “the lane” (issue 0482). A lane’s coordinates are what it
+keeps <strong>fresh</strong>; what must <strong>exist</strong> is decided by which tests the recipe
+executes. The two are answered separately, and <code>nros_lane_build_lane</code> is the
+mapping between them (<code>CiLane::run_scope</code> is the declaration;
+<code>lane-coords &lt;lane&gt; --build-lane</code> prints it).</p>
+<p>Each lane narrows its run in the way its cost actually lives:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>lane</th><th>run narrowed by</th><th>build lane</th></tr>
+</thead>
+<tbody>
+<tr><td>tier 1</td><td>test/binary NAME (<code>NROS_TEST_SCOPE=native</code>)</td><td><code>native</code></td></tr>
+<tr><td>tier 2, nightly</td><td>fixture COORDINATE (<code>NROS_TEST_COORDS</code>)</td><td>itself</td></tr>
+</tbody>
+</table>
+</div>
+<p>Tier 2 needs the second kind because it is 1-wise over platform: every
+platform is in the lane, so a platform-token filter excludes nothing, and the
+saving is in lang × rmw <em>within</em> a platform, which test names do not encode
+(issues 0357, 0482). So the narrowing happens in the fixture <strong>resolver</strong>
+(phase-340 W3, <code>nros_tests::fixtures::lane</code>): a resolved artifact is
+attributed back to its <code>examples/fixtures.toml</code> row through
+<code>row_artifact_root()</code>, and a row outside the lane reports <strong>SKIPPED</strong> instead
+of missing. Build and run then apply the same <code>row_coord()</code> predicate to the
+same coordinate file, so <code>just build-test-fixtures lane=tier2 &amp;&amp; just ci-matrix</code> is a coherent pair. Before W3 tier 2 ran the whole suite, and a
+<code>lane=tier2</code> build satisfied the preflight for a run that then failed STALE on
+34 unbuilt coordinates.</p>
+<p>The skip is keyed on the coordinate, never on the artifact being absent: an
+<strong>in-lane</strong> fixture that is missing or stale still fails hard, and a path the
+manifest cannot attribute (Zephyr west leaves, the compile-check lane — both
+built module-level, so nothing is omitted) is never skipped.</p>
+<p>The preflight enforces the pairing rather than trusting it: accepting a
+build <strong>narrower than <code>all</code></strong> requires <code>NROS_TEST_COORDS</code> to be set and to hold
+exactly that lane’s coordinates, so a hand-run <code>NROS_FIXTURE_LANE=tier2 just test-all</code> is refused instead of reproducing issue 0482. A full build needs no
+narrowing, so <code>NROS_FIXTURE_LANE=tier2</code> on top of <code>lane=all</code> still works —
+scope the freshness gate, keep the run wide.</p>
+</li>
+<li>
+<p><strong>Rust cells.</strong> <code>scripts/test/rust-fixture-stale.sh</code> reuses cargo’s own
 fingerprint — <code>cargo build … --message-format=json</code> reports <code>"fresh":false</code>
-for a stale unit, so the probe both detects <strong>and</strong> self-heals.</li>
-<li><strong>C/C++ cells.</strong> <code>scripts/test/cmake-fixture-stale.sh</code> runs the incremental
+for a stale unit, so the probe both detects <strong>and</strong> self-heals.</p>
+</li>
+<li>
+<p><strong>C/C++ cells.</strong> <code>scripts/test/cmake-fixture-stale.sh</code> runs the incremental
 <code>cmake --build</code> (near-no-op when fresh) and flags cells that actually rebuilt.
 (<code>ninja -n</code> is unusable here — Corrosion’s cargo step is an always-run custom
-command, so it always reports pending.)</li>
-<li><strong>Probe opt-out.</strong> Cells needing a recipe-injected toolchain the probe can’t
+command, so it always reports pending.)</p>
+</li>
+<li>
+<p><strong>Probe opt-out.</strong> Cells needing a recipe-injected toolchain the probe can’t
 supply (e.g. the ESP32 nightly + build-std) set <code>skip_probe = true</code>; the reader’s
-<code>--for-probe</code> omits them so they don’t toolchain-thrash.</li>
-<li><strong>Source-list / drift gates.</strong> <code>zpico-sys</code> (vendored zenoh-pico, Phase 136.6)
+<code>--for-probe</code> omits them so they don’t toolchain-thrash.</p>
+</li>
+<li>
+<p><strong>Source-list / drift gates.</strong> <code>zpico-sys</code> (vendored zenoh-pico, Phase 136.6)
 and <code>nros-rmw-xrce-cffi</code> (vendored uxr/micro-cdr, Phase 145.4) verify each
 vendored source root resolves to a real dir with <code>.c</code> files and panic with a
 <code>git submodule update --init</code> hint on drift. cbindgen build scripts
-(<code>nros-c</code>, <code>nros-cpp</code>, <code>zpico-sys</code>) emit <code>cargo:rerun-if-changed=cbindgen.toml</code>
+(<code>nros-c</code>, <code>nros-cpp</code>, <code>zpico-sys</code>) emit <code>cargo:rerun-if-changed=cbindgen.toml</code></p>
 <ul>
 <li><code>src/</code>.</li>
 </ul>
 </li>
-<li><strong>Probe runs in preflight.</strong> <code>_check-fixtures-stale</code> runs both probes (rust +
+<li>
+<p><strong>Probe runs in preflight.</strong> <code>_check-fixtures-stale</code> runs both probes (rust +
 cmake) over the manifest before the <code>test-all</code> nextest stage; it warns +
-self-heals rather than hard-failing.</li>
+self-heals rather than hard-failing.</p>
+</li>
 </ul>
 <h2 id="patched-qemu"><a class="header" href="#patched-qemu">Patched QEMU</a></h2>
 <p>QEMU networked tests use a patched <code>qemu-system-arm</code> (icount + MPS2 fixes) built

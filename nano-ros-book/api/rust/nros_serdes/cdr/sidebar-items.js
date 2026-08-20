@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["CdrReader","CdrWriter","LeSliceView"],"trait":["LeDecode"]};
+window.SIDEBAR_ITEMS = {"enum":["EncodingVersion"],"struct":["CdrReader","CdrWriter","DHeaderMark","DHeaderScope","LeSliceView"],"trait":["LeDecode"]};

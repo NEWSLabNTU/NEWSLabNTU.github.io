@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -178,7 +178,17 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="the-board-trait-family"><a class="header" href="#the-board-trait-family">The <code>Board</code> Trait Family</a></h1>
-<p>The <code>Board</code> trait family is the <strong>porting surface for a new MCU or host target</strong>. It lives in <code>packages/core/nros-platform/src/board/</code> and pins the contract every board crate (<code>nros-board-&lt;board&gt;</code> or a user-authored crate in a downstream Entry pkg) implements. Phase 212.N introduces this surface; earlier prototypes used <code>nros-board-common::board_init::*</code>, and those legacy traits stay as a transition shim until Phase 212.N.7 lands.</p>
+<p>The <code>Board</code> trait family is the <strong>porting surface for a new MCU or host target</strong>. It lives in <code>packages/platform/nros-platform/src/board/</code> and pins the contract every board crate (<code>nros-board-&lt;board&gt;</code> or a user-authored crate in a downstream Entry pkg) implements. Phase 212.N introduces this surface; earlier prototypes used <code>nros-board-common::board_init::*</code>, and those legacy traits stay as a transition shim until Phase 212.N.7 lands.</p>
+<blockquote>
+<p><strong>New board crates: implement <code>nros-platform::board</code>, not the legacy shim.</strong>
+The porting surface for new code is the <code>Board</code> family described on this
+page (<code>Board</code> = <code>BoardInit</code> + <code>BoardPrint</code> + <code>BoardExit</code>, driven by
+<code>BoardEntry::run</code>). The <code>nros-board-common::board_init</code> trait family is
+transition-legacy — kept only so not-yet-migrated in-tree boards keep
+building — and must not be implemented in new board crates. Convergence
+onto the single <code>nros-platform::board</code> family is tracked in issue 0243,
+sequenced with phase-230.</p>
+</blockquote>
 <p>A board impl tells nano-ros four things: <em>how to initialize hardware</em>, <em>how to print a line of text</em>, <em>how to terminate</em>, and (optionally) <em>how to bring a transport up and gate on the network</em>. With those four pieces the <code>BoardEntry::run</code> driver owns the boot lifecycle, and a user Entry pkg <code>main.rs</code> is a ~30 LoC shim.</p>
 <h2 id="where-the-trait-family-sits"><a class="header" href="#where-the-trait-family-sits">Where the trait family sits</a></h2>
 <pre><code class="language-text">nros-platform::board
@@ -202,7 +212,7 @@
 </ul>
 <p><code>Board</code> is itself a blanket-implemented super-trait: any type that carries <code>BoardInit + BoardPrint + BoardExit</code> automatically satisfies <code>Board</code>. Concrete board crates do <em>not</em> <code>impl Board</code> directly — they impl the three sub-traits (plus whichever mixins they need).</p>
 <h2 id="the-boardentryrun-lifecycle"><a class="header" href="#the-boardentryrun-lifecycle">The <code>BoardEntry::run</code> lifecycle</a></h2>
-<p><code>BoardEntry::run</code> owns the full boot → user-closure → exit flow. The exact body lives in the family driver crate (e.g. <code>nros-board-posix</code>, <code>nros-board-freertos</code>); each family folds its RTOS specifics in, but the <em>order</em> is fixed:</p>
+<p><code>BoardEntry::run</code> owns the full boot → user-closure → exit flow. The exact body lives in the family driver crate (e.g. <code>nros-board-linux</code>, <code>nros-board-freertos</code>); each family folds its RTOS specifics in, but the <em>order</em> is fixed:</p>
 <ol>
 <li><strong><code>BoardInit::init_hardware()</code></strong> — clocks, pinmux, MMIO setup.</li>
 <li><strong><code>TransportBringup::init_transport()</code></strong> — driver up at L2 (skipped if the board doesn’t impl the mixin).</li>
@@ -318,13 +328,17 @@ fn main() {
 <h2 id="family-driver-crates"><a class="header" href="#family-driver-crates">Family driver crates</a></h2>
 <p>The family crate is where the <code>BoardEntry::run</code> <em>body</em> actually lives. Tier-1 families targeted by Phase 212.N.2:</p>
 <ul>
-<li><code>nros-board-posix</code> — native host (Linux / *BSD); <code>init_transport</code>/<code>wait_link_up</code> no-ops.</li>
+<li><code>nros-board-linux</code> — native host (Linux / *BSD); <code>init_transport</code>/<code>wait_link_up</code> no-ops.</li>
 <li><code>nros-board-freertos</code> — FreeRTOS-Kernel + lwIP; <code>run</code> spawns the executor task, hands DHCP to lwIP’s hook.</li>
 <li><code>nros-board-threadx</code> — ThreadX + NetX BSD; same shape over NetX.</li>
 <li><code>nros-board-nuttx</code> — NuttX POSIX layer; <code>init_transport</code> shells <code>ifup</code>-style logic.</li>
 <li><code>nros-board-zephyr</code> — carve-out: Kconfig + DTS own BSP, family crate impls only <code>NetworkWait</code> over <code>&lt;zephyr/net/net_if.h&gt;</code>. The Rust staticlib cannot take over <code>main</code> on Zephyr.</li>
 <li><code>nros-board-esp-idf</code> — ESP-IDF component shape; WiFi association lives in <code>init_transport</code>, IP lease in <code>wait_link_up</code>.</li>
-<li><code>nros-board-bare-metal</code> — Cortex-M / RV32, no RTOS; minimal <code>run</code> body with a single-thread <code>zp_read</code> loop.</li>
+<li>Direct-exec (Cortex-M / RV32, no RTOS) has <strong>no family crate</strong>: each board
+implements <code>BoardEntry::run</code> itself with a single-thread <code>zp_read</code> loop. A
+<code>nros-board-bare-metal</code> family driver was written for this shape and no board
+ever opted into it — 135 of its 161 lines were doc comment — so phase-337 W7.c
+deleted it. <code>nros-board-mps2-an385</code> is the worked reference.</li>
 </ul>
 <blockquote>
 <p><strong>Current state:</strong> as of Phase 212.N.1 the trait surface lives in <code>nros-platform</code>; the family driver crates land in N.2 and the per-board shims in N.3. Until then, see <code>packages/boards/nros-board-*</code> for the in-tree boards that still ride the legacy <code>nros-board-common::board_init::*</code> traits — same conceptual shape, different module path.</p>

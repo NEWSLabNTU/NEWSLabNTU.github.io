@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["Ok","set_hook"],"macro":[["anyhow",1],["bail",1],["ensure",1],["eyre",1],["format_err",1]],"struct":["Chain","DefaultHandler","InstallError","Report"],"trait":["ContextCompat","EyreHandler","OptionExt","WrapErr"],"type":["Result"]};

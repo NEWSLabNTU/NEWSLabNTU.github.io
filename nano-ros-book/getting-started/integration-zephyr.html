@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -233,7 +233,8 @@ apply nano-ros’s Zephyr patches:</p>
 </div>
 <p>native_sim networking uses <strong>NSOS</strong> (host loopback) on both lines — no
 TAP/bridge/root. The copy-out, snippet, patch-apply, and dual-line build
-flows are exercised in CI (<code>just zephyr ci-both</code>, <code>just zephyr check-copy-out</code>).</p>
+flows are exercised in CI (contributor lanes <code>just zephyr ci-both</code>,
+<code>just zephyr check-copy-out</code>).</p>
 <h2 id="project-layout"><a class="header" href="#project-layout">Project layout</a></h2>
 <p>A Zephyr workspace using nano-ros looks like any other Zephyr
 project — the <strong>nano-ros module sits beside Zephyr</strong>, your
@@ -270,14 +271,16 @@ project(my_app)
 
 set(NANO_ROS_PLATFORM zephyr)
 include("${NROS_REPO_DIR}/cmake/NanoRosNodeRegister.cmake")
+include("${NROS_REPO_DIR}/cmake/NanoRosVerbs.cmake")
 
-nano_ros_node_register(
-    NAME      talker
-    CLASS     my_app::Talker
-    LANGUAGE  C
+nano_ros_auto_add_library(talker_lib STATIC src/Talker.c)
+
+nros_components_register_node(talker_lib
+    PLUGIN my_app::Talker
+    EXECUTABLE talker
+    SHAPE configure
     TYPED
-    SOURCES   src/Talker.c
-    DEPLOY    zephyr)
+    DEPLOY zephyr)
 </code></pre>
 <pre><code class="language-c">// apps/my_app/src/Talker.c
 // `talker_configure` creates a raw publisher on `/chatter` + a timer that
@@ -351,8 +354,8 @@ Zephyr carrier that drives this component’s <code>configure</code> is C++, so 
 and interface codegen still needs the ROS message definitions.</p>
 <ol>
 <li><strong>Build the in-tree <code>nros</code> CLI</strong> (Phase 218, from the nano-ros checkout):
-<pre><code class="language-bash">source ./activate.sh        # OR: direnv allow / source ./activate.fish
-just setup-cli              # builds packages/cli/target/release/nros
+<pre><code class="language-bash">./scripts/bootstrap.sh      # builds packages/cli/target/release/nros
+source ./activate.sh        # OR: direnv allow / source ./activate.fish
 </code></pre>
 </li>
 <li><strong>Provision the RMW (daemon + transports)</strong> from the nano-ros checkout:
@@ -368,7 +371,8 @@ package’s <code>msg/*.msg</code> from <code>NROS_&lt;PKG&gt;_DIR</code> (e.g.
 <code>export NROS_STD_MSGS_DIR=/opt/ros/humble/share/std_msgs</code>) — point it at a ROS
 install or any dir holding the <code>.msg</code> files.</li>
 </ol>
-<p>The RMW host daemon must be <strong>running</strong> before an example connects (<code>zenohd -l tcp/127.0.0.1:7456</code> for zenoh; the Micro-XRCE-DDS agent for xrce).</p>
+<p>The RMW host daemon must be <strong>running</strong> before an example connects
+(for zenoh: <code>ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7456"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd</code>; the Micro-XRCE-DDS agent for xrce).</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
 <p>Add nano-ros (and a Zephyr pin — <code>zephyr/west.yml</code> is manifest-only;
 it does <strong>not</strong> pull Zephyr itself) to your workspace <code>west.yml</code>:</p>
@@ -432,7 +436,7 @@ west build -b native_sim/native/64 apps/my_app -- -DCONF_FILE="prj.conf;$overlay
 west build -b qemu_cortex_a9 apps/my_app
 </code></pre>
 <p>(Verified end-to-end on a fresh BYO west workspace: this builds to <code>zephyr.exe</code>
-and runs to <code>Published: 0</code> against <code>zenohd -l tcp/127.0.0.1:7456</code>. On the 4.4
+and runs to <code>Published: 0</code> against <code>ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7456</code>.“];scouting/multicast/enabled=false’ ros2 run rmw_zenoh_cpp rmw_zenohd On the 4.4
 line, <code>find_package(Python3)</code> requires ≥ 3.12 and you select the RMW with
 <code>-S nros-zenoh</code> instead of the overlay.)</p>
 <p>For a quick sanity check that the module is wired correctly:</p>
@@ -463,17 +467,14 @@ The example apps’ committed <code>.cargo/config.toml</code> is for the in-tree
 </li>
 </ol>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
-<pre><code class="language-bash"># 1. Start zenohd on the host. The in-tree just recipe runs the
-#    pinned in-tree zenohd on the zephyr fixture port (7456) — the
-#    same port the example apps' Kconfig defaults pick up:
-just zephyr zenohd &amp;
-#    Or directly:
-#    zenohd --listen tcp/0.0.0.0:7456 --no-multicast-scouting
+<pre><code class="language-bash"># 1. Start the router (ROS's `rmw_zenohd` — nano-ros ships no router
+#    of its own) on port 7456, the port your app's Kconfig default
+#    picks up (CONFIG_NROS_ZENOH_LOCATOR defaults to
+#    "tcp/127.0.0.1:7456"; change either side to match):
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:7456"];scouting/multicast/enabled=false' \
+    ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
-# 2. Boot the app. nano-ros's own in-tree zephyr talker has a
-#    matching just recipe for the canonical `native_sim` build path:
-just zephyr talker
-#    For a BYO west workspace + your own app:
+# 2. Boot the app from your BYO west workspace:
 # QEMU Cortex-A9:
 west build -t run
 # native_sim:
@@ -488,16 +489,21 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
-ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort   # just zephyr talker
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort   # in-tree talker
 # ros2 topic echo /chatter std_msgs/msg/Int32 --qos-reliability best_effort  # BYO my_app
 </code></pre>
+<blockquote>
+<p><strong>Contributors:</strong> nano-ros’s own zephyr talker has a matching in-tree
+recipe for the canonical <code>native_sim</code> build path — see
+<a href="../internals/platform-lanes.html#zephyr">Per-Platform Contributor Lanes</a>.</p>
+</blockquote>
 <p>The Zephyr boot banner runs first, then the talker fires: the
 canonical in-tree talker prints <code>Publishing: 'Hello World: 1'</code>,
 <code>Publishing: 'Hello World: 2'</code>, … (Rust + C + C++ all count from
 1, matching the official ROS 2 demo talker); the raw BYO <code>Talker.c</code>
 above prints <code>Published: 0</code>, <code>Published: 1</code>, …</p>
 <p><strong>Readiness signal.</strong> On <code>native_sim</code>, expect the first publish line
-(<code>Publishing: 'Hello World: 1'</code> for <code>just zephyr talker</code>;
+(<code>Publishing: 'Hello World: 1'</code> for the in-tree talker;
 <code>Published: 0</code> for the BYO app) within 5 seconds of boot (or
 <code>./build/zephyr/zephyr.exe</code>); on <code>qemu_cortex_a9</code> expect it within
 ~15 seconds (QEMU cold boot + Zephyr init). If no publish line
@@ -519,7 +525,7 @@ run west through it (<code>.venv312/bin/python -m west build ...</code>), so the
 ROS descriptor-codegen subprocess still uses the system ROS Python.</li>
 <li><code>attempt to assign the value ... to the undefined symbol ETH_NATIVE_POSIX</code>
 — that symbol was renamed <code>ETH_NATIVE_TAP</code> in 4.x; the version-aware
-NSOS overlay handles it (<code>just zephyr build-one</code> does this automatically).</li>
+NSOS overlay handles it (<strong>contributors:</strong> the in-tree <code>just zephyr build-one</code> recipe applies it automatically).</li>
 </ul>
 <h2 id="zephyr-4x-select-the-rmw-with-a-snippet"><a class="header" href="#zephyr-4x-select-the-rmw-with-a-snippet">Zephyr 4.x: select the RMW with a snippet</a></h2>
 <p>On 4.x, nano-ros ships <code>west</code> <strong>snippets</strong> so you pick the RMW on the

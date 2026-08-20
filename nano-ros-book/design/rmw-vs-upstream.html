@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -186,6 +186,18 @@ like, what <code>nros-rmw-cffi</code> looks like, and why nano-ros diverges.</p>
 <a href="../api/rmw-cffi/index.html"><code>&lt;nros/rmw_vtable.h&gt;</code></a>. The Rust trait
 counterparts are an alternative entry point for porters who already
 work in Rust; this page sticks to the C-vtable surface throughout.</p>
+<blockquote>
+<p><strong>Phase-301 rename.</strong> The vtable historically diverged from rmw’s
+vocabulary (<code>subscriber</code>, <code>service_server</code>, <code>service_client</code>,
+<code>open</code>/<code>close</code>). Phase-301 (issues 0240/0241) aligned it: the entity
+types are now <code>nros_rmw_subscription_t</code> / <code>nros_rmw_service_t</code> /
+<code>nros_rmw_client_t</code>, the session slots are <code>create_session</code> /
+<code>destroy_session</code>, and the deprecated blocking <code>call_raw</code> slot is
+deleted (<code>send_request_raw</code> + <code>try_recv_reply_raw</code> is the one
+request/reply path). Transport hints (<code>tx_express</code>,
+<code>rx_buffer_hint</code>) moved out of <code>nros_rmw_qos_t</code> into per-create
+options structs. This page uses the new names throughout.</p>
+</blockquote>
 <h2 id="tldr"><a class="header" href="#tldr">TL;DR</a></h2>
 <div class="table-wrapper">
 <table>
@@ -194,8 +206,8 @@ work in Rust; this page sticks to the C-vtable surface throughout.</p>
 </thead>
 <tbody>
 <tr><td>Plugin loading</td><td><code>dlopen("librmw_*.so")</code> at runtime</td><td>Single vtable registered at init</td></tr>
-<tr><td>Init sequence</td><td><code>rmw_init_options_t</code> → <code>rmw_context_t</code> → entities</td><td>One <code>open()</code> call, returns the session</td></tr>
-<tr><td>Entity types</td><td><code>rmw_publisher_t</code> / <code>rmw_subscription_t</code> / <code>rmw_service_t</code> / <code>rmw_client_t</code></td><td>Typed-with-opaque-tail: <code>nros_rmw_publisher_t</code> / <code>_subscriber_t</code> / <code>_service_server_t</code> / <code>_service_client_t</code> (visible metadata + opaque <code>backend_data</code>)</td></tr>
+<tr><td>Init sequence</td><td><code>rmw_init_options_t</code> → <code>rmw_context_t</code> → entities</td><td>One <code>create_session()</code> call, returns the session</td></tr>
+<tr><td>Entity types</td><td><code>rmw_publisher_t</code> / <code>rmw_subscription_t</code> / <code>rmw_service_t</code> / <code>rmw_client_t</code></td><td>Typed-with-opaque-tail: <code>nros_rmw_publisher_t</code> / <code>_subscription_t</code> / <code>_service_t</code> / <code>_client_t</code> (visible metadata + opaque <code>backend_data</code>)</td></tr>
 <tr><td>Wait</td><td><code>rmw_wait(waitset, timeout)</code> blocks the caller</td><td><code>drive_io(session, timeout_ms)</code> drives I/O once</td></tr>
 <tr><td>Serialization</td><td>typesupport-driven (rosidl)</td><td>Pre-serialized CDR bytes only</td></tr>
 <tr><td>Graph queries</td><td><code>rmw_get_topic_names_and_types</code>, …</td><td>None</td></tr>
@@ -241,9 +253,9 @@ rmw_shutdown(&amp;context);
 <p><strong>nano-ros.</strong> One step — a session covers what upstream splits across
 options + context:</p>
 <pre><code class="language-c">nros_rmw_session_t session = {0};
-nros_rmw_ret_t ret = vtable-&gt;open(locator, mode, domain_id, node_name, &amp;session);
-/* ... use &amp;session to create_publisher / create_subscriber / … */
-vtable-&gt;close(&amp;session);
+nros_rmw_ret_t ret = vtable-&gt;create_session(locator, mode, domain_id, node_name, &amp;session);
+/* ... use &amp;session to create_publisher / create_subscription / … */
+vtable-&gt;destroy_session(&amp;session);
 </code></pre>
 <p><strong>Why.</strong> Upstream’s split is useful when an application owns multiple
 RMW instances with different options. Nano-ros assumes one session per
@@ -278,10 +290,13 @@ nros_rmw_ret_t (*create_publisher)(
     nros_rmw_session_t * session,
     const char * topic_name, const char * type_name, const char * type_hash,
     uint32_t domain_id, const nros_rmw_qos_t * qos,
+    const nros_rmw_publisher_options_t * options,   /* transport hints; NULL = defaults */
     nros_rmw_publisher_t * out);   /* runtime-allocated; backend fills */
 </code></pre>
-<p>Same shape for <code>nros_rmw_subscriber_t</code>. Service entities
-(<code>nros_rmw_service_server_t</code>, <code>nros_rmw_service_client_t</code>) and
+<p>Same shape for <code>nros_rmw_subscription_t</code> (whose
+<code>nros_rmw_subscription_options_t</code> carries <code>rx_buffer_hint</code>, as the
+publisher’s carries <code>tx_express</code>). Service entities
+(<code>nros_rmw_service_t</code>, <code>nros_rmw_client_t</code>) and
 <code>nros_rmw_session_t</code> have no <code>qos</code> and no <code>can_loan_messages</code> —
 service-level QoS doesn’t generalise across non-DDS backends
 (see <a href="#7-qos-minimal-subset-not-full-dds-profiles">QoS, Section 7</a>)
@@ -477,7 +492,7 @@ receive <em>already-CDR-encoded</em> bytes:</p>
 <pre><code class="language-c">nros_rmw_ret_t (*publish_raw)(nros_rmw_publisher_t * publisher,
                               const uint8_t * data, size_t len);
 
-int32_t (*try_recv_raw)(nros_rmw_subscriber_t * subscriber,
+int32_t (*try_recv_raw)(nros_rmw_subscription_t * subscription,
                         uint8_t * buf, size_t len);
 </code></pre>
 <p><strong>Why.</strong> rosidl typesupport is heavy: dynamic dispatch through a
@@ -537,7 +552,7 @@ runtime events.</p>
     uint32_t deadline_ms;             /* 0 = infinite */
     uint32_t lifespan_ms;             /* 0 = infinite */
     uint32_t liveliness_lease_ms;     /* 0 = infinite */
-    bool     avoid_ros_namespace_conventions;
+    uint8_t  avoid_ros_namespace_conventions;
     uint8_t  _reserved1[3];
 } nros_rmw_qos_t;
 </code></pre>
@@ -695,7 +710,7 @@ shows up; additive.</li>
 at create time, not as runtime events. The existing
 <code>nros_rmw_ret_t</code> codes (<code>NROS_RMW_RET_INCOMPATIBLE_QOS</code>) carry
 the diagnostic synchronously from <code>create_publisher</code> /
-<code>create_subscriber</code>. No event needed.</li>
+<code>create_subscription</code>. No event needed.</li>
 </ul>
 <h3 id="dispatch--callback-on-entity-not-waitset-take"><a class="header" href="#dispatch--callback-on-entity-not-waitset-take">Dispatch — callback-on-entity, not waitset-take</a></h3>
 <p>Events fire from inside the existing <code>drive_io</code> callback-dispatch
@@ -716,7 +731,7 @@ entity, no per-call allocation.</p>
 Tier-1 events this isn’t load-bearing — events are rare, callbacks
 are cheap.</p>
 <h3 id="backend-coverage"><a class="header" href="#backend-coverage">Backend coverage</a></h3>
-<p>Coverage is uneven and surfaces through <code>Subscriber::supports_event</code>
+<p>Coverage is uneven and surfaces through <code>Subscription::supports_event</code>
 (Rust) / <code>register_*_event</code> returning <code>NROS_RMW_RET_UNSUPPORTED</code>
 (C). Apps must handle “not supported” — not every backend will
 generate every event:</p>
@@ -798,9 +813,9 @@ different sign convention, no thread-local error string:</p>
 <tr><th>Returns</th><th>Success</th><th>Failure</th></tr>
 </thead>
 <tbody>
-<tr><td><code>nros_rmw_ret_t</code> + entity-struct out-param (<code>open</code>, <code>create_publisher</code>, <code>create_subscriber</code>, …)</td><td><code>NROS_RMW_RET_OK</code>, <code>out-&gt;backend_data</code> non-NULL</td><td>negative named constant</td></tr>
-<tr><td><code>nros_rmw_ret_t</code> (<code>close</code>, <code>drive_io</code>, <code>publish_raw</code>, <code>send_reply</code>, …)</td><td><code>NROS_RMW_RET_OK</code></td><td>negative named constant</td></tr>
-<tr><td><code>int32_t</code> byte count (<code>try_recv_raw</code>, <code>try_recv_request</code>, <code>call_raw</code>)</td><td><code>&gt;= 0</code> (bytes received)</td><td>negative <code>nros_rmw_ret_t</code></td></tr>
+<tr><td><code>nros_rmw_ret_t</code> + entity-struct out-param (<code>create_session</code>, <code>create_publisher</code>, <code>create_subscription</code>, …)</td><td><code>NROS_RMW_RET_OK</code>, <code>out-&gt;backend_data</code> non-NULL</td><td>negative named constant</td></tr>
+<tr><td><code>nros_rmw_ret_t</code> (<code>destroy_session</code>, <code>drive_io</code>, <code>publish_raw</code>, <code>send_reply</code>, …)</td><td><code>NROS_RMW_RET_OK</code></td><td>negative named constant</td></tr>
+<tr><td><code>int32_t</code> byte count (<code>try_recv_raw</code>, <code>try_recv_request</code>, <code>try_recv_reply_raw</code>)</td><td><code>&gt;= 0</code> (bytes received)</td><td>negative <code>nros_rmw_ret_t</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -821,6 +836,66 @@ a <code>&lt;nros/rmw_ret.h&gt;</code> header change only.</li>
 </ul>
 <p><strong>Why same style.</strong> Named constants make <code>switch</code> statements
 possible at call sites; bare negative ints don’t.</p>
+<h2 id="publisher-gid--message-info-functional-parity-different-shape-issue-0242"><a class="header" href="#publisher-gid--message-info-functional-parity-different-shape-issue-0242">Publisher GID &amp; message-info: functional-parity, different shape (issue 0242)</a></h2>
+<p>Two upstream <code>rmw.h</code> capabilities exist in nano-ros in a <strong>different
+shape</strong> — the functionality is present, but the upstream-exact C entry
+points are deliberately not mirrored. Recorded here so the divergence
+reads as a decision, and updated (2026-07-27) to describe what nano-ros
+actually provides today.</p>
+<h3 id="message-info-surfaced-via-a-builder-not-a-take_with_info-slot"><a class="header" href="#message-info-surfaced-via-a-builder-not-a-take_with_info-slot">Message-info: surfaced via a builder, not a <code>take_with_info</code> slot</a></h3>
+<p>Upstream’s <code>rmw_take_with_info</code> fills an <code>rmw_message_info_t</code> (source +
+received timestamp, publisher GID, publication + reception sequence
+numbers) alongside the payload.</p>
+<p>nano-ros provides the <strong>same information</strong> — <code>MessageInfo</code> carries all five
+fields — but through a different seam:</p>
+<ul>
+<li><strong>Application API (present).</strong> A subscription opts into message-info
+with the <code>message_info()</code> builder:
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>node.subscription::&lt;Msg&gt;("/topic")
+    .message_info()
+    .build(|msg, info: Option&lt;&amp;MessageInfo&gt;| {
+        if let Some(i) = info {
+            log::info!("from {:?} at {:?}", i.publisher_gid(), i.source_timestamp());
+        }
+    })?;
+<span class="boring">}</span></code></pre>
+C mirrors this with <code>nros_executor_register_subscription_raw_with_info</code>
+(the callback receives a <code>nros_raw_message_info_t</code>).</li>
+<li><strong>What’s carved out.</strong> The hot <code>try_recv_raw</code> vtable slot returns
+bytes ONLY. The metadata rides a separate <code>MessageInfoSlot</code>
+side-channel that the backend populates from its native attachment /
+sample-info (Zenoh attachment, DDS sample-info, XRCE topic callback)
+and the runtime pairs with the payload. A <code>take_with_info</code>-shaped
+vtable slot would widen the ABI of the byte-count-return take path
+(<code>int32_t</code> bytes) for no functional gain — the side-channel already
+delivers the info to the <code>message_info()</code> builder.</li>
+</ul>
+<h3 id="publisher-identity-per-message-gid-no-standalone-query"><a class="header" href="#publisher-identity-per-message-gid-no-standalone-query">Publisher identity: per-message GID, no standalone query</a></h3>
+<p>Upstream exposes <code>rmw_get_gid_for_publisher(pub, out_gid)</code> and stamps
+every sample with the writer’s GID.</p>
+<p>nano-ros <strong>does carry a publisher GID</strong> where the wire supports it: a
+zenoh publisher generates a 16-byte GID at create time
+(<code>RmwAttachment::generate_gid</code>) and stamps it into the per-sample
+attachment; the subscriber extracts it into <code>MessageInfo.publisher_gid</code>,
+so <strong>per-message publisher attribution is observable</strong> via
+<code>info.publisher_gid()</code> (populated on the zenoh path; zero-filled on
+backends whose wire carries no writer GID).</p>
+<ul>
+<li><strong>What’s carved out.</strong> The standalone <code>rmw_get_gid_for_publisher</code>
+QUERY — reading a <em>publisher’s own</em> GID back through a C API — is not
+provided. The publisher holds its GID internally, but no in-tree
+consumer needs to query it: the one need, bridge loop-suppression /
+dedup, is served by the <code>bridge_origin</code> attachment, and per-message
+attribution is already covered by <code>MessageInfo.publisher_gid</code>.</li>
+</ul>
+<h3 id="if-a-consumer-shows-up"><a class="header" href="#if-a-consumer-shows-up">If a consumer shows up</a></h3>
+<p>Both carved-out shapes — a <code>take_with_info</code> vtable slot and a
+<code>get_publisher_gid</code> query slot — can land later as NULL-able optional
+vtable slots (the established tail-append extension pattern, RFC-0035)
+without an ABI break, the day a concrete consumer needs the upstream-exact
+entry point rather than the builder / per-message forms above.</p>
 <h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
 <ul>
 <li><a href="rmw.html">RMW API Design</a> — deeper architectural rationale (heap,
@@ -829,7 +904,7 @@ threading, dispatch model) shared across all the points above.</li>
 to writing a backend in C against this vtable.</li>
 <li><a href="../api/rmw-cffi/index.html"><code>&lt;nros/rmw_vtable.h&gt;</code> Doxygen</a> — full
 C reference for every function pointer above.</li>
-<li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/zpico/nros-rmw-zenoh"><code>packages/zpico/nros-rmw-zenoh</code></a>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/rmw/zenoh/nros-rmw-zenoh"><code>packages/rmw/zenoh/nros-rmw-zenoh</code></a>
 — canonical reference port. Read the source for a worked example.</li>
 </ul>
 

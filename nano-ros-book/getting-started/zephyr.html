@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -215,21 +215,25 @@ Set <code>$NROS_ZEPHYR_WORKSPACE</code> to install elsewhere.</p>
 </code></pre>
 <h3 id="migrating-from-the-legacy-sibling-layout"><a class="header" href="#migrating-from-the-legacy-sibling-layout">Migrating from the legacy sibling layout</a></h3>
 <p>Legacy setups put the workspace at <code>../nano-ros-workspace/</code> with an
-in-tree symlink. Both layouts work — <code>just zephyr</code> recipes auto-detect — but
-to consolidate run:</p>
+in-tree symlink. Both layouts work (<strong>contributors:</strong> the in-tree
+<code>just zephyr</code> recipes auto-detect either), but to consolidate run:</p>
 <pre><code class="language-bash">./scripts/zephyr/migrate-workspace.sh --dry-run     # preview
 ./scripts/zephyr/migrate-workspace.sh               # execute
 </code></pre>
 <h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
 <p>Build the in-tree <code>nros</code> CLI (Phase 218), then let it provision the toolchain:</p>
-<pre><code class="language-bash">source ./activate.sh        # OR: direnv allow / source ./activate.fish
-just setup-cli              # builds packages/cli/target/release/nros
+<pre><code class="language-bash">./scripts/bootstrap.sh      # builds packages/cli/target/release/nros
+source ./activate.sh        # OR: direnv allow / source ./activate.fish
 </code></pre>
-<p><code>nros setup</code> ships prebuilt toolchains per platform per RMW — the
+<p><code>nros setup</code> provides most components prebuilt per platform per RMW — the
 cross-compiler, emulator, RMW host daemon, and SDK sources (including the Zephyr
 west workspace + Zephyr SDK bits) are fetched from a pinned index into a shared
 store at <code>${NROS_HOME:-~/.nros}/sdk</code>. You do not hand-install a cross-toolchain, and you do not
 need ROS 2 installed.</p>
+<p>Packages are prebuilt where the index has a binary for your host and built from
+source otherwise — <code>zenohd</code> is the notable source build, and zenoh is the default
+<code>--rmw</code>. <code>--dry-run</code> prints the plan for your host. See
+<a href="installation.html#provision-your-toolchain-with-nros-setup">Installation</a> for the full explanation.</p>
 <h2 id="step-1-initialize-workspace-one-time"><a class="header" href="#step-1-initialize-workspace-one-time">Step 1: Initialize Workspace (One-Time)</a></h2>
 <pre><code class="language-bash">nros setup zephyr --rmw zenoh      # --rmw defaults to zenoh; xrce | cyclonedds also valid
 source ./activate.sh
@@ -263,9 +267,31 @@ without bridge configuration.</p>
 <pre><code class="language-bash"># Source environment
 source zephyr-workspace/env.sh
 
-# Build Zephyr talker (Rust + zenoh, default backend)
 cd zephyr-workspace
-west build -b native_sim/native/64 nros/examples/zephyr/rust/talker
+
+# Rust — `nros sync` first, once per checkout location. It writes the
+# generated message bindings and the [patch.crates-io] table the leaf's
+# .cargo/config.toml includes. This applies to cargo under WEST too: west
+# drives the same leaf, so without sync the build fails while PARSING the
+# manifest, with an error that never names sync (issue 0694).
+#
+# `--no-metadata` because the source-metadata probe builds a host binary that
+# path-deps this leaf, dragging in the `zephyr` crate — whose build.rs needs a
+# DOTCONFIG from a Zephyr cmake configure that has not run yet, and cannot,
+# since this sync is its prerequisite (issue 0318). Without the flag the sync
+# still succeeds but prints a "no producer" error the reader cannot act on.
+# Codegen and the patch table — the reason to run it — are unaffected.
+nros sync --no-metadata ../examples/zephyr/rust/talker
+
+# Build Zephyr talker (Rust + zenoh, default backend).
+#
+# `../examples/...` rather than `&lt;name&gt;/examples/...`: the workspace's link
+# back to the checkout is named after YOUR checkout directory
+# (`scripts/zephyr/setup.sh` uses `basename "$NANO_ROS_ROOT"`), so it reads
+# `nano-ros/` for a plain `git clone` and `nros/` only if you renamed the
+# directory. For the in-tree workspace this page sets up, `..` IS the
+# checkout and needs no name at all.
+west build -b native_sim/native/64 ../examples/zephyr/rust/talker
 
 # Run (no sudo needed)
 ./build/zephyr/zephyr.exe
@@ -409,19 +435,10 @@ target_sources(app PRIVATE src/main.c)
 </table>
 </div>
 <h2 id="e2e-testing"><a class="header" href="#e2e-testing">E2E Testing</a></h2>
-<pre><code class="language-bash"># Zenoh examples
-just zephyr build           # Build Rust zenoh examples
-just zephyr build-c         # Build C zenoh examples
-just zephyr test            # Run zenoh E2E tests
-
-# XRCE examples
-just zephyr build-xrce      # Build all XRCE examples (Rust + C)
-just zephyr test-xrce       # Run XRCE E2E tests
-
-# All examples
-just zephyr build-all       # Build everything
-just zephyr ci              # Doctor + test (CI shortcut)
-</code></pre>
+<blockquote>
+<p><strong>Contributors:</strong> the in-tree fixture/test lanes for this platform are in
+<a href="../internals/platform-lanes.html#zephyr">Per-Platform Contributor Lanes</a>.</p>
+</blockquote>
 <h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
 <div class="table-wrapper">
 <table>
@@ -464,8 +481,10 @@ emulated L2/L3 stack to configure, no static IP, and no bridge.</p>
 west update
 </code></pre>
 <p>To completely recreate the workspace:</p>
-<pre><code class="language-bash">just zephyr setup --force
-</code></pre>
+<blockquote>
+<p><strong>Contributors:</strong> the in-tree workspace-recreate lane is in
+<a href="../internals/platform-lanes.html#zephyr">Per-Platform Contributor Lanes</a>.</p>
+</blockquote>
 
                     </main>
 

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["default_sinks","init_default"],"struct":["PlatformSink"]};

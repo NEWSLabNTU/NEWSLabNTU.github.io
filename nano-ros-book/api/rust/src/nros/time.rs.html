@@ -1,0 +1,85 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `/home/runner/work/nano-ros/nano-ros/packages/api/nros/src/time.rs`."><title>time.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="nros" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">nros/</div>time.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-2"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! Monotonic time for portable node code (issue #504).
+<a href=#2 id=2 data-nosnippet>2</a>//!
+<a href=#3 id=3 data-nosnippet>3</a>//! Node packages are platform-agnostic: the same crate compiles into a
+<a href=#4 id=4 data-nosnippet>4</a>//! POSIX, FreeRTOS, or Zephyr image, so it can reach neither the
+<a href=#5 id=5 data-nosnippet>5</a>//! per-platform timing types nor the `nros_platform_clock_ns` C export
+<a href=#6 id=6 data-nosnippet>6</a>//! directly. This module is the portable spelling. Uses that motivated
+<a href=#7 id=7 data-nosnippet>7</a>//! it: `dt` in control laws (assuming the nominal period silently
+<a href=#8 id=8 data-nosnippet>8</a>//! misintegrates whenever a callback runs late), timestamping published
+<a href=#9 id=9 data-nosnippet>9</a>//! state, and coarse in-node watchdogs.
+<a href=#10 id=10 data-nosnippet>10</a>//!
+<a href=#11 id=11 data-nosnippet>11</a>//! Semantics: monotonic since an unspecified epoch (process start or
+<a href=#12 id=12 data-nosnippet>12</a>//! boot). This is explicitly NOT ROS time — no sim-time, no epoch
+<a href=#13 id=13 data-nosnippet>13</a>//! meaning, no cross-machine comparability. Compare instants, never
+<a href=#14 id=14 data-nosnippet>14</a>//! interpret one absolutely.
+<a href=#15 id=15 data-nosnippet>15</a>//!
+<a href=#16 id=16 data-nosnippet>16</a>//! Clock source mirrors the executor's timer accounting
+<a href=#17 id=17 data-nosnippet>17</a>//! (`nros-node/src/executor/spin.rs`), and phase-359 W10 follow-up had to
+<a href=#18 id=18 data-nosnippet>18</a>//! RESTORE that — the sentence had gone false:
+<a href=#19 id=19 data-nosnippet>19</a>//!
+<a href=#20 id=20 data-nosnippet>20</a>//! - **`rmw-cffi` builds** (a platform port is linked): the platform's
+<a href=#21 id=21 data-nosnippet>21</a>//!   `nros_platform_clock_ns` export, on either flavour. Same linkage contract
+<a href=#22 id=22 data-nosnippet>22</a>//!   the executor and the wake primitives already rely on, so this adds no new
+<a href=#23 id=23 data-nosnippet>23</a>//!   requirement. Resolution is whatever the platform delivers (issue #502:
+<a href=#24 id=24 data-nosnippet>24</a>//!   sub-tick on FreeRTOS Cortex-M, tick-quantized on ThreadX).
+<a href=#25 id=25 data-nosnippet>25</a>//! - **`std` without a port**: [`std::time::Instant`], anchored at first use.
+<a href=#26 id=26 data-nosnippet>26</a>//!   The claim that stood here — "real and shipped, the metadata probe compiles
+<a href=#27 id=27 data-nosnippet>27</a>//!   node code with `std` and no port" — was WRONG. The probe links
+<a href=#28 id=28 data-nosnippet>28</a>//!   `nros-platform-cffi` with `posix-c-port` and resolves `rmw-cffi`, so it
+<a href=#29 id=29 data-nosnippet>29</a>//!   takes the arm above. This arm has no in-tree consumer: nothing calls
+<a href=#30 id=30 data-nosnippet>30</a>//!   `now()` anywhere in the tree.
+<a href=#31 id=31 data-nosnippet>31</a>//! - **Neither**: no clock source; this module is absent.
+<a href=#32 id=32 data-nosnippet>32</a>//!
+<a href=#33 id=33 data-nosnippet>33</a>//! The order used to be the other way round, `std` first, which meant every
+<a href=#34 id=34 data-nosnippet>34</a>//! NATIVE build (std AND a port) read `Instant` here while the executor read
+<a href=#35 id=35 data-nosnippet>35</a>//! the port — two monotonic sources with different epochs in one image, under a
+<a href=#36 id=36 data-nosnippet>36</a>//! doc claiming they were one. W10 moved the executor onto the port whenever a
+<a href=#37 id=37 data-nosnippet>37</a>//! port exists; this module was not moved with it. Two clocks are only harmless
+<a href=#38 id=38 data-nosnippet>38</a>//! while nobody compares them, and the whole purpose of this module is `dt`
+<a href=#39 id=39 data-nosnippet>39</a>//! across callbacks the executor scheduled.
+<a href=#40 id=40 data-nosnippet>40</a>
+<a href=#41 id=41 data-nosnippet>41</a></span><span class="attr">#![allow(clippy::module_name_repetitions)]
+<a href=#42 id=42 data-nosnippet>42</a>
+<a href=#43 id=43 data-nosnippet>43</a></span><span class="kw">use </span>core::time::Duration;
+<a href=#44 id=44 data-nosnippet>44</a>
+<a href=#45 id=45 data-nosnippet>45</a><span class="doccomment">/// Monotonic time since an unspecified epoch.
+<a href=#46 id=46 data-nosnippet>46</a>///
+<a href=#47 id=47 data-nosnippet>47</a>/// ```ignore
+<a href=#48 id=48 data-nosnippet>48</a>/// let t0 = nros::time::now();
+<a href=#49 id=49 data-nosnippet>49</a>/// // ... work ...
+<a href=#50 id=50 data-nosnippet>50</a>/// let dt = nros::time::now() - t0;
+<a href=#51 id=51 data-nosnippet>51</a>/// ```
+<a href=#52 id=52 data-nosnippet>52</a></span><span class="attr">#[cfg(all(feature = <span class="string">"std"</span>, not(feature = <span class="string">"rmw-cffi"</span>)))]
+<a href=#53 id=53 data-nosnippet>53</a>#[must_use]
+<a href=#54 id=54 data-nosnippet>54</a></span><span class="kw">pub fn </span>now() -&gt; Duration {
+<a href=#55 id=55 data-nosnippet>55</a>    <span class="kw">use </span>std::{sync::OnceLock, time::Instant};
+<a href=#56 id=56 data-nosnippet>56</a>    <span class="kw">static </span>EPOCH: OnceLock&lt;Instant&gt; = OnceLock::new();
+<a href=#57 id=57 data-nosnippet>57</a>    EPOCH.get_or_init(Instant::now).elapsed()
+<a href=#58 id=58 data-nosnippet>58</a>}
+<a href=#59 id=59 data-nosnippet>59</a>
+<a href=#60 id=60 data-nosnippet>60</a><span class="doccomment">/// Monotonic time since an unspecified epoch.
+<a href=#61 id=61 data-nosnippet>61</a>///
+<a href=#62 id=62 data-nosnippet>62</a>/// Reads the platform port's `nros_platform_clock_ns` (RFC-0073) — on a hosted
+<a href=#63 id=63 data-nosnippet>63</a>/// build too, which is the point: this and the executor must be ONE clock. What
+<a href=#64 id=64 data-nosnippet>64</a>/// the low digits are worth is per-port; ask
+<a href=#65 id=65 data-nosnippet>65</a>/// `nros_platform_clock_resolution_ns`.
+<a href=#66 id=66 data-nosnippet>66</a></span><span class="attr">#[cfg(feature = <span class="string">"rmw-cffi"</span>)]
+<a href=#67 id=67 data-nosnippet>67</a>#[must_use]
+<a href=#68 id=68 data-nosnippet>68</a></span><span class="kw">pub fn </span>now() -&gt; Duration {
+<a href=#69 id=69 data-nosnippet>69</a>    <span class="kw">unsafe extern </span><span class="string">"C" </span>{
+<a href=#70 id=70 data-nosnippet>70</a>        <span class="kw">fn </span>nros_platform_clock_ns() -&gt; u64;
+<a href=#71 id=71 data-nosnippet>71</a>    }
+<a href=#72 id=72 data-nosnippet>72</a>    <span class="comment">// SAFETY: bare query of the platform's monotonic us counter; the
+<a href=#73 id=73 data-nosnippet>73</a>    // symbol is guaranteed by whichever platform port linked the
+<a href=#74 id=74 data-nosnippet>74</a>    // binary (the same contract the executor's default timer clock
+<a href=#75 id=75 data-nosnippet>75</a>    // depends on).
+<a href=#76 id=76 data-nosnippet>76</a>    </span>Duration::from_nanos(<span class="kw">unsafe </span>{ nros_platform_clock_ns() })
+<a href=#77 id=77 data-nosnippet>77</a>}
+<a href=#78 id=78 data-nosnippet>78</a>
+<a href=#79 id=79 data-nosnippet>79</a><span class="doccomment">/// Convenience: [`now`] as whole microseconds.
+<a href=#80 id=80 data-nosnippet>80</a></span><span class="attr">#[cfg(any(feature = <span class="string">"std"</span>, feature = <span class="string">"rmw-cffi"</span>))]
+<a href=#81 id=81 data-nosnippet>81</a>#[must_use]
+<a href=#82 id=82 data-nosnippet>82</a></span><span class="kw">pub fn </span>now_us() -&gt; u64 {
+<a href=#83 id=83 data-nosnippet>83</a>    u64::try_from(now().as_micros()).unwrap_or(u64::MAX)
+<a href=#84 id=84 data-nosnippet>84</a>}
+</code></pre></div></section></main></body></html>

@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -183,26 +183,27 @@ path — no ESP-IDF — running under the Espressif QEMU fork (OpenETH
 ethernet). For the ESP-IDF component path (C / C++ apps), see
 <a href="./integration-esp-idf.html">ESP32 (ESP-IDF component)</a>.</p>
 <blockquote>
-<p><strong>Prereqs.</strong> <code>nros setup qemu-esp32-baremetal</code> is the single command that
-prepares your machine. It fetches a prebuilt esp-hal toolchain and
-the chosen RMW host daemon from a pinned index into the shared
-store at <code>~/.nros/sdk</code> — you do not hand-install cross-compilers,
-and you do not need ROS 2 installed.</p>
+<p><strong>Prereqs.</strong> <code>nros setup qemu-esp32-baremetal</code> prepares the build: the
+riscv cross-gcc and <code>espflash</code> from a pinned index into the shared
+store at <code>~/.nros/sdk</code> — you do not hand-install cross-compilers.
+Running under QEMU additionally needs Espressif’s QEMU fork
+(<code>nros setup --tool esp32-qemu</code>, source-built) and — for zenoh — a
+ROS 2 install to provide the router.</p>
 </blockquote>
 <h2 id="setup"><a class="header" href="#setup">Setup</a></h2>
 <p>Build the in-tree <code>nros</code> CLI (Phase 218):</p>
-<pre><code class="language-bash">source ./activate.sh        # OR: direnv allow / source ./activate.fish
-just setup-cli              # builds packages/cli/target/release/nros
+<pre><code class="language-bash">./scripts/bootstrap.sh      # builds packages/cli/target/release/nros
+source ./activate.sh        # OR: direnv allow / source ./activate.fish
 </code></pre>
 <p>Provision the board (and RMW):</p>
 <pre><code class="language-bash">nros setup qemu-esp32-baremetal --rmw zenoh     # --rmw defaults to zenoh; xrce | cyclonedds also valid
 </code></pre>
 <p>This pulls the SDK sources nano-ros owns (zenoh-pico + mbedtls
-submodules for zenoh; analogous for xrce / cyclonedds) and lands the
-RMW host daemon (<code>zenohd</code> for zenoh, the Micro-XRCE-DDS agent for
-xrce) under <code>${NROS_HOME:-~/.nros}/sdk</code> (the activate file puts the
-in-tree CLI on PATH; legacy <code>${NROS_HOME:-~/.nros}/bin/</code> install
-remains supported transitionally). <code>esp-hal</code> itself is a Cargo dependency the
+submodules for zenoh; analogous for xrce / cyclonedds) plus the riscv
+cross-gcc and <code>espflash</code> into <code>${NROS_HOME:-~/.nros}/sdk</code>. It does NOT
+provide a zenoh router — that is ROS 2’s <code>rmw_zenohd</code>, so the zenoh Run
+step below needs a ROS install (<code>--rmw cyclonedds</code> needs no daemon at
+all). <code>esp-hal</code> itself is a Cargo dependency the
 example pulls in at build time, not a separately-installed toolchain;
 the only cross-toolchain you may need to add by hand is the rustup
 target — once per host:</p>
@@ -238,26 +239,59 @@ rmw       = "zenoh"
 domain_id = 0
 ip        = "10.0.2.50"
 gateway   = "10.0.2.2"
-locator   = "tcp/10.0.2.2:7454"
+locator   = "tcp/10.0.2.2:9800"
 </code></pre>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
-<pre><code class="language-bash"># QEMU ESP32 (qemu-system-riscv32). `just esp32 build-qemu` (which
-# `just esp32 talker` depends on) builds the QEMU-board variant; the
-# example's build.rs invokes `nros generate-rust` automatically, so
-# the `generated/` dir populates on first build (gitignored).
-just esp32 build-qemu
+<blockquote>
+<p><strong>Contributors:</strong> the in-tree fixture/test lanes for this platform are in
+<a href="../internals/platform-lanes.html#esp32">Per-Platform Contributor Lanes</a>.</p>
+</blockquote>
+<p>Copy the example out, generate bindings, build with the pinned nightly,
+and pack the flash image:</p>
+<pre><code class="language-bash"># once per checkout location — bindings + the [patch.crates-io] table:
+NROS_REPO_DIR=&lt;path-to-nano-ros&gt; nros sync
+
+# nightly because the board config builds core/alloc from source
+# ([unstable] build-std in .cargo/nros-board.toml). The pinned channel
+# is tools/rust-toolchain.toml's; any recent nightly with the rust-src
+# component works:
+#   rustup toolchain install nightly &amp;&amp; rustup component add rust-src --toolchain nightly
+#   rustup target add riscv32imc-unknown-none-elf --toolchain nightly
+cargo +nightly build --release
+
+# pack the ELF into the flash image QEMU boots (espflash comes from
+# `nros setup qemu-esp32-baremetal`, on PATH via activate):
+espflash save-image --chip esp32c3 --flash-size 4mb --merge \
+    target/riscv32imc-unknown-none-elf/release/esp32_qemu_talker talker.bin
 </code></pre>
+<p>First build cross-compiles core/alloc + every dep (~5 min); rebuilds are
+seconds. If you build a C-flavored variant, the riscv cross-gcc the zpico
+shim needs is also provisioned by the same <code>nros setup</code>.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
-<pre><code class="language-bash"># QEMU ESP32. First bring up zenohd on the esp32 fixture port (7454):
-just esp32 zenohd &amp;
-# Then boot the talker binary in qemu-system-riscv32 (esp32c3):
-just esp32 talker
-# Expected serial output (per src/lib.rs):
+<p>The <code>esp32c3</code> machine exists only in <strong>Espressif’s QEMU fork</strong> — stock
+<code>qemu-system-riscv32</code> knows only <code>virt</code>. The fork is source-built by:</p>
+<pre><code class="language-bash">nros setup --tool esp32-qemu    # clones + builds espressif/qemu (needs
+                                # libglib2-dev libpixman-dev libgcrypt-dev;
+                                # the command names them if absent)
+</code></pre>
+<pre><code class="language-bash"># 1. Bring up the router (ROS's `rmw_zenohd`) on the port the example
+#    dials (9800 — the deploy `locator` above):
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:9800"];scouting/multicast/enabled=false' \
+    ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
+
+# 2. Boot the flash image (the file packed in Build above):
+qemu-system-riscv32 -M esp32c3 -icount 3 -nographic \
+    -drive file=talker.bin,if=mtd,format=raw \
+    -nic user,model=open_eth
+# Serial output:
 #   Publishing: 'Hello World: 1'
 #   Publishing: 'Hello World: 2'
-#   ...
-
-# Verify from stock ROS 2 on the same network:
+</code></pre>
+<blockquote>
+<p><strong>Contributors:</strong> the in-tree run lane that boots the talker in QEMU is in
+<a href="../internals/platform-lanes.html#esp32">Per-Platform Contributor Lanes</a>.</p>
+</blockquote>
+<pre><code class="language-bash"># Verify from stock ROS 2 on the same network:
 source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
@@ -265,13 +299,11 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Force best-effort to receive:
 ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
-<p><strong>Readiness signal.</strong> QEMU ESP32: ~15 seconds <strong>after</strong> a warm cache —
-the <code>just esp32 talker</code> recipe re-runs <code>build-qemu</code> every invocation,
-so a first / cold run adds ~25 s of build time on top. If no
-<code>Publishing:</code> line:</p>
+<p><strong>Readiness signal.</strong> QEMU ESP32: ~15 seconds after boot.</p>
+<p>If no <code>Publishing:</code> line:</p>
 <ol>
 <li>Wrong locator → talker logs <code>zenoh open failed</code> and retries.
-Confirm <code>zenohd</code> is reachable on the host IP (<code>10.0.2.2:7454</code>).</li>
+Confirm the router is reachable on the host IP (<code>10.0.2.2:9800</code>).</li>
 <li>Confirm <code>.cargo/config.toml</code> target is
 <code>riscv32imc-unknown-none-elf</code> (ESP32-C3). The tutorial does not
 support ESP32-S3 (Xtensa) yet.</li>

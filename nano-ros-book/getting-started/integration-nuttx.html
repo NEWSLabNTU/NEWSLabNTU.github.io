@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -191,12 +191,12 @@ the canonical user entry.</p>
 <blockquote>
 <p><strong>Prereqs.</strong> Install the <code>nros</code> CLI once per machine, then run
 <code>nros setup qemu-arm-nuttx --rmw &lt;zenoh|xrce|cyclonedds&gt;</code> (<code>--rmw</code>
-defaults to <code>zenoh</code>). This fetches a prebuilt toolchain set into
+defaults to <code>zenoh</code>). This fetches a mostly-prebuilt toolchain set into
 <code>${NROS_HOME:-~/.nros}/sdk</code> — the NuttX cross-compiler, the emulator, the NuttX
 sources, and the RMW host daemon — so you do <strong>not</strong> hand-install
 a cross-toolchain and do <strong>not</strong> need a ROS 2 install:</p>
-<pre><code class="language-bash">source ./activate.sh        # OR: direnv allow / source ./activate.fish
-just setup-cli              # builds packages/cli/target/release/nros (Phase 218)
+<pre><code class="language-bash">./scripts/bootstrap.sh      # builds packages/cli/target/release/nros (Phase 218)
+source ./activate.sh        # OR: direnv allow / source ./activate.fish
 nros setup qemu-arm-nuttx --rmw zenoh
 </code></pre>
 <p>You still need a NuttX ≥ nuttx-12 checkout with an <code>apps/</code> sibling
@@ -229,9 +229,13 @@ my_app/                                  # your application
 </code></pre>
 <p>This runs <code>scripts/nuttx/stage-external-apps.sh</code>, which writes
 <code>$NUTTX_APPS_DIR/external/Make.defs</code> + <code>Kconfig</code> and symlinks the
-integration shell (<code>external/nano-ros</code>) plus every example app
-(<code>external/nano-ros-&lt;example&gt;-&lt;lang&gt;</code>). Menuconfig surfaces them
+integration shell in as <code>external/nano-ros</code>. Menuconfig surfaces it
 under <code>Application Configuration → External Modules</code>.</p>
+<p>Passing <code>--bringup &lt;dir&gt;</code> additionally stages a per-bringup app
+(<code>external/&lt;bringup&gt;/</code>, with the bringup tree symlinked alongside as
+<code>external/&lt;bringup&gt;-source</code>) — the Phase 212 multi-package workspace
+shape. There are no per-EXAMPLE symlinks: that staging loop was
+retired in phase-212.M-F.12 when the bringup path superseded it.</p>
 <p>If you’d rather wire it yourself (e.g. into a vendored apps tree):</p>
 <pre><code class="language-bash">ln -s /path/to/nano-ros/integrations/nuttx \
       $NUTTX_APPS_DIR/external/nano-ros
@@ -274,9 +278,13 @@ tuple (RFC-0048 §4):</p>
 <p>The guest network shape (eth0 <code>10.0.2.30</code>, Slirp gateway <code>10.0.2.2</code>)
 comes from the board crate; add a <code>locator = "tcp/10.0.2.2:&lt;port&gt;"</code>
 field to dial a non-default router port. The prebuilt <em>test fixtures</em>
-bake distinct per-language ports (Rust <code>7452</code>, C <code>7552</code>, C++ <code>7652</code>) so
-parallel suites don’t collide on one router; <code>just nuttx zenohd</code> binds
-<code>7452</code> to match the Rust fixture.</p>
+bake distinct per-language allocator ports so parallel suites don’t
+collide on one router. Start the router (ROS’s <code>rmw_zenohd</code>) on the
+port your app dials — it must listen on <code>0.0.0.0</code>, not loopback,
+because the guest reaches it through QEMU’s Slirp gateway:</p>
+<pre><code class="language-bash">ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:8200"];scouting/multicast/enabled=false' \
+    ros2 run rmw_zenoh_cpp rmw_zenohd
+</code></pre>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
 <pre><code class="language-bash">cd $NUTTX_DIR
 make                                # full kernel + apps build
@@ -290,19 +298,15 @@ link stage.</p>
 cmake --build build
 </code></pre>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
-<pre><code class="language-bash"># 1. Start zenohd on the host (Slirp forwards 10.0.2.2:7452 → host).
-#    The in-tree just recipe runs the daemon on the nuttx fixture
-#    port (7452):
-just nuttx zenohd &amp;
+<pre><code class="language-bash"># 1. Start the router on the host (Slirp forwards 10.0.2.2:&lt;port&gt; →
+#    host). It must listen on 0.0.0.0 for the Slirp gateway; 8200 is
+#    the port the in-tree lanes use — match whatever `locator` your
+#    app bakes:
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:8200"];scouting/multicast/enabled=false' \
+    ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
-# 2. QEMU NuttX (ARM). For nano-ros's own in-tree QEMU examples the
-#    just recipe wraps qemu-system-arm with the right wiring. `talker`
-#    here is the Rust variant; the C / C++ variants boot through the
-#    `make`-driven path described under "Auto-configure glue" below:
-just nuttx talker
-#    For a NuttX-managed workspace where you've staged the
-#    integration shell + your own app, mirror the recipe's actual
-#    flags (see `just/nuttx.just::_run-qemu`):
+# 2. QEMU NuttX (ARM). For a NuttX-managed workspace where you've
+#    staged the integration shell + your own app, boot QEMU directly:
 qemu-system-arm -M virt -cpu cortex-a7 -nographic \
                 -icount shift=auto \
                 -kernel $NUTTX_DIR/nuttx \
@@ -330,6 +334,11 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Force best-effort to receive:
 ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
+<blockquote>
+<p><strong>Contributors:</strong> the in-tree fixture/test lanes for nano-ros’s own
+QEMU examples are in
+<a href="../internals/platform-lanes.html#nuttx">Per-Platform Contributor Lanes</a>.</p>
+</blockquote>
 <p><strong>Readiness signal.</strong> After typing the app’s NSH command (e.g.
 <code>nuttx_c_talker</code>), expect <code>Publishing: 'Hello World: 1'</code> on the NSH
 console within ~6 seconds — Rust + C + C++ talkers all start the
@@ -345,23 +354,23 @@ With the virtio-net + Slirp wiring above, <code>eth0</code> comes up at
 <li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
 <h3 id="auto-configure-glue-nsh-built-in-registration"><a class="header" href="#auto-configure-glue-nsh-built-in-registration">Auto-configure glue (NSH built-in registration)</a></h3>
-<p>The <code>make</code>-driven build above relies on a host-side glue layer that
-the in-tree <code>just nuttx build-fixtures-make</code> recipe owns end-to-end
-(see <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/just/nuttx.just"><code>just/nuttx.just::build-fixtures-make</code></a>).
-If you wire a NuttX workspace by hand, reproduce the same three
-steps:</p>
+<p>The <code>make</code>-driven build above relies on a host-side glue layer. In-tree
+that is <code>scripts/nuttx/stage-external-apps.sh --bringup &lt;dir&gt;</code>, the only
+supported NuttX make path since phase-212 M-F.16 retired the per-example
+<code>build-fixtures-make</code> recipe. If you wire a NuttX workspace by hand,
+reproduce the same three steps:</p>
 <ol>
 <li><strong>Swap in the nano-ros board defconfig.</strong> Stock NuttX
 <code>qemu-armv7a/nsh</code> ships without <code>CONFIG_NET=y</code>, virtio-net, or
 <code>TLS_NELEM</code>. The board defconfig
-<code>packages/boards/nros-board-nuttx-qemu-arm/nuttx-config/defconfig</code>
+<code>packages/boards/nros-board-nuttx-qemu/nuttx-config/arm/defconfig</code>
 already carries the full networking + TLS stack zenoh-pico
 needs; copy it to <code>$NUTTX_DIR/.config</code> and run
 <code>make olddefconfig</code>.</li>
-<li><strong>Stage the integration shell + example apps.</strong> Run
+<li><strong>Stage the integration shell.</strong> Run
 <code>scripts/nuttx/stage-external-apps.sh "$NUTTX_APPS_DIR"</code> to symlink
-<code>integrations/nuttx/</code> and every example app into
-<code>$NUTTX_APPS_DIR/external/</code>. Remove <code>$NUTTX_APPS_DIR/Kconfig</code> so
+<code>integrations/nuttx/</code> into <code>$NUTTX_APPS_DIR/external/</code> (add
+<code>--bringup &lt;dir&gt;</code> for a workspace app). Remove <code>$NUTTX_APPS_DIR/Kconfig</code> so
 NuttX’s <code>mkkconfig.sh</code> rediscovers the new
 <code>apps/external/Kconfig</code>.</li>
 <li><strong>Flip the nano-ros Kconfig knobs via <code>kconfig-tweak</code>.</strong> The

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["on_activate","on_cleanup","on_configure","on_deactivate","on_error","on_shutdown"]};

@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -199,8 +199,8 @@ Rust <code>thumbv7m-none-eabi</code> target into a shared store — no manual
 cross-compiler install, no ROS 2 needed.</p>
 </blockquote>
 <pre><code class="language-bash"># Build the in-tree nros CLI (Phase 218):
+./scripts/bootstrap.sh      # builds packages/cli/target/release/nros
 source ./activate.sh        # OR: direnv allow / source ./activate.fish
-just setup-cli              # builds packages/cli/target/release/nros
 
 # Provision the bare-metal Cortex-M3 board (zenoh RMW is the default):
 nros setup qemu-arm-baremetal --rmw zenoh
@@ -228,41 +228,84 @@ suffix — this is the bare-metal variant) which provides:</p>
 <li>LAN9118 driver for smoltcp</li>
 <li><code>BoardIdle::wfi()</code> for cooperative wait</li>
 </ul>
+<h3 id="direct-exec-or-rtic--one-crate-two-entry-shapes"><a class="header" href="#direct-exec-or-rtic--one-crate-two-entry-shapes">Direct-exec or RTIC — one crate, two entry shapes</a></h3>
+<p>The same crate serves both bare-metal entry models; you pick with a
+Cargo feature, not a different board crate:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Entry pkg wants</th><th><code>deploy =</code></th><th>board dep</th></tr>
+</thead>
+<tbody>
+<tr><td>direct-exec (inline spin loop)</td><td><code>"qemu-mps2-an385"</code></td><td><code>nros-board-mps2-an385 = { version = "*", features = ["board-entry"] }</code></td></tr>
+<tr><td>RTIC (framework-owned <code>#[rtic::app]</code>, deferred dispatch)</td><td><code>"rtic-mps2-an385"</code></td><td><code>nros-board-mps2-an385 = { version = "*", features = ["rtic"] }</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The RTIC surface used to be a separate <code>nros-board-rtic-mps2-an385</code>
+crate; phase-337 W6.a folded it in, because it depended on this crate
+and re-declared its <code>Config</code> — the two copies had drifted to different
+default IPs, which nothing catches until a node fails to reach the
+router.</p>
+<p>Which network the defaults describe is now explicit rather than
+implied. <code>Config::default()</code> is the bridge plan (<code>192.0.3.10/24</code>,
+gateway <code>192.0.3.1</code>); <code>Config::qemu_slirp()</code> is QEMU’s user-mode NAT
+(<code>10.0.2.10/24</code>, gateway <code>10.0.2.2</code>) and is what the RTIC entry boots
+from. Either way, an Entry pkg that sets <code>ip</code>/<code>gateway</code>/<code>locator</code> in
+its <code>[package.metadata.nros.deploy.&lt;board&gt;]</code> block overrides the
+default — which every in-tree example does, and which you should too.</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
 <p>Deploy config lives in the app’s <code>Cargo.toml</code> and is baked at compile
 time — <code>nros::main!()</code> folds it into a <code>DeployOverlay</code> the board’s boot
 <code>Config</code> applies. Verbatim from the in-tree
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/qemu-arm-baremetal/rust/talker/Cargo.toml"><code>examples/qemu-arm-baremetal/rust/talker/Cargo.toml</code></a>:</p>
 <pre><code class="language-toml">[package.metadata.nros.deploy.qemu-mps2-an385]
-locator = "tcp/10.0.2.2:7450"
+locator = "tcp/10.0.2.2:10500"
 ip      = "10.0.2.10"
 gateway = "10.0.2.2"
 netmask = "255.255.255.0"
 </code></pre>
-<p>QEMU Slirp networking — no host TAP / bridge / sudo. The
-<code>zenohd</code> default port is 7447; this example expects <strong>7450</strong> so
-start the router on that port (<code>just qemu zenohd</code> does) or edit the
-<code>locator</code> above to match <code>zenohd</code>’s 7447 default.</p>
+<p>QEMU Slirp networking — no host TAP / bridge / sudo. The zenoh
+default port is 7447; this example dials <strong>10500</strong> (the <code>locator</code>
+above), so start the router (ROS’s <code>rmw_zenohd</code>) on that port:</p>
+<pre><code class="language-bash">ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:10500"];scouting/multicast/enabled=false' \
+    ros2 run rmw_zenoh_cpp rmw_zenohd
+</code></pre>
+<p>or edit the <code>locator</code> above to the port you prefer.</p>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
 <pre><code class="language-bash">cd examples/qemu-arm-baremetal/rust/talker
+nros sync            # once per checkout location; writes the generated
+                     # bindings + the [patch.crates-io] table the leaf's
+                     # .cargo/config.toml includes
 cargo build --release
 </code></pre>
 <p>First build (~5 min) cross-compiles all of nano-ros’s Rust deps for
 <code>thumbv7m-none-eabi</code>. Re-builds finish in seconds.</p>
+<p><strong>Contributors (in-tree checkout):</strong> the <code>just … build-fixtures</code>
+recipes run <code>nros sync</code> for you. A
+hand-run <code>cargo build</code> in a leaf does not — without it cargo fails
+while <em>parsing the manifest</em>, with
+<code>failed to load config include '…/nros-patch.toml'</code> and no mention of
+sync. See
+<a href="../user-guide/workflow-by-platform.html">Workflow by Platform and Language</a>.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
-<pre><code class="language-bash"># 1. Bring up zenohd on the host (Slirp forwards 10.0.2.2:7450 → host
-#    127.0.0.1:7450). The bare-metal port is 7450, NOT zenohd's default
-#    7447 — edit the deploy `locator` in Cargo.toml if you want 7447.
-#    The just recipe resolves the provisioned zenohd and listens there:
-just qemu zenohd &amp;
+<pre><code class="language-bash"># 1. Bring up the router on the host (Slirp forwards 10.0.2.2:10500 →
+#    host 127.0.0.1:10500). This example dials 10500, NOT zenoh's
+#    default 7447 — edit the deploy `locator` in Cargo.toml if you
+#    want 7447:
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:10500"];scouting/multicast/enabled=false' \
+    ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
-# 2. Boot the talker in QEMU. The `just qemu talker` recipe wraps
-#    qemu-system-arm with the LAN9118 networking wiring the example
-#    expects — it's the only working invocation for this tutorial
-#    (the example's `.cargo/config.toml` runner is bare `-kernel`,
-#    no `-nic socket,model=lan9118,…`, so a plain `cargo run` boots
-#    QEMU without networking):
-just qemu talker
+# 2. Boot the talker in QEMU. Invoke qemu-system-arm directly with the
+#    LAN9118 networking wiring the example expects (a plain `cargo run`
+#    boots QEMU without networking — the example's runner is bare
+#    `-kernel`). The patched qemu-system-arm is provisioned by
+#    `nros setup qemu-arm-baremetal` and reaches PATH via activate.sh:
+qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic \
+    -icount shift=auto \
+    -semihosting-config enable=on,target=native \
+    -kernel target/thumbv7m-none-eabi/release/qemu-bsp-talker \
+    -nic user,model=lan9118
 # Expected serial-over-semihosting output (per src/lib.rs):
 #   Publishing: 'Hello World: 1'
 #   Publishing: 'Hello World: 2'
@@ -286,11 +329,11 @@ talker. If no <code>Publishing:</code> line:</p>
 <li><code>zenohd</code> not running — talker spins on smoltcp poll until
 killed.</li>
 <li>Wrong LAN9118 emulation flag — <code>qemu-system-arm</code> needs
-<code>-nic socket,model=lan9118,…</code> or equivalent. The example’s
-<code>.cargo/config.toml</code> runner is bare <code>-kernel</code> (so a plain <code>cargo run</code> boots QEMU without networking); the LAN9118 wiring lives in
-the <code>just qemu talker</code> recipe (<code>just/qemu-baremetal.just::talker</code>),
-which is the working invocation for this tutorial. If you copy
-the runner out, mirror those flags.</li>
+<code>-nic user,model=lan9118</code> (or equivalent). The example’s
+<code>.cargo/config.toml</code> runner is bare <code>-kernel</code> (so a plain <code>cargo run</code> boots QEMU without networking); the direct <code>qemu-system-arm</code>
+invocation shown above carries the LAN9118 wiring and is the
+working invocation for this tutorial. If you copy the runner out,
+mirror those flags.</li>
 <li>Cooperative spin starvation — if you added a long-running
 callback, the entire executor stalls; bare-metal has no
 preemption.</li>
@@ -325,9 +368,10 @@ hosted-RTOS libc + heap. Pure-Rust API only on this target.</li>
 under <code>packages/testing/nros-bench/wake-latency-cortex-m3/</code> shows
 how to feed a backend’s transport-notify into the cooperative
 spin loop on bare-metal.</li>
-<li>Real hardware: same code runs on STM32F4-Discovery with a
-different board crate (<code>nros-board-stm32f4</code>) and a different
-linker script.</li>
+<li>Real hardware: the same code runs on an STM32F4-Discovery with a board
+crate of your own and a different linker script — see
+<a href="../porting/stm32f4-out-of-tree.html">Worked Example — STM32F4 Out of Tree</a>,
+which takes that board through the customization ladder end to end.</li>
 </ul>
 
                     </main>

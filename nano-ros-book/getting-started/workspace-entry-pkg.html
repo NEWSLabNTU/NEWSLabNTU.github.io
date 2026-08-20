@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -184,8 +184,8 @@ declarative, the Entry pkg is the one thing that actually runs: it names a
 board, wires the runtime, and — for multi-node setups — points at a Bringup
 pkg that describes which nodes should be launched.</p>
 <p>You have one Entry pkg per deploy target. A workspace targeting both a native
-workstation and an STM32F4 board has two Entry pkgs that reference the same
-Node pkgs; only the board and (optionally) the launch target differ.</p>
+workstation and a bare-metal Cortex-M board has two Entry pkgs that reference
+the same Node pkgs; only the board and (optionally) the launch target differ.</p>
 <h2 id="prereqs"><a class="header" href="#prereqs">Prereqs</a></h2>
 <p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
 <p><strong>A. Front door</strong> (bare machine OK — no Rust, no <code>just</code>):</p>
@@ -195,7 +195,7 @@ Node pkgs; only the board and (optionally) the launch target differ.</p>
 source at <code>packages/cli/target/release/nros</code>, leaving it on PATH for
 this shell (nano-ros is a source distribution — no prebuilt <code>nros</code>).</p>
 <p><strong>B. Already have cargo</strong> (equivalent — same build, same binary):</p>
-<pre><code class="language-sh">git submodule update --init packages/cli/third-party/ros-launch-manifest
+<pre><code class="language-sh">git submodule update --init packages/cli/third-party/play_launch
 cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
 export PATH="$PWD/packages/cli/target/release:$PATH"
 </code></pre>
@@ -205,7 +205,7 @@ source ./activate.sh          # bash / zsh
 source ./activate.fish        # fish
 </code></pre>
 <p>Then provision the native host (the canonical first Entry pkg target;
-for STM32F4 / Zephyr / ESP32 swap in the matching <code>nros setup</code> board):</p>
+for Zephyr / FreeRTOS / ESP32 swap in the matching <code>nros setup</code> board):</p>
 <pre><code class="language-sh">nros setup native --rmw zenoh
 </code></pre>
 <h2 id="package-layout"><a class="header" href="#package-layout">Package layout</a></h2>
@@ -220,9 +220,9 @@ them to the runtime that <code>nros::main!()</code> generates.</p>
 <h2 id="cargotoml-metadata"><a class="header" href="#cargotoml-metadata"><code>Cargo.toml</code> metadata</a></h2>
 <p>The <code>[package.metadata.nros.entry]</code> table tells the CLI which deploy target
 this binary is built for. The embedded example
-<code>examples/stm32f4/rust/talker-embassy/</code> uses:</p>
+<code>examples/qemu-arm-baremetal/rust/talker-rtic/</code> uses:</p>
 <pre><code class="language-toml">[package.metadata.nros.entry]
-deploy = "embassy-stm32f4"
+deploy = "rtic-mps2-an385"
 </code></pre>
 <p>A native Entry pkg that references a Bringup pkg looks like:</p>
 <pre><code class="language-toml">[package.metadata.nros.entry]
@@ -237,7 +237,7 @@ domain_id = 0
 find the board crate and verify the topology. Keep it short and descriptive —
 it becomes the identifier in <code>nros plan</code> output and in <code>system.toml</code>’s
 <code>[deploy.&lt;name&gt;]</code> table when you later add a Bringup pkg.</p>
-<h2 id="nrosmain--four-forms"><a class="header" href="#nrosmain--four-forms"><code>nros::main!()</code> — four forms</a></h2>
+<h2 id="nrosmain--the-forms"><a class="header" href="#nrosmain--the-forms"><code>nros::main!()</code> — the forms</a></h2>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// 1. Single-node self-bringup: reads [package.metadata.nros.entry] deploy
@@ -246,31 +246,55 @@ it becomes the identifier in <code>nros plan</code> output and in <code>system.t
 nros::main!();
 
 // 2. Single-node, explicit board type.
-nros::main!(board = NativeBoard);
+nros::main!(board = LinuxBoard);
 
-// 3. Multi-node: reference a Bringup pkg; boot its default launch file
-//    (the one listed under [system] in system.toml).
+// 3. Multi-node (CANONICAL): bake from a resolved SystemModel
+//    committed in the Bringup pkg. Reads
+//    `&lt;bringup&gt;/config/system_model.yaml` by default; pass an explicit
+//    relative path after `:`.
 nros::main!(launch = "demo_bringup");
+nros::main!(launch = "demo_bringup:variant_b.launch.xml");
 
-// 4. Multi-node, explicit launch file.
+// 4. Multi-host slice: point at a PER-HOST model. The launch file gates
+//    nodes on a `host` launch argument (`if=` conditions), and the model
+//    is resolved with `host:=robot1`, so it already contains only this
+//    host's nodes — no extra macro key needed.
+nros::main!(launch = "demo_bringup:multihost.launch.xml", args = [("host", "robot1")]);
+
+// 5. DEPRECATED (retiring): direct launch-file forms. These re-parse the
+//    launch XML at build time instead of consuming the reviewed model;
+//    they warn at bake time and will be removed once the ecosystem is
+//    fully migrated (phase-296 R4).
+nros::main!(launch = "demo_bringup");
 nros::main!(launch = "demo_bringup:sim.launch.xml");
-
-// 5. Full form: board + launch file + runtime arg overrides.
-nros::main!(board = NativeBoard, launch = "demo_bringup:sim.launch.xml", args = [("use_sim","true")]);
 <span class="boring">}</span></code></pre>
-<p>The macro reads <code>[package.metadata.nros.entry]</code> at compile time to select the
-right board and executor backend. On Embassy / RTIC targets it emits the
+<p><code>launch</code> and <code>model</code> are mutually exclusive. <code>model</code> is the <strong>canonical</strong>
+path — the same resolved artifact drives the Linux runtime (play_launch) and
+every embedded image, so contract budgets, tiers, and QoS never drift between
+runtimes. <code>launch</code> is the transitional path (parses launch XML + <code>system.toml</code>
+at build time). Produce the model once with:</p>
+<pre><code class="language-console">$ nros sync    # resolves/refreshes demo_bringup/config/system_model.yaml
+</code></pre>
+<p><code>nros sync</code> (the pre-build step every workflow already runs) materializes
+the model whenever a bringup’s launch XML or <code>system.toml</code> is newer than
+it. Commit the result.</p>
+<p><code>nros sync</code> is the only verb you need. Under the hood it runs the pinned
+<code>nros-launch-resolve</code> helper (RFC-0060 layer 2; <strong>contributors</strong> build it
+in-tree via <code>just setup-launch-resolve</code>) and invokes it by <strong>absolute path</strong> — never by a
+bare name on <code>$PATH</code>, because an unrelated ROS 2 <code>play_launch</code> on <code>PATH</code> used to
+win that race and break every platform’s fixture build (issue 0285). The macro reads <code>[package.metadata.nros.entry]</code> at compile
+time to select the right board and executor backend; the same model resolves
+its tier table for whichever RTOS that board targets. On Embassy / RTIC targets it emits the
 framework-specific <code>#[embassy_executor::main]</code> or <code>#[rtic::app]</code> body so your
 <code>src/main.rs</code> stays a single line.</p>
-<p>The real <code>examples/stm32f4/rust/talker-embassy/src/main.rs</code> collapses to
-exactly this:</p>
+<p>The real <code>examples/qemu-arm-baremetal/rust/talker-rtic/src/main.rs</code> collapses
+to exactly this:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span>#![no_std]
 #![no_main]
 
 <span class="boring">fn main() {
-</span>use defmt_rtt as _;
-use panic_probe as _;
+</span>use panic_semihosting as _;
 
 nros::main!();
 <span class="boring">}</span></code></pre>
@@ -281,7 +305,7 @@ bypass <code>nros::main!()</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// Option A: delegate init to the board crate, supply your own closure.
-&lt;NativeBoard as BoardEntry&gt;::run(|runtime| {
+&lt;LinuxBoard as BoardEntry&gt;::run(|runtime| {
     let node = runtime.create_node("talker", "/", &amp;Default::default())?;
     // ...
     Ok(())
@@ -298,7 +322,7 @@ authors adding a new platform.</p>
 <p>The verified path for the canonical Rust workspace is <code>cargo run -p native_entry</code>.
 Start a Zenoh router first, then boot the Entry binary from the workspace root:</p>
 <pre><code class="language-bash"># in another shell:
-zenohd --listen tcp/127.0.0.1:7447 &amp;
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
 cargo run -p native_entry
 </code></pre>
@@ -306,7 +330,7 @@ cargo run -p native_entry
 <code>listener</code> (composed into a single process), and runs the topology.</p>
 <p>The canonical Rust workspace is at <code>examples/workspaces/rust/</code>.
 For Zephyr, QEMU, ESP-IDF, and other non-native targets, use the platform’s
-native build/run tool or the focused <code>just &lt;plat&gt; run</code> recipe.</p>
+native build/run tool.</p>
 <h2 id="running-on-zephyr"><a class="header" href="#running-on-zephyr">Running on Zephyr</a></h2>
 <p>On Zephyr the RTOS framework <em>is</em> the workflow: <code>west build</code> is the build
 verb, Kconfig selects the RMW, and the Entry is an ordinary Zephyr
@@ -335,16 +359,16 @@ board-specific FreeRTOS / ThreadX Entries, Zephyr owns its board abstraction,
 so the board is chosen at <code>west build -b</code> time rather than baked into the
 package (see <a href="#one-entry-pkg-per-board">One Entry pkg per board</a>).</p>
 <p>The Entry source is identical to the native, FreeRTOS, and ThreadX Entries —
-the same one-line launch macro, with the launch file as the single source of
-truth for the node set:</p>
+the same one-line macro, with the committed SystemModel as the single source
+of truth for the node set:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// examples/workspaces/rust/src/zephyr_entry/src/lib.rs
-nros::main!(launch = "demo_bringup:system.launch.xml");
+nros::main!(launch = "demo_bringup");
 <span class="boring">}</span></code></pre>
 <h2 id="one-entry-pkg-per-board"><a class="header" href="#one-entry-pkg-per-board">One Entry pkg per board</a></h2>
 <p>Each deploy target gets its own Entry pkg. A workspace that runs on both
-<code>native</code> and <code>embassy-stm32f4</code> would have two Entry pkgs that share the same
+<code>native</code> and <code>rtic-mps2-an385</code> would have two Entry pkgs that share the same
 Node pkg library:</p>
 <div class="table-wrapper">
 <table>
@@ -352,8 +376,8 @@ Node pkg library:</p>
 <tr><th>Entry pkg</th><th><code>deploy</code> key</th><th>Board crate</th></tr>
 </thead>
 <tbody>
-<tr><td><code>native_entry</code></td><td><code>"native"</code></td><td><code>nros-board-posix</code></td></tr>
-<tr><td><code>stm32f4_entry</code></td><td><code>"embassy-stm32f4"</code></td><td><code>nros-board-embassy-stm32f4</code></td></tr>
+<tr><td><code>native_entry</code></td><td><code>"native"</code></td><td><code>nros-board-linux</code></td></tr>
+<tr><td><code>mps2_entry</code></td><td><code>"rtic-mps2-an385"</code></td><td><code>nros-board-mps2-an385</code> (<code>rtic</code> feature)</td></tr>
 </tbody>
 </table>
 </div>
@@ -366,9 +390,9 @@ already owns its board abstraction, so a single <code>zephyr_entry</code> covers
 <code>west build -b &lt;board&gt;</code> time. Contrast FreeRTOS / ThreadX, whose board crates
 are board-specific, so each of those Entries bakes one board. See
 <a href="#running-on-zephyr">Running on Zephyr</a>.</p>
-<p>The <code>examples/stm32f4/rust/talker-embassy/</code> example demonstrates the
-embedded shape: <code>deploy = "embassy-stm32f4"</code> + <code>nros::main!();</code> on a
-<code>no_std / no_main</code> binary that delegates everything to the <code>EmbassyStm32F4</code>
+<p>The <code>examples/qemu-arm-baremetal/rust/talker-rtic/</code> example demonstrates the
+embedded shape: <code>deploy = "rtic-mps2-an385"</code> + <code>nros::main!();</code> on a
+<code>no_std / no_main</code> binary that delegates everything to the <code>RticMps2An385</code>
 board crate.</p>
 <h2 id="c--c-entry-packages"><a class="header" href="#c--c-entry-packages">C / C++ Entry packages</a></h2>
 <p>C and C++ Entry packages use the same role split through CMake. See

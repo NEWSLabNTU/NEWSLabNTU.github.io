@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"derive":["RosMessage","RosService"],"macro":["main","node"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"derive":["RosMessage"]};
+window.SIDEBAR_ITEMS = {};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["LifecycleCallbackSlot","LifecycleError","LifecycleState","LifecycleTransition","TransitionResult"],"struct":["LifecyclePollingNode","LifecyclePollingNodeCtx"],"type":["LifecycleCallbackFn","LifecycleCallbackFnCtx"]};
+window.SIDEBAR_ITEMS = {"enum":["LifecycleCallbackSlot","LifecycleError","LifecycleState","LifecycleTransition","TransitionResult"],"mod":["trampolines"],"struct":["LifecyclePollingNode","LifecyclePollingNodeCtx"],"trait":["LifecycleCallbacks"],"type":["LifecycleCallbackFn","LifecycleCallbackFnCtx"]};

@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -228,9 +228,9 @@
 <p>nros-rmw is flatter – there is no node at the RMW level:</p>
 <pre><code>Rmw::open(&amp;RmwConfig) → Session
   → session.create_publisher(&amp;TopicInfo, QosSettings) → Self::PublisherHandle
-  → session.create_subscriber(&amp;TopicInfo, QosSettings) → Self::SubscriberHandle
-  → session.create_service_server(&amp;ServiceInfo) → Self::ServiceServerHandle
-  → session.create_service_client(&amp;ServiceInfo) → Self::ServiceClientHandle
+  → session.create_subscription(&amp;TopicInfo, QosSettings) → Self::SubscriptionHandle
+  → session.create_service(&amp;ServiceInfo, QosSettings) → Self::ServiceHandle
+  → session.create_client(&amp;ServiceInfo, QosSettings) → Self::ClientHandle
 </code></pre>
 <p><code>Node</code> lives one layer up in <code>nros-node</code>. It is purely a namespace and liveliness concern – it borrows the session from the executor and creates typed communication handles. The RMW layer only knows about sessions and communication endpoints.</p>
 <h2 id="serialization-boundary"><a class="header" href="#serialization-boundary">Serialization Boundary</a></h2>
@@ -245,7 +245,7 @@
     fn publish&lt;M: RosMessage&gt;(&amp;self, msg: &amp;M, buf: &amp;mut [u8]) -&gt; Result&lt;(), Self::Error&gt;;
 }
 
-pub trait Subscriber {
+pub trait Subscription {
     fn try_recv_raw(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
     fn try_recv&lt;M: RosMessage&gt;(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;M&gt;, Self::Error&gt;;
 }</code></pre>
@@ -292,16 +292,13 @@ let msg: Option&lt;MyMsg&gt; = subscriber.try_recv(&amp;mut buf)?;</code></pre>
 <p>Standard QoS profiles (<code>QOS_PROFILE_DEFAULT</code>, <code>QOS_PROFILE_SENSOR_DATA</code>, <code>QOS_PROFILE_SERVICES_DEFAULT</code>, etc.) match their ROS 2 equivalents for interoperability.</p>
 <h2 id="service-client-model"><a class="header" href="#service-client-model">Service Client Model</a></h2>
 <p><strong>ROS 2:</strong> Service clients are always asynchronous at the rmw level. <code>rmw_send_request()</code> sends a request and returns a sequence number. The reply is retrieved later via <code>rmw_take_response()</code>, typically driven by <code>rmw_wait()</code>.</p>
-<p><strong>nros-rmw:</strong> Provides both models:</p>
-<pre><code class="language-rust ignore">pub trait ServiceClientTrait {
-    // Blocking: send request and wait for reply
-    fn call_raw(&amp;mut self, request: &amp;[u8], reply_buf: &amp;mut [u8]) -&gt; Result&lt;usize, Self::Error&gt;;
-
+<p><strong>nros-rmw:</strong> The same async split (phase-301 deleted the deprecated blocking <code>call_raw</code> path — like upstream, there is no blocking call at the RMW level):</p>
+<pre><code class="language-rust ignore">pub trait ClientTrait {
     // Async: send request, poll for reply separately
     fn send_request_raw(&amp;mut self, request: &amp;[u8]) -&gt; Result&lt;(), Self::Error&gt;;
     fn try_recv_reply_raw(&amp;mut self, reply_buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
 }</code></pre>
-<p>The blocking <code>call_raw()</code> is convenient for simple embedded applications. The async split (<code>send_request_raw</code> + <code>try_recv_reply_raw</code>) is used by the executor for non-blocking dispatch.</p>
+<p>Blocking waits are composed above the RMW by the executor (which keeps driving <code>drive_io</code> between polls).</p>
 <h2 id="apis-present-in-ros-2-rmw-but-absent-in-nros-rmw"><a class="header" href="#apis-present-in-ros-2-rmw-but-absent-in-nros-rmw">APIs Present in ROS 2 rmw but Absent in nros-rmw</a></h2>
 <div class="table-wrapper">
 <table>
@@ -331,18 +328,48 @@ let msg: Option&lt;MyMsg&gt; = subscriber.try_recv(&amp;mut buf)?;</code></pre>
 </thead>
 <tbody>
 <tr><td><code>Publisher::publish&lt;M&gt;(msg, buf)</code></td><td>Typed publish with built-in CDR serialization</td></tr>
-<tr><td><code>Subscriber::try_recv&lt;M&gt;(buf)</code></td><td>Typed receive with built-in CDR deserialization</td></tr>
-<tr><td><code>Subscriber::process_raw_in_place(f)</code></td><td>Zero-copy in-place processing via closure</td></tr>
-<tr><td><code>Subscriber::try_recv_validated()</code></td><td>E2E safety validation (CRC-32 + sequence tracking)</td></tr>
-<tr><td><code>ServiceClientTrait::call_raw()</code></td><td>Blocking request/reply (ROS 2 rmw is async-only)</td></tr>
-<tr><td><code>ServiceServerTrait::handle_request&lt;S&gt;()</code></td><td>Typed request handling with automatic CDR roundtrip</td></tr>
+<tr><td><code>Subscription::try_recv&lt;M&gt;(buf)</code></td><td>Typed receive with built-in CDR deserialization</td></tr>
+<tr><td><code>Subscription::process_raw_in_place(f)</code></td><td>Zero-copy in-place processing via closure</td></tr>
+<tr><td><code>Subscription::try_recv_validated()</code></td><td>E2E safety validation (CRC-32 + sequence tracking)</td></tr>
+<tr><td><code>ServiceTrait::handle_request&lt;S&gt;()</code></td><td>Typed request handling with automatic CDR roundtrip</td></tr>
 <tr><td><code>Session::drive_io(timeout_ms)</code></td><td>Explicit network polling (ROS 2 rmw relies on middleware threads)</td></tr>
 </tbody>
 </table>
 </div>
 <h2 id="summary"><a class="header" href="#summary">Summary</a></h2>
 <p>The core difference is that ROS 2 rmw is a <strong>C plugin interface</strong> designed for desktop systems with dynamic linking, heap allocation, and OS threading. nros-rmw is a <strong>Rust trait hierarchy</strong> designed for MCUs with static dispatch, stack allocation, and cooperative scheduling. The trade-off is flexibility (ROS 2 can swap backends at runtime) vs efficiency (nros eliminates all abstraction overhead at compile time).</p>
-<p>Despite these differences, the two are <strong>wire-compatible</strong> when using the same transport. An nros node using <code>nros-rmw-zenoh</code> communicates with a ROS 2 node using <code>rmw_zenoh_cpp</code> through the same <code>zenohd</code> router, with matching QoS profiles and CDR encoding.</p>
+<p>Despite these differences, the two are <strong>wire-compatible</strong> when using the same transport. An nros node using <code>nros-rmw-zenoh</code> communicates with a ROS 2 node using <code>rmw_zenoh_cpp</code> through the same router, with matching QoS profiles and CDR encoding.</p>
+<h3 id="the-zenoh-pairing-phase-362--rfc-0075"><a class="header" href="#the-zenoh-pairing-phase-362--rfc-0075">The zenoh pairing (phase-362 / RFC-0075)</a></h3>
+<p>The router is <strong>the one ROS ships</strong> — <code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>. It
+links the same <code>libzenohc.so</code> that <code>rmw_zenoh_cpp</code> does, so it cannot drift from
+the RMW you are actually talking to, and it is what a ROS 2 deployment runs.
+nano-ros no longer ships a router of its own.</p>
+<p>The table below is <strong>data to diff a future failure against, not a constraint we
+enforce</strong>. <code>rmw_zenoh_cpp</code> lives on your machine, installed by your distro; we
+cannot pin it, and the interesting number is not the ROS package version anyway.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>side</th><th>component</th><th>observed</th></tr>
+</thead>
+<tbody>
+<tr><td>host</td><td><code>rmw_zenoh_cpp</code> router + RMW</td><td>zenoh-c <strong>1.6.2</strong> (ROS 2 Humble, measured 2026-08-16)</td></tr>
+<tr><td>firmware</td><td><code>zenoh-pico</code></td><td><strong>1.7.2</strong></td></tr>
+</tbody>
+</table>
+</div>
+<p>Read the zenoh version from the header, never from the package manager:</p>
+<pre><code>/opt/ros/&lt;distro&gt;/opt/zenoh_cpp_vendor/include/zenoh_configure.h   #define ZENOH_C "…"
+packages/rmw/zenoh/zpico-sys/zenoh-pico/version.txt
+</code></pre>
+<p>The ROS package version (<code>ros-humble-rmw-zenoh-cpp 0.1.9</code>) is a <strong>wrapper</strong>
+version and says nothing about the zenoh inside it — issue 0609 measured that
+same package moving its vendored zenoh 1.2.0 → 1.8.0 in a patch-level bump, and
+reading the package version instead of the header is what produced a wrong
+version claim in that issue’s first filing.</p>
+<p>The two sides need not match. Under zenoh’s 1.x wire guarantee a firmware pin
+should move for its own reasons — footprint, features, fixes — rather than to
+chase a host package.</p>
 
                     </main>
 

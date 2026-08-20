@@ -1,0 +1,39 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Records raised before any sink was installed."><title>nros_log::early - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="nros_log" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module early</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../nros_log/index.html">nros_<wbr>log</a><span class="version">0.5.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module early</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#the-problem-this-exists-for" title="The problem this exists for">The problem this exists for</a></li><li><a href="#what-this-does-instead" title="What this does instead">What this does instead</a></li><li><a href="#cost-and-how-to-decline-it" title="Cost, and how to decline it">Cost, and how to decline it</a></li></ul><h3><a href="#functions">Module Items</a></h3><ul class="block"><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate nros_<wbr>log</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">nros_log</a></div><h1>Module <span>early</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/nros_log/early.rs.html#1-206">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Records raised before any sink was installed.</p>
+<h3 id="the-problem-this-exists-for"><a class="doc-anchor" href="#the-problem-this-exists-for">§</a>The problem this exists for</h3>
+<p><a href="../fn.init.html" title="fn nros_log::init"><code>crate::init</code></a> publishes the sink list. A record raised before that call
+has nowhere to go, and for most of this crate’s life it was constructed,
+dispatched and DROPPED — silently, and invisibly to its author, who cannot
+know what the board did before reaching their code.</p>
+<p>Issue 0708 answered by requiring every board boot funnel to call
+<code>init_default()</code>, gated on funnels spelled <code>pub fn run*</code>. That is a SEARCH
+for boot paths and it kept losing: NuttX’s funnel is <code>pub extern "C" fn nsh_main</code>, and three board crates did not link <code>nros-log</code> in the
+configuration holding the funnel at all.</p>
+<p>Issue 0710 answered by having dispatch install the platform sink itself.
+That removed the search — but it put <code>nros_platform_log_write</code> on a path
+EVERY binary executes, which turned a pluggable delivery into a LINK-TIME
+requirement. Seven test targets in <code>nros-rmw-cffi</code> and most of <code>nros-tests</code>
+stopped linking under <code>check-workspace-features</code>, and no Cargo feature can
+fix that: <code>nros-platform-cffi</code> and <code>nros-rmw-bridge</code> enable
+<code>nros-node/rmw-cffi</code> unconditionally, so feature unification turns any
+forwarded gate back ON for every member of a workspace build. A feature is a
+property of the BUILD; what the question needs is a property of the BINARY.</p>
+<h3 id="what-this-does-instead"><a class="doc-anchor" href="#what-this-does-instead">§</a>What this does instead</h3>
+<p>Hold the records. A record raised with no sinks installed is copied into a
+bounded static ring here; <a href="../fn.init.html" title="fn nros_log::init"><code>crate::init</code></a> drains it into whatever sinks the
+board actually chose. Nothing is dropped, no board can forget, and this
+crate touches no platform symbol to do it — the facade stays a facade.</p>
+<p>It is also STRICTLY better than installing a default sink was: the early
+records land in the sink the board picked, rather than in whichever one
+dispatch guessed before the board had spoken.</p>
+<h3 id="cost-and-how-to-decline-it"><a class="doc-anchor" href="#cost-and-how-to-decline-it">§</a>Cost, and how to decline it</h3>
+<p><code>EARLY_DEPTH * (format buffer + name + header)</code> of static RAM, all of it in
+<code>.bss</code>. The depth is chosen by the <code>early-records-&lt;N&gt;</code> feature family the
+same way <code>buffer-size-&lt;N&gt;</code> picks the format buffer, and for the same
+reason — a 64 KB MCU and a Linux host do not want the same number. <code>0</code>
+declines the buffer entirely and restores the pre-0708 behaviour of
+dropping, with the count below still kept so the loss is at least
+reportable.</p>
+<p>Overflow is counted, never silently absorbed: <a href="fn.overflowed.html" title="fn nros_log::early::overflowed"><code>overflowed</code></a> returns how
+many records did not fit, and <code>init</code> reports it through the freshly
+installed sinks.</p>
+</div></details><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.early_depth.html" title="fn nros_log::early::early_depth">early_<wbr>depth</a></dt><dd>Records held before <code>init</code>. See the module docs for the trade.</dd><dt><a class="fn" href="fn.overflowed.html" title="fn nros_log::early::overflowed">overflowed</a></dt><dd>How many early records did not fit and were lost.</dd></dl></section></div></main></body></html>

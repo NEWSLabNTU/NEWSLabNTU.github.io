@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -189,18 +189,17 @@ underlying design — why per-Node dispatch strategies, why tags instead of
 closures, why no <code>AsyncNode</code> trait yet — see the sibling internals page
 <a href="../internals/dispatch-strategy.html">Dispatch Strategy</a>.</p>
 <h2 id="when-to-reach-for-nrosmain-instead-of-pattern-a"><a class="header" href="#when-to-reach-for-nrosmain-instead-of-pattern-a">When to reach for <code>nros::main!()</code> instead of Pattern A</a></h2>
-<p>The current in-tree RTIC examples (e.g.
-<code>examples/stm32f4/rust/talker-rtic/</code>) use the <strong>Pattern A escape
-hatch</strong>: hand-written <code>#[rtic::app]</code>, manual <code>Executor::open</code> inside
-<code>#[init]</code>, manual <code>spin_once(0)</code> polling task. It looks like this:</p>
+<p>The <strong>Pattern A escape hatch</strong> is hand-written <code>#[rtic::app]</code>, manual
+<code>Executor::open</code> inside <code>#[init]</code>, manual <code>spin_once(0)</code> polling task. It looks
+like this:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// File: examples/stm32f4/rust/talker-rtic/src/main.rs (today, pre-216.B.5)
-#[rtic::app(device = stm32f4xx_hal::pac, dispatchers = [USART1, USART2])]
+</span>// Pattern A, written by hand
+#[rtic::app(device = mps2_an385_pac, dispatchers = [UARTRX0, UARTTX0])]
 mod app {
     #[init]
     fn init(cx: init::Context) -&gt; (Shared, Local) {
-        let syst = nros_board_stm32f4::init_hardware(&amp;config, cx.device, cx.core);
+        let syst = nros_board_mps2_an385::init_hardware(&amp;config, cx.device, cx.core);
         nros_rmw_zenoh::register().expect("Failed to register RMW backend");
         let mut executor = Executor::open(&amp;exec_config).unwrap();
         let mut node = executor.create_node("talker").unwrap();
@@ -224,16 +223,15 @@ the burden of getting RTIC + nros + the dispatcher list right on every
 example author. Phase 216.B.5 collapses it to one line:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// File: examples/stm32f4/rust/talker-rtic/src/main.rs (post-216.B.5)
+</span>// File: examples/qemu-arm-baremetal/rust/talker-rtic/src/main.rs
 #![no_std]
 #![no_main]
 
-use defmt_rtt as _;
-use panic_probe as _;
+use panic_semihosting as _;
 
 nros::main!();
 <span class="boring">}</span></code></pre>
-<p>The <code>nros::main!()</code> proc-macro reads <code>[package.metadata.nros.entry] deploy = "rtic-stm32f4"</code> from the Entry pkg’s <code>Cargo.toml</code>, sees that
+<p>The <code>nros::main!()</code> proc-macro reads <code>[package.metadata.nros.entry] deploy = "rtic-mps2-an385"</code> from the Entry pkg’s <code>Cargo.toml</code>, sees that
 the board’s metadata declares <code>framework = "rtic"</code>, and emits a full
 <code>#[rtic::app]</code> module — including <code>#[init]</code>, <code>__nros_spin</code>, and (if any
 deployed Node declares <code>DispatchStrategy::Deferred</code>) <code>__nros_dispatch</code>.</p>
@@ -266,7 +264,7 @@ taxonomy</a>, per
     │   └── src/lib.rs                 # impl Node for Talker + nros::node!(Talker)
     └── talker_entry/                  # Entry pkg — picks RTIC board
         ├── package.xml
-        ├── Cargo.toml                 # [package.metadata.nros.entry] deploy = "rtic-stm32f4"
+        ├── Cargo.toml                 # [package.metadata.nros.entry] deploy = "rtic-mps2-an385"
         └── src/main.rs                # nros::main!();
 </code></pre>
 <ul>
@@ -274,14 +272,15 @@ taxonomy</a>, per
 subscriptions, services, actions). No <code>main</code>, no <code>#[rtic::app]</code>, no
 board choice. Builds as <code>rlib + staticlib</code> and gets linked into one
 or more Entry pkgs.</li>
-<li><strong>Entry pkg</strong> — picks the board crate (<code>nros-board-rtic-stm32f4</code>),
+<li><strong>Entry pkg</strong> — picks the board crate (<code>nros-board-mps2-an385</code>, <code>rtic</code>
+feature),
 pins the deploy target, and runs <code>nros::main!();</code>.</li>
 <li><strong>Bringup pkg</strong> — optional, only when ≥2 Entry pkgs share the same
 <code>launch/*.launch.xml</code> topology. Skipped here because we have one
 binary.</li>
 </ul>
 <p>The split exists so the same <code>talker_pkg/</code> can be deployed under RTIC
-on STM32F4, under FreeRTOS on QEMU, and under POSIX on a Linux host
+on bare-metal Cortex-M, under FreeRTOS on QEMU, and under POSIX on a Linux host
 without any per-target Node-pkg fork.</p>
 <h3 id="a-minimal-node-pkg--pub-only-talker"><a class="header" href="#a-minimal-node-pkg--pub-only-talker">A minimal Node pkg — pub-only Talker</a></h3>
 <p>A pub-only Node declares <code>DispatchStrategy::Inline</code> (the default) — it
@@ -361,14 +360,14 @@ path = "src/main.rs"
 
 [dependencies]
 nros                       = { workspace = true, default-features = false }
-nros-board-rtic-stm32f4    = { workspace = true }
+nros-board-mps2-an385      = { workspace = true, features = ["rtic"] }
 talker_pkg                 = { path = "../talker_pkg" }
 
 [package.metadata.nros.entry]
-deploy = "rtic-stm32f4"
+deploy = "rtic-mps2-an385"
 
-[package.metadata.nros.deploy.rtic-stm32f4]
-board     = "rtic-stm32f4"
+[package.metadata.nros.deploy.rtic-mps2-an385]
+board     = "rtic-mps2-an385"
 rmw       = "zenoh"
 domain_id = 0
 locator   = "tcp/192.168.1.10:7447"
@@ -384,8 +383,8 @@ use panic_probe as _;
 
 nros::main!();
 <span class="boring">}</span></code></pre>
-<p>That’s the whole Entry pkg. The proc-macro reads <code>deploy = "rtic-stm32f4"</code>, looks up the board crate’s <code>framework = "rtic"</code>
-metadata, and expands into a <code>#[rtic::app(device = ::nros_board_rtic_stm32f4::pac, dispatchers = [USART1, USART2])]</code> module with auto-generated <code>#[init]</code>,
+<p>That’s the whole Entry pkg. The proc-macro reads <code>deploy = "rtic-mps2-an385"</code>, looks up the board crate’s <code>framework = "rtic"</code>
+metadata, and expands into a <code>#[rtic::app(device = mps2_an385_pac, dispatchers = [UARTRX0, UARTTX0])]</code> module with auto-generated <code>#[init]</code>,
 <code>__nros_spin</code>, and per-Node state slots.</p>
 <h2 id="dispatchstrategyinline-vs-deferred"><a class="header" href="#dispatchstrategyinline-vs-deferred"><code>DispatchStrategy::Inline</code> vs <code>Deferred</code></a></h2>
 <p>A Node pkg declares <code>DispatchStrategy</code> via the <code>Node::DISPATCH</code> const.

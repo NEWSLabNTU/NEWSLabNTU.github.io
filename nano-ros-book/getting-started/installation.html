@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Install + first build - nano-ros Book</title>
+        <title>Install - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -183,14 +183,41 @@ project tree (git submodule, <code>west</code> manifest, ESP-IDF component, etc.
 and built in-tree via <code>add_subdirectory(nano-ros)</code>. There is no binary
 tarball, no system-wide install step, no <code>find_package(NanoRos)</code>, and
 no prebuilt <code>nros</code> CLI.</p>
-<h2 id="host-prerequisites-ubuntudebian"><a class="header" href="#host-prerequisites-ubuntudebian">Host prerequisites (Ubuntu/Debian)</a></h2>
+<h2 id="host-prerequisites"><a class="header" href="#host-prerequisites">Host prerequisites</a></h2>
 <p>Everything toolchain-shaped — rustup, cross-compilers, emulators, the
 zenoh router — is provisioned by the steps below. The host itself only
-needs the basics:</p>
-<pre><code class="language-sh probe=10">sudo apt-get update
+needs the basics: git, curl, a C toolchain, <code>pkg-config</code>, python3.</p>
+<p><strong>Debian / Ubuntu:</strong></p>
+<pre><code class="language-sh probe=10 distro=debian">sudo apt-get update
 sudo apt-get install -y git curl ca-certificates build-essential \
-    pkg-config python3
+    cmake pkg-config python3 python3-dev zstd \
+    python3-catkin-pkg python3-empy python3-lark python3-yaml
 </code></pre>
+<p><strong>Fedora / RHEL:</strong></p>
+<pre><code class="language-sh probe=10 distro=fedora">sudo dnf install -y git curl ca-certificates gcc gcc-c++ make \
+    cmake pkgconf-pkg-config python3 python3-devel zstd
+</code></pre>
+<p><strong>Arch:</strong></p>
+<pre><code class="language-sh probe=10 distro=arch">sudo pacman -S --needed git curl base-devel cmake python zstd
+</code></pre>
+<p>(<code>base-devel</code> is a package <em>group</em>, and it covers <code>pkg-config</code>;
+<code>ca-certificates</code> ships with the base system.)</p>
+<p><strong>macOS:</strong> <code>xcode-select --install</code>, plus <code>brew install cmake pkg-config zstd</code>.</p>
+<p>(<code>cmake</code> builds the C/C++ quick start and every workspace root; <code>zstd</code>
+unpacks the prebuilt SDK assets <code>nros setup</code> fetches; <code>python3-dev</code> is
+needed once, while <code>bootstrap.sh</code> builds the launch resolver — it embeds
+CPython to parse ROS launch files. Each tool’s absence produces an error
+naming it. The Python packages feed <code>rosidl_adapter</code>, the ROS
+message-to-IDL step the CycloneDDS backend uses — on Fedora/Arch/macOS
+install <code>catkin_pkg</code>, <code>empy==3.3.4</code>, <code>lark</code> and <code>PyYAML</code> via pip or your
+package manager; empy must stay 3.x.)</p>
+<p>These few packages are the only ones you install by hand. Per-board OS
+dependencies later on are declared in the index and printed for <em>your</em>
+package manager — apt, dnf, pacman or brew — by:</p>
+<pre><code class="language-sh">nros setup --system          # what is missing + the exact install command
+</code></pre>
+<p>That command needs the <code>nros</code> CLI, which is why the basics above come
+first: they are what it takes to clone the repo and build the CLI.</p>
 <h2 id="the-whole-flow-end-to-end"><a class="header" href="#the-whole-flow-end-to-end">The whole flow, end to end</a></h2>
 <p>Four steps take a bare machine to a building project; each is detailed
 in a section below.</p>
@@ -225,6 +252,79 @@ what makes it findable in every subsequent shell.</p>
 canonical user incantation (4-line <code>CMakeLists.txt</code>). This page
 walks the surrounding workspace + per-target setup choices.</p>
 </blockquote>
+<h2 id="do-i-need-ros-2-installed"><a class="header" href="#do-i-need-ros-2-installed">Do I need ROS 2 installed?</a></h2>
+<p><strong>Building, no. Running two zenoh nodes, yes — or use Cyclone.</strong> <code>nros sync</code> generates the message bindings from the interface sources vendored
+in <code>packages/cli/interfaces/</code>, so nothing about setup, codegen or
+compilation needs ROS 2.</p>
+<p>Running is where it splits, and the reason is the <strong>router</strong>. zenoh-pico
+connects in client mode, so any two-process example needs a zenoh router
+— and since <a href="../design/rmw.html">RFC-0075</a> that router is
+<code>rmw_zenoh_cpp/rmw_zenohd</code>, which ships with ROS 2. nano-ros no longer
+vendors one. So on a host with no ROS 2:</p>
+<ul>
+<li><strong><code>--rmw cyclonedds</code> works standalone</strong> — Cyclone is in-process, there
+is no daemon to start. This is the ROS-less path.</li>
+<li><strong><code>--rmw zenoh</code> (the default) has no router.</strong> Either install
+<code>ros-&lt;distro&gt;-rmw-zenoh-cpp</code>, or point <code>NROS_RMW_ZENOHD</code> at a
+<code>rmw_zenohd</code> you obtained another way.</li>
+</ul>
+<p>If you do have ROS 2, <strong>source its setup first</strong> — that is what makes the router
+findable:</p>
+<pre><code class="language-bash">source /opt/ros/&lt;distro&gt;/setup.bash
+</code></pre>
+<p>nano-ros reads <code>AMENT_PREFIX_PATH</code> from that, so a ROS installed anywhere works,
+including one you built from source or a colcon overlay — it is not assumed to be
+under <code>/opt/ros</code>.</p>
+<p>Do not expect <code>command -v rmw_zenohd</code> to print anything: <code>rmw_zenohd</code> installs
+into <code>&lt;prefix&gt;/lib/rmw_zenoh_cpp/</code>, and <code>setup.bash</code> puts only <code>bin/</code> on <code>PATH</code>.
+ROS’s own way to reach it is <code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>. So a silent
+<code>command -v</code> is normal and not a broken install — the
+<code>ros2 run rmw_zenoh_cpp rmw_zenohd</code> spelling finds it regardless.</p>
+<p><strong>Only what you name is used.</strong> nano-ros needs the router that ships <em>with your
+<code>rmw_zenoh_cpp</code></em>: the two share a zenoh build, and a mismatch shows up as
+“nothing was delivered” rather than as an error. So the search is
+<code>NROS_RMW_ZENOHD</code>, then the prefixes you sourced, then <code>$ROS_DISTRO</code> — and
+nothing else. In particular:</p>
+<ul>
+<li><strong><code>PATH</code> is not searched.</strong> A <code>zenohd</code> there — installed from zenoh’s own
+instructions, or left behind by an older nano-ros — is usually a different and
+older zenoh. The machine this was written on had two, at v1.4.0 and 1.7.2,
+against ROS’s 1.8.0.</li>
+<li><strong><code>/opt/ros/*</code> is not globbed.</strong> If you have humble and jazzy installed,
+guessing between them is not better than saying nothing. Source the one you
+want, or set <code>ROS_DISTRO</code>.</li>
+</ul>
+<p>If you do want a specific binary, name it with <code>NROS_RMW_ZENOHD</code>; it is used as
+given, with a warning if it is not an <code>rmw_zenoh_cpp</code> router.</p>
+<p>If you once used an older nano-ros, run <code>nros doctor</code>: it reports a retired SDK
+store entry that is still installed, <code>zenohd</code> included, with the command to
+remove it.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Task</th><th>Needs a ROS 2 install?</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros setup</code>, <code>nros sync</code>, message codegen</td><td><strong>No</strong> — interface sources are vendored</td></tr>
+<tr><td>Building any node (Rust / C / C++), any RMW</td><td><strong>No</strong></td></tr>
+<tr><td>Embedded targets (Zephyr, FreeRTOS, NuttX, ThreadX)</td><td><strong>No</strong></td></tr>
+<tr><td>Cyclone DDS backend, build <em>and</em> run</td><td><strong>No</strong> — <code>idlc</code> comes from the index dist, and there is no daemon</td></tr>
+<tr><td><strong>Running a multi-process zenoh example</strong></td><td><strong>Yes</strong> — the router is ROS’s <code>rmw_zenohd</code> (or set <code>NROS_RMW_ZENOHD</code>)</td></tr>
+<tr><td>Verifying with <code>ros2 topic echo</code> / <code>ros2 node list</code></td><td><strong>Yes</strong></td></tr>
+<tr><td>Interop tests against <code>rmw_zenoh_cpp</code> / a real ROS 2 graph</td><td><strong>Yes</strong></td></tr>
+<tr><td>Contributor lanes that bridge to ROS 2 (<code>just test-all</code> interop cells)</td><td><strong>Yes</strong></td></tr>
+</tbody>
+</table>
+</div>
+<p>When you source <code>activate.sh</code> without ROS 2 present it says so:</p>
+<pre><code>activate.sh: /opt/ros/humble/setup.bash not found — ROS-dependent recipes
+  will fail (interop tests, `ros2` CLI verification). The setup, codegen
+  and first-node flows do not need it.
+</code></pre>
+<p>That line is informational on a getting-started host. If you <em>do</em> want
+the ROS 2 side and your distro has no Humble packages (Arch, for
+example), a container is the usual answer — nano-ros itself stays on the
+host.</p>
 <h2 id="pattern-a-nano-ros-lives-inside-your-ros-2-workspace"><a class="header" href="#pattern-a-nano-ros-lives-inside-your-ros-2-workspace">Pattern A: nano-ros lives inside your ROS 2 workspace</a></h2>
 <p>The recommended layout is to clone nano-ros into your workspace’s
 <code>src/</code> directory alongside your packages:</p>
@@ -276,15 +376,36 @@ the entire consumption shape. See
 walkthrough.</p>
 <h2 id="provision-your-toolchain-with-nros-setup"><a class="header" href="#provision-your-toolchain-with-nros-setup">Provision your toolchain with <code>nros setup</code></a></h2>
 <p><code>nros setup</code> is the single command that prepares a machine to build
-nano-ros for a given board. It ships <strong>prebuilt toolchains per platform
-per RMW</strong> — the cross-compiler, emulator, RMW host daemon, and any SDK
-sources a board needs are fetched from a pinned index and placed in a
-shared store (<code>~/.nros/sdk</code>). You do <strong>not</strong> install cross-toolchains by
-hand, and you do not need ROS 2 on the machine.</p>
+nano-ros for a given board. The cross-compiler, emulator, RMW host
+daemon, and any SDK sources a board needs are resolved from a pinned
+index and placed in a shared store (<code>~/.nros/sdk</code>). You do <strong>not</strong>
+install cross-toolchains by hand, and you do not need ROS 2 on the
+machine.</p>
+<p>Packages are <strong>prebuilt where the index has a binary for your host, and
+built from source otherwise</strong>. Source builds are normal, not an error —
+but they cost real time and disk, so <code>nros setup</code> announces them before
+it starts:</p>
+<pre><code>nros setup: 1 package(s) have no prebuilt for linux-x86_64 — BUILDING FROM SOURCE: &lt;name&gt;
+  Expect minutes (tens of minutes for a large recipe) and hundreds of MB under …
+</code></pre>
+<p>Source recipes build with the <strong>workspace’s</strong> pinned Rust channel, so a
+recipe carrying its own pin does not make rustup fetch a second
+toolchain behind your back. <code>nros setup &lt;board&gt; --dry-run</code> prints the
+whole plan, prebuilt vs source, without fetching anything — on the
+<code>native</code> board it is two source packages (<code>zenoh-pico</code> and <code>mbedtls</code>,
+both vendored submodules) and no daemon at all.</p>
 <h3 id="1-get-the-nros-cli-onto-path"><a class="header" href="#1-get-the-nros-cli-onto-path">1. Get the <code>nros</code> CLI onto PATH</a></h3>
 <p>nano-ros is a <strong>source distribution</strong> — there is no prebuilt <code>nros</code>
 download. One front door from a fresh checkout (<code>just</code> is NOT a
 prereq; rustup is installed on demand):</p>
+<blockquote>
+<p>Sourcing <code>activate.sh</code> on a host without <code>just</code> prints one line about
+RTOS SDK path defaults (<code>FREERTOS_DIR</code>, <code>NUTTX_DIR</code>, <code>IDF_PATH</code>, …)
+not being loaded. Harmless — nothing in the user flows reads them,
+and embedded builds work with plain <code>cargo</code> / <code>cmake</code>. <code>just</code> is a
+<strong>contributor</strong> tool: only the in-tree <code>just</code> recipes (test lanes,
+fixture builds) need it (<code>cargo install just</code>).</p>
+</blockquote>
 <pre><code class="language-sh">git clone https://github.com/NEWSLabNTU/nano-ros.git
 cd nano-ros
 ./scripts/bootstrap.sh
@@ -293,7 +414,7 @@ cd nano-ros
 <code>packages/cli/target/release/nros</code> and leaves it on PATH for this
 shell.</p>
 <p>Already have cargo? The equivalent by hand (same build, same binary):</p>
-<pre><code class="language-sh">git submodule update --init packages/cli/third-party/ros-launch-manifest
+<pre><code class="language-sh">git submodule update --init packages/cli/third-party/play_launch
 cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
 export PATH="$PWD/packages/cli/target/release:$PATH"
 </code></pre>
@@ -325,10 +446,10 @@ RMW daemon + board SDK sources. <code>--rmw</code> defaults to <code>zenoh</code
 <tr><th>Command</th><th>Provisions</th></tr>
 </thead>
 <tbody>
-<tr><td><code>nros setup native</code></td><td>host build; the zenoh router (<code>zenohd</code>)</td></tr>
+<tr><td><code>nros setup native</code></td><td>host build; zenoh-pico + mbedtls sources (<strong>no router — see above</strong>)</td></tr>
 <tr><td><code>nros setup native --rmw xrce</code></td><td>host build; the Micro-XRCE-DDS agent</td></tr>
 <tr><td><code>nros setup native --rmw cyclonedds</code></td><td>host build; Cyclone DDS runtime + <code>idlc</code></td></tr>
-<tr><td><code>nros setup qemu-arm-freertos</code></td><td><code>arm-none-eabi-gcc</code>, patched <code>qemu-system-arm</code>, FreeRTOS + lwIP sources, <code>zenohd</code></td></tr>
+<tr><td><code>nros setup qemu-arm-freertos</code></td><td><code>arm-none-eabi-gcc</code>, patched <code>qemu-system-arm</code>, FreeRTOS + lwIP sources</td></tr>
 <tr><td><code>nros setup qemu-arm-nuttx</code></td><td><code>arm-none-eabi-gcc</code>, qemu, NuttX sources</td></tr>
 <tr><td><code>nros setup qemu-riscv64-threadx</code></td><td><code>riscv64-*-gcc</code>, qemu, ThreadX/NetX sources</td></tr>
 <tr><td><code>nros setup threadx-linux</code></td><td>ThreadX POSIX-sim sources</td></tr>
@@ -352,20 +473,26 @@ board list and <a href="../reference/cli.html"><code>nros</code> CLI</a> for eve
 <blockquote>
 <p><strong>Heads-up before your first example.</strong> Every nano-ros example
 (Linux talker, FreeRTOS talker, …) connects to its <strong>RMW host
-daemon</strong> at startup — <code>zenohd</code> for zenoh, the Micro-XRCE-DDS agent
-for xrce. <strong>Cyclone DDS is in-process</strong> — no separate daemon — so
-the heads-up below doesn’t apply if you ran <code>nros setup … --rmw cyclonedds</code>. <code>nros setup … --rmw &lt;rmw&gt;</code> installs the daemon into
-the nros store (<code>~/.nros/sdk/&lt;tool&gt;/&lt;version&gt;/bin/</code>; the cache
-root is <code>~/.nros/sdk/</code> — toolchains, transports, and daemons all
-land under there); you must then run it in a dedicated terminal
-before launching any example. For zenoh, put the store binary on
-PATH once and run it:</p>
-<pre><code class="language-bash">export PATH="$(dirname "$(ls -d ~/.nros/sdk/zenohd/*/bin/zenohd | tail -1)")":$PATH
-zenohd        # leave running for the whole session
+daemon</strong> at startup — a zenoh router for zenoh, the Micro-XRCE-DDS
+agent for xrce. <strong>Cyclone DDS is in-process</strong> — no separate daemon —
+so none of this applies if you ran <code>nros setup … --rmw cyclonedds</code>.</p>
+<p>For <strong>xrce</strong>, <code>nros setup … --rmw xrce</code> installs the agent into the
+nros store (<code>~/.nros/sdk/&lt;tool&gt;/&lt;version&gt;/bin/</code>), and you run it in a
+dedicated terminal before launching any example.</p>
+<p>For <strong>zenoh</strong>, the router is <strong>not</strong> provisioned by <code>nros setup</code>: it is
+ROS 2’s <code>rmw_zenoh_cpp/rmw_zenohd</code>, so that nano-ros is tested against
+the router a ROS 2 deployment actually runs
+(<a href="../design/rmw.html">RFC-0075</a>). Start it with your ROS environment
+sourced (leave it running for the whole session):</p>
+<pre><code class="language-bash">ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' \
+    ros2 run rmw_zenoh_cpp rmw_zenohd
 </code></pre>
-<p>Without it the talker blocks forever on <code>Executor::open</code> with no
+<p>It is not configured on the command line — <code>rmw_zenohd</code> ignores argv
+and reads <code>ZENOH_CONFIG_OVERRIDE</code>, as above. To pick a different
+endpoint, change the port in the <code>listen/endpoints</code> entry.</p>
+<p>Without a router the talker blocks forever on <code>Executor::open</code> with no
 output. Default ports: <code>tcp/127.0.0.1:7447</code> on POSIX,
-<code>tcp/10.0.2.2:7451</code> on QEMU FreeRTOS (Slirp forwards to host).
+<code>tcp/10.0.2.2:7447</code> on QEMU FreeRTOS (Slirp forwards to host).
 Mismatch = silent hang; see
 <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</p>
 </blockquote>
@@ -389,7 +516,7 @@ into <code>.cargo/config.toml</code>, resolving the names into the checkout
 <li><strong>Explicit path dependency</strong> on the in-workspace checkout:</li>
 </ul>
 <pre><code class="language-toml">[dependencies]
-nros = { path = "src/nano-ros/packages/core/nros",
+nros = { path = "src/nano-ros/packages/api/nros",
          default-features = false,
          features = ["std", "rmw-cffi", "platform-posix", "ros-humble"] }
 </code></pre>
@@ -437,14 +564,15 @@ just setup all                # provision every supported board's SDK/toolchain
 just nuttx setup              # → nros setup qemu-arm-nuttx
 just threadx_linux setup      # → nros setup threadx-linux
 </code></pre>
-<h2 id="docker-environment"><a class="header" href="#docker-environment">Docker environment</a></h2>
-<p>For a containerized environment with QEMU 7.2+:</p>
+<h2 id="docker-environment-contributors"><a class="header" href="#docker-environment-contributors">Docker environment (contributors)</a></h2>
+<p>For a containerized environment with QEMU 7.2+ (in-tree checkout):</p>
 <pre><code class="language-bash">just docker build
 just docker shell      # Interactive shell with all tools
 just docker test-qemu  # Run QEMU tests in container
 </code></pre>
 <h2 id="migrating-from-a-pre-140-checkout"><a class="header" href="#migrating-from-a-pre-140-checkout">Migrating from a pre-140 checkout</a></h2>
-<p>If you were on a nano-ros version that still had <code>just install-local</code>,
+<p>If you were on a nano-ros version that still had the (contributor)
+<code>just install-local</code> recipe,
 see
 <a href="../release/migration-install-local-removal.html">migration-install-local-removal.md</a>
 for the one-page rewrite.</p>
@@ -462,11 +590,11 @@ for the one-page rewrite.</p>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../start-here/setup-compared-to-ros2.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../start-here/choose-your-entry.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../getting-started/first-node-rust.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../getting-started/first-project.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -476,11 +604,11 @@ for the one-page rewrite.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../start-here/setup-compared-to-ros2.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../start-here/choose-your-entry.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../getting-started/first-node-rust.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../getting-started/first-project.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

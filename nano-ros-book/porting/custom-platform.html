@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -252,14 +252,14 @@ support) across the platforms nano-ros already supports, see
 <h2 id="wiring-into-nros"><a class="header" href="#wiring-into-nros">Wiring into nros</a></h2>
 <p>Five files need changes to register a new platform. This example adds a fictional “MyOS” platform.</p>
 <h3 id="1-create-the-platform-crate"><a class="header" href="#1-create-the-platform-crate">1. Create the platform crate</a></h3>
-<pre><code>packages/core/nros-platform-myos/
+<pre><code>packages/platform/nros-platform-myos/
   Cargo.toml
   src/
     lib.rs
 </code></pre>
 <p>The crate must have <strong>zero</strong> <code>nros-*</code> dependencies. It may depend on your RTOS bindings, HAL crates, or <code>embedded-alloc</code>.</p>
 <h3 id="2-add-the-feature-to-nros-platform"><a class="header" href="#2-add-the-feature-to-nros-platform">2. Add the feature to nros-platform</a></h3>
-<p>In <code>packages/core/nros-platform/Cargo.toml</code>:</p>
+<p>In <code>packages/platform/nros-platform/Cargo.toml</code>:</p>
 <pre><code class="language-toml">[features]
 platform-myos = ["dep:nros-platform-myos"]
 
@@ -267,14 +267,14 @@ platform-myos = ["dep:nros-platform-myos"]
 nros-platform-myos = { version = "0.1.0", path = "../nros-platform-myos", optional = true }
 </code></pre>
 <h3 id="3-add-the-concreteplatform-alias"><a class="header" href="#3-add-the-concreteplatform-alias">3. Add the ConcretePlatform alias</a></h3>
-<p>In <code>packages/core/nros-platform/src/resolve.rs</code>:</p>
+<p>In <code>packages/platform/nros-platform/src/resolve.rs</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>#[cfg(feature = "platform-myos")]
 pub type ConcretePlatform = nros_platform_myos::MyOsPlatform;
 <span class="boring">}</span></code></pre>
 <h3 id="4-propagate-through-the-nros-facade"><a class="header" href="#4-propagate-through-the-nros-facade">4. Propagate through the nros facade</a></h3>
-<p>In <code>packages/core/nros/Cargo.toml</code>, add <code>platform-myos</code> to the feature list so users can write <code>nros = { features = ["rmw-zenoh", "platform-myos"] }</code>.</p>
+<p>In <code>packages/api/nros/Cargo.toml</code>, add <code>platform-myos</code> to the feature list so users can write <code>nros = { features = ["rmw-zenoh", "platform-myos"] }</code>.</p>
 <h3 id="5-register-your-platform-as-an-abi-marker"><a class="header" href="#5-register-your-platform-as-an-abi-marker">5. Register your platform as an ABI marker</a></h3>
 <p>The platform shim crates are gone (Phase 129). Each transport C library’s
 platform symbols now come from a <strong>default-on C alias translation unit</strong> that
@@ -285,14 +285,18 @@ forwards to the canonical <code>nros_platform_*</code> ABI — <code>zpico-sys</
 <p>What you add is a <strong>pure ABI marker</strong> feature so each transport crate’s
 <code>build.rs</code> can do per-platform source selection (e.g. strip the vendor
 <code>system/&lt;rtos&gt;/system.c</code>, gate the alias TU’s network section to bare-metal):</p>
-<pre><code class="language-toml"># packages/zpico/zpico-sys/Cargo.toml  (rmw-zenoh)
+<pre><code class="language-toml"># packages/rmw/zenoh/zpico-sys/Cargo.toml  (rmw-zenoh)
 [features]
 myos = []   # ABI marker only — no shim dependency
-
-# packages/xrce/xrce-sys/Cargo.toml  (rmw-xrce)
-[features]
-myos = []   # ABI marker only
 </code></pre>
+<p><strong>Only zenoh needs one.</strong> XRCE-DDS has no per-platform feature to add:
+phase-129.C.1 deleted all of <code>nros-rmw-xrce-cffi</code>’s <code>platform-&lt;rtos&gt;</code>
+features, and its build selection is driven by <code>target_os</code> instead, over
+a platform-blind <code>transport_nros_udp.c</code>. There is also no crate left to
+add one to — the <code>xrce-sys</code> crate was deleted in phase-321 W1.d and the
+directory is now a submodule host for <code>micro-xrce-dds-client/</code> and
+<code>micro-cdr/</code>, whose README says in as many words: do not re-add a crate
+here. If your port targets XRCE only, skip this step entirely.</p>
 <p>The alias TU (default-on <code>platform-aliases</code>) covers the full <code>z_*</code> surface —
 memory, sleep, random, time, yield, threading, condvar, clock, and network.
 <code>zpico-sys</code>’s <code>build.rs</code> defines <code>NROS_PLATFORM_ALIASES</code> and emits the network
@@ -305,7 +309,7 @@ avoid duplicate-symbol link errors.</p>
 <h3 id="skeleton"><a class="header" href="#skeleton">Skeleton</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// packages/core/nros-platform-myos/src/lib.rs
+</span>// packages/platform/nros-platform-myos/src/lib.rs
 #![no_std]
 use core::ffi::c_void;
 
@@ -371,12 +375,12 @@ impl MyOsPlatform {
 <li><strong>Seed the PRNG.</strong> A deterministic seed (like FreeRTOS <code>rand()</code> starting from 1) causes duplicate zenoh session IDs across QEMU instances. Seed from hardware entropy, IP address, or semihosting wall-clock.</li>
 </ul>
 <h3 id="reference-implementation"><a class="header" href="#reference-implementation">Reference implementation</a></h3>
-<p><code>packages/core/nros-platform-freertos/src/lib.rs</code> is a complete real-world example covering all categories: clock via <code>xTaskGetTickCount</code>, heap via <code>pvPortMalloc</code>/<code>vPortFree</code>, sleep via <code>vTaskDelay</code>, xorshift32 PRNG, and full threading with tasks, recursive mutexes, and condvars built on counting semaphores.</p>
+<p><code>packages/platform/nros-platform-freertos/src/lib.rs</code> is a complete real-world example covering all categories: clock via <code>xTaskGetTickCount</code>, heap via <code>pvPortMalloc</code>/<code>vPortFree</code>, sleep via <code>vTaskDelay</code>, xorshift32 PRNG, and full threading with tasks, recursive mutexes, and condvars built on counting semaphores.</p>
 <h2 id="cc-path"><a class="header" href="#cc-path">C/C++ path</a></h2>
 <p>If your platform is easier to implement in C, use the <code>nros-platform-cffi</code> C ABI. It is the canonical layer between nros and any C-implemented platform port.</p>
 <h3 id="1-implement-the-platform-symbols"><a class="header" href="#1-implement-the-platform-symbols">1. Implement the platform symbols</a></h3>
 <p>The canonical header lives at
-<code>packages/core/nros-platform-cffi/include/nros/platform.h</code>. It declares
+<code>packages/platform/nros-platform-cffi/include/nros/platform.h</code>. It declares
 roughly 45 free <code>extern "C"</code> functions — one per platform capability.
 Your port supplies a definition for each; the linker resolves them
 into the nros binary directly. There is no runtime registration call.

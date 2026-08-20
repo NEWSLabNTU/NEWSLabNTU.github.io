@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Choosing an RMW Backend - nano-ros Book</title>
+        <title>Backend Reference - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -192,11 +192,17 @@ multi-RMW pattern.</p>
 <li>The MCU runs zenoh-pico in <strong>client mode</strong>, connecting to a <code>zenohd</code> router process over TCP, UDP, or TLS.</li>
 <li>zenoh-pico creates publishers and subscribers directly on the Zenoh network.</li>
 <li>ROS 2 nodes running <code>rmw_zenoh_cpp</code> connect to the same <code>zenohd</code> router, enabling transparent interop.</li>
-<li>In <strong>peer mode</strong>, two zenoh-pico devices can communicate directly without any router.</li>
+<li>zenoh itself defines a <strong>peer mode</strong> in which two zenoh-pico devices talk directly with no
+router. <strong>nano-ros does not ship it.</strong> The shim is compiled without zenoh-pico’s multicast
+transport and scouting (<code>nros_zpico_build::MULTICAST_TRANSPORT = false</code>) because those are
+three more code paths in a library whose job here is fitting on an MCU, and every nano-ros
+deployment reaches its peers through a router or an agent. <code>NROS_SESSION_MODE=peer</code> is
+therefore refused at session open with a message saying so — see issue 0682. Enabling it
+means flipping that constant, rebuilding the shim, and accepting the footprint.</li>
 </ol>
 <p><strong>Key characteristics:</strong></p>
 <ul>
-<li>Peer-to-peer capable (no mandatory bridge process)</li>
+<li>Client/router topology; zenoh’s router-free peer mode is compiled out (see above)</li>
 <li><code>zenohd</code> is a generic router, not a protocol translator – it forwards messages without interpreting them</li>
 <li>If <code>zenohd</code> crashes, peers in client mode lose routing but the MCU continues running</li>
 <li>Full ROS 2 graph discovery via liveliness tokens</li>
@@ -231,7 +237,7 @@ Cyclone, use Zenoh instead until the gaps close. Full
 known-limitations list:
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/reference/cyclonedds-known-limitations.md"><code>docs/reference/cyclonedds-known-limitations.md</code></a>.</p>
 </blockquote>
-<p>The Cyclone DDS backend uses <a href="https://github.com/eclipse-cyclonedds/cyclonedds">Eclipse Cyclone DDS</a>, the same DDS implementation that ROS 2 ships with via <code>rmw_cyclonedds_cpp</code>. Built as a <strong>standalone C++ library</strong> at <code>packages/dds/nros-rmw-cyclonedds/</code> that registers itself with the runtime through the C ABI vtable in <code>nros-rmw-cffi</code>.</p>
+<p>The Cyclone DDS backend uses <a href="https://github.com/eclipse-cyclonedds/cyclonedds">Eclipse Cyclone DDS</a>, the same DDS implementation that ROS 2 ships with via <code>rmw_cyclonedds_cpp</code>. Built as a <strong>standalone C++ library</strong> at <code>packages/rmw/cyclonedds/nros-rmw-cyclonedds/</code> that registers itself with the runtime through the C ABI vtable in <code>nros-rmw-cffi</code>.</p>
 <p><strong>How it works:</strong></p>
 <ol>
 <li>The application (or platform) calls <code>nros_rmw_cyclonedds_register()</code> once before <code>nros::init()</code> — this is automatic when the consumer’s CMake build sets <code>-DNANO_ROS_RMW=cyclonedds</code>.</li>
@@ -247,16 +253,16 @@ known-limitations list:
 <li>Discovery via SPDP multicast or unicast peer list (mirrors Cyclone’s standard config knobs).</li>
 <li>Heap required (Cyclone uses <code>malloc</code>); <code>BUILD_SHARED_LIBS=ON</code> produces <code>libddsc.so</code> for POSIX, static link for embedded.</li>
 <li><strong>No services / actions yet</strong> — service create/recv/reply currently returns <code>NROS_RMW_RET_UNSUPPORTED</code>.</li>
-<li><strong>No status events yet</strong> — <code>register_subscriber_event</code> / <code>register_publisher_event</code> / <code>assert_publisher_liveliness</code> slots are not wired to Cyclone listeners yet.</li>
+<li><strong>No status events yet</strong> — <code>register_subscription_event</code> / <code>register_publisher_event</code> / <code>assert_publisher_liveliness</code> slots are not wired to Cyclone listeners yet.</li>
 </ul>
 <p><strong>Build:</strong></p>
-<pre><code class="language-bash">just cyclonedds setup       # build Cyclone DDS from third-party/dds/cyclonedds (tag 0.10.5)
-just cyclonedds build-rmw   # build packages/dds/nros-rmw-cyclonedds
-just cyclonedds test        # run the CTest harness
-</code></pre>
+<blockquote>
+<p><strong>Contributors:</strong> the in-tree Cyclone DDS build/test lanes are in
+<a href="../internals/platform-lanes.html#cyclone-dds">Per-Platform Contributor Lanes</a>.</p>
+</blockquote>
 <p>Each example picks its RMW via <code>-DNANO_ROS_RMW=cyclonedds</code> at
 configure time; the root <code>CMakeLists.txt</code> add_subdirectory’s
-<code>packages/dds/nros-rmw-cyclonedds/</code> and links the resulting target
+<code>packages/rmw/cyclonedds/nros-rmw-cyclonedds/</code> and links the resulting target
 into <code>NanoRos::NanoRos</code>. No <code>build/install/</code> prefix, no
 <code>find_package(NrosRmwCyclonedds)</code> deleted both.</p>
 <p><strong>Availability follows from config — the build provisions Cyclone.</strong>
@@ -266,7 +272,8 @@ a prebuilt install you point at (<code>-DCMAKE_PREFIX_PATH=&lt;install&gt;</code
 <code>-DCycloneDDS_DIR=</code>), else <strong>self-provision from source</strong> — by default the pinned
 <code>third-party/dds/cyclonedds</code> submodule, or your own checkout via
 <code>-DCYCLONEDDS_SOURCE_DIR=&lt;path&gt;</code>. So a bare <code>cmake</code>/<code>cargo</code> build needs <strong>no
-<code>just cyclonedds</code> pre-step</strong>; freertos / threadx-rv64 / native examples build
+<code>just cyclonedds</code> pre-step</strong> (that is a contributor-only recipe);
+freertos / threadx-rv64 / native examples build
 Cyclone on demand (sccache-accelerated), gated on the relevant cross toolchain.
 On a tier without the toolchain, the embedded-Cyclone tests are filtered out of
 <code>test-all</code> (<em>skipped</em>, not <em>failed</em>). <code>idlc</code> is a host tool, found on <code>PATH</code>
@@ -283,7 +290,7 @@ On a tier without the toolchain, the embedded-Cyclone tests are filtered out of
 <tr><td><strong>Client RAM</strong></td><td>~16 KB+ (heap required)</td><td>~3 KB (fully static)</td><td>~32 KB+ (heap required)</td></tr>
 <tr><td><strong>Client Flash</strong></td><td>~100 KB+</td><td>~75 KB</td><td>~150 KB+ (<code>libddsc.so</code> ~1.4 MB on POSIX, sized down on embedded link)</td></tr>
 <tr><td><strong>Bridge process</strong></td><td><code>zenohd</code> (generic router)</td><td>Agent (protocol translator)</td><td>None — RTPS multicast directly</td></tr>
-<tr><td><strong>Peer-to-peer</strong></td><td>Yes (no router needed)</td><td>No (agent always required)</td><td>Yes (RTPS native)</td></tr>
+<tr><td><strong>Peer-to-peer</strong></td><td>Not as shipped — multicast/scouting compiled out (issue 0682)</td><td>No (agent always required)</td><td>Yes (RTPS native)</td></tr>
 <tr><td><strong>Discovery</strong></td><td>Client participates</td><td>Agent handles on behalf</td><td>SPDP / SEDP on UDP multicast or static peer list</td></tr>
 <tr><td><strong>Entity creation</strong></td><td>Client creates directly</td><td>Client requests, agent creates</td><td>Client creates directly</td></tr>
 <tr><td><strong>Transport options</strong></td><td>TCP, UDP, TLS</td><td>UDP, serial, CAN FD</td><td>UDP unicast + multicast (RTPS)</td></tr>
@@ -339,27 +346,27 @@ plus exactly one <code>nros-rmw-&lt;x&gt;</code> shim dep (cyclonedds is the exc
 see below):</p>
 <pre><code class="language-toml"># Zenoh backend
 [dependencies]
-nros = { path = "&lt;...&gt;/packages/core/nros",
+nros = { path = "&lt;...&gt;/packages/api/nros",
          default-features = false,
          features = ["std", "rmw-cffi", "platform-posix"] }
-nros-rmw-zenoh = { path = "&lt;...&gt;/packages/zpico/nros-rmw-zenoh",
+nros-rmw-zenoh = { path = "&lt;...&gt;/packages/rmw/zenoh/nros-rmw-zenoh",
                    features = ["std", "platform-posix", "ros-humble"] }
 
 # XRCE-DDS backend
 [dependencies]
-nros = { path = "&lt;...&gt;/packages/core/nros",
+nros = { path = "&lt;...&gt;/packages/api/nros",
          default-features = false,
          features = ["std", "rmw-cffi", "platform-posix"] }
-nros-rmw-xrce-cffi = { path = "&lt;...&gt;/packages/xrce/nros-rmw-xrce-cffi",
+nros-rmw-xrce-cffi = { path = "&lt;...&gt;/packages/rmw/xrce/nros-rmw-xrce-cffi",
                        features = ["std"] }
 
 # Cyclone DDS backend — Rust runtime sees the generic rmw-cffi C-ABI
 # vtable; actual Cyclone wiring lives C++-side under
-# packages/dds/nros-rmw-cyclonedds/ and is selected at CMake
+# packages/rmw/cyclonedds/nros-rmw-cyclonedds/ and is selected at CMake
 # configure time via -DNANO_ROS_RMW=cyclonedds. The Rust
 # manifest only carries the `rmw-cffi` feature; no Rust shim dep.
 [dependencies]
-nros = { path = "&lt;...&gt;/packages/core/nros",
+nros = { path = "&lt;...&gt;/packages/api/nros",
          default-features = false,
          features = ["std", "rmw-cffi", "platform-posix"] }
 </code></pre>
@@ -493,11 +500,11 @@ support natively. Just ensure the loopback interface is up
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../getting-started/ros2-interop.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../user-guide/rmw-switching.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../user-guide/cross-backend-bridges.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../getting-started/workspace-from-app-node.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -507,11 +514,11 @@ support natively. Just ensure the loopback interface is up
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../getting-started/ros2-interop.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../user-guide/rmw-switching.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../user-guide/cross-backend-bridges.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../getting-started/workspace-from-app-node.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

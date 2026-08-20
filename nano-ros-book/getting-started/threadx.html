@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -186,8 +186,12 @@ build, host network stack, ideal for development.</li>
 <li><strong>threadx-riscv64</strong> — QEMU <code>virt</code> machine with the RISC-V64 GCC
 toolchain. Full kernel + NetX Duo TCP/IP stack.</li>
 </ul>
-<p>Rust, C, and C++ are supported on both flavours — <code>just &lt;flavour&gt; build-fixtures</code> produces <code>threadx_cpp_*</code> and <code>riscv64_threadx_cpp_*</code>
-binaries alongside the Rust + C ones. See the
+<p>Rust, C, and C++ are supported on both flavours.</p>
+<blockquote>
+<p><strong>Contributors:</strong> the in-tree fixture/test lanes for this platform are in
+<a href="../internals/platform-lanes.html#threadx">Per-Platform Contributor Lanes</a>.</p>
+</blockquote>
+<p>See the
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/README.md">coverage matrix</a>
 for the per-RMW cell status.</p>
 <blockquote>
@@ -199,13 +203,17 @@ toolchain, <code>qemu-system-riscv64</code>, or ROS 2 required.</p>
 </blockquote>
 <h2 id="setup"><a class="header" href="#setup">Setup</a></h2>
 <p><code>nros setup</code> is the single canonical command to prepare a machine to build
-nano-ros for a board. It ships prebuilt toolchains per platform per RMW — the
+nano-ros for a board. Most components are prebuilt per platform per RMW — the
 cross-compiler, emulator, RMW host daemon, and SDK sources (the ThreadX/NetX
 sources, and for threadx-linux the POSIX-sim sources) are fetched from a pinned
 index into a shared store at <code>${NROS_HOME:-~/.nros}/sdk</code>. You do not need ROS 2 installed.</p>
+<p>Packages are prebuilt where the index has a binary for your host and built from
+source otherwise — <code>zenohd</code> is the notable source build, and zenoh is the default
+<code>--rmw</code>. <code>--dry-run</code> prints the plan for your host. See
+<a href="installation.html#provision-your-toolchain-with-nros-setup">Installation</a> for the full explanation.</p>
 <p>Build the in-tree <code>nros</code> CLI (Phase 218):</p>
-<pre><code class="language-bash">source ./activate.sh        # OR: direnv allow / source ./activate.fish
-just setup-cli              # builds packages/cli/target/release/nros
+<pre><code class="language-bash">./scripts/bootstrap.sh      # builds packages/cli/target/release/nros
+source ./activate.sh        # OR: direnv allow / source ./activate.fish
 </code></pre>
 <p>Provision the ThreadX flavour you need (+ the RMW):</p>
 <pre><code class="language-bash">nros setup threadx-linux --rmw zenoh          # POSIX-sim flavour; --rmw defaults to zenoh
@@ -241,6 +249,45 @@ examples/qemu-riscv64-threadx/
 uses the <code>nx_bsd_*</code> BSD socket shim layered on the host TCP stack
 (threadx-linux variant) or on its own NetX Duo TCP/IP stack
 (riscv64 variant).</p>
+<h2 id="why-there-are-two-board-crates-and-one-arch-port"><a class="header" href="#why-there-are-two-board-crates-and-one-arch-port">Why there are two board crates and one arch port</a></h2>
+<p>The two flavours look like one board with two targets, and they are not.
+nano-ros ships <strong>three</strong> ThreadX packages, in the three layers RFC-0064
+describes:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Package</th><th>Layer</th><th>What it owns</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros-board-threadx</code></td><td>family driver</td><td>the kernel/NetX build and the generic <code>run_entry</code> boot path both boards call</td></tr>
+<tr><td><code>nros-board-threadx-port-riscv64</code></td><td><strong>arch port</strong></td><td>a fork of upstream’s <code>ports/risc-v64/gnu</code>: <code>tx_port.h</code> + five context-switch <code>.S</code> files</td></tr>
+<tr><td><code>nros-board-threadx-{linux,qemu-riscv64}</code></td><td>board overlay</td><td>defaults, console/exit/panic, and the network bring-up</td></tr>
+</tbody>
+</table>
+</div>
+<p>The arch port is the reason the two boards did not merge. Upstream’s
+RISC-V64 port types <code>ULONG</code> as <code>unsigned long</code> — 8 bytes on rv64 — but
+NetX Duo’s packet code does <code>ULONG *</code> arithmetic assuming 4-byte words,
+so nano-ros retypes it to <code>unsigned int</code>, matching upstream’s own Linux
+and AArch64 ports. That retype shifts every field offset inside
+<code>TX_THREAD</code>, and the port’s context-switch assembly loads those fields at
+hard-coded offsets — so the header change forces the assembly to be
+forked with it. <code>threadx-linux</code> needs none of this, because upstream’s
+Linux port already types <code>ULONG</code> as 4 bytes.</p>
+<p>That is architecture code, not board code: a second RISC-V64 ThreadX
+board would need every line of it unchanged, and folding it into a crate
+that also serves Linux would mean <code>cfg</code>-gating RISC-V assembly there. If
+you are porting to another RISC-V64 ThreadX board, depend on the arch
+port and write only the overlay — see
+<a href="../porting/custom-board.html">Custom boards</a>.</p>
+<p>One rule matters if you build ThreadX outside the shipped recipes: the
+arch port’s <code>inc/</code> <strong>must</strong> be searched before
+<code>$THREADX_DIR/ports/risc-v64/gnu/inc</code>. Get that wrong and the build
+succeeds against upstream’s 8-byte <code>ULONG</code>, and the symptom is corrupted
+packets at runtime rather than a compiler error. A
+<code>_Static_assert(sizeof(ULONG) == 4, …)</code> in
+<code>packages/boards/nros-board-common/c/threadx_hooks.c</code> turns that mistake
+into a build failure with a name on it.</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
 <p>Deploy config is declared per flavour in the build manifest and baked at
 compile time. Both shipped shapes, verbatim:</p>
@@ -266,34 +313,41 @@ Bring up <code>tap-tx0</code> by hand (<code>ip link add … type veth …</code
 you need real-network bridging. The QEMU-RISC-V64 fixture uses
 Slirp’s default <code>10.0.2.2</code> gateway just like the FreeRTOS QEMU flow.</p>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
-<pre><code class="language-bash"># threadx-linux:
-just threadx_linux build-fixtures   # build all rust + c examples
-
-# Single example:
+<pre><code class="language-bash"># Single example — `nros sync` first (a hand-run cargo build does
+# not do it for you):
 cd examples/threadx-linux/rust/talker
+nros sync
 cargo build --release
-
-# threadx-riscv64:
-just threadx_riscv64 build-fixtures
 </code></pre>
+<blockquote>
+<p><strong>Contributors:</strong> the in-tree fixture build lanes for both flavours are in
+<a href="../internals/platform-lanes.html#threadx">Per-Platform Contributor Lanes</a>.</p>
+</blockquote>
 <p>First setup builds ThreadX + NetX Duo (~3 min). Subsequent example
 builds finish in seconds.</p>
+<p><strong>Contributors (in-tree checkout):</strong> the <code>just … build-fixtures</code>
+recipes run <code>nros sync</code> for you. A
+hand-run <code>cargo build</code> in a leaf does not — without it cargo fails
+while <em>parsing the manifest</em>, with
+<code>failed to load config include '…/nros-patch.toml'</code> and no mention of
+sync. See
+<a href="../user-guide/workflow-by-platform.html">Workflow by Platform and Language</a>.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
-<pre><code class="language-bash"># threadx-linux (no QEMU). Step 1 brings up the in-tree zenohd on
-# the threadx-linux port (7455). Step 2 runs the talker via the
-# matching just recipe — same binary the example dir builds.
-just threadx_linux zenohd &amp;
-just threadx_linux talker
+<pre><code class="language-bash"># threadx-linux (no QEMU). Step 1 brings up the router (ROS's
+# `rmw_zenohd`) on port 9000 — the deploy `locator` the talker bakes
+# in its Cargo.toml. Step 2 builds + runs the talker:
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:9000"];scouting/multicast/enabled=false' \
+    ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
+cd examples/threadx-linux/rust/talker &amp;&amp; nros sync &amp;&amp; cargo run --release
 # Expected (per src/lib.rs structured logs):
 #   Publishing: 'Hello World: 1'
 #   Publishing: 'Hello World: 2'
 #   ...
 
-# threadx-riscv64 (QEMU virt). Same shape — zenohd on 7453 first,
-# then the talker recipe boots `qemu-system-riscv64` with the
-# virtio-net + Slirp wiring baked in:
-just threadx_riscv64 zenohd &amp;
-just threadx_riscv64 talker
+# threadx-riscv64 (QEMU virt). Same shape — the router on 9400 first
+# (the riscv64 talker dials tcp/10.0.2.2:9400 through QEMU Slirp):
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:9400"];scouting/multicast/enabled=false' \
+    ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
 # Verify from stock ROS 2:
 source /opt/ros/humble/setup.bash
@@ -303,10 +357,12 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Force best-effort to receive:
 ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
-<p>For batch testing: <code>just threadx_linux test</code> runs every pubsub /
-service / action against an in-test zenohd.</p>
+<blockquote>
+<p><strong>Contributors:</strong> the in-tree fixture run/test lanes are in
+<a href="../internals/platform-lanes.html#threadx">Per-Platform Contributor Lanes</a>.</p>
+</blockquote>
 <p><strong>Readiness signal.</strong> threadx-linux: <code>Publishing: 'Hello World: 1'</code>
-within a few seconds of <code>just threadx_linux talker</code> <strong>on a warm
+within a few seconds of <code>cargo run --release</code> <strong>on a warm
 cache</strong>; a cold first run rebuilds the Rust example (~80 s on a
 fresh checkout) before the first publish lands. threadx-riscv64
 (QEMU): within ~15 seconds of QEMU boot. If no <code>Publishing:</code> line:</p>
@@ -317,6 +373,18 @@ fresh checkout) before the first publish lands. threadx-riscv64
 <code>nros setup threadx-linux</code>.</li>
 <li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
+<h2 id="multi-tier-scheduling-phase-297"><a class="header" href="#multi-tier-scheduling-phase-297">Multi-tier scheduling (phase-297)</a></h2>
+<p>ThreadX supports the multi-tier workspace scheduling model
+(RFC-0053): declare per-tier ThreadX priorities in the workspace
+manifest with <code>[tiers.&lt;name&gt;.threadx]</code> priority tables, and
+<code>nros::main!</code> routes the app onto <code>run_tiers</code> — one executor per
+tier, all sharing one session, with per-tier stacks carved from the
+ThreadX byte pool. ThreadX priorities follow the native convention:
+<strong>lower number = higher priority</strong>. Tiers are sorted descending by
+raw priority number, so <code>tiers[0]</code> (the numerically-largest, i.e.
+lowest-priority tier) boots first and then adopts its declared
+priority. See <a href="../internals/scheduling-models.html">Scheduling Models</a>
+for the mechanics.</p>
 <h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>
 <ul>
 <li>ThreadX-Linux Rust:

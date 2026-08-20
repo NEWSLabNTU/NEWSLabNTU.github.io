@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -209,8 +209,8 @@ Codegen owns the spin loop — your code only describes what the node
 <p>Key rules:</p>
 <ul>
 <li><strong>No <code>fn main()</code>.</strong> A Node pkg builds as <code>rlib + staticlib</code> and is <em>linked into</em> an Entry pkg’s binary. Codegen synthesises the spin driver; you never hand-write one.</li>
-<li><strong><code>class</code> field must start with the pkg dir name.</strong> <code>nros check</code> rejects <code>class = "foo::Talker"</code> inside <code>src/talker_pkg/</code> — the pkg name and the class prefix are the same identity. (Phase 212.L.4.)</li>
-<li><strong>C++ / C analogue:</strong> <code>nano_ros_node_register(NAME … CLASS … SOURCES …)</code> cmake fn + a typed component in the source — C++ a <code>configure(::nros::Node&amp;)</code> method, C a <code>NROS_C_COMPONENT(StateT, configure_fn)</code> seam (RFC-0043). Same conceptual shape, no Cargo.toml.</li>
+<li><strong><code>class</code> must be a namespace-qualified C++ name.</strong> The old 212.L.4 prefix rule (<code>class</code> starting with the pkg dir name) is retired by RFC-0057 — <code>pkg</code> on the <code>[[component]]</code> row is the identity authority, so upstream namespaces (<code>autoware::x::Node</code>) port verbatim. <code>nros check</code> still rejects an unqualified <code>class</code>.</li>
+<li><strong>C++ / C analogue:</strong> <code>nano_ros_auto_add_library(&lt;lib&gt; STATIC &lt;srcs&gt;)</code> + <code>nros_components_register_node(&lt;lib&gt; PLUGIN … EXECUTABLE …)</code> (RFC-0057, rclcpp_components keyword parity) + a typed component in the source — C++ a <code>configure(::nros::Node&amp;)</code> method, C a <code>NROS_C_COMPONENT(StateT, configure_fn)</code> seam (RFC-0043). Same conceptual shape, no Cargo.toml.</li>
 <li><strong><code>package.xml</code> is mandatory.</strong> Even pure-Rust Node pkgs ship one — <code>&lt;exec_depend&gt;</code> lines drive ROS 2 launch discovery when the system runs through <code>ros2 launch</code> outside the nano-ros toolchain.</li>
 </ul>
 <h2 id="bringup-pkg-optional"><a class="header" href="#bringup-pkg-optional">Bringup pkg (optional)</a></h2>
@@ -240,7 +240,7 @@ See <a href="../getting-started/workspace-bringup.html">the workspace bringup tu
 │                       # [dependencies]
 │                       #     talker_pkg   = { path = "../talker_pkg" }
 │                       #     listener_pkg = { path = "../listener_pkg" }
-│                       #     nros-board-posix = { … }            # or another family
+│                       #     nros-board-linux = { … }            # or another family
 │                       # [package.metadata.nros.entry]
 │                       #     deploy = "native"
 │                       # [package.metadata.nros.deploy.native]
@@ -259,35 +259,38 @@ entry, and expands to a <code>fn main()</code> that delegates to
 <code>&lt;pkg&gt;::register(runtime)?</code> call per launch row. The macro has four
 forms; pick whichever matches your composition shape:</p>
 <pre><code class="language-rust ignore">nros::main!();                                          // single-node self-bringup (reads [..nros.entry] deploy)
-nros::main!(board = NativeBoard);                       // single-node, explicit board
-nros::main!(launch = "demo_bringup");                   // multi-node, default launch from system.toml
-nros::main!(launch = "demo_bringup:sim.launch.xml");    // multi-node, explicit file
-nros::main!(                                            // all explicit
-    board  = NativeBoard,
-    launch = "demo_bringup:sim.launch.xml",
-    args   = [("use_sim", "true")],
-);</code></pre>
+nros::main!(board = LinuxBoard);                       // single-node, explicit board
+nros::main!(launch = "demo_bringup");                   // multi-node (CANONICAL): the bringup's default launch
+nros::main!(launch = "demo_bringup:sim.launch.xml");    // multi-node, a named launch file
+nros::main!(                                            // multi-host: a PER-HOST model (resolved with `host:=robot1`)
+    model = "demo_bringup:config/multihost_robot1_model.yaml",
+);
+// DEPRECATED (retiring): direct launch-file forms — re-parse the launch XML
+// at build time instead of consuming the reviewed model; bake-time warning.
+nros::main!(launch = "demo_bringup");
+nros::main!(launch = "demo_bringup:sim.launch.xml");</code></pre>
 <p>Form-1 (no args) reads
 <code>[package.metadata.nros.entry] deploy = "&lt;board&gt;"</code> from this Entry
 pkg’s own <code>Cargo.toml</code> and maps the board key
 (<code>"native"</code>/<code>"freertos"</code>/<code>"zephyr"</code>/…) to the right board crate
-via a small lookup table. Forms 2–4 use the user-supplied path
-verbatim. Forms 3/4 reference a Bringup pkg by <code>&lt;bringup&gt;[:&lt;file&gt;]</code> —
-the Bringup pkg’s dir hosts <code>launch/&lt;file&gt;.launch.xml</code> plus an optional
-<code>system.toml</code> naming the default file (<code>[system] default_launch = "..."</code>).
+via a small lookup table. The model forms reference a Bringup pkg by <code>&lt;bringup&gt;[:&lt;relpath&gt;]</code> — the
+Bringup pkg commits <code>config/system_model.yaml</code>, the SystemModel that
+<code>nros sync</code> resolves from the launch file (+ optional <code>--system</code>
+config). The deprecated launch forms take <code>&lt;bringup&gt;[:&lt;file&gt;]</code> against
+<code>launch/&lt;file&gt;.launch.xml</code> + <code>system.toml [system] default_launch</code>.
 The <code>nros::main!()</code> expansion replaces the older
 <code>build.rs + include!(env!("OUT_DIR")/run_plan.rs)</code> shape end-to-end;
 new Entry pkgs no longer need a <code>build.rs</code> or a <code>nros-build</code>
 build-dep — just <code>nros</code> + the target board crate.</p>
 <p><strong>Escape hatch:</strong> skip the macro entirely and call
-<code>&lt;NativeBoard as BoardEntry&gt;::run(|runtime| { ... })</code>, or go fully manual
+<code>&lt;LinuxBoard as BoardEntry&gt;::run(|runtime| { ... })</code>, or go fully manual
 with <code>nros::Executor::open(&amp;ExecutorConfig::default())</code>.</p>
 <p>Key rules:</p>
 <ul>
 <li><strong>One Entry pkg per board target.</strong> Want to run the same nodes on native POSIX, on a QEMU-MPS2-AN385 FreeRTOS target, and on a real ThreadX board? Three Entry pkgs (<code>robot_entry_native</code>, <code>robot_entry_qemu_freertos</code>, <code>robot_entry_acme_threadx</code>) sharing the same Node pkgs and (usually) the same <code>launch/system.launch.xml</code> via symlink or <code>&lt;include&gt;</code>.</li>
 <li><strong><code>launch/system.launch.xml</code> is the canonical name.</strong> <code>nros plan</code> resolution order: <code>--file &lt;path&gt;</code> → <code>&lt;dir&gt;/launch/&lt;pkg&gt;.launch.xml</code> → <code>&lt;dir&gt;/launch/system.launch.xml</code> → the single <code>&lt;dir&gt;/launch/*.launch.xml</code> → synth (only for non-Entry, single-Node pkgs).</li>
 <li><strong>Deploy config lives in <code>Cargo.toml</code>.</strong> <code>[package.metadata.nros.deploy.&lt;target&gt;]</code> holds board / RMW / domain / locator per target; <code>[[package.metadata.nros.domain]]</code> and <code>[[package.metadata.nros.bridge]]</code> carry multi-domain topology.</li>
-<li><strong>C++ analogue:</strong> cmake fn <code>nano_ros_entry(NAME &lt;name&gt; LANGUAGE CXX LAUNCH …)</code> plus <code>NROS_MAIN(...)</code>. Metadata flows through <code>${BUILD}/nros-metadata.json</code> rather than a sidecar TOML.</li>
+<li><strong>C++ analogue:</strong> cmake fn <code>nano_ros_entry(NAME &lt;name&gt; LANGUAGE CXX MODEL …)</code> plus <code>NROS_MAIN(...)</code> (deprecated <code>LAUNCH</code> keyword retiring). Metadata flows through <code>${BUILD}/nros-metadata.json</code> rather than a sidecar TOML.</li>
 </ul>
 <h2 id="workspace-shape"><a class="header" href="#workspace-shape">Workspace shape</a></h2>
 <p>A typical multi-Node workspace, with one Entry pkg per supported board:</p>
@@ -339,11 +342,11 @@ planner path (Phase 212.L.7 + N.5 + N.9).</p>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../getting-started/workspace-mixed-language.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../getting-started/workspace-languages.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../getting-started/freertos.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../getting-started/how-integration-works.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -353,11 +356,11 @@ planner path (Phase 212.L.7 + N.5 + N.9).</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../getting-started/workspace-mixed-language.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../getting-started/workspace-languages.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../getting-started/freertos.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../getting-started/how-integration-works.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

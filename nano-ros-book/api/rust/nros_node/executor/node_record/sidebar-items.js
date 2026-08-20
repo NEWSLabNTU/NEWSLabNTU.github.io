@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["NodeBuilder","NodeId","NodeRecord"]};
+window.SIDEBAR_ITEMS = {"fn":["apply_qos_override_codes"],"struct":["NodeBuilder","NodeId","NodeRecord"],"type":["QosOverrideCode"]};

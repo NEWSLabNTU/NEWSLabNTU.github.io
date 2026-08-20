@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e8b74f3.js";
+            window.path_to_searchindex_js = "../searchindex-372ec962.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ed309ed7.js"></script>
+        <script src="../toc-34ab504c.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -192,8 +192,8 @@ cross-toolchain and you do <strong>not</strong> need a ROS 2 install.</p>
 </blockquote>
 <h2 id="setup"><a class="header" href="#setup">Setup</a></h2>
 <p>Build the in-tree <code>nros</code> CLI (Phase 218):</p>
-<pre><code class="language-bash">source ./activate.sh        # OR: direnv allow / source ./activate.fish
-just setup-cli              # builds packages/cli/target/release/nros
+<pre><code class="language-bash">./scripts/bootstrap.sh      # builds packages/cli/target/release/nros
+source ./activate.sh        # OR: direnv allow / source ./activate.fish
 </code></pre>
 <p>Then provision the board (<code>--rmw</code> defaults to <code>zenoh</code>; pick <code>xrce</code>
 or <code>cyclonedds</code> to match the example you intend to run):</p>
@@ -253,41 +253,52 @@ features), not a config file — see the
 <a href="../user-guide/configuration.html">Configuration Guide</a>.</p>
 <p>The <code>10.0.2.0/24</code> subnet is QEMU Slirp’s default; <code>10.0.2.2</code> is the
 Slirp gateway that forwards to host loopback. No TAP, no sudo.</p>
-<p>Ports: the shipped examples dial host port <strong>7447</strong>. The prebuilt
-<em>test fixtures</em> bake per-language ports instead (Rust → 7451, C → 7551,
-C++ → 7651) so suites run in parallel; <code>just freertos talker</code> boots the
-fixture, so pair it with <code>just freertos zenohd</code> (listens on 7451).</p>
+<p>Ports: the shipped examples dial host port <strong>7447</strong>.</p>
+<blockquote>
+<p><strong>Contributors:</strong> the prebuilt test fixtures bake different ports —
+see <a href="../internals/platform-lanes.html#freertos">Per-Platform Contributor Lanes</a>.</p>
+</blockquote>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
-<pre><code class="language-bash"># Rust:
+<pre><code class="language-bash"># Rust — `nros sync` first, once per checkout location. It writes the
+# generated message bindings and the [patch.crates-io] table the leaf's
+# .cargo/config.toml includes; without it cargo fails while PARSING the
+# manifest, with an error that never names sync (see below).
 cd examples/qemu-arm-freertos/rust/talker
+nros sync
 cargo build --release
 
-# C / C++ — use the cross-toolchain CMake invocation:
-just freertos build-fixtures        # builds every in-tree zenoh +
-                                    # DDS example across Rust / C / C++
-# Or single-example (the `nros` CLI on PATH auto-resolves the codegen
-# tool — no `-D_NANO_ROS_CODEGEN_TOOL=` needed):
+# C / C++ — use the cross-toolchain CMake invocation (the `nros` CLI
+# on PATH auto-resolves the codegen tool — no `-D_NANO_ROS_CODEGEN_TOOL=`
+# needed):
 toolchain="$(pwd)/cmake/toolchain/arm-freertos-armcm3.cmake"
 cd examples/qemu-arm-freertos/c/talker
 cmake -B build -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
               -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 </code></pre>
+<blockquote>
+<p><strong>Contributors:</strong> the in-tree fixture build lanes for this platform are in
+<a href="../internals/platform-lanes.html#freertos">Per-Platform Contributor Lanes</a>.</p>
+</blockquote>
 <p>First Rust build pulls + cross-compiles deps (~5 min). C / C++ build
 also compiles FreeRTOS kernel + lwIP — first run ~3 min.</p>
+<p>If you skipped <code>nros sync</code>, the Rust build stops before it starts, with
+<code>failed to load config include '../../../../../nros-patch.toml'</code> and
+<code>No such file or directory</code>. That file is generated, not committed —
+run <code>nros sync</code> in the leaf and build again. The C / C++ builds above do
+not need it; see
+<a href="../user-guide/workflow-by-platform.html">Workflow by Platform and Language</a>
+for why the requirement is per language rather than per platform.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
-<pre><code class="language-bash"># 1. Start zenohd on the host. The recipe resolves the provisioned
-#    binary (build/zenohd/ or ~/.nros/sdk) and listens on the fixture
-#    port 7451 (Slirp forwards guest 10.0.2.2:&lt;p&gt; → host:&lt;p&gt;):
-just freertos zenohd &amp;
+<pre><code class="language-bash"># 1. Start the router (ROS's `rmw_zenohd`) on the host, on port 7447 —
+#    the deploy locator the example bakes in its Cargo.toml
+#    ([package.metadata.nros.deploy.freertos] locator, shown above).
+#    Slirp forwards guest 10.0.2.2:&lt;p&gt; → host:&lt;p&gt;.
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' \
+    ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
-# 2. Boot the talker fixture in QEMU. The just recipe wraps
-#    qemu-system-arm with the LAN9118 + Slirp wiring the example expects:
-just freertos talker
-
-# Or run the copy-out example by hand — it dials host port 7447
-# (its deploy locator above), so start the router there instead:
-just native zenohd &amp;   # listens on 7447
+# 2. Boot the talker in QEMU. The leaf's .cargo/config.toml runner
+#    wraps qemu-system-arm with the LAN9118 + Slirp wiring:
 cd examples/qemu-arm-freertos/rust/talker
 cargo run --release
 
@@ -300,8 +311,10 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <p>QEMU exits via Ctrl-A x.</p>
-<p>For batch testing without manual QEMU launches: <code>just freertos test</code> runs every E2E (pub/sub, service, action) against a temporary
-in-test zenohd.</p>
+<blockquote>
+<p><strong>Contributors:</strong> the in-tree fixture run/test lanes for this platform are in
+<a href="../internals/platform-lanes.html#freertos">Per-Platform Contributor Lanes</a>.</p>
+</blockquote>
 <p><strong>Readiness signal.</strong> Within ~20 seconds of QEMU boot, the talker
 should print <code>Publishing: 'Hello World: 1'</code> on its semihosting
 stdout — the count starts at 1, matching the official ROS 2 demo
@@ -309,8 +322,9 @@ talker. QEMU cold-boot through FreeRTOS init + lwIP DHCP + zenoh
 session open typically takes 10–15 s. If no <code>Publishing:</code> line in
 30 seconds:</p>
 <ol>
-<li>Confirm <code>zenohd</code> is running on the host (Slirp forwards
-<code>10.0.2.2:7451</code> → host:7451). Without it the talker retries the
+<li>Confirm the router is running on the host on the port the image
+dials (7447 for the copy-out example — Slirp forwards
+<code>10.0.2.2:7447</code> → host:7447). Without it the talker retries the
 zenoh handshake until QEMU is killed.</li>
 <li>Check the talker’s early log for <code>lwIP DHCP timeout</code> or
 <code>Failed to open session</code>.</li>
@@ -346,7 +360,7 @@ Debugging</a>.</li>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../user-guide/component-and-entry-pkg.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../getting-started/how-integration-works.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -360,7 +374,7 @@ Debugging</a>.</li>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../user-guide/component-and-entry-pkg.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../getting-started/how-integration-works.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
