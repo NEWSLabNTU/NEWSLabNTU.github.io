@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-0dbb3a8d.js";
+            window.path_to_searchindex_js = "searchindex-ec6f2c61.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-c16f0826.js"></script>
+        <script src="toc-dea6e86f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -439,8 +439,10 @@ scaffold command, <code>cmake</code>).</li>
 <strong><a href="#how-integration-works">How Integration Works</a></strong>:
 your RTOS keeps its own build tool (west, make, idf.py, your IDE) and
 nano-ros plugs into it. One chapter per host build system follows it.</li>
-<li><strong>Company tree, own BSP, forked RTOS?</strong> The out-of-tree material is
-the Porting Guide: <a href="#build-as-a-cmake-subdirectory">Build as a CMake
+<li><strong>Company tree, own BSP, forked RTOS?</strong> Start at
+<a href="#integrating-nano-ros-into-a-vendored-tree">Integrating into a Vendored Tree</a>
+(pinning, air-gapped CI, the patch set you carry), then the
+Porting Guide: <a href="#build-as-a-cmake-subdirectory">Build as a CMake
 subdirectory</a>,
 <a href="#custom-board-package">Custom Board Package</a>,
 <a href="#vendor-overlay-board-crate">Vendor Overlay</a>, and the
@@ -7161,7 +7163,10 @@ ament-shaped alternative is <code>find_package(nano_ros REQUIRED)</code> —
 <code>nano_rosConfig.cmake</code> at the checkout root, located via
 <code>nano_ros_ROOT</code> (RFC-0048) — which every in-tree example now uses.
 Either way there is NO install step: phase-140 removed the install
-prefix and the old <code>find_package(NanoRos)</code> (capital) config pipeline.</p>
+prefix and the old <code>find_package(NanoRos)</code> (capital) config pipeline.
+Vendoring the repo into a company tree (pinning, offline CI, upgrade
+workflow) has its own page:
+<a href="#integrating-nano-ros-into-a-vendored-tree">Integrating into a Vendored Tree</a>.</p>
 <h2 id="layout-1"><a class="header" href="#layout-1">Layout</a></h2>
 <pre><code>my_app/
 ├── CMakeLists.txt
@@ -7233,6 +7238,194 @@ walk-up), includes the workspace helpers, generates the message
 bindings (<code>nros_find_interfaces</code>), and declares the app via
 <code>nano_ros_entry(...)</code> — ~55 lines including codegen + per-app fixup.
 All in-tree C/C++ examples follow the same shape.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="integrating-nano-ros-into-a-vendored-tree"><a class="header" href="#integrating-nano-ros-into-a-vendored-tree">Integrating nano-ros into a Vendored Tree</a></h1>
+<p>This page is for the engineer whose company has its own source tree —
+a BSP, possibly a forked RTOS, an existing build system — and needs
+nano-ros to live <em>inside</em> it: pinned, reproducible, buildable offline,
+upgradable on their schedule. It collects the contracts the other
+chapters mention in passing into one place.</p>
+<p>nano-ros is <strong>source-only</strong>: nothing is on crates.io, there is no
+install prefix, and no binary distribution. Vendoring the repository
+is not a workaround — it is the supported consumption model.</p>
+<h2 id="pinning-the-checkout"><a class="header" href="#pinning-the-checkout">Pinning the checkout</a></h2>
+<p>Vendor the repo as a git submodule (or subtree) and pin a release tag:</p>
+<pre><code class="language-bash">git submodule add https://github.com/NEWSLabNTU/nano-ros.git third_party/nano-ros
+git -C third_party/nano-ros checkout nros-v0.5.0
+git add third_party/nano-ros
+</code></pre>
+<p>Rules that keep the pin trustworthy:</p>
+<ul>
+<li><strong>Pin tags (<code>nros-v&lt;X.Y.Z&gt;</code>), not <code>main</code>.</strong> A moving branch unships
+the pairing you tested.</li>
+<li><strong>Move the pin forward only.</strong> A rewind silently drops whatever the
+skipped commits fixed, and two hex strings in a diff cannot be
+ordered by eye.</li>
+<li><strong>nano-ros’s own submodules are decisions, not lags.</strong> The Cyclone
+DDS fork tracks the Cyclone that ROS ships; zenoh-pico is pinned at
+a wire-stable version. Never “update to latest” inside the vendored
+checkout — take what the tag pinned.</li>
+</ul>
+<p>Initialize nano-ros’s submodules <strong>non-recursively</strong> — the launch
+toolchain’s third-level runtime submodules are never built by
+nano-ros:</p>
+<pre><code class="language-bash">git -C third_party/nano-ros submodule update --init packages/cli/third-party/play_launch
+</code></pre>
+<p>For build-related submodules you normally do nothing: the configure
+step populates the ones your <code>(platform, RMW)</code> pair needs (see
+Bootstrap below), or you pre-seed them explicitly for offline builds.</p>
+<h2 id="what-a-fresh-vendored-checkout-needs-in-order"><a class="header" href="#what-a-fresh-vendored-checkout-needs-in-order">What a fresh vendored checkout needs, in order</a></h2>
+<p>Four things, and the order matters:</p>
+<ol>
+<li><strong>The <code>nros</code> CLI.</strong> <code>./scripts/bootstrap.sh</code> inside the checkout
+builds <code>packages/cli/target/release/nros</code>. Nothing else works
+without it.</li>
+<li><strong>An activated environment</strong> for interactive use:
+<code>source third_party/nano-ros/activate.sh</code> wires <code>nros</code> and the
+SDK-store tools onto <code>PATH</code> and exports <code>nano_ros_ROOT</code>. CI can
+skip this and pass paths explicitly (<code>-Dnano_ros_ROOT=…</code>, absolute
+CLI path).</li>
+<li><strong>Provisioned toolchains.</strong> <code>nros setup &lt;board&gt; --rmw &lt;rmw&gt;</code>
+fetches the cross-compiler, emulator, and SDK sources for exactly
+that pair into the shared store at <code>${NROS_HOME:-~/.nros}/sdk</code>.
+<code>--dry-run</code> prints the plan first. (The zenoh <em>router</em> is
+deliberately not provisioned — it comes from a ROS 2 install,
+<code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>.)</li>
+<li><strong>Message codegen.</strong> <code>NROS_REPO_DIR=&lt;checkout&gt; nros sync</code> from your
+workspace root — see the next section for why this is not optional.</li>
+</ol>
+<h2 id="the-rust-side-nros-sync-is-mandatory-and-your-config-is-inline"><a class="header" href="#the-rust-side-nros-sync-is-mandatory-and-your-config-is-inline">The Rust side: <code>nros sync</code> is mandatory, and your config is inline</a></h2>
+<p>Two things in every Rust leaf are <strong>gitignored and generated</strong>: the
+<code>generated/</code> message crates and the cargo patch machinery that
+resolves registry-style names (<code>nros = { version = "*" }</code>) to the
+vendored sources. A fresh clone cannot build a Rust package until
+<code>nros sync</code> has run — the failure otherwise is cargo dying during
+manifest parse with an error that never names sync.</p>
+<p>For an <strong>out-of-tree consumer</strong> (your workspace, outside the nano-ros
+checkout), <code>nros sync</code> writes the <code>[patch.crates-io]</code> table <strong>inline
+into your leaf’s <code>.cargo/config.toml</code>, with absolute paths, and no
+<code>include</code> line</strong>. This is deliberate:</p>
+<ul>
+<li>The in-repo examples use a <em>relative</em> <code>include = ["…/nros-patch.toml"]</code> pointing at a central gitignored file. That
+shape has three fragile preconditions (cargo ≥ 1.93, a correct
+relative path, the central file existing) and its failure modes are
+confusing. Outside the checkout you get the whole table inline, so
+the only failure mode is loud.</li>
+<li><strong>Never copy an in-repo example’s <code>.cargo/config.toml</code> into your
+tree.</strong> You would be copying the relative <code>include</code> line, which
+cannot resolve from your directory. Copy the <em>package</em> and run
+<code>nros sync</code> — it writes the correct config for that location.</li>
+<li>A <strong>moved checkout invalidates the absolute paths</strong> — re-run
+<code>nros sync</code> after relocating either the workspace or the vendored
+nano-ros.</li>
+</ul>
+<p>Message dependencies stay path deps pinned <code>0.0.0</code>
+(<code>std_msgs = { path = "generated/std_msgs" }</code> after sync); never
+registry-name a message crate — a bare <code>std_msgs = "*"</code> can resolve
+against the public crates.io.</p>
+<h2 id="the-cmake-side"><a class="header" href="#the-cmake-side">The CMake side</a></h2>
+<p>Two entry points, both source-backed:</p>
+<ul>
+<li><strong><code>find_package(nano_ros REQUIRED)</code></strong> — the ament-shaped entry
+(<code>nano_rosConfig.cmake</code> at the checkout root). Located via
+<code>nano_ros_ROOT</code>, which <code>activate.sh</code> exports; CI passes
+<code>-Dnano_ros_ROOT=&lt;checkout&gt;</code> explicitly.</li>
+<li><strong><code>add_subdirectory(third_party/nano-ros)</code></strong> — the lower-level
+shape. See <a href="#build-as-a-cmake-subdirectory">Build as a CMake subdirectory</a>
+for the cache-variable table.</li>
+</ul>
+<p>Either way, at configure time nano-ros’s <code>bootstrap.cmake</code> runs
+<code>tools/setup.sh</code> to populate the source submodules your
+<code>(NANO_ROS_PLATFORM, NANO_ROS_RMW)</code> pair needs, and may FetchContent
+Corrosion from the network if none is installed. That is correct on a
+developer machine and wrong in hermetic CI — see the next section.</p>
+<h2 id="air-gapped--mirrored-ci"><a class="header" href="#air-gapped--mirrored-ci">Air-gapped / mirrored CI</a></h2>
+<p>The offline contract, all of it:</p>
+<ol>
+<li><strong><code>-DNANO_ROS_SKIP_BOOTSTRAP=ON</code>.</strong> Disables the configure-time
+submodule fetch and any network FetchContent. You now own
+pre-seeding.</li>
+<li><strong>Pre-seed the submodules</strong> your platform/RMW pair needs in your
+mirror (e.g. <code>zpico-sys/zenoh-pico</code>, the FreeRTOS kernel + lwIP,
+the Cyclone fork — <code>tools/setup.sh</code> derives the per-target list
+from <code>nros-sdk-index.toml</code>, which is the single manifest of what
+comes from where).</li>
+<li><strong>Pre-install Corrosion</strong>: <code>nros setup --tool corrosion</code> stages it
+into the SDK store, where the configure finds it without the
+network. Verify the configure line prints
+<code>nano-ros: Corrosion &lt;ver&gt; via &lt;origin&gt;</code> — never infer the version
+from having run an installer; a stale store entry can shadow a
+fresh one.</li>
+<li><strong>Cache the SDK store.</strong> Everything <code>nros setup</code> fetches lands
+under <code>${NROS_HOME:-~/.nros}/sdk</code>; point <code>NROS_HOME</code> at a shared
+or cached location and the store is reusable across jobs and
+machines of the same host triple.</li>
+<li><strong>Mirror the asset sources.</strong> <code>nros-sdk-index.toml</code> names every
+asset’s upstream (<code>[tool.*]</code>, <code>[source.*]</code> sections). For a full
+mirror, rehost those URLs and patch the index in your vendored
+checkout — that patch is part of the carried diff below, and the
+index is versioned with the tree so the patch rebases cleanly.</li>
+</ol>
+<h2 id="the-patch-set-you-carry"><a class="header" href="#the-patch-set-you-carry">The patch set you carry</a></h2>
+<p>Be clear-eyed: some extensions live <strong>inside</strong> the vendored checkout.
+There is no out-of-tree escape hatch for them today, so a vendored
+tree carries a small local diff and rebases it across tag bumps:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>You add…</th><th>Files inside the checkout</th></tr>
+</thead>
+<tbody>
+<tr><td>A <strong>platform</strong> (your RTOS)</td><td><code>packages/platform/nros-platform/Cargo.toml</code> (feature + optional dep), <code>nros-platform/src/resolve.rs</code> (type alias), <code>cmake/platform/nano-ros-&lt;name&gt;.cmake</code></td></tr>
+<tr><td>A <strong>board</strong> the tooling can see</td><td>your board directory copied (or symlinked) into <code>packages/boards/</code> — the board catalog and <code>nano_ros_use_board()</code> scan only there</td></tr>
+<tr><td>A <strong>mirrored SDK index</strong></td><td><code>nros-sdk-index.toml</code> URL edits</td></tr>
+</tbody>
+</table>
+</div>
+<p>An application, a message package, a board <em>overlay crate</em>, and a
+custom transport all live entirely in <strong>your</strong> tree — no diff.</p>
+<p>Workflow for the diff: keep a branch in your nano-ros fork
+(<code>company/nros-v0.5.0-patches</code>), and on upgrade rebase it onto the new
+tag rather than merging. The registration edits are a few lines each;
+conflicts are rare and loud.</p>
+<h2 id="upgrading-the-pin"><a class="header" href="#upgrading-the-pin">Upgrading the pin</a></h2>
+<pre><code class="language-bash">git -C third_party/nano-ros fetch origin --tags
+git -C third_party/nano-ros rebase --onto nros-v0.6.0 nros-v0.5.0 company/patches
+# build + test, then:
+git add third_party/nano-ros
+</code></pre>
+<p>After every pin move, in order: rebuild the <code>nros</code> CLI
+(<code>./scripts/bootstrap.sh</code>), re-run <code>nros sync</code> in each consuming
+workspace (the sync output is keyed to the CLI), then rebuild. Stale
+sync output after an upgrade produces build errors that look like
+missing packages, not like staleness.</p>
+<h2 id="checklist"><a class="header" href="#checklist">Checklist</a></h2>
+<ul>
+<li><input disabled="" type="checkbox"> Submodule pinned to an <code>nros-v</code> tag, forward-only</li>
+<li><input disabled="" type="checkbox"> <code>play_launch</code> submodule initialized non-recursively</li>
+<li><input disabled="" type="checkbox"> CI passes <code>-Dnano_ros_ROOT=</code> / <code>NROS_REPO_DIR=</code> explicitly (no
+reliance on an activated shell)</li>
+<li><input disabled="" type="checkbox"> <code>nros sync</code> runs in CI before any Rust build; no <code>.cargo/config.toml</code>
+copied from in-repo examples</li>
+<li><input disabled="" type="checkbox"> Air-gapped: <code>NANO_ROS_SKIP_BOOTSTRAP=ON</code>, submodules pre-seeded,
+Corrosion staged, <code>NROS_HOME</code> cached</li>
+<li><input disabled="" type="checkbox"> Local patch set (platform/board/index edits) lives on a fork
+branch, rebased per tag</li>
+<li><input disabled="" type="checkbox"> Router comes from the ROS 2 install on the host that runs it —
+nothing in the vendored tree provides one</li>
+</ul>
+<h2 id="related"><a class="header" href="#related">Related</a></h2>
+<ul>
+<li><a href="#build-as-a-cmake-subdirectory">Build as a CMake subdirectory</a> — cache
+variables, link targets</li>
+<li><a href="#how-integration-works">How Integration Works</a> — per-RTOS build
+hosting</li>
+<li><a href="#vendor-overlay-board-crate">Vendor Overlay Board Crate</a> — board
+glue that lives in <em>your</em> tree</li>
+<li><a href="#worked-example--stm32f4-out-of-tree">Worked Example — STM32F4 Out of Tree</a></li>
+<li><a href="#installation">Install</a> — the interactive first-time flow this
+page assumes you are automating</li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="message-binding-generation"><a class="header" href="#message-binding-generation">Message Binding Generation</a></h1>
 <p>nros uses generated Rust bindings for ROS 2 message types. The <code>nros generate-rust</code> command generates <code>no_std</code> compatible bindings from <code>package.xml</code> dependencies.</p>
@@ -13164,7 +13357,7 @@ overlay as a git repository and have consumers take it as a <code>git</code> or
 releases against the <code>nros-v&lt;X.Y.Z&gt;</code> tag of nano-ros you developed
 against, and state that pairing in your README — the board-trait
 surface is versioned with the tree, not semver-independent.</p>
-<h2 id="related"><a class="header" href="#related">Related</a></h2>
+<h2 id="related-1"><a class="header" href="#related-1">Related</a></h2>
 <ul>
 <li><code>docs/design/0012-board-bsp-integration-architecture.md</code> — the layered
 model + the consumption matrix.</li>
@@ -19142,7 +19335,7 @@ per-platform <code>extra_sources</code> (with <code>if_env</code> / <code>with_d
 </ol>
 <p>The consumer is the only function that actually invokes <code>cc-rs</code>
 for zenoh-pico. Every per-platform delta lives in the TOML.</p>
-<h2 id="related-1"><a class="header" href="#related-1">Related</a></h2>
+<h2 id="related-2"><a class="header" href="#related-2">Related</a></h2>
 <ul>
 <li><code>docs/roadmap/phase-136-zpico-sys-unified-build.md</code> — the phase
 doc that drove this refactor.</li>
