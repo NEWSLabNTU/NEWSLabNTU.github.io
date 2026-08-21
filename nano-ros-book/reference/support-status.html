@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Patched qemu-system-arm - nano-ros Book</title>
+        <title>Support Status - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,154 +177,126 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="patched-qemu-system-arm-binary"><a class="header" href="#patched-qemu-system-arm-binary">Patched <code>qemu-system-arm</code> Binary</a></h1>
-<p>nano-ros ships a project-local QEMU build that the test harness uses
-in preference to whatever <code>qemu-system-arm</code> is on <code>$PATH</code>. This
-chapter explains why it exists, how it gets built, how a test picks
-it up, and how to add a new patch.</p>
-<h2 id="why"><a class="header" href="#why">Why</a></h2>
-<p>Two production-blocking issues motivated the patched build:</p>
-<ol>
-<li>
-<p><strong>LAN9118 RX FIFO drain bug</strong> (mainline QEMU through at least
-11.0). Under sustained burst RX, the LAN9118 emulator’s
-<code>lan9118_can_receive()</code> can stop returning true even after the
-guest drains the FIFO, so frames silently disappear.
-bisected this and ships the fix as
-<code>third-party/qemu/patches/0001-hw-net-lan9118-add-can_receive-flush-on-FIFO-drain.patch</code>.
-Bare-metal MPS2-AN385 RTPS / Zenoh tests on the system QEMU
-sporadically fail without it.</p>
-</li>
-<li>
-<p><strong><code>-netdev dgram,local.type=unix,…</code> requires QEMU 7.2+</strong>. Ubuntu
-jammy ships QEMU 6.2, and the dgram-tunnel pattern is how
-NuttX / ThreadX DDS multi-instance tests cross-deliver frames
-between two QEMU processes after retired the
-broken <code>-netdev socket,mcast=</code> cross-process path. With a too-old
-system QEMU, those tests fall back to <code>[SKIPPED]</code>.</p>
-</li>
-</ol>
-<p>Both problems disappear once tests use the patched build at
-<code>build/qemu/bin/qemu-system-arm</code>.</p>
-<h2 id="layout"><a class="header" href="#layout">Layout</a></h2>
-<pre><code>third-party/qemu/qemu/              # submodule, pinned to stable-11.0
-third-party/qemu/patches/           # patch series, applied on top
-  0001-hw-net-lan9118-…patch
-build/qemu/bin/qemu-system-arm      # final installed binary
-build/qemu/share/qemu/…             # firmware, etc.
-</code></pre>
-<p>The submodule URL and pin live in <code>.gitmodules</code>:</p>
-<pre><code>[submodule "third-party/qemu/qemu"]
-    path = third-party/qemu/qemu
-    url = https://gitlab.com/qemu-project/qemu.git
-    branch = stable-11.0
-</code></pre>
-<p><code>stable-11.0</code> is QEMU 11.0.x — already past the 7.2 cutoff for
-<code>-netdev dgram unix</code> and recent enough that the patch series is
-small.</p>
-<h2 id="build"><a class="header" href="#build">Build</a></h2>
-<p><code>just qemu setup-qemu</code> (pulled in by <code>just setup qemu</code> and
-<code>just setup all</code>) does the full
-build:</p>
-<pre><code class="language-bash">just qemu setup-qemu
-</code></pre>
-<p>The recipe:</p>
-<ol>
-<li>Inits the submodule shallowly if it is not already present.</li>
-<li>Short-circuits when <code>build/qemu/bin/qemu-system-arm</code> is newer
-than every file under <code>third-party/qemu/patches/</code> (touch a patch
-to force a rebuild).</li>
-<li>Resets the submodule to its pinned tip, applies every <code>.patch</code>
-under <code>third-party/qemu/patches/</code> in alphabetical order via
-<code>git apply</code>.</li>
-<li>Configures with <code>--target-list=arm-softmmu</code> (no other arches, no
-docs, no tools) and <code>--enable-slirp</code>.</li>
-<li><code>make -j$(nproc) &amp;&amp; make install</code> into <code>build/qemu/</code>.</li>
-</ol>
-<p>End-to-end cost is roughly ten minutes the first time and ~150 MB
-of disk. Subsequent runs are no-ops.</p>
-<p><code>just qemu doctor</code> reports the build status and clearly distinguishes
-the patched build from the system fallback.</p>
-<h2 id="how-tests-pick-it-up"><a class="header" href="#how-tests-pick-it-up">How tests pick it up</a></h2>
-<p>The single resolver lives in
-<code>packages/testing/nros-tests/src/qemu.rs</code>:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub fn qemu_system_arm_path() -&gt; std::ffi::OsString { … }
-pub fn qemu_system_arm_cmd()  -&gt; std::process::Command { … }
-<span class="boring">}</span></code></pre>
-<p>Selection order:</p>
-<ol>
-<li><code>QEMU_SYSTEM_ARM</code> env var — developer override / CI pin.</li>
-<li>Project-local <code>&lt;workspace&gt;/build/qemu/bin/qemu-system-arm</code>
-when it exists (auto-detected via <code>CARGO_MANIFEST_DIR</code> walk
-to the workspace <code>Cargo.toml</code>).</li>
-<li>System <code>qemu-system-arm</code> on <code>$PATH</code> — kept as fallback so a
-minimal install still produces a clean <code>[SKIPPED]</code> rather than
-an exec error.</li>
-</ol>
-<p>Every <code>Command::new("qemu-system-arm")</code> in the test crates goes
-through this helper. New tests must use it.</p>
-<p><code>just/qemu-baremetal.just</code>, <code>just/nuttx.just</code> and <code>just/freertos.just</code>
-do the same in shell, gating their <code>qemu-system-arm</code> invocations
-through:</p>
-<pre><code class="language-just">QEMU_BIN := absolute_path("build/qemu") / "bin/qemu-system-arm"
-
-# inside a recipe:
-{{ if path_exists(QEMU_BIN) == "true" { QEMU_BIN } else { "qemu-system-arm" } }} -M virt …
-</code></pre>
-<h2 id="smoke-test"><a class="header" href="#smoke-test">Smoke test</a></h2>
-<p><code>packages/testing/nros-tests/tests/qemu_patched_binary.rs</code> asserts:</p>
+                        <!-- GENERATED by scripts/gen-support-status.py — do not edit by hand.
+     Regenerate: python3 scripts/gen-support-status.py
+     Gated by:   just check-support-status -->
+<h1 id="support-status"><a class="header" href="#support-status">Support Status</a></h1>
+<p>What you get, at which version, tested how hard — the analogue of
+Rust’s platform-support page. Version strings on this page are
+parsed from <code>nros-sdk-index.toml</code> and <code>rust-toolchain.toml</code> (the
+pinning SSoTs), so they cannot drift from what <code>nros setup</code>
+actually installs.</p>
+<h2 id="ci-tiers--what-supported-means"><a class="header" href="#ci-tiers--what-supported-means">CI tiers — what “supported” means</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Tier</th><th>Lane</th><th>Runs</th><th>Guarantee</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>1</strong></td><td><code>ci</code> (every change)</td><td>Host-native builds + native fixtures, all gates</td><td>The logic and the seams are sound. Says nothing about embedded targets.</td></tr>
+<tr><td><strong>2</strong></td><td><code>ci-matrix</code> (when core/codegen/cmake move)</td><td>1-wise cover: every platform, language, RMW, and kind appears at least once (~28 % of the coordinate space)</td><td>Each axis value builds and runs somewhere — but pairings are NOT covered.</td></tr>
+<tr><td><strong>2-nightly</strong></td><td><code>ci-matrix-nightly</code></td><td>Pairwise cover (~70 %)</td><td>Platform×language and RMW×language interactions surface here, within a day.</td></tr>
+<tr><td><strong>3</strong></td><td><code>ci-full</code> (pre-release)</td><td>The whole matrix</td><td>Everything the tree claims, verified together.</td></tr>
+</tbody>
+</table>
+</div>
+<p>Per-board tier membership is generated on its own page:
+<a href="board-support-tiers.html">Board Support Tiers</a>. The hand-maintained
+procurement view (including boards with no in-tree crate) is
+<a href="supported-boards.html">Supported Boards</a>.</p>
+<h2 id="rtos--platform-source-pins"><a class="header" href="#rtos--platform-source-pins">RTOS / platform source pins</a></h2>
+<p><code>nros setup &lt;board&gt;</code> fetches exactly these (shared store
+<code>${NROS_HOME:-~/.nros}/sdk</code>):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Component</th><th>Pinned version</th><th>Used by</th></tr>
+</thead>
+<tbody>
+<tr><td>FreeRTOS kernel</td><td><code>10.6.2</code></td><td>FreeRTOS boards (QEMU MPS2-AN385, overlays)</td></tr>
+<tr><td>lwIP</td><td><code>2.2.0</code></td><td>FreeRTOS networking</td></tr>
+<tr><td>ThreadX</td><td><code>6.4.1</code></td><td>ThreadX (Linux sim + QEMU RISC-V64)</td></tr>
+<tr><td>NetX Duo</td><td><code>6.4.x</code></td><td>ThreadX networking</td></tr>
+<tr><td>NuttX kernel</td><td><code>12.13.0</code></td><td>NuttX (QEMU armv7a / rv32)</td></tr>
+<tr><td>Zephyr SDK</td><td><code>0.16.8</code> (+ <code>1.0.1</code> for the 4.4 rolling line)</td><td>Zephyr module builds</td></tr>
+<tr><td>mbedTLS</td><td><code>3.x</code></td><td>zenoh TLS transport</td></tr>
+</tbody>
+</table>
+</div>
+<p>These pins are <strong>decisions, not lags</strong> — they move only with a
+reason, tested together (see
+<a href="../getting-started/vendored-tree.html">Integrating into a Vendored Tree</a>).</p>
+<h2 id="rmw-backends--versions-and-interop-pairing"><a class="header" href="#rmw-backends--versions-and-interop-pairing">RMW backends — versions and interop pairing</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Backend</th><th>Client side (pinned)</th><th>Host side</th><th>Pairing rule</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Zenoh</strong></td><td>zenoh-pico <code>1.7.2</code> (vendored submodule)</td><td>Router = the one <strong>ROS ships</strong>: <code>ros2 run rmw_zenoh_cpp rmw_zenohd</code> — nano-ros deliberately vendors no router (RFC-0075)</td><td>zenoh-pico’s wire protocol is stable across zenoh 1.x, so the pinned client interops with a newer ROS-shipped router (issue 0291)</td></tr>
+<tr><td><strong>XRCE-DDS</strong></td><td>Micro-XRCE-DDS client <code>2.4.3-nros1</code> + Micro-CDR <code>2.0.x</code></td><td>Agent <code>2.4.3-nros1</code> (installed by <code>nros setup … --rmw xrce</code>)</td><td>Client and agent are pinned to the same upstream release</td></tr>
+<tr><td><strong>Cyclone DDS</strong></td><td>fork <code>0.10.5-nros1</code> — upstream 0.10.5 + carried patches (<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/reference/cyclonedds-fork-delta.md">fork delta</a>)</td><td>Talks RTPS directly to <code>rmw_cyclonedds_cpp</code></td><td>Pinned to the Cyclone <strong>ROS ships</strong> (<code>ros-humble-cyclonedds</code> 0.10.5) — upstream 11.x is deliberately NOT a rebase target until a distro migration (issue 0507)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Per-feature coverage across the three backends:
+<a href="rmw-feature-matrix.html">Per-RMW Feature Matrix</a>.</p>
+<h2 id="ros-2-editions"><a class="header" href="#ros-2-editions">ROS 2 editions</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Edition</th><th>Feature / flag</th><th>Status</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>Humble</td><td><code>ros-humble</code> (default)</td><td>Supported</td><td><code>TypeHashNotSupported</code> key expressions, XCDR1. No <code>rmw_zenoh_cpp</code> apt package — zenoh interop on Humble needs a source overlay, or use Cyclone DDS.</td></tr>
+<tr><td>Iron</td><td><code>ros-iron</code></td><td>Supported</td><td>RIHS01 type hashes. Same zenoh-apt caveat as Humble.</td></tr>
+<tr><td>Jazzy</td><td><code>ros-jazzy</code></td><td>Supported</td><td>RIHS01; ships <code>ros-jazzy-rmw-zenoh-cpp</code> — the zenoh-interop reference edition. XCDR2/appendable is tracked separately (phase-303).</td></tr>
+</tbody>
+</table>
+</div>
+<p>Pick the edition of the ROS system you interop with — mismatched
+editions discover nothing (different key expressions).</p>
+<h2 id="toolchains"><a class="header" href="#toolchains">Toolchains</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Tool</th><th>Pinned version</th></tr>
+</thead>
+<tbody>
+<tr><td>Rust</td><td><code>stable</code> channel (<code>rust-toolchain.toml</code>); pinned cross targets: <code>thumbv7em-none-eabihf</code>, <code>armv7r-none-eabihf</code>, <code>aarch64-unknown-none</code>. <code>rustfmt</code> runs on nightly (nightly-only options).</td></tr>
+<tr><td>Arm GCC (<code>arm-none-eabi</code>)</td><td><code>13.2-nros1</code></td></tr>
+<tr><td>RISC-V GCC (<code>riscv-none-elf</code>)</td><td><code>14.2-nros1</code></td></tr>
+<tr><td>QEMU (patched, Arm)</td><td><code>11.0.0-nros2</code></td></tr>
+<tr><td>QEMU (Espressif fork, ESP32-C3)</td><td><code>esp-develop-nros1</code></td></tr>
+<tr><td>espflash</td><td><code>4.5.0-nros1</code></td></tr>
+<tr><td>Corrosion (CMake↔Cargo)</td><td><code>0.6.1-nros1</code> (≥ 0.6.0 required — older versions share one build dir across workspace roots and break the <code>mixed</code> link)</td></tr>
+<tr><td>OpenOCD</td><td><code>0.12.0-nros1</code></td></tr>
+<tr><td>sccache</td><td><code>0.8.2-nros1</code></td></tr>
+</tbody>
+</table>
+</div>
+<p><code>-nros&lt;N&gt;</code> suffixes mark builds re-packaged (or patched) for the SDK
+store; the base version is the upstream release.</p>
+<h2 id="related"><a class="header" href="#related">Related</a></h2>
 <ul>
-<li><code>qemu_system_arm_path()</code> resolves to either <code>QEMU_SYSTEM_ARM</code> or
-<code>&lt;workspace&gt;/build/qemu/bin/qemu-system-arm</code>.</li>
-<li>The patched binary reports version ≥ 7.2.</li>
-<li><code>-netdev help</code> advertises <code>dgram</code> (the multi-instance backend).</li>
+<li><a href="../getting-started/installation.html">Install</a> — how these get onto
+a machine (<code>nros setup</code>, prebuilt-vs-source rules)</li>
+<li><a href="rmw-feature-matrix.html">Per-RMW Feature Matrix</a></li>
+<li><a href="board-support-tiers.html">Board Support Tiers</a> (generated) ·
+<a href="supported-boards.html">Supported Boards</a> (procurement view)</li>
+<li><a href="../getting-started/vendored-tree.html">Integrating into a Vendored Tree</a>
+— pinning and upgrading these from a company tree</li>
 </ul>
-<p>Tests use <code>nros_tests::skip!</code> when the patched build is absent —
-a fresh clone without <code>just qemu setup-qemu</code> surfaces a clear
-<code>[SKIPPED]</code> with the suggested remedy instead of silently passing.</p>
-<h2 id="adding-a-new-patch"><a class="header" href="#adding-a-new-patch">Adding a new patch</a></h2>
-<ol>
-<li>Land the upstream fix or write a downstream-only patch against
-the pinned submodule tip.</li>
-<li>Save it as a numbered file under <code>third-party/qemu/patches/</code>
-(e.g. <code>0002-hw-net-…patch</code>). Keep one logical change per patch.</li>
-<li>Bump any inline comment that names specific patches.</li>
-<li>Touch the patch file (or just commit it) — <code>just qemu setup-qemu</code>
-detects the patch is newer than the installed binary and
-rebuilds.</li>
-<li>Bump the relevant CI cache key (see) so other
-machines also rebuild.</li>
-</ol>
-<h2 id="submodule-pin-bump"><a class="header" href="#submodule-pin-bump">Submodule pin bump</a></h2>
-<p>When upstream rolls a new stable branch and an existing patch
-either lands upstream or no longer applies cleanly:</p>
-<ol>
-<li>Edit <code>.gitmodules</code> <code>branch = stable-…</code> to the new branch name.</li>
-<li><code>cd third-party/qemu/qemu &amp;&amp; git fetch &amp;&amp; git checkout origin/stable-…</code></li>
-<li>Re-run <code>just qemu setup-qemu</code>. If a patch fails to apply,
-either drop it (landed upstream) or rebase it onto the new tip.</li>
-<li>Commit the submodule SHA bump together with any patch-series
-updates.</li>
-</ol>
-<h2 id="scope"><a class="header" href="#scope">Scope</a></h2>
-<p>Only <code>qemu-system-arm</code> is unified. <code>qemu-system-riscv32</code> is
-Espressif’s fork (different upstream, different patches);
-<code>qemu-system-riscv64</code> and <code>qemu-system-aarch64</code> ship no patches
-today. Other arches stay on the system binary until they
-accumulate their own patches; the helper pattern is easy to copy
-when that happens.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../internals/freertos-lan9118-debugging.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../reference/platform-differences.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../internals/opaque-storage-sizing.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../reference/rmw-feature-matrix.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -334,11 +306,11 @@ when that happens.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../internals/freertos-lan9118-debugging.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../reference/platform-differences.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../internals/opaque-storage-sizing.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../reference/rmw-feature-matrix.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

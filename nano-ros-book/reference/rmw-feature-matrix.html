@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Patched qemu-system-arm - nano-ros Book</title>
+        <title>Per-RMW Feature Matrix - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -177,154 +177,102 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="patched-qemu-system-arm-binary"><a class="header" href="#patched-qemu-system-arm-binary">Patched <code>qemu-system-arm</code> Binary</a></h1>
-<p>nano-ros ships a project-local QEMU build that the test harness uses
-in preference to whatever <code>qemu-system-arm</code> is on <code>$PATH</code>. This
-chapter explains why it exists, how it gets built, how a test picks
-it up, and how to add a new patch.</p>
-<h2 id="why"><a class="header" href="#why">Why</a></h2>
-<p>Two production-blocking issues motivated the patched build:</p>
-<ol>
-<li>
-<p><strong>LAN9118 RX FIFO drain bug</strong> (mainline QEMU through at least
-11.0). Under sustained burst RX, the LAN9118 emulator’s
-<code>lan9118_can_receive()</code> can stop returning true even after the
-guest drains the FIFO, so frames silently disappear.
-bisected this and ships the fix as
-<code>third-party/qemu/patches/0001-hw-net-lan9118-add-can_receive-flush-on-FIFO-drain.patch</code>.
-Bare-metal MPS2-AN385 RTPS / Zenoh tests on the system QEMU
-sporadically fail without it.</p>
-</li>
-<li>
-<p><strong><code>-netdev dgram,local.type=unix,…</code> requires QEMU 7.2+</strong>. Ubuntu
-jammy ships QEMU 6.2, and the dgram-tunnel pattern is how
-NuttX / ThreadX DDS multi-instance tests cross-deliver frames
-between two QEMU processes after retired the
-broken <code>-netdev socket,mcast=</code> cross-process path. With a too-old
-system QEMU, those tests fall back to <code>[SKIPPED]</code>.</p>
-</li>
-</ol>
-<p>Both problems disappear once tests use the patched build at
-<code>build/qemu/bin/qemu-system-arm</code>.</p>
-<h2 id="layout"><a class="header" href="#layout">Layout</a></h2>
-<pre><code>third-party/qemu/qemu/              # submodule, pinned to stable-11.0
-third-party/qemu/patches/           # patch series, applied on top
-  0001-hw-net-lan9118-…patch
-build/qemu/bin/qemu-system-arm      # final installed binary
-build/qemu/share/qemu/…             # firmware, etc.
-</code></pre>
-<p>The submodule URL and pin live in <code>.gitmodules</code>:</p>
-<pre><code>[submodule "third-party/qemu/qemu"]
-    path = third-party/qemu/qemu
-    url = https://gitlab.com/qemu-project/qemu.git
-    branch = stable-11.0
-</code></pre>
-<p><code>stable-11.0</code> is QEMU 11.0.x — already past the 7.2 cutoff for
-<code>-netdev dgram unix</code> and recent enough that the patch series is
-small.</p>
-<h2 id="build"><a class="header" href="#build">Build</a></h2>
-<p><code>just qemu setup-qemu</code> (pulled in by <code>just setup qemu</code> and
-<code>just setup all</code>) does the full
-build:</p>
-<pre><code class="language-bash">just qemu setup-qemu
-</code></pre>
-<p>The recipe:</p>
-<ol>
-<li>Inits the submodule shallowly if it is not already present.</li>
-<li>Short-circuits when <code>build/qemu/bin/qemu-system-arm</code> is newer
-than every file under <code>third-party/qemu/patches/</code> (touch a patch
-to force a rebuild).</li>
-<li>Resets the submodule to its pinned tip, applies every <code>.patch</code>
-under <code>third-party/qemu/patches/</code> in alphabetical order via
-<code>git apply</code>.</li>
-<li>Configures with <code>--target-list=arm-softmmu</code> (no other arches, no
-docs, no tools) and <code>--enable-slirp</code>.</li>
-<li><code>make -j$(nproc) &amp;&amp; make install</code> into <code>build/qemu/</code>.</li>
-</ol>
-<p>End-to-end cost is roughly ten minutes the first time and ~150 MB
-of disk. Subsequent runs are no-ops.</p>
-<p><code>just qemu doctor</code> reports the build status and clearly distinguishes
-the patched build from the system fallback.</p>
-<h2 id="how-tests-pick-it-up"><a class="header" href="#how-tests-pick-it-up">How tests pick it up</a></h2>
-<p>The single resolver lives in
-<code>packages/testing/nros-tests/src/qemu.rs</code>:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>pub fn qemu_system_arm_path() -&gt; std::ffi::OsString { … }
-pub fn qemu_system_arm_cmd()  -&gt; std::process::Command { … }
-<span class="boring">}</span></code></pre>
-<p>Selection order:</p>
-<ol>
-<li><code>QEMU_SYSTEM_ARM</code> env var — developer override / CI pin.</li>
-<li>Project-local <code>&lt;workspace&gt;/build/qemu/bin/qemu-system-arm</code>
-when it exists (auto-detected via <code>CARGO_MANIFEST_DIR</code> walk
-to the workspace <code>Cargo.toml</code>).</li>
-<li>System <code>qemu-system-arm</code> on <code>$PATH</code> — kept as fallback so a
-minimal install still produces a clean <code>[SKIPPED]</code> rather than
-an exec error.</li>
-</ol>
-<p>Every <code>Command::new("qemu-system-arm")</code> in the test crates goes
-through this helper. New tests must use it.</p>
-<p><code>just/qemu-baremetal.just</code>, <code>just/nuttx.just</code> and <code>just/freertos.just</code>
-do the same in shell, gating their <code>qemu-system-arm</code> invocations
-through:</p>
-<pre><code class="language-just">QEMU_BIN := absolute_path("build/qemu") / "bin/qemu-system-arm"
-
-# inside a recipe:
-{{ if path_exists(QEMU_BIN) == "true" { QEMU_BIN } else { "qemu-system-arm" } }} -M virt …
-</code></pre>
-<h2 id="smoke-test"><a class="header" href="#smoke-test">Smoke test</a></h2>
-<p><code>packages/testing/nros-tests/tests/qemu_patched_binary.rs</code> asserts:</p>
+                        <!-- GENERATED by scripts/gen-rmw-feature-matrix.py — do not edit by hand.
+     Regenerate: python3 scripts/gen-rmw-feature-matrix.py
+     Gated by:   just check-rmw-feature-matrix -->
+<h1 id="per-rmw-feature-matrix"><a class="header" href="#per-rmw-feature-matrix">Per-RMW Feature Matrix</a></h1>
+<p>One table per question the capability pages used to answer in
+contradictory prose. <strong>Derived from the backend sources</strong> — the two
+C vtables (<code>vtable.cpp</code>,
+<code>vtable.c</code>) and the zenoh shim’s trait
+overrides — so a backend gaining or losing a slot moves this page in
+the same commit or fails the gate.</p>
+<p><code>wired</code> = the backend implements it. <code>—</code> = not wired: the runtime
+surfaces <code>UNSUPPORTED</code> or falls back where a fallback exists (the
+vtable comments name which).</p>
+<h2 id="session--entity-capabilities"><a class="header" href="#session--entity-capabilities">Session / entity capabilities</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Capability</th><th>Zenoh</th><th>XRCE-DDS</th><th>Cyclone DDS</th></tr>
+</thead>
+<tbody>
+<tr><td>Publish / subscribe</td><td>wired</td><td>wired</td><td>wired</td></tr>
+<tr><td>Services (server side)</td><td>wired</td><td>wired</td><td>wired</td></tr>
+<tr><td>Service clients</td><td>wired</td><td>wired</td><td>wired</td></tr>
+<tr><td>Server-availability probe</td><td>wired</td><td>—</td><td>—</td></tr>
+<tr><td>Status events (deadline / liveliness / lost)</td><td>wired</td><td>—</td><td>—</td></tr>
+<tr><td>Manual liveliness assert</td><td>wired</td><td>—</td><td>—</td></tr>
+<tr><td>Event-driven wake (<code>set_wake_callback</code>)</td><td>wired</td><td>—</td><td>—</td></tr>
+<tr><td>Deadline hint (<code>next_deadline_ms</code>)</td><td>wired</td><td>—</td><td>—</td></tr>
+<tr><td>Zero-copy loan API</td><td>—</td><td>—</td><td>—</td></tr>
+<tr><td>Batch receive (<code>try_recv_sequence</code>)</td><td>wired</td><td>—</td><td>wired</td></tr>
+<tr><td>Streamed publish</td><td>wired</td><td>wired</td><td>—</td></tr>
+<tr><td>Connectivity ping</td><td>wired</td><td>wired</td><td>—</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="node-layer-features"><a class="header" href="#node-layer-features">Node-layer features</a></h2>
+<p>These live in <code>nros-node</code> on top of pub/sub + services — they are
+not backend slots, so the rule, not a vtable, decides the row:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Feature</th><th>Zenoh</th><th>XRCE-DDS</th><th>Cyclone DDS</th><th>Rule</th></tr>
+</thead>
+<tbody>
+<tr><td>Actions</td><td>yes</td><td>yes</td><td>untested</td><td>Built in <code>nros-node</code> on pub/sub + services. Cyclone has both since <code>service.cpp</code>, but no action example runs on it in CI — see <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/reference/cyclonedds-known-limitations.md">known limitations</a>.</td></tr>
+<tr><td>Parameters (+ param services)</td><td>yes</td><td>yes</td><td>yes</td><td>Node-layer services (RFC-0004); available wherever services are.</td></tr>
+<tr><td>Lifecycle (REP-2002)</td><td>yes</td><td>yes</td><td>yes</td><td>Node-layer state machine + services (<code>lifecycle-services</code> feature).</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="qos-policies"><a class="header" href="#qos-policies">QoS policies</a></h2>
+<p>A backend advertises the policies it can enforce via
+<code>supported_qos_policies()</code>; requesting an unadvertised policy fails
+entity creation loudly (<code>INCOMPATIBLE_QOS</code>) — <strong>no silent
+downgrade</strong>. Per-policy semantics: <a href="../design/rmw-vs-upstream.html">RMW vs upstream §7</a>.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Policy</th><th>Zenoh</th><th>XRCE-DDS / Cyclone DDS (via C ABI) ¹</th></tr>
+</thead>
+<tbody>
+<tr><td><code>CORE</code></td><td>✓</td><td>✓</td></tr>
+<tr><td><code>DURABILITY_TRANSIENT_LOCAL</code></td><td>—</td><td>✓</td></tr>
+<tr><td><code>DEADLINE</code></td><td>✓</td><td>✓</td></tr>
+<tr><td><code>LIFESPAN</code></td><td>✓</td><td>✓</td></tr>
+<tr><td><code>LIVELINESS_AUTOMATIC</code></td><td>✓</td><td>✓</td></tr>
+<tr><td><code>LIVELINESS_MANUAL_BY_TOPIC</code></td><td>✓</td><td>✓</td></tr>
+<tr><td><code>LIVELINESS_MANUAL_BY_NODE</code></td><td>✓</td><td>✓</td></tr>
+<tr><td><code>LIVELINESS_LEASE</code></td><td>✓</td><td>✓</td></tr>
+<tr><td><code>AVOID_ROS_NAMESPACE_CONVENTIONS</code></td><td>—</td><td>✓</td></tr>
+</tbody>
+</table>
+</div>
+<p>¹ The C-ABI backends’ mask is asserted by the <strong>runtime shim</strong>
+(<code>packages/rmw/cffi/src/lib.rs</code>), not reported by the backend — the
+vtable has no <code>supported_qos_policies</code> slot yet (TODO 115.K.2.x).
+Treat the column as the runtime’s assumption; the backend’s own
+enforcement happens at entity creation.</p>
+<h2 id="related"><a class="header" href="#related">Related</a></h2>
 <ul>
-<li><code>qemu_system_arm_path()</code> resolves to either <code>QEMU_SYSTEM_ARM</code> or
-<code>&lt;workspace&gt;/build/qemu/bin/qemu-system-arm</code>.</li>
-<li>The patched binary reports version ≥ 7.2.</li>
-<li><code>-netdev help</code> advertises <code>dgram</code> (the multi-instance backend).</li>
+<li><a href="../user-guide/rmw-choosing.html">Choosing an RMW Backend</a> — the
+decision tree</li>
+<li><a href="../user-guide/rmw-backends.html">Backend Reference</a> — architecture,
+footprint, transports per backend</li>
+<li><a href="support-status.html">Support Status</a> — versions, pins, and CI tiers</li>
 </ul>
-<p>Tests use <code>nros_tests::skip!</code> when the patched build is absent —
-a fresh clone without <code>just qemu setup-qemu</code> surfaces a clear
-<code>[SKIPPED]</code> with the suggested remedy instead of silently passing.</p>
-<h2 id="adding-a-new-patch"><a class="header" href="#adding-a-new-patch">Adding a new patch</a></h2>
-<ol>
-<li>Land the upstream fix or write a downstream-only patch against
-the pinned submodule tip.</li>
-<li>Save it as a numbered file under <code>third-party/qemu/patches/</code>
-(e.g. <code>0002-hw-net-…patch</code>). Keep one logical change per patch.</li>
-<li>Bump any inline comment that names specific patches.</li>
-<li>Touch the patch file (or just commit it) — <code>just qemu setup-qemu</code>
-detects the patch is newer than the installed binary and
-rebuilds.</li>
-<li>Bump the relevant CI cache key (see) so other
-machines also rebuild.</li>
-</ol>
-<h2 id="submodule-pin-bump"><a class="header" href="#submodule-pin-bump">Submodule pin bump</a></h2>
-<p>When upstream rolls a new stable branch and an existing patch
-either lands upstream or no longer applies cleanly:</p>
-<ol>
-<li>Edit <code>.gitmodules</code> <code>branch = stable-…</code> to the new branch name.</li>
-<li><code>cd third-party/qemu/qemu &amp;&amp; git fetch &amp;&amp; git checkout origin/stable-…</code></li>
-<li>Re-run <code>just qemu setup-qemu</code>. If a patch fails to apply,
-either drop it (landed upstream) or rebase it onto the new tip.</li>
-<li>Commit the submodule SHA bump together with any patch-series
-updates.</li>
-</ol>
-<h2 id="scope"><a class="header" href="#scope">Scope</a></h2>
-<p>Only <code>qemu-system-arm</code> is unified. <code>qemu-system-riscv32</code> is
-Espressif’s fork (different upstream, different patches);
-<code>qemu-system-riscv64</code> and <code>qemu-system-aarch64</code> ship no patches
-today. Other arches stay on the system binary until they
-accumulate their own patches; the helper pattern is easy to copy
-when that happens.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../internals/freertos-lan9118-debugging.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../reference/support-status.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../internals/opaque-storage-sizing.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../reference/supported-boards.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -334,11 +282,11 @@ when that happens.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../internals/freertos-lan9118-debugging.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../reference/support-status.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../internals/opaque-storage-sizing.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../reference/supported-boards.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
