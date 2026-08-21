@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-a0e49e49.js";
+            window.path_to_searchindex_js = "../searchindex-0dbb3a8d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c16f0826.js"></script>
@@ -178,11 +178,14 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="build-as-a-cmake-subdirectory"><a class="header" href="#build-as-a-cmake-subdirectory">Build as a CMake subdirectory</a></h1>
-<p>This is <strong>the</strong> way to integrate nano-ros into a C or C++ project. The
-nano-ros repo ships a top-level <code>CMakeLists.txt</code> that exposes
-everything via <code>add_subdirectory(...)</code>. No install step, no
-<code>find_package(NanoRos)</code>, no install prefix removed every
-last trace of that pipeline.</p>
+<p>This is one of the two ways to integrate nano-ros into a C or C++
+project, and the lower-level one: the repo’s top-level <code>CMakeLists.txt</code>
+exposes everything via <code>add_subdirectory(...)</code>. The higher-level,
+ament-shaped alternative is <code>find_package(nano_ros REQUIRED)</code> —
+<code>nano_rosConfig.cmake</code> at the checkout root, located via
+<code>nano_ros_ROOT</code> (RFC-0048) — which every in-tree example now uses.
+Either way there is NO install step: phase-140 removed the install
+prefix and the old <code>find_package(NanoRos)</code> (capital) config pipeline.</p>
 <h2 id="layout"><a class="header" href="#layout">Layout</a></h2>
 <pre><code>my_app/
 ├── CMakeLists.txt
@@ -196,13 +199,15 @@ project(my_app C)
 
 # Pick platform + RMW BEFORE add_subdirectory.
 set(NANO_ROS_PLATFORM posix)   # posix | freertos | nuttx | threadx | zephyr | baremetal
-set(NANO_ROS_RMW     zenoh)    # zenoh | dds | xrce | cyclonedds
+set(NANO_ROS_RMW     zenoh)    # zenoh | xrce | cyclonedds
 
 add_subdirectory(third_party/nano-ros nano_ros)
 
 add_executable(my_app main.c)
 target_link_libraries(my_app PRIVATE NanoRos::NanoRos)
-nros_platform_link_app(my_app)
+if(COMMAND nros_platform_link_app)   # defined by zephyr/threadx platforms only
+    nros_platform_link_app(my_app)
+endif()
 
 # Optional — generate C bindings for ROS 2 .msg / .srv / .action files.
 # nros_generate_interfaces() is reachable in-tree once nano-ros has been
@@ -222,10 +227,12 @@ libraries (<code>pthread</code>, <code>dl</code>, <code>m</code>), and the per-b
 <tr><th>Variable</th><th>Default</th><th>Values</th></tr>
 </thead>
 <tbody>
-<tr><td><code>NANO_ROS_PLATFORM</code></td><td><code>posix</code></td><td><code>posix</code>, <code>freertos</code> (<code>freertos_armcm3</code>), <code>nuttx</code> (<code>nuttx_armv7a</code>), <code>threadx</code> (<code>threadx_linux</code>, <code>threadx_riscv64</code>), <code>zephyr</code>, <code>baremetal</code></td></tr>
-<tr><td><code>NANO_ROS_BOARD</code></td><td>(unset)</td><td>required for <code>threadx</code> (<code>threadx-linux</code> or <code>riscv64-qemu</code>) and <code>baremetal</code> (<code>mps2-an385</code>, <code>stm32f4-nucleo</code>, …)</td></tr>
+<tr><td><code>NANO_ROS_PLATFORM</code></td><td><code>posix</code></td><td><code>posix</code>, <code>freertos</code>, <code>nuttx</code>, <code>threadx</code>, <code>esp_idf</code> (legacy spellings: <code>freertos_armcm3</code>, <code>nuttx_armv7a</code>, <code>threadx_linux</code>, <code>threadx_riscv64</code>). Zephyr and bare-metal are not add_subdirectory platforms — they enter via the <a href="integration-zephyr.html">Zephyr module</a> / cargo directly</td></tr>
+<tr><td><code>NANO_ROS_BOARD</code></td><td>(unset)</td><td>required for <code>threadx</code> (<code>threadx-linux</code> or <code>riscv64-qemu</code>)</td></tr>
+<tr><td><code>NANO_ROS_SKIP_BOOTSTRAP</code></td><td><code>OFF</code></td><td><code>ON</code> skips the configure-time bootstrap (git submodule updates + a possible network FetchContent of Corrosion). <strong>Required for air-gapped/mirrored CI</strong> — pre-seed submodules and install Corrosion first (<code>nros setup --tool corrosion</code>)</td></tr>
+<tr><td><code>NANO_ROS_FEATURES</code></td><td>(empty)</td><td>extra cargo features forwarded to the Rust build</td></tr>
 <tr><td><code>NANO_ROS_RMW</code></td><td><code>zenoh</code></td><td><code>zenoh</code>, <code>dds</code>, <code>xrce</code>, <code>cyclonedds</code></td></tr>
-<tr><td><code>NANO_ROS_ROS_EDITION</code></td><td><code>humble</code></td><td><code>humble</code>, <code>iron</code></td></tr>
+<tr><td><code>NANO_ROS_ROS_EDITION</code></td><td><code>humble</code></td><td><code>humble</code>, <code>iron</code>, <code>jazzy</code></td></tr>
 <tr><td><code>NANO_ROS_BUILD_CODEGEN</code></td><td><code>ON</code></td><td><code>ON</code> / <code>OFF</code></td></tr>
 </tbody>
 </table>
@@ -233,8 +240,8 @@ libraries (<code>pthread</code>, <code>dl</code>, <code>m</code>), and the per-b
 <p>Variables MUST be <code>set(...)</code> BEFORE <code>add_subdirectory(...)</code> — the
 sub-project consumes them at include time.</p>
 <h2 id="what-about-installing"><a class="header" href="#what-about-installing">What about installing?</a></h2>
-<p>deleted every <code>install(...)</code> rule. nano-ros is consumed in
-source form — never out of an installed prefix. If you need a
+<p>Phase-140 deleted every nano-ros-side <code>install(...)</code> rule. nano-ros is
+consumed in source form — never out of an installed prefix. If you need a
 shippable artefact, your <em>user project</em> owns the install layout; ship
 your binary, not nano-ros itself.</p>
 <p>For RTOS users who want a more idiomatic surface than raw

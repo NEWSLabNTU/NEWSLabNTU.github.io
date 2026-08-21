@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-a0e49e49.js";
+            window.path_to_searchindex_js = "../searchindex-0dbb3a8d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c16f0826.js"></script>
@@ -202,8 +202,9 @@ export PATH="$PWD/packages/cli/target/release:$PATH"
 source ./activate.sh          # bash / zsh
 source ./activate.fish        # fish
 </code></pre>
-<p>Then provision the native host (installs the zenoh router <code>zenohd</code>
-into a shared store — no ROS 2 needed):</p>
+<p>Then provision the native host (installs the zenoh client stack into a
+shared store; the router itself comes from your ROS 2 install —
+<code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>):</p>
 <pre><code class="language-sh">nros setup native --rmw zenoh
 </code></pre>
 <p>See <a href="./installation.html">Install + first build (Linux)</a> for more.</p>
@@ -219,41 +220,31 @@ into a shared store — no ROS 2 needed):</p>
 <code>nros::init(...)</code>; no config file is needed. Embedded variants under
 <code>examples/&lt;plat&gt;/cpp/talker/</code> bake theirs from the
 package.xml <code>&lt;nano_ros deploy=…/&gt;</code> tuple.</p>
-<p>CMake preamble matches the canonical example at
-<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/native/cpp/talker/CMakeLists.txt"><code>examples/native/cpp/talker/CMakeLists.txt</code></a> —
-five <code>set(...)</code> lines + per-target link. <strong><code>LANGUAGES C CXX</code></strong> (not
-<code>CXX</code> alone): the per-target register stub the nano-ros add_subdirectory
-emits is a C translation unit, so C must be enabled in this directory
-scope or the link fails.</p>
+<p>The CMakeLists is the <strong>ament shape you already know</strong> — this is the
+complete canonical file at
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/native/cpp/talker/CMakeLists.txt"><code>examples/native/cpp/talker/CMakeLists.txt</code></a>,
+verbatim (RFC-0048: <code>nano_rosConfig.cmake</code> at the checkout root makes
+<code>find_package(nano_ros)</code> resolve source-side, and the message-package
+Find-stubs make <code>find_package(std_msgs)</code> generate bindings on the fly):</p>
 <pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
-project(my_talker LANGUAGES C CXX)
+project(cpp_talker LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# `NROS_RMW` is the user-facing cache var (overridable via
-# `-DNROS_RMW=&lt;rmw&gt;`); the example forwards it to `NANO_ROS_RMW`,
-# the var the nano-ros add_subdirectory reads.
-set(NANO_ROS_PLATFORM posix)
-set(NROS_RMW "zenoh" CACHE STRING
-    "Active RMW (zenoh|xrce|cyclonedds) — selects the backend linked into my_talker.")
-set(NANO_ROS_RMW "${NROS_RMW}")
-add_subdirectory(&lt;rel-path-to-nano-ros&gt; nano_ros)
+find_package(nano_ros REQUIRED)
+find_package(std_msgs REQUIRED)
 
-# Generate C++ bindings (LANGUAGE CPP — separate from the C variant).
-nros_generate_interfaces(builtin_interfaces LANGUAGE CPP SKIP_INSTALL)
-nros_generate_interfaces(std_msgs DEPENDENCIES builtin_interfaces
-                                  LANGUAGE CPP SKIP_INSTALL)
+nano_ros_add_executable(cpp_talker src/main.cpp)
+ament_target_dependencies(cpp_talker std_msgs)
 
-add_executable(my_talker src/main.cpp)
-target_link_libraries(my_talker PRIVATE
-    std_msgs__nano_ros_cpp
-    NanoRos::NanoRosCpp)
-nros_platform_link_app(my_talker)
+install(TARGETS cpp_talker DESTINATION lib/${PROJECT_NAME})
+ament_package()
 </code></pre>
-<p><code>nros_platform_link_app(my_talker)</code> transitively registers the
-selected RMW backend — on POSIX you do <strong>not</strong> call
-<code>nano_ros_link_rmw()</code> explicitly.</p>
+<p><strong><code>LANGUAGES C CXX</code></strong> (not <code>CXX</code> alone): the per-target register stub
+is a C translation unit, so C must be enabled in this directory scope
+or the link fails. Backend selection is a configure-line cache var
+(<code>-DNROS_RMW=zenoh|xrce|cyclonedds</code>), not CMake code.</p>
 <p>The C++ entry point is <strong><code>int nros_app_main(int argc, char** argv)</code></strong>
 (same as C); <code>&lt;nros/app_main.h&gt;</code> provides the OS-side <code>main</code> stub.</p>
 <p>The body uses typed <code>nros::Publisher&lt;M&gt;</code> / <code>nros::Subscription&lt;M&gt;</code>
@@ -298,15 +289,18 @@ expression that failed. Define <code>NROS_TRY_LOG</code> once (any sink — here
 same <code>nros::init</code> call — see the GitHub source for the full pattern.</p>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
 <pre><code class="language-bash">cd examples/native/cpp/talker
-cmake -B build
+cmake -B build          # with ./activate.sh sourced, nano_ros_ROOT is
+                        # exported; a copy-out passes
+                        # -Dnano_ros_ROOT=&lt;path-to-nano-ros&gt; explicitly
 cmake --build build
 </code></pre>
 <p>First configure builds nano-ros’s Rust staticlibs (~3 minutes).
 Re-builds finish in seconds.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
 <p>Three terminals.</p>
-<pre><code class="language-bash"># 1. zenoh router (installed by `nros setup native`):
-zenohd
+<pre><code class="language-bash"># 1. zenoh router (ROS 2's own):
+source /opt/ros/humble/setup.bash
+ros2 run rmw_zenoh_cpp rmw_zenohd    # or: just zenohd
 
 # 2. Run the talker:
 cd examples/native/cpp/talker
@@ -336,7 +330,7 @@ ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 at 1, matching the official ROS 2 demo talker. If no <code>Publishing:</code>
 line in 30 seconds:</p>
 <ol>
-<li>Confirm <code>zenohd</code> is running (terminal 1). Without it,
+<li>Confirm the router is running (terminal 1). Without it,
 <code>nros::init</code> returns <code>-100</code> (TransportError) — the
 <code>NROS_TRY_RET</code> macro logs the failed call to stderr.</li>
 <li>Check stderr for <code>[nros] …/main.cpp:LINE nros::init(...) -&gt; -N</code>

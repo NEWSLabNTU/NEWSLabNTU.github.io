@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-a0e49e49.js";
+            window.path_to_searchindex_js = "../searchindex-0dbb3a8d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c16f0826.js"></script>
@@ -197,19 +197,22 @@ for the per-RMW cell status.</p>
 <blockquote>
 <p><strong>Prereqs.</strong> Install the <code>nros</code> CLI once, then run
 <code>nros setup &lt;board&gt; --rmw &lt;rmw&gt;</code> for the flavour you need (see
-<a href="#setup">Setup</a>). It provisions the cross-compiler, emulator, RMW host
-daemon, and ThreadX/NetX sources — no hand-installed <code>riscv64</code> cross
-toolchain, <code>qemu-system-riscv64</code>, or ROS 2 required.</p>
+<a href="#setup">Setup</a>). It provisions the cross-compiler, emulator, and
+ThreadX/NetX sources — no hand-installed <code>riscv64</code> cross toolchain or
+<code>qemu-system-riscv64</code>. The zenoh path additionally needs a ROS 2
+install for the router (<code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>); xrce
+needs only the Micro-XRCE-DDS agent, which <code>nros setup</code> installs.</p>
 </blockquote>
 <h2 id="setup"><a class="header" href="#setup">Setup</a></h2>
 <p><code>nros setup</code> is the single canonical command to prepare a machine to build
 nano-ros for a board. Most components are prebuilt per platform per RMW — the
-cross-compiler, emulator, RMW host daemon, and SDK sources (the ThreadX/NetX
+cross-compiler, emulator, and SDK sources (the ThreadX/NetX
 sources, and for threadx-linux the POSIX-sim sources) are fetched from a pinned
-index into a shared store at <code>${NROS_HOME:-~/.nros}/sdk</code>. You do not need ROS 2 installed.</p>
+index into a shared store at <code>${NROS_HOME:-~/.nros}/sdk</code>. The zenoh router is
+NOT among them — it comes from a ROS 2 install (RFC-0075); only the xrce
+agent is provisioned by <code>nros setup</code>.</p>
 <p>Packages are prebuilt where the index has a binary for your host and built from
-source otherwise — <code>zenohd</code> is the notable source build, and zenoh is the default
-<code>--rmw</code>. <code>--dry-run</code> prints the plan for your host. See
+source otherwise. <code>--dry-run</code> prints the plan for your host. See
 <a href="installation.html#provision-your-toolchain-with-nros-setup">Installation</a> for the full explanation.</p>
 <p>Build the in-tree <code>nros</code> CLI (Phase 218):</p>
 <pre><code class="language-bash">./scripts/bootstrap.sh      # builds packages/cli/target/release/nros
@@ -220,8 +223,9 @@ source ./activate.sh        # OR: direnv allow / source ./activate.fish
 nros setup qemu-riscv64-threadx --rmw zenoh   # only if you need the RISC-V64 QEMU flow
 source ./activate.sh
 </code></pre>
-<p>The RMW host daemon must be <strong>running</strong> before any example: <code>zenohd</code> for zenoh,
-the Micro-XRCE-DDS agent for xrce. <code>nros setup … --rmw &lt;rmw&gt;</code> installs it.</p>
+<p>The RMW host daemon must be <strong>running</strong> before any example: for zenoh the
+ROS 2 router (<code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>), for xrce the
+Micro-XRCE-DDS agent (installed by <code>nros setup … --rmw xrce</code>).</p>
 <h2 id="project-layout"><a class="header" href="#project-layout">Project layout</a></h2>
 <p>Each example is a standalone Cargo or CMake project under
 <code>examples/threadx-linux/</code> and <code>examples/qemu-riscv64-threadx/</code>
@@ -301,7 +305,17 @@ domain_id = 0
 </code></pre>
 <p>threadx-riscv64 —
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/qemu-riscv64-threadx/c/talker/CMakeLists.txt"><code>examples/qemu-riscv64-threadx/c/talker/CMakeLists.txt</code></a>:</p>
-<pre><code class="language-cmake"></code></pre>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
+project(c_talker LANGUAGES C CXX)
+
+find_package(nano_ros REQUIRED)
+find_package(std_msgs REQUIRED)
+
+nano_ros_add_executable(c_talker src/main.c)
+ament_target_dependencies(c_talker std_msgs)
+</code></pre>
+<p>The deploy coordinate lives in <code>package.xml</code>, not CMake:
+<code>&lt;nano_ros deploy="threadx" board="riscv64-qemu" rmw="zenoh"/&gt;</code>.</p>
 <p>Network shape (guest IP, gateway, router locator) beyond these fields
 comes from the board crate’s defaults — see the
 <a href="../user-guide/configuration.html">Configuration Guide</a>.</p>
@@ -349,6 +363,15 @@ cd examples/threadx-linux/rust/talker &amp;&amp; nros sync &amp;&amp; cargo run 
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:9400"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
+# Then boot the built image in QEMU (UART on stdio, Slirp networking):
+qemu-system-riscv64 -M virt -m 256M -bios none -nographic \
+    -global virtio-mmio.force-legacy=false \
+    -kernel &lt;path-to-built-talker-elf&gt; \
+    -netdev user,id=net0 \
+    -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.0
+# **Contributors (in-tree checkout):** `just threadx_riscv64 talker`
+# builds and boots this exact shape in one step.
+
 # Verify from stock ROS 2:
 source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
@@ -367,10 +390,12 @@ cache</strong>; a cold first run rebuilds the Rust example (~80 s on a
 fresh checkout) before the first publish lands. threadx-riscv64
 (QEMU): within ~15 seconds of QEMU boot. If no <code>Publishing:</code> line:</p>
 <ol>
-<li>Confirm <code>zenohd</code> reachable on the deploy locator
+<li>Confirm the router is reachable on the deploy locator
 (threadx-linux uses <code>127.0.0.1</code>; riscv64 QEMU uses <code>10.0.2.2</code>).</li>
-<li>threadx-linux: confirm the veth bridge came up via
-<code>nros setup threadx-linux</code>.</li>
+<li>threadx-linux: if you brought up <code>tap-tx0</code> by hand, confirm it is
+up; without it the fixtures use the loopback fallback, which is
+fine for this tutorial (<code>nros setup threadx-linux</code> does not create
+the interface).</li>
 <li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
 <h2 id="multi-tier-scheduling-phase-297"><a class="header" href="#multi-tier-scheduling-phase-297">Multi-tier scheduling (phase-297)</a></h2>

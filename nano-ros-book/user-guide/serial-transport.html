@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-a0e49e49.js";
+            window.path_to_searchindex_js = "../searchindex-0dbb3a8d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c16f0826.js"></script>
@@ -192,21 +192,21 @@
 </tbody>
 </table>
 </div>
-<p>Serial transport uses zenoh-pico’s built-in COBS framing protocol over UART. No IP stack is required — the MCU sends and receives zenoh frames directly over a serial link to a host running zenohd.</p>
+<p>Serial transport uses zenoh-pico’s built-in COBS framing protocol over UART. No IP stack is required — the MCU sends and receives zenoh frames directly over a serial link to a host running the zenoh router (<code>rmw_zenohd</code>).</p>
 <h3 id="when-to-use-serial"><a class="header" href="#when-to-use-serial">When to Use Serial</a></h3>
 <ul>
 <li><strong>Small MCUs</strong> — Cortex-M0/M0+ with no Ethernet MAC and insufficient RAM for smoltcp</li>
 <li><strong>Point-to-point</strong> — Direct UART connection to a host, no network infrastructure needed</li>
 <li><strong>Debugging</strong> — Serial output is visible in any terminal, easy to inspect</li>
-<li><strong>Mixed topology</strong> — Some nodes on Ethernet, others on serial, all bridged through zenohd</li>
+<li><strong>Mixed topology</strong> — Some nodes on Ethernet, others on serial, all bridged through the router</li>
 </ul>
 <h3 id="architecture"><a class="header" href="#architecture">Architecture</a></h3>
 <pre><code>┌──────────┐     UART      ┌──────────────┐     TCP      ┌──────────┐
-│   MCU    │───────────────│   zenohd     │─────────────│  ROS 2   │
+│   MCU    │───────────────│  rmw_zenohd  │─────────────│  ROS 2   │
 │  (nros)  │  COBS frames  │  (router)    │  zenoh net   │  node    │
 └──────────┘               └──────────────┘              └──────────┘
 </code></pre>
-<p>The MCU connects to zenohd using a <code>serial/...</code> locator. zenohd bridges serial-connected nodes to the rest of the zenoh network (including ROS 2 nodes using rmw_zenoh).</p>
+<p>The MCU connects to the zenoh router using a <code>serial/...</code> locator. The router bridges serial-connected nodes to the rest of the zenoh network (including ROS 2 nodes using rmw_zenoh).</p>
 <h2 id="platform-support"><a class="header" href="#platform-support">Platform Support</a></h2>
 <p>Serial transport support varies by platform:</p>
 <div class="table-wrapper">
@@ -215,8 +215,8 @@
 <tr><th>Platform</th><th>Serial Implementation</th><th>Extra Crate Needed</th></tr>
 </thead>
 <tbody>
-<tr><td>Bare-metal (MPS2-AN385, STM32F4)</td><td><code>zpico-serial</code> + UART driver</td><td>Yes</td></tr>
-<tr><td>ESP32 / ESP32-QEMU</td><td>zenoh-pico built-in (ESP-IDF serial)</td><td>No</td></tr>
+<tr><td>Bare-metal (MPS2-AN385)</td><td><code>zpico-serial</code> + UART driver</td><td>Yes</td></tr>
+<tr><td>ESP32-QEMU (esp-hal, no IDF)</td><td><code>zpico-serial</code> path, same as bare-metal</td><td>Yes</td></tr>
 <tr><td>Zephyr</td><td>zenoh-pico built-in (<code>uart_poll_in/out</code>)</td><td>No</td></tr>
 <tr><td>FreeRTOS / NuttX</td><td>zenoh-pico built-in (POSIX <code>/dev/ttyXXX</code>)</td><td>No</td></tr>
 <tr><td>ThreadX</td><td>zenoh-pico built-in (HAL DMA)</td><td>No</td></tr>
@@ -226,14 +226,17 @@
 <p>On non-bare-metal platforms, serial just works by using a <code>serial/...</code> locator — no extra crates needed. <code>zpico-serial</code> only fills the gap for bare-metal targets where custom FFI symbols replace zenoh-pico’s system layer.</p>
 <h2 id="board-crate-feature-selection"><a class="header" href="#board-crate-feature-selection">Board Crate Feature Selection</a></h2>
 <p>Each board crate uses Cargo features to select the transport:</p>
-<pre><code class="language-toml"># Use serial transport (disable default ethernet/wifi)
-nros-board-mps2-an385 = { path = "...", default-features = false, features = ["serial"] }
+<pre><code class="language-toml"># Board crates are registry-style names resolved by the `nros sync`
+# patch table (see examples/README.md), not path deps:
+
+# Use serial transport (disable default ethernet/wifi)
+nros-board-mps2-an385 = { version = "*", default-features = false, features = ["serial"] }
 
 # Use ethernet transport (default)
-nros-board-mps2-an385 = { path = "..." }
+nros-board-mps2-an385 = { version = "*" }
 
 # Both transports (runtime selection via locator string)
-nros-board-mps2-an385 = { path = "...", features = ["serial"] }
+nros-board-mps2-an385 = { version = "*", features = ["serial"] }
 </code></pre>
 <h3 id="available-features-by-board"><a class="header" href="#available-features-by-board">Available Features by Board</a></h3>
 <div class="table-wrapper">
@@ -253,37 +256,47 @@ nros-board-mps2-an385 = { path = "...", features = ["serial"] }
 <li><code>"serial/UART_0#baudrate=115200"</code> → Serial</li>
 </ul>
 <h2 id="quick-start-qemu-serial-example"><a class="header" href="#quick-start-qemu-serial-example">Quick Start: QEMU Serial Example</a></h2>
+<p>This mirrors what the in-tree serial e2e test
+(<code>packages/testing/nros-tests/tests/emulator.rs</code>) actually does: a
+<strong>socat PTY pair</strong> links QEMU’s UART to the router, so both ends exist
+before either side starts.</p>
 <h3 id="1-build-the-serial-talker"><a class="header" href="#1-build-the-serial-talker">1. Build the Serial Talker</a></h3>
-<pre><code class="language-bash">cd examples/qemu-arm-baremetal/rust/serial-talker
-nros generate-rust
+<pre><code class="language-bash">nros sync                       # materialize generated/ + the patch table
+cd examples/qemu-arm-baremetal/rust/serial-talker
 cargo build --release
 </code></pre>
-<h3 id="2-run-in-qemu"><a class="header" href="#2-run-in-qemu">2. Run in QEMU</a></h3>
-<pre><code class="language-bash">cargo run --release
-</code></pre>
-<p>QEMU starts with <code>-serial pty</code> and prints the PTY path:</p>
-<pre><code>char device redirected to /dev/pts/3 (label serial0)
-</code></pre>
-<h3 id="3-connect-zenohd"><a class="header" href="#3-connect-zenohd">3. Connect zenohd</a></h3>
-<p>In another terminal, start zenohd with the serial link:</p>
-<pre><code class="language-bash">ZENOH_CONFIG_OVERRIDE='connect/endpoints=["serial//dev/pts/3#baudrate=115200"]' \
-    ros2 run rmw_zenoh_cpp rmw_zenohd
+<h3 id="2-create-the-pty-pair-and-start-the-router"><a class="header" href="#2-create-the-pty-pair-and-start-the-router">2. Create the PTY pair and start the router</a></h3>
+<pre><code class="language-bash"># Two linked PTYs; QEMU gets one end, the router the other:
+socat -d -d pty,raw,echo=0,link=/tmp/nros-serial-qemu \
+            pty,raw,echo=0,link=/tmp/nros-serial-router &amp;
+
+# Router LISTENS on its end of the pair:
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["serial//tmp/nros-serial-router#baudrate=115200"]' \
+    ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 </code></pre>
 <blockquote>
-<p>The router is ROS 2’s <code>rmw_zenohd</code> (phase-362 retired the vendored <code>zenohd</code>).
-It takes <strong>no</strong> command-line configuration — argv is not parsed, so a
-<code>--connect</code> flag is not rejected, it is simply unread, and the router comes up
-on its default configuration with no diagnostic. Configuration travels in
-<code>ZENOH_CONFIG_OVERRIDE</code>. Note this is <code>connect/endpoints</code>, not
-<code>listen/endpoints</code>: the router dials the serial link rather than binding it.</p>
+<p>The router is ROS 2’s <code>rmw_zenohd</code> (phase-362 retired the vendored
+<code>zenohd</code>). It takes <strong>no</strong> command-line configuration — argv is not
+parsed, so a <code>--connect</code> flag is not rejected, it is simply unread.
+Configuration travels in <code>ZENOH_CONFIG_OVERRIDE</code>, and the router
+<strong>listens</strong> on the serial endpoint; the MCU side dials it.</p>
 </blockquote>
-<p>The MCU’s messages are now bridged to the zenoh network. Any zenoh subscriber (including ROS 2 nodes) can receive them.</p>
+<h3 id="3-boot-qemu-with-uart0-on-the-other-end"><a class="header" href="#3-boot-qemu-with-uart0-on-the-other-end">3. Boot QEMU with UART0 on the other end</a></h3>
+<p>The leaf’s default <code>cargo run</code> runner uses semihosting only (no serial
+device) — boot QEMU explicitly, wiring UART0 to the pair:</p>
+<pre><code class="language-bash">qemu-system-arm -cpu cortex-m3 -machine mps2-an385 \
+    -display none -monitor none \
+    -icount shift=auto -semihosting-config enable=on,target=native \
+    -chardev serial,id=ser0,path=/tmp/nros-serial-qemu \
+    -serial chardev:ser0 \
+    -kernel target/thumbv7m-none-eabi/release/serial-talker
+</code></pre>
+<p>(<code>-display none -monitor none</code>, not <code>-nographic</code> — <code>-nographic</code>
+implies <code>-serial mon:stdio</code>, which hijacks UART0 for the monitor.)</p>
 <h3 id="4-subscribe-from-host"><a class="header" href="#4-subscribe-from-host">4. Subscribe from Host</a></h3>
-<pre><code class="language-bash"># Using zenoh CLI
-z_sub -k "0/chatter/**"
-
-# Or from a ROS 2 node
-ros2 topic echo /chatter std_msgs/msg/String
+<pre><code class="language-bash"># From a ROS 2 node (the talker publishes best-effort; force the QoS
+# or a RELIABLE echo silently receives nothing):
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 <h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
 <h3 id="serial-config"><a class="header" href="#serial-config">Serial Config</a></h3>
@@ -325,18 +338,18 @@ run(config, |config| {
 </div>
 <h2 id="qemu-pty-testing"><a class="header" href="#qemu-pty-testing">QEMU PTY Testing</a></h2>
 <h3 id="how-it-works"><a class="header" href="#how-it-works">How It Works</a></h3>
-<p>QEMU’s <code>-serial pty</code> flag redirects the emulated UART to a host pseudo-terminal (PTY). This creates a virtual serial port that zenohd can connect to, enabling full end-to-end testing without physical hardware.</p>
+<p>QEMU redirects the emulated UART to a host pseudo-terminal. The in-tree flow uses a socat PTY <em>pair</em> (rather than QEMU’s <code>-serial pty</code>) so both endpoints exist before either process starts — the router listens on one end, QEMU’s UART0 is wired to the other, enabling full end-to-end testing without physical hardware.</p>
 <pre><code>┌──────────────────────────────────────────────────────────┐
 │                       Host                               │
 │  ┌─────────┐    ┌───────────┐    ┌────────────────────┐  │
-│  │ zenohd  │◄──►│ /dev/pts/N│◄──►│ QEMU MPS2-AN385   │  │
-│  │         │    │  (PTY)    │    │ -serial pty         │  │
+│  │rmw_zenohd◄──►│ socat PTY │◄──►│ QEMU MPS2-AN385   │  │
+│  │ (listen)│    │   pair    │    │ -serial chardev:…   │  │
 │  └────┬────┘    └───────────┘    │ UART0 ──► firmware  │  │
 │       │                         └────────────────────┘  │
 │       │ zenoh network                                    │
 │  ┌────▼────┐                                             │
-│  │ z_sub   │                                             │
-│  │ or ROS 2│                                             │
+│  │  ROS 2  │                                             │
+│  │  echo   │                                             │
 │  └─────────┘                                             │
 └──────────────────────────────────────────────────────────┘
 </code></pre>
@@ -359,10 +372,11 @@ runner = "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -semihos
 <h3 id="automated-testing"><a class="header" href="#automated-testing">Automated Testing</a></h3>
 <p>The integration test <code>test_qemu_serial_pubsub_e2e</code> in <code>packages/testing/nros-tests/tests/emulator.rs</code> automates the full workflow:</p>
 <ol>
-<li>Build the serial-talker example</li>
-<li>Launch QEMU with <code>-serial pty</code></li>
-<li>Parse the PTY path from QEMU stderr</li>
-<li>Start zenohd with <code>--connect serial//dev/pts/N#baudrate=115200</code></li>
+<li>Build the serial-talker example (prebuilt fixture)</li>
+<li>Create socat PTY pairs (both ends exist before either process)</li>
+<li>Start the router with <code>listen/endpoints=["serial/&lt;pty&gt;#baudrate=115200"]</code></li>
+<li>Boot QEMU via <code>start_mps2_an385_with_serial</code> (UART0 → the pair;
+<code>-display none -monitor none</code>)</li>
 <li>Subscribe and verify message delivery</li>
 </ol>
 <blockquote>
@@ -391,8 +405,8 @@ runner = "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -semihos
 <h3 id="session-open-failed-or-handshake-timeout"><a class="header" href="#session-open-failed-or-handshake-timeout">“Session open failed” or Handshake Timeout</a></h3>
 <p>The zenoh serial handshake (Init → Ack) must complete within zenoh-pico’s timeout. Common causes:</p>
 <ul>
-<li><strong>Wrong PTY path</strong> — Check that zenohd connects to the correct <code>/dev/pts/N</code></li>
-<li><strong>Baud rate mismatch</strong> — MCU and zenohd must use the same baud rate</li>
+<li><strong>Wrong PTY path</strong> — Check the router’s listen endpoint names the same PTY link your QEMU <code>-chardev</code> uses</li>
+<li><strong>Baud rate mismatch</strong> — MCU and router must use the same baud rate</li>
 <li><strong>QEMU timing</strong> — Add <code>-icount shift=auto</code> to slow down QEMU’s CPU clock</li>
 </ul>
 <h3 id="no-messages-received"><a class="header" href="#no-messages-received">No Messages Received</a></h3>

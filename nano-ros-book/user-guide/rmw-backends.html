@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-a0e49e49.js";
+            window.path_to_searchindex_js = "../searchindex-0dbb3a8d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c16f0826.js"></script>
@@ -189,9 +189,9 @@ multi-RMW pattern.</p>
 <p>The Zenoh backend uses <a href="https://github.com/eclipse-zenoh/zenoh-pico">zenoh-pico</a>, a lightweight C client for the Zenoh protocol. The MCU participates directly in the Zenoh network – there is no protocol translation layer.</p>
 <p><strong>How it works:</strong></p>
 <ol>
-<li>The MCU runs zenoh-pico in <strong>client mode</strong>, connecting to a <code>zenohd</code> router process over TCP, UDP, or TLS.</li>
+<li>The MCU runs zenoh-pico in <strong>client mode</strong>, connecting to a zenoh router (<code>rmw_zenohd</code>, ROS 2’s own) over TCP, UDP, or TLS.</li>
 <li>zenoh-pico creates publishers and subscribers directly on the Zenoh network.</li>
-<li>ROS 2 nodes running <code>rmw_zenoh_cpp</code> connect to the same <code>zenohd</code> router, enabling transparent interop.</li>
+<li>ROS 2 nodes running <code>rmw_zenoh_cpp</code> connect to the same router, enabling transparent interop.</li>
 <li>zenoh itself defines a <strong>peer mode</strong> in which two zenoh-pico devices talk directly with no
 router. <strong>nano-ros does not ship it.</strong> The shim is compiled without zenoh-pico’s multicast
 transport and scouting (<code>nros_zpico_build::MULTICAST_TRANSPORT = false</code>) because those are
@@ -203,8 +203,8 @@ means flipping that constant, rebuilding the shim, and accepting the footprint.<
 <p><strong>Key characteristics:</strong></p>
 <ul>
 <li>Client/router topology; zenoh’s router-free peer mode is compiled out (see above)</li>
-<li><code>zenohd</code> is a generic router, not a protocol translator – it forwards messages without interpreting them</li>
-<li>If <code>zenohd</code> crashes, peers in client mode lose routing but the MCU continues running</li>
+<li>The router forwards messages without interpreting them – it is not a protocol translator</li>
+<li>If the router crashes, peers in client mode lose routing but the MCU continues running</li>
 <li>Full ROS 2 graph discovery via liveliness tokens</li>
 <li>Transport options: TCP, UDP, TLS (via <code>zpico-smoltcp</code> or platform sockets)</li>
 </ul>
@@ -223,18 +223,18 @@ means flipping that constant, rebuilding the shim, and accepting the footprint.<
 <li>If the Agent crashes, the MCU loses all connectivity</li>
 <li>Fully static memory allocation on the MCU (no heap required)</li>
 <li>Client-side discovery is not supported; the Agent handles it</li>
-<li>Transport options: UDP, serial (HDLC framing), CAN FD</li>
+<li>Transport options: UDP, serial (HDLC framing)</li>
 </ul>
 <h2 id="cyclone-dds-rmw-cyclonedds"><a class="header" href="#cyclone-dds-rmw-cyclonedds">Cyclone DDS (rmw-cyclonedds)</a></h2>
 <blockquote>
-<p><strong>Maturity status.</strong> Cyclone DDS support is <strong>pub/sub-only today.</strong>
-Service create / recv / reply returns <code>NROS_RMW_RET_UNSUPPORTED</code>;
-status events (liveliness, deadline-miss, etc.) are not wired to
-Cyclone listeners yet. Wire-level interop with stock
-<code>rmw_cyclonedds_cpp</code> (Humble) works for topic publishing and
-subscribing. If your fleet needs RPC or lifecycle events over
-Cyclone, use Zenoh instead until the gaps close. Full
-known-limitations list:
+<p><strong>Maturity status.</strong> Cyclone DDS supports <strong>pub/sub + service
+round-trips on POSIX</strong> (full service implementation in
+<code>src/service.cpp</code>); status events (liveliness, deadline-miss, etc.)
+are NOT wired to Cyclone listeners yet, and the
+service-availability probe is deferred (<code>service_server_available</code>
+returns <code>NROS_RMW_RET_UNSUPPORTED</code> — poll-with-retry instead of
+waiting on it). Wire-level interop with stock <code>rmw_cyclonedds_cpp</code>
+(Humble) works for topics and services. Full known-limitations list:
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/reference/cyclonedds-known-limitations.md"><code>docs/reference/cyclonedds-known-limitations.md</code></a>.</p>
 </blockquote>
 <p>The Cyclone DDS backend uses <a href="https://github.com/eclipse-cyclonedds/cyclonedds">Eclipse Cyclone DDS</a>, the same DDS implementation that ROS 2 ships with via <code>rmw_cyclonedds_cpp</code>. Built as a <strong>standalone C++ library</strong> at <code>packages/rmw/cyclonedds/nros-rmw-cyclonedds/</code> that registers itself with the runtime through the C ABI vtable in <code>nros-rmw-cffi</code>.</p>
@@ -252,7 +252,7 @@ known-limitations list:
 <li>Static <code>ddsi_config</code> via <code>dds_create_domain_with_rawconfig</code> skips the XML parser; embedded-friendly.</li>
 <li>Discovery via SPDP multicast or unicast peer list (mirrors Cyclone’s standard config knobs).</li>
 <li>Heap required (Cyclone uses <code>malloc</code>); <code>BUILD_SHARED_LIBS=ON</code> produces <code>libddsc.so</code> for POSIX, static link for embedded.</li>
-<li><strong>No services / actions yet</strong> — service create/recv/reply currently returns <code>NROS_RMW_RET_UNSUPPORTED</code>.</li>
+<li><strong>Services wired</strong> (create/recv/reply — <code>service.cpp</code>); the availability probe (<code>service_server_available</code>) and actions are still unsupported.</li>
 <li><strong>No status events yet</strong> — <code>register_subscription_event</code> / <code>register_publisher_event</code> / <code>assert_publisher_liveliness</code> slots are not wired to Cyclone listeners yet.</li>
 </ul>
 <p><strong>Build:</strong></p>
@@ -287,21 +287,26 @@ On a tier without the toolchain, the embedded-Cyclone tests are filtered out of
 <tr><th>Aspect</th><th>Zenoh (<code>rmw-zenoh</code>)</th><th>XRCE-DDS (<code>rmw-xrce</code>)</th><th>Cyclone DDS (<code>rmw-cyclonedds</code>)</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>Client RAM</strong></td><td>~16 KB+ (heap required)</td><td>~3 KB (fully static)</td><td>~32 KB+ (heap required)</td></tr>
-<tr><td><strong>Client Flash</strong></td><td>~100 KB+</td><td>~75 KB</td><td>~150 KB+ (<code>libddsc.so</code> ~1.4 MB on POSIX, sized down on embedded link)</td></tr>
-<tr><td><strong>Bridge process</strong></td><td><code>zenohd</code> (generic router)</td><td>Agent (protocol translator)</td><td>None — RTPS multicast directly</td></tr>
+<tr><td><strong>Client RAM</strong> ¹</td><td>~16 KB+ (heap required)</td><td>~3 KB (fully static)</td><td>~32 KB+ (heap required)</td></tr>
+<tr><td><strong>Client Flash</strong> ¹</td><td>~100 KB+</td><td>~75 KB</td><td>~150 KB+ (<code>libddsc.so</code> ~1.4 MB on POSIX, sized down on embedded link)</td></tr>
+<tr><td><strong>Bridge process</strong></td><td><code>rmw_zenohd</code> (ROS 2’s zenoh router)</td><td>Agent (protocol translator)</td><td>None — RTPS multicast directly</td></tr>
 <tr><td><strong>Peer-to-peer</strong></td><td>Not as shipped — multicast/scouting compiled out (issue 0682)</td><td>No (agent always required)</td><td>Yes (RTPS native)</td></tr>
 <tr><td><strong>Discovery</strong></td><td>Client participates</td><td>Agent handles on behalf</td><td>SPDP / SEDP on UDP multicast or static peer list</td></tr>
 <tr><td><strong>Entity creation</strong></td><td>Client creates directly</td><td>Client requests, agent creates</td><td>Client creates directly</td></tr>
-<tr><td><strong>Transport options</strong></td><td>TCP, UDP, TLS</td><td>UDP, serial, CAN FD</td><td>UDP unicast + multicast (RTPS)</td></tr>
+<tr><td><strong>Transport options</strong></td><td>TCP, UDP, TLS</td><td>UDP, serial (HDLC)</td><td>UDP unicast + multicast (RTPS)</td></tr>
 <tr><td><strong>Heap allocation</strong></td><td>Required (C-level)</td><td>None</td><td>Required (Cyclone uses <code>malloc</code>)</td></tr>
 <tr><td><strong>Implementation</strong></td><td>Rust + zenoh-pico C</td><td>Rust + Micro-XRCE-DDS-Client C</td><td>C++ wrapper over upstream Cyclone DDS C</td></tr>
-<tr><td><strong>ROS 2 interop</strong></td><td>Via <code>rmw_zenoh_cpp</code> + <code>zenohd</code></td><td>Via Agent + any DDS RMW</td><td>Direct against <code>rmw_cyclonedds_cpp</code> (same upstream version)</td></tr>
+<tr><td><strong>ROS 2 interop</strong></td><td>Via <code>rmw_zenoh_cpp</code> + router</td><td>Via Agent + any DDS RMW</td><td>Direct against <code>rmw_cyclonedds_cpp</code> (same upstream version)</td></tr>
 <tr><td><strong>Failure mode</strong></td><td>Router crash = lose routing</td><td>Agent crash = lose connectivity</td><td>Peer goes offline = its samples stop arriving</td></tr>
 <tr><td><strong>C source files</strong></td><td>~100+</td><td>28</td><td>Upstream Cyclone (~600+ files, vendored unchanged via submodule)</td></tr>
 </tbody>
 </table>
 </div>
+<p>¹ Footprint figures are order-of-magnitude planning numbers, not
+measurements — they vary with features, message set, and opt level.
+Size your own image with <code>arm-none-eabi-size</code> on your build; the RAM
+knobs are enumerated in the
+<a href="../reference/static-pool-inventory.html">Static Pool Inventory</a>.</p>
 <h2 id="multi-backend-binaries-bridges"><a class="header" href="#multi-backend-binaries-bridges">Multi-backend binaries (bridges)</a></h2>
 <p>A single nano-ros binary can link <strong>more than one RMW backend</strong> and
 forward traffic between them. The bridge pattern is useful for:</p>
@@ -471,7 +476,7 @@ support natively. Just ensure the loopback interface is up
 <li>You want peer-to-peer communication without any bridge process</li>
 <li>Your MCU has at least ~16 KB of heap and ~100 KB of flash</li>
 <li>You are using TCP or UDP networking</li>
-<li>You want simpler deployment (zenohd is a single binary with no configuration required)</li>
+<li>You want simpler deployment (the router is a single process started with <code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>)</li>
 </ul>
 <p><strong>Choose XRCE-DDS when:</strong></p>
 <ul>
@@ -479,11 +484,10 @@ support natively. Just ensure the loopback interface is up
 <li>You need serial (UART) transport – useful for MCUs without networking hardware</li>
 <li>You are integrating with an existing micro-ROS or DDS deployment</li>
 <li>You want zero heap allocation on the MCU side</li>
-<li>You need CAN FD transport</li>
 </ul>
 <p><strong>Choose Cyclone DDS when:</strong></p>
 <ul>
-<li>You want direct, brokerless ROS 2 interop with no <code>zenohd</code> and no Agent</li>
+<li>You want direct, brokerless ROS 2 interop with no router and no Agent</li>
 <li>Your MCU has at least ~32 KB RAM (heap for Cyclone + RTPS state) and a network stack with IGMP</li>
 <li>You’re integrating with a DDS-based ROS 2 deployment running stock <code>rmw_cyclonedds_cpp</code> and want full RTPS wire-compat without protocol translation</li>
 <li>Your tolerance for failure is “samples from peer X stop arriving” rather than “the whole router goes down”</li>

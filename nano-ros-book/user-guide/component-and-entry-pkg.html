@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-a0e49e49.js";
+            window.path_to_searchindex_js = "../searchindex-0dbb3a8d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c16f0826.js"></script>
@@ -231,7 +231,9 @@ into the Entry pkg directly.</p>
 <p><code>launch/*.launch.xml</code> is the ROS 2 launch schema verbatim — <code>&lt;launch&gt;</code>,
 <code>&lt;arg&gt;</code>, <code>&lt;node&gt;</code>, <code>&lt;param&gt;</code>, <code>&lt;remap&gt;</code>, <code>&lt;group&gt;</code>, <code>&lt;include&gt;</code>, with
 <code>$(find &lt;pkg&gt;)</code> / <code>$(var)</code> / <code>$(env)</code> substitutions. Stock nav2/Autoware
-XML pastes in and Just Works (Python <code>.launch.py</code> is not supported yet).
+XML pastes in and Just Works; Python <code>.launch.py</code> files are resolved by
+<code>nros sync</code> too (the RFC-0060 resolver executes them — see the bringup
+tutorial).
 See <a href="../getting-started/workspace-bringup.html">the workspace bringup tutorial</a>.</p>
 <h2 id="entry-pkg"><a class="header" href="#entry-pkg">Entry pkg</a></h2>
 <p>An Entry pkg is a binary crate that combines one or more Node pkgs with a board choice, a launch file, and per-board deploy config:</p>
@@ -262,22 +264,21 @@ forms; pick whichever matches your composition shape:</p>
 nros::main!(board = LinuxBoard);                       // single-node, explicit board
 nros::main!(launch = "demo_bringup");                   // multi-node (CANONICAL): the bringup's default launch
 nros::main!(launch = "demo_bringup:sim.launch.xml");    // multi-node, a named launch file
-nros::main!(                                            // multi-host: a PER-HOST model (resolved with `host:=robot1`)
-    model = "demo_bringup:config/multihost_robot1_model.yaml",
+nros::main!(                                            // multi-host: per-host slice via launch args
+    launch = "demo_bringup:multihost.launch.xml",
+    args = [("host", "robot1")],
 );
-// DEPRECATED (retiring): direct launch-file forms — re-parse the launch XML
-// at build time instead of consuming the reviewed model; bake-time warning.
-nros::main!(launch = "demo_bringup");
-nros::main!(launch = "demo_bringup:sim.launch.xml");</code></pre>
+// DEPRECATED (expert override): name the resolved model ARTIFACT directly
+// instead of the input — skips the sync-freshness contract; bake-time warning.
+nros::main!(model = "demo_bringup");</code></pre>
 <p>Form-1 (no args) reads
 <code>[package.metadata.nros.entry] deploy = "&lt;board&gt;"</code> from this Entry
 pkg’s own <code>Cargo.toml</code> and maps the board key
 (<code>"native"</code>/<code>"freertos"</code>/<code>"zephyr"</code>/…) to the right board crate
-via a small lookup table. The model forms reference a Bringup pkg by <code>&lt;bringup&gt;[:&lt;relpath&gt;]</code> — the
-Bringup pkg commits <code>config/system_model.yaml</code>, the SystemModel that
-<code>nros sync</code> resolves from the launch file (+ optional <code>--system</code>
-config). The deprecated launch forms take <code>&lt;bringup&gt;[:&lt;file&gt;]</code> against
-<code>launch/&lt;file&gt;.launch.xml</code> + <code>system.toml [system] default_launch</code>.
+via a small lookup table. The <code>launch</code> forms take <code>&lt;bringup&gt;[:&lt;file&gt;]</code>
+against <code>launch/&lt;file&gt;.launch.xml</code> + <code>system.toml [system] default_launch</code>; <code>nros sync</code> resolves that input into a SystemModel
+under <code>&lt;ws&gt;/build/nros/models/&lt;bringup&gt;/</code> (a build artifact — never
+committed; gate <code>check-no-tracked-models</code>), and the macro bakes from it.
 The <code>nros::main!()</code> expansion replaces the older
 <code>build.rs + include!(env!("OUT_DIR")/run_plan.rs)</code> shape end-to-end;
 new Entry pkgs no longer need a <code>build.rs</code> or a <code>nros-build</code>
@@ -290,7 +291,7 @@ with <code>nros::Executor::open(&amp;ExecutorConfig::default())</code>.</p>
 <li><strong>One Entry pkg per board target.</strong> Want to run the same nodes on native POSIX, on a QEMU-MPS2-AN385 FreeRTOS target, and on a real ThreadX board? Three Entry pkgs (<code>robot_entry_native</code>, <code>robot_entry_qemu_freertos</code>, <code>robot_entry_acme_threadx</code>) sharing the same Node pkgs and (usually) the same <code>launch/system.launch.xml</code> via symlink or <code>&lt;include&gt;</code>.</li>
 <li><strong><code>launch/system.launch.xml</code> is the canonical name.</strong> <code>nros plan</code> resolution order: <code>--file &lt;path&gt;</code> → <code>&lt;dir&gt;/launch/&lt;pkg&gt;.launch.xml</code> → <code>&lt;dir&gt;/launch/system.launch.xml</code> → the single <code>&lt;dir&gt;/launch/*.launch.xml</code> → synth (only for non-Entry, single-Node pkgs).</li>
 <li><strong>Deploy config lives in <code>Cargo.toml</code>.</strong> <code>[package.metadata.nros.deploy.&lt;target&gt;]</code> holds board / RMW / domain / locator per target; <code>[[package.metadata.nros.domain]]</code> and <code>[[package.metadata.nros.bridge]]</code> carry multi-domain topology.</li>
-<li><strong>C++ analogue:</strong> cmake fn <code>nano_ros_entry(NAME &lt;name&gt; LANGUAGE CXX MODEL …)</code> plus <code>NROS_MAIN(...)</code> (deprecated <code>LAUNCH</code> keyword retiring). Metadata flows through <code>${BUILD}/nros-metadata.json</code> rather than a sidecar TOML.</li>
+<li><strong>C++ analogue:</strong> cmake fn <code>nano_ros_entry(NAME &lt;name&gt; LANG CXX BRINGUP … LAUNCH …)</code> plus <code>NROS_MAIN(...)</code> (<code>MODEL</code> is the deprecated artifact-naming override, mirroring the macro). Metadata flows through <code>${BUILD}/nros-metadata.json</code> rather than a sidecar TOML.</li>
 </ul>
 <h2 id="workspace-shape"><a class="header" href="#workspace-shape">Workspace shape</a></h2>
 <p>A typical multi-Node workspace, with one Entry pkg per supported board:</p>

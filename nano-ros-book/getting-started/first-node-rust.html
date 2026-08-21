@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-a0e49e49.js";
+            window.path_to_searchindex_js = "../searchindex-0dbb3a8d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c16f0826.js"></script>
@@ -179,8 +179,10 @@
                     <main>
                         <h1 id="first-node--rust-linux"><a class="header" href="#first-node--rust-linux">First Node — Rust (Linux)</a></h1>
 <p>Build, run, and verify a single nano-ros publisher node on Linux in
-about ten minutes. Uses the canonical Zenoh backend; no router needs
-to be pre-installed (the repo ships <code>zenohd</code>).</p>
+about ten minutes. Uses the canonical Zenoh backend. The zenoh router comes from ROS 2
+(<code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>) — nano-ros no longer ships one.
+No ROS 2 on this machine? Use <code>--rmw cyclonedds</code> instead: it needs no
+router at all (see <a href="../user-guide/rmw-choosing.html">Choosing an RMW</a>).</p>
 <blockquote>
 <p><strong>Stuck?</strong> See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a> for the common first-build errors.</p>
 </blockquote>
@@ -202,8 +204,8 @@ export PATH="$PWD/packages/cli/target/release:$PATH"
 source ./activate.sh          # bash / zsh
 source ./activate.fish        # fish
 </code></pre>
-<p>Then provision the native host (installs the zenoh router <code>zenohd</code>
-into a shared store — no ROS 2 needed):</p>
+<p>Then provision the native host (installs the zenoh client stack into a
+shared store; the router itself comes from your ROS 2 install):</p>
 <pre><code class="language-sh">nros setup native --rmw zenoh
 </code></pre>
 <p>See <a href="./installation.html">Install + first build (Linux)</a> for more.</p>
@@ -211,11 +213,12 @@ into a shared store — no ROS 2 needed):</p>
 <p>The talker is a <strong>standalone Cargo package</strong> that pulls nano-ros in
 via a path dependency. Three files matter:</p>
 <pre><code class="language-text">examples/native/rust/talker/
-├── Cargo.toml          # path dep on `nros` + `nros-rmw-zenoh`
+├── Cargo.toml          # registry-style deps + `nros sync` patch table
 ├── package.xml         # ROS-style manifest (drives codegen tooling)
 ├── generated/          # auto-generated message bindings (gitignored)
 └── src/
-    └── main.rs         # 60-line talker
+    ├── main.rs         # one line: nros::main!(spin = "forever")
+    └── lib.rs          # the ~65-line talker node body
 </code></pre>
 <p>POSIX talkers read the locator / domain from environment variables
 (<code>NROS_LOCATOR</code> — legacy alias <code>ZENOH_LOCATOR</code> — and <code>ROS_DOMAIN_ID</code>)
@@ -249,13 +252,14 @@ rmw-zenoh = ["dep:nros-rmw-zenoh", "nros-board-linux/rmw-zenoh"]
 
 [dependencies]
 nros = { version = "*", default-features = false,
-         features = ["std", "rmw-cffi", "ros-humble"] }
+         features = ["std", "alloc", "env", "rmw-cffi", "macros"] }
 nros-platform-cffi = { version = "*", features = ["posix-c-port"] }
 nros-board-linux = { version = "*", default-features = false }
 nros-rmw-zenoh = { version = "*", default-features = false,
                    features = ["std", "platform-posix", "ros-humble"],
                    optional = true }
-std_msgs = { version = "*", default-features = false }
+# The ONE non-registry dep: your own generated message crate, by path.
+std_msgs = { path = "generated/std_msgs", default-features = false }
 log = "0.4"
 env_logger = "0.11"
 
@@ -299,8 +303,9 @@ cargo build           # or: cargo build --release
 seconds.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
 <p>Three terminals (each command below blocks; keep them open):</p>
-<pre><code class="language-bash"># Terminal 1 — zenoh router. Blocks the shell until Ctrl-C.
-zenohd                               # installed by `nros setup native`
+<pre><code class="language-bash"># Terminal 1 — zenoh router (ROS 2's own). Blocks the shell until Ctrl-C.
+source /opt/ros/humble/setup.bash
+ros2 run rmw_zenoh_cpp rmw_zenohd    # or: just zenohd
 
 # Terminal 2 — the talker. The talker logs via `log::info!`, so set
 # RUST_LOG=info — without it `env_logger` only shows errors and the
@@ -308,25 +313,16 @@ zenohd                               # installed by `nros setup native`
 cd examples/native/rust/talker
 RUST_LOG=info cargo run
 # Expected output (on stderr):
-#   [INFO  talker] nros Native Talker
-#   [INFO  talker] =========================================
-#   [INFO  talker] Node created: talker
-#   [INFO  talker] Publisher created for topic: /chatter
 #   [INFO  talker] Publishing: 'Hello World: 1'
 #   [INFO  talker] Publishing: 'Hello World: 2'
 #   …
 </code></pre>
 <p>That’s the nano-ros side fully working. <strong>Optional step:</strong> verify
 interop with stock ROS 2.</p>
-<pre><code class="language-bash"># Terminal 3 — stock ROS 2 with rmw_zenoh_cpp. NOTE: rmw_zenoh_cpp
-# uses its OWN router daemon (`ros2 run rmw_zenoh_cpp rmw_zenohd`),
-# NOT the in-tree zenohd from terminal 1. They need to peer with
-# each other, or both clients need to point at the same router.
-# Simplest: stop terminal 1 and run only `rmw_zenohd` instead, then
-# launch the talker pointing at rmw_zenohd's port (default 7447).
+<pre><code class="language-bash"># Terminal 3 — stock ROS 2 with rmw_zenoh_cpp. It talks to the SAME
+# router already running in terminal 1 (default tcp/127.0.0.1:7447).
 source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
-ros2 run rmw_zenoh_cpp rmw_zenohd &amp;       # in its own subshell
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
@@ -344,10 +340,10 @@ seconds:</p>
 <li>Confirm <code>RUST_LOG</code> is set. Without <code>RUST_LOG=info</code> (or <code>debug</code>),
 <code>env_logger</code> filters out the <code>Publishing:</code> lines and the run looks
 silent even when it’s working.</li>
-<li>Confirm <code>zenohd</code> is running (terminal 1). Without it, the talker
+<li>Confirm the router is running (terminal 1). Without it, the talker
 blocks on <code>Executor::open</code> indefinitely.</li>
-<li>Re-run with <code>RUST_LOG=debug cargo run</code> and look for “Failed to
-open session” — usually a wrong locator or wrong port.</li>
+<li>Re-run with <code>RUST_LOG=debug cargo run</code> and look for “RMW session
+open failed” — usually a wrong locator or wrong port.</li>
 <li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
 <h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>

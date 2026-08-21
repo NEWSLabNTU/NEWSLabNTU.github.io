@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-a0e49e49.js";
+            window.path_to_searchindex_js = "../searchindex-0dbb3a8d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c16f0826.js"></script>
@@ -215,15 +215,19 @@ opportunities.</p>
 <p>For the other three models, the default has trade-offs the
 configuration knobs address.</p>
 <h2 id="configuration-knobs"><a class="header" href="#configuration-knobs">Configuration knobs</a></h2>
+<p>The knobs live on <strong><code>SpinOptions</code></strong> (passed to
+<code>Executor::spin_blocking(opts)</code>), not on <code>ExecutorConfig</code> — the config
+struct carries identity/transport (locator, domain, node name, clock),
+while scheduling shape is a property of each spin call:</p>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Knob</th><th>Default</th><th>When to change</th></tr>
 </thead>
 <tbody>
-<tr><td><code>ExecutorConfig::max_callbacks_per_spin</code></td><td><code>usize::MAX</code> (drain all)</td><td>Set to <code>1</code> for upstream-<code>rclcpp</code>-style “one callback per <code>spin_once</code>” — gives the executor a chance to re-check timers / GCs / yield between callbacks</td></tr>
-<tr><td><code>ExecutorConfig::time_budget_per_spin_ms</code></td><td><code>None</code> (no budget)</td><td>Set to fixed wall-clock budget for time-triggered apps — <code>drive_io</code> returns when the budget expires regardless of pending work</td></tr>
-<tr><td><code>ExecutorConfig::spin_period_ms</code></td><td>platform-dependent</td><td>Tighten for lower worst-case latency; loosen for less CPU spent in the spin loop</td></tr>
+<tr><td><code>SpinOptions::max_callbacks(n)</code></td><td><code>None</code> (drain all ready work)</td><td>Set to <code>1</code> for upstream-<code>rclcpp</code>-style “one callback per iteration” — gives the executor a chance to re-check timers / GCs / yield between callbacks</td></tr>
+<tr><td><code>SpinOptions::timeout_ms(ms)</code></td><td><code>None</code> (spin forever)</td><td>Bound one spin call by wall clock — the time-triggered pattern calls <code>spin_blocking</code> once per cycle with the cycle’s ROS slot as the timeout</td></tr>
+<tr><td><code>SpinOptions::spin_once()</code> / <code>only_next</code></td><td>off</td><td>One round of work then return — the cooperative-loop building block</td></tr>
 </tbody>
 </table>
 </div>
@@ -236,43 +240,33 @@ optimization.</p>
 <h3 id="cooperative-single-task"><a class="header" href="#cooperative-single-task">Cooperative single-task</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>ExecutorConfig {
-    max_callbacks_per_spin: usize::MAX,    // default — drain all
-    time_budget_per_spin_ms: None,         // default — no budget
-    spin_period_ms: 1,                     // tight loop on the dedicated task
-    ..Default::default()
-}
+</span>// One dedicated task; drain everything each round.
+executor.spin_blocking(SpinOptions::default())?;
 <span class="boring">}</span></code></pre>
-<p>Drain everything; one task, no fairness concern. Spin tightly to
-keep latency low.</p>
+<p>Drain everything; one task, no fairness concern.</p>
 <h3 id="preemptive-priority-rtos--recommended"><a class="header" href="#preemptive-priority-rtos--recommended">Preemptive priority RTOS — recommended</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>ExecutorConfig {
-    max_callbacks_per_spin: 1,             // one callback per spin_once
-    time_budget_per_spin_ms: None,
-    spin_period_ms: 1,
-    ..Default::default()
+</span>loop {
+    executor.spin_blocking(SpinOptions::new().max_callbacks(1))?;
 }
 <span class="boring">}</span></code></pre>
-<p><code>max_callbacks_per_spin = 1</code> matches upstream’s <code>rclcpp</code>
+<p><code>max_callbacks(1)</code> matches upstream’s <code>rclcpp</code>
 single-threaded executor pattern. Each <code>spin_once</code> fires one
 callback and then re-checks timers + GCs. ROS-internal entities
 share the task priority, but the spin-loop iteration is the
 scheduling unit; timer expiries are bounded by <em>one</em> callback’s
 WCET, not the sum across all ready callbacks.</p>
 <p>If max-callback dispatch latency is still too high in this profile
-(e.g., a single callback is slow), the next refinement is moving
-timer and guard-condition dispatch <em>into</em> <code>drive_io</code>’s loop so the
-<code>max_callbacks = 1</code> cap covers them too. This is the path where one
-slow sub callback no longer delays a timer that should have fired
-mid-callback.</p>
+(e.g., a single callback is slow), the remaining bound is that one
+callback’s WCET — split the slow callback, or move it to its own
+tier/task (see <a href="../internals/scheduling-models.html">Scheduling Models</a>).</p>
 <h3 id="wcet-bounded-real-time-rtic--embassy"><a class="header" href="#wcet-bounded-real-time-rtic--embassy">WCET-bounded real-time (RTIC / Embassy)</a></h3>
-<p>Don’t use the spin loop. Use the async path:</p>
+<p>Don’t use the spin loop. Use the async path — a buffered subscription
+handle whose <code>recv()</code> is an async fn with waker integration:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let executor = Executor::open_async(&amp;config)?;
-let sub = node.create_subscription_async::&lt;MyMsg&gt;("/topic")?;
+</span>let mut sub = node.create_subscription::&lt;MyMsg&gt;("/topic")?;
 loop {
     let msg = sub.recv().await?;        // suspends; waker integration
     handle(msg);
@@ -285,18 +279,14 @@ applies to each <code>recv().await</code> continuation, not to a spin loop.</p>
 <h3 id="time-triggered-cyclic"><a class="header" href="#time-triggered-cyclic">Time-triggered cyclic</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>ExecutorConfig {
-    max_callbacks_per_spin: usize::MAX,    // not the bottleneck here
-    time_budget_per_spin_ms: Some(5),      // 5 ms ROS budget per cycle
-    spin_period_ms: 5,                     // matches the cycle's ROS slot
-    ..Default::default()
-}
+</span>// Called once per cycle from the cyclic frame:
+executor.spin_blocking(SpinOptions::new().timeout_ms(5))?;   // 5 ms ROS slot
 <span class="boring">}</span></code></pre>
-<p>The cycle gives ROS a fixed wall-clock slot. <code>time_budget_per_spin_ms</code>
-bounds time spent in <code>drive_io</code> regardless of pending work. The
-backend respects the budget by checking elapsed wall-clock between
-callbacks and returning when exceeded. Pending work resumes next
-cycle.</p>
+<p>The cycle gives ROS a fixed wall-clock slot; the <code>timeout_ms</code> bound
+returns control when the slot expires regardless of pending work.
+Pending work resumes next cycle. (There is no finer-grained
+per-callback budget knob today — if a single callback can overrun the
+slot, that callback’s WCET is your design constraint.)</p>
 <h3 id="async-runtime"><a class="header" href="#async-runtime">Async runtime</a></h3>
 <p><code>drive_io</code> not used in the hot path. The executor’s <code>spin_async</code>
 drives futures via wakers; <code>drive_io</code> becomes a polling tick
@@ -313,9 +303,9 @@ internally with negligible overhead.</p>
 <tr><th>Configuration</th><th>Throughput</th><th>Per-callback latency</th><th>Timer-callback fairness</th><th>Code-size cost</th></tr>
 </thead>
 <tbody>
-<tr><td><code>max_callbacks = MAX</code> (default)</td><td>High</td><td>Bounded by ALL ready callbacks’ total WCET</td><td>Poor under load</td><td>Smallest</td></tr>
-<tr><td><code>max_callbacks = 1</code></td><td>Slightly lower (more spin loop iterations)</td><td>Bounded by ONE callback’s WCET</td><td>Good</td><td>Same — the cap is just an integer</td></tr>
-<tr><td><code>time_budget = Some(N)</code></td><td>Lower (clock reads per callback)</td><td>Bounded by N ms wall clock</td><td>Good if N tight, fair if N loose</td><td>One clock read per callback (~10–50 ns)</td></tr>
+<tr><td>drain-all (default)</td><td>High</td><td>Bounded by ALL ready callbacks’ total WCET</td><td>Poor under load</td><td>Smallest</td></tr>
+<tr><td><code>max_callbacks(1)</code></td><td>Slightly lower (more spin loop iterations)</td><td>Bounded by ONE callback’s WCET</td><td>Good</td><td>Same — the cap is just an integer</td></tr>
+<tr><td><code>timeout_ms(N)</code> per cycle</td><td>Lower</td><td>Bounded by N ms wall clock + one callback’s WCET</td><td>Good if N tight</td><td>One clock read per iteration</td></tr>
 <tr><td>async / <code>spin_async</code></td><td>Per-future</td><td>Per-future Future poll</td><td>Cooperative — futures yield voluntarily</td><td>Async runtime cost</td></tr>
 </tbody>
 </table>

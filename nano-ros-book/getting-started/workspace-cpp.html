@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-a0e49e49.js";
+            window.path_to_searchindex_js = "../searchindex-0dbb3a8d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c16f0826.js"></script>
@@ -227,7 +227,7 @@ Copy the whole directory, rename the packages.</p>
     │   └── launch/system.launch.xml
     └── native_entry/             # Entry pkg (C++)
         ├── package.xml
-        ├── CMakeLists.txt        # nano_ros_entry(MODEL …)
+        ├── CMakeLists.txt        # nano_ros_entry(BRINGUP … LAUNCH …)
         └── src/main.cpp          # NROS_MAIN(…) one-liner
 </code></pre>
 <h2 id="workspace-root"><a class="header" href="#workspace-root">Workspace root</a></h2>
@@ -349,8 +349,9 @@ turtlebot3 pastes in modulo unsupported tags.</p>
 </code></pre>
 <h2 id="entry-pkg"><a class="header" href="#entry-pkg">Entry pkg</a></h2>
 <p>The C++ Entry pkg’s <code>CMakeLists.txt</code> calls
-<code>nano_ros_entry(MODEL …)</code> — the canonical input is the resolved SystemModel
-(the deprecated <code>LAUNCH</code> keyword still works while the migration completes):</p>
+<code>nano_ros_entry(BRINGUP … LAUNCH …)</code> — you name the input, and the entry
+bakes from the SystemModel that <code>nros sync</code> resolved from it (<code>MODEL</code> is
+the deprecated artifact-naming override):</p>
 <pre><code class="language-cmake"># src/native_entry/CMakeLists.txt
 cmake_minimum_required(VERSION 3.22)
 project(native_entry LANGUAGES C CXX)
@@ -359,7 +360,9 @@ nano_ros_workspace_pkg_guard()
 nano_ros_entry(
     NAME    native_entry
     SOURCES src/main.cpp                              # user-authored
-    MODEL   "${CMAKE_CURRENT_SOURCE_DIR}/../demo_bringup/config/system_model.yaml"
+    BOARD   native
+    BRINGUP "${CMAKE_CURRENT_SOURCE_DIR}/../demo_bringup"
+    LAUNCH  default
     DEPLOY  native)
 </code></pre>
 <p>At configure time the cmake fn shells <code>nros codegen entry --lang cpp --typed</code>,
@@ -368,21 +371,25 @@ emits <code>${CMAKE_BINARY_DIR}/native_entry_nros_main_generated.cpp</code> (the
 <code>configure(node)</code> on the real executor via <code>LinuxBoard::run_components</code>),
 appends it to the target’s sources, and auto-links every
 <code>&lt;pkg&gt;_&lt;exec&gt;_component</code> static lib the launch XML named (Phase 219.J).</p>
-<h3 id="model--the-canonical-resolved-artifact-path"><a class="header" href="#model--the-canonical-resolved-artifact-path"><code>MODEL</code> — the canonical resolved-artifact path</a></h3>
-<p><code>LAUNCH</code> re-parses the launch XML + <code>system.toml</code> at configure time. The
-<strong>canonical</strong> path is <code>MODEL</code>: bake from a resolved
-<code>system_model.yaml</code> committed in the Bringup pkg, so the same artifact drives
-the Linux runtime and every embedded image (contracts, tiers, QoS never drift).
-The two keywords are mutually exclusive:</p>
-<pre><code class="language-cmake">nano_ros_add_executable(
-    native_entry
+<h3 id="bringup--launch--name-your-input-canonical"><a class="header" href="#bringup--launch--name-your-input-canonical"><code>BRINGUP</code> + <code>LAUNCH</code> — name your input (canonical)</a></h3>
+<p>The canonical spelling names your <em>input</em>: the Bringup package and a
+launch selector. <code>nros sync</code> resolves that into a SystemModel build
+artifact (under <code>&lt;ws&gt;/build/nros/models/&lt;bringup&gt;/</code> — never committed;
+gate <code>check-no-tracked-models</code>), and the entry bakes from it, so the
+same artifact drives the Linux runtime and every embedded image
+(contracts, tiers, QoS never drift). <code>MODEL</code> — naming the resolved
+artifact file directly — is a deprecated expert override; the two are
+mutually exclusive. This is the shape the shipped workspace uses:</p>
+<pre><code class="language-cmake">nano_ros_add_executable(native_entry
     SOURCES src/main.cpp
     BOARD   native
-    MODEL   "${CMAKE_CURRENT_SOURCE_DIR}/src/demo_bringup/config/system_model.yaml"
+    BRINGUP "${CMAKE_CURRENT_SOURCE_DIR}/../demo_bringup"
+    LAUNCH  default
     TYPED
     DEPLOY  native)
 </code></pre>
-<p>Resolve the model once (<code>nros sync</code>, or explicitly <code>nros-launch-resolve … --system … -o config/system_model.yaml</code>) and commit it. The user’s <code>main.cpp</code> is a single
+<p><code>nros sync</code> resolves/refreshes the model whenever the bringup’s launch
+XML or <code>system.toml</code> is newer than it. The user’s <code>main.cpp</code> is a single
 declarative line:</p>
 <pre><code class="language-cpp">// src/native_entry/src/main.cpp
 #include &lt;nros/main.hpp&gt;
@@ -397,7 +404,6 @@ body, the user’s TU is documentation + IDE hint.</p>
 <pre><code class="language-bash"># `nros sync` resolves the SystemModel (via the pinned nros-launch-resolve
 # helper) whenever the launch XML or system.toml is newer than the model.
 nros sync
-nros codegen-system --bringup demo_bringup --model src/demo_bringup/config/system_model.yaml
 cmake -S . -B build -DNANO_ROS_ROOT=&lt;path-to-nano-ros&gt;
 cmake --build build
 ./build/src/native_entry/native_entry
