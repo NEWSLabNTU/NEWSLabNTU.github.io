@@ -1,11 +1,8 @@
 var searchData=
 [
-  ['send_5freply_0',['send_reply',['../structnros__rmw__vtable__t.html#a3251d91b4a28d186f0796d479af95c74',1,'nros_rmw_vtable_t']]],
-  ['send_5frequest_5fraw_1',['send_request_raw',['../structnros__rmw__vtable__t.html#a93227a6eda0b680db72672ce488f16e3',1,'nros_rmw_vtable_t']]],
-  ['service_5fname_2',['service_name',['../structnros__rmw__service__t.html#a3d461f5e5ad3a8e25c358841a2975486',1,'nros_rmw_service_t::service_name'],['../structnros__rmw__client__t.html#a2d7caeda02282d18bd49f4ceda60ad43',1,'nros_rmw_client_t::service_name']]],
-  ['service_5fserver_5favailable_3',['service_server_available',['../structnros__rmw__vtable__t.html#afd06f07984771cb00861e25c3078efce',1,'nros_rmw_vtable_t']]],
-  ['set_5fwake_5fcallback_4',['set_wake_callback',['../structnros__rmw__vtable__t.html#ac232784d27b51260db5b6822b784652e',1,'nros_rmw_vtable_t']]],
-  ['sub_5fborrow_5',['sub_borrow',['../structnros__rmw__vtable__t.html#a7304cd3726fe9ae3c85cdc83f48314cb',1,'nros_rmw_vtable_t']]],
-  ['sub_5frelease_6',['sub_release',['../structnros__rmw__vtable__t.html#a29c7eb9bb4ae30c97a2e884749696d8a',1,'nros_rmw_vtable_t']]],
-  ['subscription_5fsupports_5fin_5fplace_7',['subscription_supports_in_place',['../structnros__rmw__vtable__t.html#a79b0b16e56db6c695f8529ba73885b34',1,'nros_rmw_vtable_t']]]
+  ['read_0',['read',['../structnros__transport__ops__t.html#ad34a520c1560fe2684427f535b356055',1,'nros_transport_ops_t']]],
+  ['register_5fpublisher_5fevent_1',['register_publisher_event',['../structnros__rmw__vtable__t.html#a2d21ab25623294fe6645e67d4a77803e',1,'nros_rmw_vtable_t']]],
+  ['register_5fsubscription_5fevent_2',['register_subscription_event',['../structnros__rmw__vtable__t.html#a23a1c468036ae3c2df38580c2f9a9149',1,'nros_rmw_vtable_t']]],
+  ['reliability_3',['reliability',['../structnros__rmw__qos__t.html#a23c693f9d82509ff7a74408358d8da19',1,'nros_rmw_qos_t']]],
+  ['rx_5fbuffer_5fhint_4',['rx_buffer_hint',['../structnros__rmw__subscription__options__t.html#a2a5dbc6e71c35605728c198e51231a31',1,'nros_rmw_subscription_options_t']]]
 ];

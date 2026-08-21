@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['quick_20start_0',['Quick start',['../index.html#autotoc_md0',1,'']]]
+  ['implementors_0',['Rust implementors',['../index.html#autotoc_md11',1,'']]]
 ];

@@ -1,5 +1,4 @@
 var searchData=
 [
-  ['pitfalls_0',['Pitfalls',['../index.html#autotoc_md4',1,'']]],
-  ['platform_20cffi_1',['nros platform-cffi',['../index.html',1,'']]]
+  ['handle_20model_0',['Handle model',['../platform__timer_8h.html#autotoc_md5',1,'']]]
 ];

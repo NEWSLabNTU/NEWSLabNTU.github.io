@@ -1,7 +1,5 @@
 var searchData=
 [
-  ['see_20also_0',['See also',['../index.html#autotoc_md5',1,'']]],
-  ['start_1',['Quick start',['../index.html#autotoc_md0',1,'']]],
-  ['strategy_2',['Stub strategy',['../index.html#autotoc_md2',1,'']]],
-  ['stub_20strategy_3',['Stub strategy',['../index.html#autotoc_md2',1,'']]]
+  ['mainpage_2emd_0',['mainpage.md',['../mainpage_8md.html',1,'']]],
+  ['model_1',['Handle model',['../platform__timer_8h.html#autotoc_md5',1,'']]]
 ];

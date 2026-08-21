@@ -1,12 +1,11 @@
 var searchData=
 [
-  ['topic_5fname_0',['topic_name',['../structnros__rmw__publisher__t.html#ad3649b7ef293ac3834ef7a727bc7bf51',1,'nros_rmw_publisher_t::topic_name'],['../structnros__rmw__subscription__t.html#a6600c08df50bbd215e6cbb36ac5cd789',1,'nros_rmw_subscription_t::topic_name']]],
-  ['total_5fcount_1',['total_count',['../structnros__rmw__count__status__t.html#a99719d2bc66f3109e934dc29ae1b8575',1,'nros_rmw_count_status_t']]],
-  ['total_5fcount_5fchange_2',['total_count_change',['../structnros__rmw__count__status__t.html#a69cc14deeaa51846c98b766d588270d8',1,'nros_rmw_count_status_t']]],
-  ['try_5frecv_5fraw_3',['try_recv_raw',['../structnros__rmw__vtable__t.html#af26e585c01cd1b39a5e40fb0120f83fe',1,'nros_rmw_vtable_t']]],
-  ['try_5frecv_5freply_5fraw_4',['try_recv_reply_raw',['../structnros__rmw__vtable__t.html#a51a0ac377177c39036d766ad7581f512',1,'nros_rmw_vtable_t']]],
-  ['try_5frecv_5frequest_5',['try_recv_request',['../structnros__rmw__vtable__t.html#a92887442798f7be528b512bf8dcb41b1',1,'nros_rmw_vtable_t']]],
-  ['try_5frecv_5fsequence_6',['try_recv_sequence',['../structnros__rmw__vtable__t.html#ac62d72399296472668d6ea7abe04972a',1,'nros_rmw_vtable_t']]],
-  ['tx_5fexpress_7',['tx_express',['../structnros__rmw__publisher__options__t.html#a8f8e334571015d4691f93cf8c722c342',1,'nros_rmw_publisher_options_t']]],
-  ['type_5fname_8',['type_name',['../structnros__rmw__publisher__t.html#a588d4e214409f41efcd371be7bc09bc0',1,'nros_rmw_publisher_t::type_name'],['../structnros__rmw__subscription__t.html#ab462424d7dfc7f498edbe5f7199e8a7c',1,'nros_rmw_subscription_t::type_name'],['../structnros__rmw__service__t.html#a6c511e064a5540c54c8c3163c0e3724f',1,'nros_rmw_service_t::type_name'],['../structnros__rmw__client__t.html#a8bbd62272793b4b416b205aacbd813f8',1,'nros_rmw_client_t::type_name']]]
+  ['send_5freply_0',['send_reply',['../structnros__rmw__vtable__t.html#a3251d91b4a28d186f0796d479af95c74',1,'nros_rmw_vtable_t']]],
+  ['send_5frequest_5fraw_1',['send_request_raw',['../structnros__rmw__vtable__t.html#a93227a6eda0b680db72672ce488f16e3',1,'nros_rmw_vtable_t']]],
+  ['service_5fname_2',['service_name',['../structnros__rmw__service__t.html#a3d461f5e5ad3a8e25c358841a2975486',1,'nros_rmw_service_t::service_name'],['../structnros__rmw__client__t.html#a2d7caeda02282d18bd49f4ceda60ad43',1,'nros_rmw_client_t::service_name']]],
+  ['service_5fserver_5favailable_3',['service_server_available',['../structnros__rmw__vtable__t.html#afd06f07984771cb00861e25c3078efce',1,'nros_rmw_vtable_t']]],
+  ['set_5fwake_5fcallback_4',['set_wake_callback',['../structnros__rmw__vtable__t.html#ac232784d27b51260db5b6822b784652e',1,'nros_rmw_vtable_t']]],
+  ['sub_5fborrow_5',['sub_borrow',['../structnros__rmw__vtable__t.html#a7304cd3726fe9ae3c85cdc83f48314cb',1,'nros_rmw_vtable_t']]],
+  ['sub_5frelease_6',['sub_release',['../structnros__rmw__vtable__t.html#a29c7eb9bb4ae30c97a2e884749696d8a',1,'nros_rmw_vtable_t']]],
+  ['subscription_5fsupports_5fin_5fplace_7',['subscription_supports_in_place',['../structnros__rmw__vtable__t.html#a79b0b16e56db6c695f8529ba73885b34',1,'nros_rmw_vtable_t']]]
 ];

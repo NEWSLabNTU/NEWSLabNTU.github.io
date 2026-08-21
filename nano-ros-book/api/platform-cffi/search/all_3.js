@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['mainpage_2emd_0',['mainpage.md',['../mainpage_8md.html',1,'']]]
+  ['endpoints_0',['Sockets + endpoints',['../platform__net_8h.html#autotoc_md2',1,'']]]
 ];

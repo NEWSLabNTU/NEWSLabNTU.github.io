@@ -1,0 +1,25 @@
+var searchData=
+[
+  ['nros_5fplatform_5fcondvar_5fstorage_5fsize_0',['NROS_PLATFORM_CONDVAR_STORAGE_SIZE',['../platform_8h.html#a4a41d1af62f21629af4484302decb5ab',1,'platform.h']]],
+  ['nros_5fplatform_5fhas_5fatomics_1',['NROS_PLATFORM_HAS_ATOMICS',['../platform_8h.html#a7923b1f6dfeda17afffae3c6ca5c9df7',1,'platform.h']]],
+  ['nros_5fplatform_5fhas_5fmalloc_2',['NROS_PLATFORM_HAS_MALLOC',['../platform_8h.html#a5392fe5de28c84d3a9f80698a664e58e',1,'platform.h']]],
+  ['nros_5fplatform_5fmutex_5frec_5fstorage_5fsize_3',['NROS_PLATFORM_MUTEX_REC_STORAGE_SIZE',['../platform_8h.html#ae4499967c980447f9552b39f39bb47a5',1,'platform.h']]],
+  ['nros_5fplatform_5fmutex_5fstorage_5fsize_4',['NROS_PLATFORM_MUTEX_STORAGE_SIZE',['../platform_8h.html#aa416fda79f45fae3ee10c2069ac830ff',1,'platform.h']]],
+  ['nros_5fplatform_5fnet_5fsocket_5ferror_5',['NROS_PLATFORM_NET_SOCKET_ERROR',['../platform__net_8h.html#ad37124c9f464ca95e3c9e5b8048c9f89',1,'platform_net.h']]],
+  ['nros_5fplatform_5fnoreturn_6',['NROS_PLATFORM_NORETURN',['../platform_8h.html#a6ab62436b0bc60ac5e61189fe821d438',1,'platform.h']]],
+  ['nros_5fplatform_5fpriority_5finherit_7',['NROS_PLATFORM_PRIORITY_INHERIT',['../platform_8h.html#a0fb1817938ba6bd06a1a25f3c61fa3cf',1,'platform.h']]],
+  ['nros_5fplatform_5fpriority_5fis_5fraw_8',['NROS_PLATFORM_PRIORITY_IS_RAW',['../platform_8h.html#a2a864205752568f0297cda6237b66dbf',1,'platform.h']]],
+  ['nros_5fplatform_5fpriority_5fmax_9',['NROS_PLATFORM_PRIORITY_MAX',['../platform_8h.html#ada58be72ab3c44e1cee647d24f882192',1,'platform.h']]],
+  ['nros_5fplatform_5fpriority_5fmin_10',['NROS_PLATFORM_PRIORITY_MIN',['../platform_8h.html#aea594c8d99522fbe0a29e51cf4ea43ed',1,'platform.h']]],
+  ['nros_5fplatform_5fpriority_5fraw_11',['NROS_PLATFORM_PRIORITY_RAW',['../platform_8h.html#a7241271e5e790dd10e5acdcc26e7adf2',1,'platform.h']]],
+  ['nros_5fplatform_5fpriority_5fraw_5fvalue_12',['NROS_PLATFORM_PRIORITY_RAW_VALUE',['../platform_8h.html#aec5d531c18779e49d9966ae6d2d2b766',1,'platform.h']]],
+  ['nros_5fplatform_5fret_5ferror_13',['NROS_PLATFORM_RET_ERROR',['../platform_8h.html#a16cb561c24cc588ddc84494aa212d0e7',1,'platform.h']]],
+  ['nros_5fplatform_5fret_5finvalid_14',['NROS_PLATFORM_RET_INVALID',['../platform_8h.html#a75fe24e43ffc6cacd35e163b0a6ba7e8',1,'platform.h']]],
+  ['nros_5fplatform_5fret_5fnomem_15',['NROS_PLATFORM_RET_NOMEM',['../platform_8h.html#a5441ba610f1c96fbd5e360c9d00d6898',1,'platform.h']]],
+  ['nros_5fplatform_5fret_5fok_16',['NROS_PLATFORM_RET_OK',['../platform_8h.html#adbf86f8f31b1794647f5b65ac473aa47',1,'platform.h']]],
+  ['nros_5fplatform_5fret_5ftimeout_17',['NROS_PLATFORM_RET_TIMEOUT',['../platform_8h.html#a7fcdf6ff139c872ca7ac7800b2be413e',1,'platform.h']]],
+  ['nros_5fplatform_5fret_5funsupported_18',['NROS_PLATFORM_RET_UNSUPPORTED',['../platform_8h.html#af06689f47a5a82c14099a1f0c95b7af0',1,'platform.h']]],
+  ['nros_5fplatform_5fstorage_5falign_19',['NROS_PLATFORM_STORAGE_ALIGN',['../platform_8h.html#add2ddc2601bae613eeebefb21d549a11',1,'platform.h']]],
+  ['nros_5fplatform_5ftask_5fdetached_20',['NROS_PLATFORM_TASK_DETACHED',['../platform_8h.html#abd5cef134c3c210584b45fe0588a75ba',1,'platform.h']]],
+  ['nros_5fplatform_5ftask_5fstorage_5fsize_21',['NROS_PLATFORM_TASK_STORAGE_SIZE',['../platform_8h.html#a35019bfbd853d86523a7c0f1d5dac889',1,'platform.h']]]
+];
