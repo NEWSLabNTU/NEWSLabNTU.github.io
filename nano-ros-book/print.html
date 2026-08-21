@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d5a30776.js";
+            window.path_to_searchindex_js = "searchindex-c80f0b28.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-9ecca49b.js"></script>
@@ -1138,13 +1138,27 @@ package</a></li>
 <p>You write a ROS 2 msg package <strong>once</strong>. The same <code>src/my_msgs/</code> directory
 builds under both:</p>
 <ul>
-<li><code>colcon build</code> — upstream <code>rosidl_default_generators</code> produces the
-upstream-ROS bindings.</li>
 <li>a nano-ros build — <code>rosidl_generate_interfaces(...)</code> is intercepted by
-nano-ros’s wrapper and routed through nano-ros codegen.</li>
+nano-ros’s wrapper and routed through nano-ros codegen. <strong>No ROS 2
+install needed</strong> — even the <code>rclcpp</code>-shaped consumer below compiles
+against nano-ros’s source-compat layer.</li>
+<li><code>colcon build</code> — upstream <code>rosidl_default_generators</code> produces the
+upstream-ROS bindings (this half, and only this half, needs a ROS 2
+install; it is the optional cross-build proof at the end).</li>
 </ul>
 <p>Different build systems, identical source tree. No nano-ros-specific
 files in the msg package.</p>
+<blockquote>
+<p><strong>Where this fits.</strong> This chapter uses ROS 2 vocabulary
+(<code>ament_cmake</code>, <code>rosidl</code>, <code>rclcpp</code>) because its point is that stock
+ROS shapes work unchanged. If you came straight from
+<a href="#first-project">First Project</a> and none of that means anything
+yet, you can skim to “The Rust side” below or skip ahead to
+<a href="#first-node--rust-linux">First Node — Rust</a> and return later. The
+standalone tree here is for clarity — in your scaffolded <code>my_robot</code>
+workspace the same drop-in applies: put <code>src/my_msgs/</code> next to your
+node packages.</p>
+</blockquote>
 <h2 id="the-msg-package--stock-ros-shape"><a class="header" href="#the-msg-package--stock-ros-shape">The msg package — stock ROS shape</a></h2>
 <p>Drop a verbatim ROS msg pkg under <code>src/</code> of your workspace:</p>
 <pre><code>src/my_msgs/
@@ -1280,7 +1294,19 @@ add_subdirectory(src/my_app)
 cmake --build build -j
 ./build/src/my_app/my_app
 </code></pre>
-<h2 id="cross-build-proof--same-source-under-colcon"><a class="header" href="#cross-build-proof--same-source-under-colcon">Cross-build proof — same source under colcon</a></h2>
+<h2 id="the-rust-side"><a class="header" href="#the-rust-side">The Rust side</a></h2>
+<p>The same msg package feeds a Rust node with no CMake involved: declare
+it in your node package’s <code>package.xml</code> (<code>&lt;depend&gt;my_msgs&lt;/depend&gt;</code>)
+and manifest (<code>my_msgs = { path = "../../generated/my_msgs", version = "0.0.0", default-features = false }</code> — workspace-level <code>generated/</code>,
+constant <code>0.0.0</code> version), then run <code>nros sync</code> from the workspace
+root — the package index finds <code>src/my_msgs/</code> by its <code>package.xml</code>,
+generates the <code>generated/my_msgs</code> crate, and wires the cargo patch
+table. The shipped precedent is
+<code>examples/workspaces/features/src/custom_msgs/</code> with its
+<code>rust_reading_listener_pkg</code> consumer. Full
+detail: <a href="#message-binding-generation">Message Generation</a>.</p>
+<pre><code class="language-rust ignore">use my_msgs::msg::MyMsg;   // generated crate, same field names</code></pre>
+<h2 id="cross-build-proof--same-source-under-colcon-optional-needs-ros-2"><a class="header" href="#cross-build-proof--same-source-under-colcon-optional-needs-ros-2">Cross-build proof — same source under colcon (optional; needs ROS 2)</a></h2>
 <pre><code class="language-sh">cd src &amp;&amp; colcon build
 </code></pre>
 <p><code>src/my_msgs/</code> produces the upstream <code>my_msgs</code> bindings; <code>src/my_app/</code>
@@ -10402,7 +10428,7 @@ west --version
 <p><strong>Symptom</strong>: When a Zephyr listener receives a message, the application crashes with a segfault or produces garbage values when accessing struct fields. Debug output may show valid pointers but invalid field values:</p>
 <pre><code>bsp_zephyr: sub-&gt;callback=0x60, sub-&gt;user_data=0x4  # These should be valid addresses!
 </code></pre>
-<p><strong>Root Cause</strong>: The C BSP stores a pointer to the <code>nros_subscriber_t</code> struct when you call <code>nros_bsp_create_subscriber()</code>. If the Rust code moves the struct after this call (e.g., when returning it from a function), the C code’s pointer becomes dangling.</p>
+<p><strong>Root Cause</strong>: Your C glue stores a pointer to the <code>nros_subscription_t</code> struct when you hand it to a registration call. If the Rust code moves the struct after that (e.g., when returning it from a function), the C side’s pointer becomes dangling.</p>
 <p>In Rust, values are moved by default:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -15237,7 +15263,7 @@ let reply = promise.wait(&amp;mut executor, 5000)?;  // blocks up to 5s, drives 
     // user can also: poll smoltcp, service interrupts, run other tasks, sleep
 }</code></pre>
 <p>Convenience wrappers (<code>spin(count)</code>, <code>spin_blocking(opts)</code>, <code>spin_period(duration)</code>) exist for desktop-style use cases, but each is implemented as a <code>spin_once()</code> loop that the user could write by hand. On <code>no_std</code> targets they aren’t available – the user writes the loop.</p>
-<p>This is the reason every blocking API in nros takes <code>&amp;mut Executor</code>. <code>Promise::wait</code>, <code>Stream::wait_next</code>, <code>Client::call_blocking</code>, the C++ <code>Future::wait(executor.handle(), ...)</code>, and the C <code>nros_call_service(..., timeout_ms)</code> all internally call <code>spin_once()</code> to keep I/O moving while waiting. They cannot rely on a background thread doing it for them, because there is none.</p>
+<p>This is the reason every blocking API in nros takes <code>&amp;mut Executor</code>. <code>Promise::wait</code>, <code>Stream::wait_next</code>, <code>Client::call_blocking</code>, the C++ <code>Future::wait(executor.handle(), ...)</code>, and the C <code>nros_client_call(..., timeout_ms)</code> all internally call <code>spin_once()</code> to keep I/O moving while waiting. They cannot rely on a background thread doing it for them, because there is none.</p>
 <h2 id="executor-is-the-session-owner-not-a-singleton"><a class="header" href="#executor-is-the-session-owner-not-a-singleton">Executor is the session owner, not a singleton</a></h2>
 <p>In rclcpp, the <code>Executor</code> is a <em>separate</em> object that you attach nodes to (<code>exec.add_node(node)</code>). The node owns its own RMW context. Multiple executor classes (<code>SingleThreadedExecutor</code>, <code>MultiThreadedExecutor</code>, <code>StaticSingleThreadedExecutor</code>) exist as parallel implementations.</p>
 <p>In nano-ros, the <code>Executor</code> <em>is</em> the RMW session owner. Calling <code>Executor::open(&amp;config)</code> opens the transport; nodes are derived from the executor:</p>
@@ -16158,7 +16184,8 @@ with the <code>message_info()</code> builder:
     })?;
 <span class="boring">}</span></code></pre>
 C mirrors this with <code>nros_executor_register_subscription_raw_with_info</code>
-(the callback receives a <code>nros_raw_message_info_t</code>).</li>
+(the callback receives the payload plus the attachment/metadata
+arguments directly — there is no info struct on the C side).</li>
 <li><strong>What’s carved out.</strong> The hot <code>try_recv_raw</code> vtable slot returns
 bytes ONLY. The metadata rides a separate <code>MessageInfoSlot</code>
 side-channel that the backend populates from its native attachment /
@@ -16700,7 +16727,7 @@ match. Adding a capability means adding a row to <strong>every</strong> column.<
 <tr><td>Critical section</td><td><code>PlatformCriticalSection</code></td><td>per-CPU interrupt mask</td><td><code>nros_platform_critical_section_{acquire,release}</code></td></tr>
 <tr><td>Scheduler</td><td><code>PlatformScheduler</code></td><td>task hints</td><td><code>nros_platform_scheduler_*</code></td></tr>
 <tr><td>Time</td><td><code>PlatformTime</code></td><td>wall-clock</td><td><code>nros_platform_time_ns</code></td></tr>
-<tr><td>Yield</td><td><code>PlatformYield</code></td><td>cooperative yield</td><td><code>nros_platform_yield</code></td></tr>
+<tr><td>Yield</td><td><code>PlatformYield</code></td><td>cooperative yield</td><td><code>nros_platform_yield_now</code></td></tr>
 <tr><td>Random</td><td><code>PlatformRandom</code></td><td>best-effort RNG</td><td><code>nros_platform_random_*</code></td></tr>
 <tr><td>Wake</td><td><code>PlatformThreading</code> (wake methods)</td><td>opaque binary-semaphore</td><td><code>nros_platform_wake_{init,drop,wait_ms,signal,signal_from_isr,storage_size,storage_align}</code></td></tr>
 </tbody>
@@ -21200,7 +21227,7 @@ plus the <code>nros::prelude</code> glob-import.</p>
 <a href="#two-layer-api">Two-Layer API</a> — concept page
 with the verb discipline and per-layer use cases.</li>
 <li>Executor-driven app? → <a href="api/rust/nros/struct.Executor.html"><code>nros::Executor</code></a></li>
-<li>Async/<code>spin_async</code>? → <a href="api/rust/nros/index.html"><code>nros::dds_async</code></a> (re-exports of the async surface)</li>
+<li>Async/<code>spin_async</code>? → the async surface lives on <a href="api/rust/nros/struct.Executor.html"><code>nros::Executor</code></a> and the entity handles (<code>recv().await</code>, <code>call().await</code>) — see the crate root docs</li>
 </ul>
 <h2 id="generating-locally"><a class="header" href="#generating-locally">Generating locally</a></h2>
 <pre><code class="language-bash">cargo doc --no-deps -p nros --open
