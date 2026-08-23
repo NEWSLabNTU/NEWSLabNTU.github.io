@@ -8,7 +8,6 @@ var searchData=
   ['set_5fwake_5fcallback_5',['set_wake_callback',['../structnros__rmw__vtable__t.html#ac232784d27b51260db5b6822b784652e',1,'nros_rmw_vtable_t']]],
   ['start_6',['Quick start',['../index.html#autotoc_md3',1,'']]],
   ['structure_7',['Vtable structure',['../index.html#autotoc_md4',1,'']]],
-  ['sub_5fborrow_8',['sub_borrow',['../structnros__rmw__vtable__t.html#a7304cd3726fe9ae3c85cdc83f48314cb',1,'nros_rmw_vtable_t']]],
-  ['sub_5frelease_9',['sub_release',['../structnros__rmw__vtable__t.html#a29c7eb9bb4ae30c97a2e884749696d8a',1,'nros_rmw_vtable_t']]],
-  ['subscription_5fsupports_5fin_5fplace_10',['subscription_supports_in_place',['../structnros__rmw__vtable__t.html#a2f89f7530a472943a21d8bcb580461bc',1,'nros_rmw_vtable_t']]]
+  ['sub_5frelease_8',['sub_release',['../structnros__rmw__vtable__t.html#a29c7eb9bb4ae30c97a2e884749696d8a',1,'nros_rmw_vtable_t']]],
+  ['subscription_5fsupports_5fin_5fplace_9',['subscription_supports_in_place',['../structnros__rmw__vtable__t.html#a2f89f7530a472943a21d8bcb580461bc',1,'nros_rmw_vtable_t']]]
 ];
