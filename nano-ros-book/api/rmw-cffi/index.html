@@ -126,7 +126,7 @@ Vtable structure</h1>
 <ul>
 <li><b>Session</b> — <code>create_session</code>, <code>destroy_session</code>, <code>drive_io</code>. <code>drive_io(timeout_ms)</code> is the executor's I/O drive call; it must dispatch any pending receive/send work and return within the given timeout.</li>
 <li><b>Publisher</b> — <code>create_publisher</code>, <code>destroy_publisher</code>, <code>publish_raw</code>. Raw payloads are CDR-encoded by the upper layer.</li>
-<li><b>Subscription</b> — <code>create_subscription</code>, <code>destroy_subscription</code>, <code>try_recv_raw</code>, <code>has_data</code>. <code>try_recv_raw</code> is non-blocking; return <code>0</code> if no data is ready.</li>
+<li><b>Subscription</b> — <code>create_subscription</code>, <code>destroy_subscription</code>, <code>take</code>, <code>has_data</code>. <code>take</code> is non-blocking; report <code>taken = false</code> with <code>NROS_RMW_RET_OK</code> when no data is ready (phase 376 W3.d retired the <code>NROS_RMW_RET_NO_DATA</code> sentinel here — see below).</li>
 <li><b>Service</b> — <code>create_service</code>, <code>destroy_service</code>, <code>try_recv_request</code>, <code>has_request</code>, <code>send_reply</code>. The <code>seq_out</code> parameter on <code>try_recv_request</code> carries the request sequence number forwarded back to <code>send_reply</code>.</li>
 <li><b>Client</b> — <code>create_client</code>, <code>destroy_client</code>, <code>send_request_raw</code>, <code>try_recv_reply_raw</code> (non-blocking pair; the executor drives I/O between them — there is no blocking call slot).</li>
 </ul>
@@ -136,9 +136,9 @@ Return-value conventions</h1>
 <div class="fragment"><div class="line">create_session           non-NULL = success, NULL = error</div>
 <div class="line">destroy_session/drive_io/</div>
 <div class="line">  publish_raw/send_reply NROS_RMW_RET_OK = success, negative = named error code</div>
-<div class="line">try_recv_raw             &gt;= 0 = bytes received (0 = no data), negative = named error code</div>
+<div class="line">take                     NROS_RMW_RET_OK + *taken / *out_len; negative = named error code</div>
 <div class="line">try_recv_request         &gt;= 0 = bytes received (seq_out written), negative = named error code</div>
-<div class="line">has_data/has_request     1 = yes, 0 = no</div>
+<div class="line">has_data/has_request     NROS_RMW_RET_OK + *out_has_{data,request}; negative = named error</div>
 <div class="line">send_request_raw         NROS_RMW_RET_OK = queued, negative = named error code</div>
 <div class="line">try_recv_reply_raw       &gt;= 0 = reply bytes, NO_DATA = not yet, negative = error</div>
 <div class="line">destroy_*                void (best-effort cleanup)</div>
@@ -149,7 +149,7 @@ Threading</h1>
 <ul>
 <li>The vtable itself is registered once and read concurrently. Function pointers must be safe to invoke from any executor thread.</li>
 <li><code>drive_io</code> may block up to <code>timeout_ms</code>; it must not hold application locks across the wait.</li>
-<li><code>publish_raw</code>, <code>try_recv_raw</code>, and <code>send_reply</code> may run concurrently from different threads — the backend is responsible for any required serialisation.</li>
+<li><code>publish_raw</code>, <code>take</code>, and <code>send_reply</code> may run concurrently from different threads — the backend is responsible for any required serialisation.</li>
 <li><code>send_request_raw</code> / <code>try_recv_reply_raw</code> are non-blocking; the executor drives I/O between them.</li>
 </ul>
 <h1><a class="anchor" id="autotoc_md7"></a>
