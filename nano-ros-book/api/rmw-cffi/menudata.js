@@ -66,7 +66,8 @@ var menudata={children:[
 {text:"File List",url:"files.html"},
 {text:"Globals",url:"globals.html",children:[
 {text:"All",url:"globals.html",children:[
-{text:"n",url:"globals.html#index_n"}]},
+{text:"n",url:"globals.html#index_n"},
+{text:"r",url:"globals.html#index_r"}]},
 {text:"Functions",url:"globals_func.html"},
 {text:"Typedefs",url:"globals_type.html"},
 {text:"Enumerations",url:"globals_enum.html"},

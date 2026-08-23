@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-43c8f3e9.js";
+            window.path_to_searchindex_js = "../searchindex-813f166f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-f8fc0097.js"></script>
@@ -190,12 +190,12 @@ work in Rust; this page sticks to the C-vtable surface throughout.</p>
 <p><strong>Phase-301 rename.</strong> The vtable historically diverged from rmw’s
 vocabulary (<code>subscriber</code>, <code>service_server</code>, <code>service_client</code>,
 <code>open</code>/<code>close</code>). Phase-301 (issues 0240/0241) aligned it: the entity
-types are now <code>nros_rmw_subscription_t</code> / <code>nros_rmw_service_t</code> /
-<code>nros_rmw_client_t</code>, the session slots are <code>create_session</code> /
+types are now <code>rmw_subscription_t</code> / <code>rmw_service_t</code> /
+<code>rmw_client_t</code>, the session slots are <code>create_session</code> /
 <code>destroy_session</code>, and the deprecated blocking <code>call_raw</code> slot is
 deleted (<code>send_request_raw</code> + <code>try_recv_reply_raw</code> is the one
 request/reply path). Transport hints (<code>tx_express</code>,
-<code>rx_buffer_hint</code>) moved out of <code>nros_rmw_qos_t</code> into per-create
+<code>rx_buffer_hint</code>) moved out of <code>rmw_qos_profile_t</code> into per-create
 options structs. This page uses the new names throughout.</p>
 </blockquote>
 <h2 id="tldr"><a class="header" href="#tldr">TL;DR</a></h2>
@@ -207,14 +207,14 @@ options structs. This page uses the new names throughout.</p>
 <tbody>
 <tr><td>Plugin loading</td><td><code>dlopen("librmw_*.so")</code> at runtime</td><td>Single vtable registered at init</td></tr>
 <tr><td>Init sequence</td><td><code>rmw_init_options_t</code> → <code>rmw_context_t</code> → entities</td><td>One <code>create_session()</code> call, returns the session</td></tr>
-<tr><td>Entity types</td><td><code>rmw_publisher_t</code> / <code>rmw_subscription_t</code> / <code>rmw_service_t</code> / <code>rmw_client_t</code></td><td>Typed-with-opaque-tail: <code>nros_rmw_publisher_t</code> / <code>_subscription_t</code> / <code>_service_t</code> / <code>_client_t</code> (visible metadata + opaque <code>backend_data</code>)</td></tr>
+<tr><td>Entity types</td><td><code>rmw_publisher_t</code> / <code>rmw_subscription_t</code> / <code>rmw_service_t</code> / <code>rmw_client_t</code></td><td>Typed-with-opaque-tail: <code>rmw_publisher_t</code> / <code>_subscription_t</code> / <code>_service_t</code> / <code>_client_t</code> (visible metadata + opaque <code>backend_data</code>)</td></tr>
 <tr><td>Wait</td><td><code>rmw_wait(waitset, timeout)</code> blocks the caller</td><td><code>drive_io(session, timeout_ms)</code> drives I/O once</td></tr>
 <tr><td>Serialization</td><td>typesupport-driven (rosidl)</td><td>Pre-serialized CDR bytes only</td></tr>
 <tr><td>Graph queries</td><td><code>rmw_get_topic_names_and_types</code>, …</td><td>None</td></tr>
 <tr><td>QoS profiles</td><td>Full DDS profile match between endpoints</td><td>Same field set; per-backend support advertised; synchronous <code>IncompatibleQos</code> on create instead of runtime mismatch event</td></tr>
 <tr><td>DDS events</td><td><code>rmw_event_t</code> (<code>rmw_take_event</code>)</td><td>None</td></tr>
 <tr><td>Loaned messages</td><td>Optional <code>rmw_borrow_loaned_message</code></td><td>First-class <code>loan_publish</code> / <code>loan_recv</code></td></tr>
-<tr><td>Error returns</td><td><code>rmw_ret_t</code> (<code>RMW_RET_OK</code>, …)</td><td><code>nros_rmw_ret_t</code> (<code>NROS_RMW_RET_OK</code>, …) — same named-constant style</td></tr>
+<tr><td>Error returns</td><td><code>rmw_ret_t</code> (<code>RMW_RET_OK</code>, …)</td><td><code>rmw_ret_t</code> (<code>NROS_RMW_RET_OK</code>, …) — same named-constant style</td></tr>
 </tbody>
 </table>
 </div>
@@ -252,8 +252,8 @@ rmw_shutdown(&amp;context);
 </code></pre>
 <p><strong>nano-ros.</strong> One step — a session covers what upstream splits across
 options + context:</p>
-<pre><code class="language-c">nros_rmw_session_t session = {0};
-nros_rmw_ret_t ret = vtable-&gt;create_session(locator, mode, domain_id, node_name, &amp;session);
+<pre><code class="language-c">rmw_session_t session = {0};
+rmw_ret_t ret = vtable-&gt;create_session(locator, mode, domain_id, node_name, &amp;session);
 /* ... use &amp;session to create_publisher / create_subscription / … */
 vtable-&gt;destroy_session(&amp;session);
 </code></pre>
@@ -277,27 +277,27 @@ Each entity is a typed C struct exposing the metadata the runtime
 actually reads (topic name, type name, QoS, lending capabilities)
 inline; backend-private state stays behind an opaque <code>backend_data</code>
 pointer.</p>
-<pre><code class="language-c">typedef struct nros_rmw_publisher_t {
+<pre><code class="language-c">typedef struct rmw_publisher_t {
     const char *   topic_name;          /* borrowed; outlives the publisher */
     const char *   type_name;           /* borrowed */
-    nros_rmw_qos_t qos;
+    rmw_qos_profile_t qos;
     bool           can_loan_messages;   /* matches upstream's field of the same name */
     uint8_t        _reserved[7];        /* forward-compat; must be zero */
     void *         backend_data;        /* opaque */
-} nros_rmw_publisher_t;
+} rmw_publisher_t;
 
-nros_rmw_ret_t (*create_publisher)(
-    nros_rmw_session_t * session,
+rmw_ret_t (*create_publisher)(
+    rmw_session_t * session,
     const char * topic_name, const char * type_name, const char * type_hash,
-    uint32_t domain_id, const nros_rmw_qos_t * qos,
-    const nros_rmw_publisher_options_t * options,   /* transport hints; NULL = defaults */
-    nros_rmw_publisher_t * out);   /* runtime-allocated; backend fills */
+    uint32_t domain_id, const rmw_qos_profile_t * qos,
+    const rmw_publisher_options_t * options,   /* transport hints; NULL = defaults */
+    rmw_publisher_t * out);   /* runtime-allocated; backend fills */
 </code></pre>
-<p>Same shape for <code>nros_rmw_subscription_t</code> (whose
-<code>nros_rmw_subscription_options_t</code> carries <code>rx_buffer_hint</code>, as the
+<p>Same shape for <code>rmw_subscription_t</code> (whose
+<code>rmw_subscription_options_t</code> carries <code>rx_buffer_hint</code>, as the
 publisher’s carries <code>tx_express</code>). Service entities
-(<code>nros_rmw_service_t</code>, <code>nros_rmw_client_t</code>) and
-<code>nros_rmw_session_t</code> have no <code>qos</code> and no <code>can_loan_messages</code> —
+(<code>rmw_service_t</code>, <code>rmw_client_t</code>) and
+<code>rmw_session_t</code> have no <code>qos</code> and no <code>can_loan_messages</code> —
 service-level QoS doesn’t generalise across non-DDS backends
 (see <a href="#7-qos-minimal-subset-not-full-dds-profiles">QoS, Section 7</a>)
 and service request/reply uses the byte-buffer API rather than the
@@ -357,7 +357,7 @@ ABI; adding or reordering fields is a major-version bump.</p>
 <p>The middleware can also spawn its own background threads that fire
 callbacks asynchronously.</p>
 <p><strong>nano-ros.</strong> The executor calls a single drive-I/O entry point:</p>
-<pre><code class="language-c">nros_rmw_ret_t (*drive_io)(nros_rmw_session_t * session, int32_t timeout_ms);
+<pre><code class="language-c">rmw_ret_t (*drive_io)(rmw_session_t * session, int32_t timeout_ms);
 </code></pre>
 <p>The backend dispatches whatever receive / send / wakeup work is
 pending and returns within <code>timeout_ms</code>. There is no waitset, no
@@ -489,10 +489,10 @@ serialization-from-typesupport itself:</p>
 <code>rosidl_message_type_support_t</code> table to compute the wire bytes.</p>
 <p><strong>nano-ros.</strong> The runtime serializes upstream of the RMW. Backends
 receive <em>already-CDR-encoded</em> bytes:</p>
-<pre><code class="language-c">nros_rmw_ret_t (*publish_raw)(nros_rmw_publisher_t * publisher,
+<pre><code class="language-c">rmw_ret_t (*publish_raw)(rmw_publisher_t * publisher,
                               const uint8_t * data, size_t len);
 
-int32_t (*try_recv_raw)(nros_rmw_subscription_t * subscription,
+int32_t (*try_recv_raw)(rmw_subscription_t * subscription,
                         uint8_t * buf, size_t len);
 </code></pre>
 <p><strong>Why.</strong> rosidl typesupport is heavy: dynamic dispatch through a
@@ -542,7 +542,7 @@ between endpoints:</p>
 (<code>rmw_qos_profile_check_compatible</code>) and surfaces mismatches as
 runtime events.</p>
 <p><strong>nano-ros.</strong> Same field set, packed into 24 bytes:</p>
-<pre><code class="language-c">typedef struct nros_rmw_qos_t {
+<pre><code class="language-c">typedef struct rmw_qos_profile_t {
     uint8_t  reliability;
     uint8_t  durability;
     uint8_t  history;
@@ -554,7 +554,7 @@ runtime events.</p>
     uint32_t liveliness_lease_ms;     /* 0 = infinite */
     uint8_t  avoid_ros_namespace_conventions;
     uint8_t  _reserved1[3];
-} nros_rmw_qos_t;
+} rmw_qos_profile_t;
 </code></pre>
 <p>Standard profile constants
 (<code>NROS_RMW_QOS_PROFILE_DEFAULT</code>, <code>_SENSOR_DATA</code>,
@@ -708,7 +708,7 @@ rarely load-bearing. Add the kind if a discovery-tracking app
 shows up; additive.</li>
 <li><strong><code>QOS_INCOMPATIBLE</code></strong> / <strong><code>INCOMPATIBLE_TYPE</code></strong> — these surface
 at create time, not as runtime events. The existing
-<code>nros_rmw_ret_t</code> codes (<code>NROS_RMW_RET_INCOMPATIBLE_QOS</code>) carry
+<code>rmw_ret_t</code> codes (<code>NROS_RMW_RET_INCOMPATIBLE_QOS</code>) carry
 the diagnostic synchronously from <code>create_publisher</code> /
 <code>create_subscription</code>. No event needed.</li>
 </ul>
@@ -790,7 +790,7 @@ publish.</p>
 thread-local error string via <code>rmw_set_error_string</code>.</p>
 <p><strong>nano-ros.</strong> Same named-constant style (<code>&lt;nros/rmw_ret.h&gt;</code>),
 different sign convention, no thread-local error string:</p>
-<pre><code class="language-c">typedef int32_t nros_rmw_ret_t;
+<pre><code class="language-c">typedef int32_t rmw_ret_t;
 #define NROS_RMW_RET_OK                       0
 #define NROS_RMW_RET_ERROR                   -1
 #define NROS_RMW_RET_TIMEOUT                 -2
@@ -813,9 +813,9 @@ different sign convention, no thread-local error string:</p>
 <tr><th>Returns</th><th>Success</th><th>Failure</th></tr>
 </thead>
 <tbody>
-<tr><td><code>nros_rmw_ret_t</code> + entity-struct out-param (<code>create_session</code>, <code>create_publisher</code>, <code>create_subscription</code>, …)</td><td><code>NROS_RMW_RET_OK</code>, <code>out-&gt;backend_data</code> non-NULL</td><td>negative named constant</td></tr>
-<tr><td><code>nros_rmw_ret_t</code> (<code>destroy_session</code>, <code>drive_io</code>, <code>publish_raw</code>, <code>send_reply</code>, …)</td><td><code>NROS_RMW_RET_OK</code></td><td>negative named constant</td></tr>
-<tr><td><code>int32_t</code> byte count (<code>try_recv_raw</code>, <code>try_recv_request</code>, <code>try_recv_reply_raw</code>)</td><td><code>&gt;= 0</code> (bytes received)</td><td>negative <code>nros_rmw_ret_t</code></td></tr>
+<tr><td><code>rmw_ret_t</code> + entity-struct out-param (<code>create_session</code>, <code>create_publisher</code>, <code>create_subscription</code>, …)</td><td><code>NROS_RMW_RET_OK</code>, <code>out-&gt;backend_data</code> non-NULL</td><td>negative named constant</td></tr>
+<tr><td><code>rmw_ret_t</code> (<code>destroy_session</code>, <code>drive_io</code>, <code>publish_raw</code>, <code>send_reply</code>, …)</td><td><code>NROS_RMW_RET_OK</code></td><td>negative named constant</td></tr>
+<tr><td><code>int32_t</code> byte count (<code>try_recv_raw</code>, <code>try_recv_request</code>, <code>try_recv_reply_raw</code>)</td><td><code>&gt;= 0</code> (bytes received)</td><td>negative <code>rmw_ret_t</code></td></tr>
 </tbody>
 </table>
 </div>
