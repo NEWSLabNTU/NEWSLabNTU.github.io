@@ -1,11 +1,10 @@
 var searchData=
 [
-  ['send_5frequest_0',['send_request',['../structnros__rmw__vtable__t.html#a09b04dc487c3fb595d2009ffbd14d63a',1,'nros_rmw_vtable_t']]],
-  ['send_5fresponse_1',['send_response',['../structnros__rmw__vtable__t.html#a707f860e21b8327afe2f72497dd9c061',1,'nros_rmw_vtable_t']]],
-  ['service_5fname_2',['service_name',['../structrmw__service__t.html#ad0b2b5629ddbaa586ece01fd32e765ff',1,'rmw_service_t::service_name'],['../structrmw__client__t.html#add5e21b685e49c8e755909be32fd2875',1,'rmw_client_t::service_name']]],
-  ['service_5fserver_5fis_5favailable_3',['service_server_is_available',['../structnros__rmw__vtable__t.html#a7a63a4ac4a52ffe28a38830a50c6294b',1,'nros_rmw_vtable_t']]],
-  ['set_5fwake_5fcallback_4',['set_wake_callback',['../structnros__rmw__vtable__t.html#a652d5c78788a98e6d106026cbce7f5c2',1,'nros_rmw_vtable_t']]],
-  ['subscription_5fcount_5fmatched_5fpublishers_5',['subscription_count_matched_publishers',['../structnros__rmw__vtable__t.html#a7053066d84f1beb767dc0283431f510e',1,'nros_rmw_vtable_t']]],
-  ['subscription_5fevent_5finit_6',['subscription_event_init',['../structnros__rmw__vtable__t.html#a5ed8e24740d71f9c2db35137b13633d4',1,'nros_rmw_vtable_t']]],
-  ['subscription_5fsupports_5fin_5fplace_7',['subscription_supports_in_place',['../structnros__rmw__vtable__t.html#ac7a65a4d49cf82527c3be9ac3e2206b6',1,'nros_rmw_vtable_t']]]
+  ['read_0',['read',['../structnros__transport__ops__t.html#ad34a520c1560fe2684427f535b356055',1,'nros_transport_ops_t']]],
+  ['received_5ftimestamp_1',['received_timestamp',['../structrmw__message__info__t.html#acb2c71bb7a415bfb972425dff9af1ea3',1,'rmw_message_info_t']]],
+  ['reception_5fsequence_5fnumber_2',['reception_sequence_number',['../structrmw__message__info__t.html#a62f6e92034142ba78fcf15e684ba42d1',1,'rmw_message_info_t']]],
+  ['reliability_3',['reliability',['../structrmw__qos__profile__t.html#a69a5247828b59d001bef067228f01dff',1,'rmw_qos_profile_t']]],
+  ['return_5floaned_5fmessage_5ffrom_5fpublisher_4',['return_loaned_message_from_publisher',['../structnros__rmw__vtable__t.html#a0747e362ef6a2ecc8926d0bb3bfc96b5',1,'nros_rmw_vtable_t']]],
+  ['return_5floaned_5fmessage_5ffrom_5fsubscription_5',['return_loaned_message_from_subscription',['../structnros__rmw__vtable__t.html#a33e94d36008047cc6dab0738f504ef85',1,'nros_rmw_vtable_t']]],
+  ['rx_5fbuffer_5fhint_6',['rx_buffer_hint',['../structrmw__subscription__options__t.html#a06c9e8d4afbf2e99f2d0e5370b628412',1,'rmw_subscription_options_t']]]
 ];

@@ -1,6 +1,5 @@
 var searchData=
 [
-  ['get_5fgid_5ffor_5fpublisher_0',['get_gid_for_publisher',['../structnros__rmw__vtable__t.html#a4a626e10fe3f5ea794f6b25833fe177d',1,'nros_rmw_vtable_t']]],
-  ['get_5fimplementation_5fidentifier_1',['get_implementation_identifier',['../structnros__rmw__vtable__t.html#aa54c86809f0054f0df411075ff0c7c40',1,'nros_rmw_vtable_t']]],
-  ['get_5fserialization_5fformat_2',['get_serialization_format',['../structnros__rmw__vtable__t.html#a69a9884dbe6d49d1b182e4232680c05d',1,'nros_rmw_vtable_t']]]
+  ['feature_5fsupported_0',['feature_supported',['../structnros__rmw__vtable__t.html#a94e76ce9a1a20d0cf0a1331f9cab8e76',1,'nros_rmw_vtable_t']]],
+  ['from_5fintra_5fprocess_1',['from_intra_process',['../structrmw__message__info__t.html#a734e23289468a6249a0437e4f7813602',1,'rmw_message_info_t']]]
 ];

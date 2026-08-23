@@ -1,8 +1,7 @@
 var searchData=
 [
-  ['namespace_5f_0',['namespace_',['../structrmw__session__t.html#a1bb74315a8005928949122202b9a7276',1,'rmw_session_t']]],
-  ['next_5fdeadline_5fms_1',['next_deadline_ms',['../structnros__rmw__vtable__t.html#a3a8038aefd708dfad6a9ed434bf5f644',1,'nros_rmw_vtable_t']]],
-  ['node_5fname_2',['node_name',['../structrmw__session__t.html#a07dee3b48a74c3d0c82b23ec93a2c36b',1,'rmw_session_t']]],
-  ['not_5falive_5fcount_3',['not_alive_count',['../structrmw__liveliness__changed__status__t.html#acd868c39ead0c7974754dbfc5eb80da1',1,'rmw_liveliness_changed_status_t']]],
-  ['not_5falive_5fcount_5fchange_4',['not_alive_count_change',['../structrmw__liveliness__changed__status__t.html#a4c2bbc54d655f5d7c897e38442d5f454',1,'rmw_liveliness_changed_status_t']]]
+  ['lifespan_5fms_0',['lifespan_ms',['../structrmw__qos__profile__t.html#a9e70ddeb04c10867277688a1cdb90a91',1,'rmw_qos_profile_t']]],
+  ['liveliness_5fchanged_1',['liveliness_changed',['../unionrmw__event__payload__t.html#a78872d7e4f02ad3cb5117531f4f64250',1,'rmw_event_payload_t']]],
+  ['liveliness_5fkind_2',['liveliness_kind',['../structrmw__qos__profile__t.html#aae8a22a7eeb1360617986a6ffb2f1d36',1,'rmw_qos_profile_t']]],
+  ['liveliness_5flease_5fms_3',['liveliness_lease_ms',['../structrmw__qos__profile__t.html#ae129b6bb0538e3dca96774657a8847b3',1,'rmw_qos_profile_t']]]
 ];
