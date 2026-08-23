@@ -1,7 +1,6 @@
 var searchData=
 [
-  ['lifespan_5fms_0',['lifespan_ms',['../structrmw__qos__profile__t.html#a9e70ddeb04c10867277688a1cdb90a91',1,'rmw_qos_profile_t']]],
-  ['liveliness_5fchanged_1',['liveliness_changed',['../unionrmw__event__payload__t.html#a78872d7e4f02ad3cb5117531f4f64250',1,'rmw_event_payload_t']]],
-  ['liveliness_5fkind_2',['liveliness_kind',['../structrmw__qos__profile__t.html#aae8a22a7eeb1360617986a6ffb2f1d36',1,'rmw_qos_profile_t']]],
-  ['liveliness_5flease_5fms_3',['liveliness_lease_ms',['../structrmw__qos__profile__t.html#ae129b6bb0538e3dca96774657a8847b3',1,'rmw_qos_profile_t']]]
+  ['get_5fgid_5ffor_5fpublisher_0',['get_gid_for_publisher',['../structnros__rmw__vtable__t.html#a4a626e10fe3f5ea794f6b25833fe177d',1,'nros_rmw_vtable_t']]],
+  ['get_5fimplementation_5fidentifier_1',['get_implementation_identifier',['../structnros__rmw__vtable__t.html#aa54c86809f0054f0df411075ff0c7c40',1,'nros_rmw_vtable_t']]],
+  ['get_5fserialization_5fformat_2',['get_serialization_format',['../structnros__rmw__vtable__t.html#a69a9884dbe6d49d1b182e4232680c05d',1,'nros_rmw_vtable_t']]]
 ];

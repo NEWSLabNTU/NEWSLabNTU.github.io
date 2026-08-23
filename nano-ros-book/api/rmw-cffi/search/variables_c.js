@@ -1,10 +1,11 @@
 var searchData=
 [
-  ['send_5frequest_0',['send_request',['../structnros__rmw__vtable__t.html#a09b04dc487c3fb595d2009ffbd14d63a',1,'nros_rmw_vtable_t']]],
-  ['send_5fresponse_1',['send_response',['../structnros__rmw__vtable__t.html#a707f860e21b8327afe2f72497dd9c061',1,'nros_rmw_vtable_t']]],
-  ['service_5fname_2',['service_name',['../structrmw__service__t.html#ad0b2b5629ddbaa586ece01fd32e765ff',1,'rmw_service_t::service_name'],['../structrmw__client__t.html#add5e21b685e49c8e755909be32fd2875',1,'rmw_client_t::service_name']]],
-  ['service_5fserver_5fis_5favailable_3',['service_server_is_available',['../structnros__rmw__vtable__t.html#a7a63a4ac4a52ffe28a38830a50c6294b',1,'nros_rmw_vtable_t']]],
-  ['set_5fwake_5fcallback_4',['set_wake_callback',['../structnros__rmw__vtable__t.html#a652d5c78788a98e6d106026cbce7f5c2',1,'nros_rmw_vtable_t']]],
-  ['subscription_5fevent_5finit_5',['subscription_event_init',['../structnros__rmw__vtable__t.html#a27d12398225f9bfeb49e86584b1a04f0',1,'nros_rmw_vtable_t']]],
-  ['subscription_5fsupports_5fin_5fplace_6',['subscription_supports_in_place',['../structnros__rmw__vtable__t.html#ac7a65a4d49cf82527c3be9ac3e2206b6',1,'nros_rmw_vtable_t']]]
+  ['ping_5fsession_0',['ping_session',['../structnros__rmw__vtable__t.html#a96bd0d70896b491d46965bb4b94b9fd7',1,'nros_rmw_vtable_t']]],
+  ['process_5fraw_5fin_5fplace_1',['process_raw_in_place',['../structnros__rmw__vtable__t.html#acd3e1b0d7ba8992cf640ea60d2d27886',1,'nros_rmw_vtable_t']]],
+  ['publish_2',['publish',['../structnros__rmw__vtable__t.html#afb2218aecdba1ce3f1b5fe86a31b12dd',1,'nros_rmw_vtable_t']]],
+  ['publish_5floaned_5fmessage_3',['publish_loaned_message',['../structnros__rmw__vtable__t.html#a9529d3e7f303e223a0c909300ee3dfca',1,'nros_rmw_vtable_t']]],
+  ['publish_5fstreamed_4',['publish_streamed',['../structnros__rmw__vtable__t.html#ad98899285900d7d894ac2da61b9d80a5',1,'nros_rmw_vtable_t']]],
+  ['publisher_5fassert_5fliveliness_5',['publisher_assert_liveliness',['../structnros__rmw__vtable__t.html#a685251d54ecd7f778fb35bf9c61f49fe',1,'nros_rmw_vtable_t']]],
+  ['publisher_5fcount_5fmatched_5fsubscriptions_6',['publisher_count_matched_subscriptions',['../structnros__rmw__vtable__t.html#a049e0115f82a7a0bad650bd74cb6b845',1,'nros_rmw_vtable_t']]],
+  ['publisher_5fevent_5finit_7',['publisher_event_init',['../structnros__rmw__vtable__t.html#a8240dcea2b74f69fc7dab084ad4b5a17',1,'nros_rmw_vtable_t']]]
 ];
