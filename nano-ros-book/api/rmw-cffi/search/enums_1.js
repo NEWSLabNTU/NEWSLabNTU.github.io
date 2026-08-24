@@ -3,6 +3,9 @@ var searchData=
   ['rmw_5fendpoint_5ftype_5ft_0',['rmw_endpoint_type_t',['../rmw__entity_8h.html#a47255c6f9232687e819fa8a9846b47b6',1,'rmw_entity.h']]],
   ['rmw_5fevent_5ftype_5ft_1',['rmw_event_type_t',['../rmw__event_8h.html#a8a03b6e76e7e3d65ea90edfaadc130e0',1,'rmw_event.h']]],
   ['rmw_5ffeature_5ft_2',['rmw_feature_t',['../rmw__entity_8h.html#a8b4589f865edafc62a79c379efd6a021',1,'rmw_entity.h']]],
-  ['rmw_5fliveliness_5fkind_5ft_3',['rmw_liveliness_kind_t',['../rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68e',1,'rmw_entity.h']]],
-  ['rmw_5fqos_5fcompatibility_5ftype_5ft_4',['rmw_qos_compatibility_type_t',['../rmw__entity_8h.html#ad249b07aa22ec87b43c2dfd8e71a782e',1,'rmw_entity.h']]]
+  ['rmw_5finternet_5fprotocol_5ft_3',['rmw_internet_protocol_t',['../rmw__entity_8h.html#acc6373532e2c082ecdb04565f5f0c1e9',1,'rmw_entity.h']]],
+  ['rmw_5fliveliness_5fkind_5ft_4',['rmw_liveliness_kind_t',['../rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68e',1,'rmw_entity.h']]],
+  ['rmw_5flog_5fseverity_5ft_5',['rmw_log_severity_t',['../rmw__entity_8h.html#a607a331d0f863b03e03c892ab45a03a0',1,'rmw_entity.h']]],
+  ['rmw_5fqos_5fcompatibility_5ftype_5ft_6',['rmw_qos_compatibility_type_t',['../rmw__entity_8h.html#ad249b07aa22ec87b43c2dfd8e71a782e',1,'rmw_entity.h']]],
+  ['rmw_5ftransport_5fprotocol_5ft_7',['rmw_transport_protocol_t',['../rmw__entity_8h.html#a44f4cc060736adb6a7345a1a920ef33d',1,'rmw_entity.h']]]
 ];

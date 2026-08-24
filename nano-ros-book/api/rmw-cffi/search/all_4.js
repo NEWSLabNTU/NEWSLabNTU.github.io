@@ -3,12 +3,13 @@ var searchData=
   ['data_0',['data',['../structrmw__gid__t.html#a052a5925bae8d37784da7ce631bc0841',1,'rmw_gid_t']]],
   ['deadline_5fms_1',['deadline_ms',['../structrmw__qos__profile__t.html#ad736a00ebb4d9aabdc8692f401c64dde',1,'rmw_qos_profile_t']]],
   ['depth_2',['depth',['../structrmw__qos__profile__t.html#a89b2e0eed4c9fc143654c1df3ad987c4',1,'rmw_qos_profile_t']]],
-  ['destroy_5fclient_3',['destroy_client',['../structnros__rmw__vtable__t.html#afd91f3b5f3c1f0465d791980e17bd7a0',1,'nros_rmw_vtable_t']]],
+  ['destroy_5fclient_3',['destroy_client',['../structnros__rmw__vtable__t.html#aed9eab80ac29dd239639b3067ae27c6f',1,'nros_rmw_vtable_t']]],
   ['destroy_5fnode_4',['destroy_node',['../structnros__rmw__vtable__t.html#a90be9fbb27e3d75b56af17c40daf924d',1,'nros_rmw_vtable_t']]],
-  ['destroy_5fpublisher_5',['destroy_publisher',['../structnros__rmw__vtable__t.html#a103a6f13720628633ef934fb21dcf509',1,'nros_rmw_vtable_t']]],
-  ['destroy_5fservice_6',['destroy_service',['../structnros__rmw__vtable__t.html#a27db6d2c3e4a3bf712f57dcd61444cce',1,'nros_rmw_vtable_t']]],
+  ['destroy_5fpublisher_5',['destroy_publisher',['../structnros__rmw__vtable__t.html#a1783b2d36eb14f22e61db27babda9fd5',1,'nros_rmw_vtable_t']]],
+  ['destroy_5fservice_6',['destroy_service',['../structnros__rmw__vtable__t.html#ac23dbd832793d60fa8ebea4f2324a989',1,'nros_rmw_vtable_t']]],
   ['destroy_5fsession_7',['destroy_session',['../structnros__rmw__vtable__t.html#a63956517468a3558931631961bb9ae14',1,'nros_rmw_vtable_t']]],
-  ['destroy_5fsubscription_8',['destroy_subscription',['../structnros__rmw__vtable__t.html#ad9181b08a5482270fba53afe2a06d9c2',1,'nros_rmw_vtable_t']]],
+  ['destroy_5fsubscription_8',['destroy_subscription',['../structnros__rmw__vtable__t.html#af1dde25911b1f1365301b21e7c4382c0',1,'nros_rmw_vtable_t']]],
   ['drive_5fio_9',['drive_io',['../structnros__rmw__vtable__t.html#a9545c7d728ba7584b9bcef10828bf0bc',1,'nros_rmw_vtable_t']]],
-  ['durability_10',['durability',['../structrmw__qos__profile__t.html#a809fec2fc1d038330d2d49a523dfc607',1,'rmw_qos_profile_t']]]
+  ['dscp_10',['dscp',['../structrmw__network__flow__endpoint__t.html#a5a2dfae62593f04612a9af9b32cb710c',1,'rmw_network_flow_endpoint_t']]],
+  ['durability_11',['durability',['../structrmw__qos__profile__t.html#a809fec2fc1d038330d2d49a523dfc607',1,'rmw_qos_profile_t']]]
 ];

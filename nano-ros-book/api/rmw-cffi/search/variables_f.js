@@ -4,7 +4,7 @@ var searchData=
   ['received_5ftimestamp_1',['received_timestamp',['../structrmw__message__info__t.html#acb2c71bb7a415bfb972425dff9af1ea3',1,'rmw_message_info_t']]],
   ['reception_5fsequence_5fnumber_2',['reception_sequence_number',['../structrmw__message__info__t.html#a62f6e92034142ba78fcf15e684ba42d1',1,'rmw_message_info_t']]],
   ['reliability_3',['reliability',['../structrmw__qos__profile__t.html#a69a5247828b59d001bef067228f01dff',1,'rmw_qos_profile_t']]],
-  ['return_5floaned_5fmessage_5ffrom_5fpublisher_4',['return_loaned_message_from_publisher',['../structnros__rmw__vtable__t.html#a0747e362ef6a2ecc8926d0bb3bfc96b5',1,'nros_rmw_vtable_t']]],
-  ['return_5floaned_5fmessage_5ffrom_5fsubscription_5',['return_loaned_message_from_subscription',['../structnros__rmw__vtable__t.html#a33e94d36008047cc6dab0738f504ef85',1,'nros_rmw_vtable_t']]],
+  ['return_5floaned_5fmessage_5ffrom_5fpublisher_4',['return_loaned_message_from_publisher',['../structnros__rmw__vtable__t.html#a3d1dc6526a80d3563696fe0de4c101a0',1,'nros_rmw_vtable_t']]],
+  ['return_5floaned_5fmessage_5ffrom_5fsubscription_5',['return_loaned_message_from_subscription',['../structnros__rmw__vtable__t.html#aa72ca89c92dfde1f3041804ed90d65a2',1,'nros_rmw_vtable_t']]],
   ['rx_5fbuffer_5fhint_6',['rx_buffer_hint',['../structrmw__subscription__options__t.html#a06c9e8d4afbf2e99f2d0e5370b628412',1,'rmw_subscription_options_t']]]
 ];

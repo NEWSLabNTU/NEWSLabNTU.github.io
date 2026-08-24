@@ -8,13 +8,14 @@ var searchData=
   ['nros_5frmw_5fliveliness_5fautomatic_5',['NROS_RMW_LIVELINESS_AUTOMATIC',['../rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68eaf374034edbc249e56817ee1474c4c712',1,'rmw_entity.h']]],
   ['nros_5frmw_5fliveliness_5fmanual_5fby_5fnode_6',['NROS_RMW_LIVELINESS_MANUAL_BY_NODE',['../rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68eab035e06a98030ca2d675ffa4d3f700f0',1,'rmw_entity.h']]],
   ['nros_5frmw_5fliveliness_5fmanual_5fby_5ftopic_7',['NROS_RMW_LIVELINESS_MANUAL_BY_TOPIC',['../rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68ea3365cbd04c091b13b93b0603e3b315a9',1,'rmw_entity.h']]],
-  ['nros_5frmw_5fliveliness_5fnone_8',['NROS_RMW_LIVELINESS_NONE',['../rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68ea509bfa3998800bc9fd43c1b677a98bd8',1,'rmw_entity.h']]],
-  ['nros_5frmw_5fqos_5fclash_5fdeadline_9',['NROS_RMW_QOS_CLASH_DEADLINE',['../rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4a553cc71495f7eac394fdb44ea499b4c1',1,'rmw_entity.h']]],
-  ['nros_5frmw_5fqos_5fclash_5fdurability_10',['NROS_RMW_QOS_CLASH_DURABILITY',['../rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4a6ca8785ff9404f878f9f681ad66674fb',1,'rmw_entity.h']]],
-  ['nros_5frmw_5fqos_5fclash_5fliveliness_5fkind_11',['NROS_RMW_QOS_CLASH_LIVELINESS_KIND',['../rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4a5e56bbb4ec4497b0a8754dc5c05743ce',1,'rmw_entity.h']]],
-  ['nros_5frmw_5fqos_5fclash_5fliveliness_5flease_12',['NROS_RMW_QOS_CLASH_LIVELINESS_LEASE',['../rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4abeff660e294f4b9075a345bbfc1530e1',1,'rmw_entity.h']]],
-  ['nros_5frmw_5fqos_5fclash_5fnone_13',['NROS_RMW_QOS_CLASH_NONE',['../rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4a97d64af996b1f947361a5e2fa9a95bfa',1,'rmw_entity.h']]],
-  ['nros_5frmw_5fqos_5fclash_5freliability_14',['NROS_RMW_QOS_CLASH_RELIABILITY',['../rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4a5f0f32607da8c39357e0a9c6b264207e',1,'rmw_entity.h']]],
-  ['nros_5frmw_5fsession_5fmode_5fclient_15',['NROS_RMW_SESSION_MODE_CLIENT',['../rmw__vtable_8h.html#a38447d1f918fbd31e3c098d33aa76a20a935602ab5c02dd0a0e6223a2d9605901',1,'rmw_vtable.h']]],
-  ['nros_5frmw_5fsession_5fmode_5fpeer_16',['NROS_RMW_SESSION_MODE_PEER',['../rmw__vtable_8h.html#a38447d1f918fbd31e3c098d33aa76a20a5375dacfc26429241ed42325e8e0c91e',1,'rmw_vtable.h']]]
+  ['nros_5frmw_5fliveliness_5fsystem_5fdefault_8',['NROS_RMW_LIVELINESS_SYSTEM_DEFAULT',['../rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68eaabf8090ca7ad1b384b86564dca590904',1,'rmw_entity.h']]],
+  ['nros_5frmw_5fliveliness_5funknown_9',['NROS_RMW_LIVELINESS_UNKNOWN',['../rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68ea9a59966a26c2100b6b59c29ae21e1929',1,'rmw_entity.h']]],
+  ['nros_5frmw_5fqos_5fclash_5fdeadline_10',['NROS_RMW_QOS_CLASH_DEADLINE',['../rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4a553cc71495f7eac394fdb44ea499b4c1',1,'rmw_entity.h']]],
+  ['nros_5frmw_5fqos_5fclash_5fdurability_11',['NROS_RMW_QOS_CLASH_DURABILITY',['../rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4a6ca8785ff9404f878f9f681ad66674fb',1,'rmw_entity.h']]],
+  ['nros_5frmw_5fqos_5fclash_5fliveliness_5fkind_12',['NROS_RMW_QOS_CLASH_LIVELINESS_KIND',['../rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4a5e56bbb4ec4497b0a8754dc5c05743ce',1,'rmw_entity.h']]],
+  ['nros_5frmw_5fqos_5fclash_5fliveliness_5flease_13',['NROS_RMW_QOS_CLASH_LIVELINESS_LEASE',['../rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4abeff660e294f4b9075a345bbfc1530e1',1,'rmw_entity.h']]],
+  ['nros_5frmw_5fqos_5fclash_5fnone_14',['NROS_RMW_QOS_CLASH_NONE',['../rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4a97d64af996b1f947361a5e2fa9a95bfa',1,'rmw_entity.h']]],
+  ['nros_5frmw_5fqos_5fclash_5freliability_15',['NROS_RMW_QOS_CLASH_RELIABILITY',['../rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4a5f0f32607da8c39357e0a9c6b264207e',1,'rmw_entity.h']]],
+  ['nros_5frmw_5fsession_5fmode_5fclient_16',['NROS_RMW_SESSION_MODE_CLIENT',['../rmw__vtable_8h.html#a38447d1f918fbd31e3c098d33aa76a20a935602ab5c02dd0a0e6223a2d9605901',1,'rmw_vtable.h']]],
+  ['nros_5frmw_5fsession_5fmode_5fpeer_17',['NROS_RMW_SESSION_MODE_PEER',['../rmw__vtable_8h.html#a38447d1f918fbd31e3c098d33aa76a20a5375dacfc26429241ed42325e8e0c91e',1,'rmw_vtable.h']]]
 ];
