@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['send_5frequest_0',['send_request',['../structnros__rmw__vtable__t.html#a7515e236c2286e98cb8a85450bce772a',1,'nros_rmw_vtable_t']]],
+  ['send_5frequest_0',['send_request',['../structnros__rmw__vtable__t.html#ae40251d03cf696322074f3c659375639',1,'nros_rmw_vtable_t']]],
   ['send_5fresponse_1',['send_response',['../structnros__rmw__vtable__t.html#ad4700d694045c905646ebc7acdefa741',1,'nros_rmw_vtable_t']]],
   ['service_5fname_2',['service_name',['../structrmw__service__t.html#ad0b2b5629ddbaa586ece01fd32e765ff',1,'rmw_service_t::service_name'],['../structrmw__client__t.html#add5e21b685e49c8e755909be32fd2875',1,'rmw_client_t::service_name']]],
   ['service_5frequest_5fsubscription_5fget_5factual_5fqos_3',['service_request_subscription_get_actual_qos',['../structnros__rmw__vtable__t.html#a81e3e9590ad6d55955a2377259160ce6',1,'nros_rmw_vtable_t']]],
@@ -18,5 +18,6 @@ var searchData=
   ['subscription_5fget_5fnetwork_5fflow_5fendpoints_15',['subscription_get_network_flow_endpoints',['../structnros__rmw__vtable__t.html#ae4286115b85fb355d4bb67659010ca20',1,'nros_rmw_vtable_t']]],
   ['subscription_5fset_5fcontent_5ffilter_16',['subscription_set_content_filter',['../structnros__rmw__vtable__t.html#a146ab5b5447aa5bef85012d66cacacea',1,'nros_rmw_vtable_t']]],
   ['subscription_5fset_5fon_5fnew_5fmessage_5fcallback_17',['subscription_set_on_new_message_callback',['../structnros__rmw__vtable__t.html#a2aafca432fff81b464fd5af68ff7fe0b',1,'nros_rmw_vtable_t']]],
-  ['subscription_5fsupports_5fin_5fplace_18',['subscription_supports_in_place',['../structnros__rmw__vtable__t.html#ac7a65a4d49cf82527c3be9ac3e2206b6',1,'nros_rmw_vtable_t']]]
+  ['subscription_5fsupports_5fin_5fplace_18',['subscription_supports_in_place',['../structnros__rmw__vtable__t.html#ac7a65a4d49cf82527c3be9ac3e2206b6',1,'nros_rmw_vtable_t']]],
+  ['subscription_5ftake_5fevent_19',['subscription_take_event',['../structnros__rmw__vtable__t.html#aa1dc3cc1029263f1871e9dd202b423d4',1,'nros_rmw_vtable_t']]]
 ];
