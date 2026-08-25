@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3df1cbac.js";
+            window.path_to_searchindex_js = "../searchindex-45dc9b2f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-f8fc0097.js"></script>
@@ -184,7 +184,12 @@
 <p><code>rmw.h</code> was designed for ROS 2 on Linux: a process with a libc heap, an OS scheduler, dynamic loaders, and middleware-owned background threads. None of those assumptions hold on a Cortex-M3 with 64 KB of RAM. Each constraint below drove a specific change.</p>
 <h3 id="heap-availability"><a class="header" href="#heap-availability">Heap availability</a></h3>
 <p><code>rmw.h</code> heap-allocates everywhere – handles, serialized message buffers, wait sets, type support tables. Bare-metal targets often have no allocator; RTOS targets have allocators with hard total budgets (~16-256 KB) that must cover the application as well.</p>
-<p>nros-rmw moves all I/O buffers to the caller. <code>publish_raw(&amp;[u8])</code> and <code>try_recv_raw(&amp;mut [u8])</code> operate on slices that the caller stack- or statically-allocates. Type metadata is a string-only <code>TopicInfo</code> struct, not a pointer-laden <code>rosidl_message_type_support_t</code> table. The only heap users in core paths are zenoh-pico’s internal transport buffers (~64 KB), exposed through <code>PlatformAlloc</code> and replaceable with a bump allocator on bare-metal.</p>
+<p>nros-rmw moves all I/O buffers to the caller. <code>publish_raw(&amp;[u8])</code> and <code>try_recv_raw(&amp;mut [u8])</code> operate on slices that the caller stack- or statically-allocates. Type metadata is a string-only <code>TopicInfo</code> struct, not a pointer-laden <code>rosidl_message_type_support_t</code> table. What the abstraction itself allocates is nothing. What the BACKENDS allocate
+was measured in 2026-08 (issue 0777) and is not nothing: zenoh-pico’s internal
+transport buffers (~64 KB, exposed through <code>PlatformAlloc</code> and replaceable with
+a bump allocator on bare-metal), Cyclone DDS per publish and per take, XRCE per
+streamed publish, and the CFFI shim on a fallback loan. Only uORB allocates
+nothing at all.</p>
 <h3 id="threading-model"><a class="header" href="#threading-model">Threading model</a></h3>
 <p><code>rmw.h</code> assumes the middleware owns threads. <code>rmw_wait()</code> blocks the calling thread on a wait set; some implementations also spawn internal dispatch threads that fire callbacks asynchronously. Bare-metal has no scheduler; cooperative RTOS configurations can’t tolerate hidden threads.</p>
 <p>nros-rmw replaces <code>rmw_wait</code> with <code>Session::drive_io(timeout_ms)</code> – a single call the executor invokes from its own (and only) thread. There is no wait set object, and no entity is implicitly polled by the middleware. The application drives all I/O explicitly. For async runtimes, subscribers and service clients expose <code>register_waker(&amp;Waker)</code> so the transport’s C receive callback can wake a Rust future without a wait set abstraction.</p>
@@ -193,10 +198,30 @@
 <p>nros-rmw assumes a single-threaded executor that owns the session for its lifetime. Callbacks run sequentially on the executor thread; no callback can preempt another. This eliminates the need for internal locking around publisher state, subscriber buffers, or service queues – a measurable code-size and runtime win on MCUs.</p>
 <h3 id="no-dynamic-discovery-tables"><a class="header" href="#no-dynamic-discovery-tables">No dynamic discovery tables</a></h3>
 <p><code>rmw.h</code> provides <code>rmw_get_topic_names_and_types()</code>, <code>rmw_count_publishers()</code>, <code>rmw_get_node_names()</code>, and similar graph-introspection APIs. These require maintaining a dynamic discovery cache, which costs heap and CPU continuously even when nothing reads it.</p>
-<p>nros-rmw drops these APIs entirely. Discovery still happens at the transport layer (zenoh liveliness, XRCE-DDS session establishment), but it is not surfaced as queryable graph state. Applications that need topic introspection can issue a zenoh query directly.</p>
+<p>nros-rmw carried none of these for most of its life: discovery happened at the transport layer (zenoh liveliness, XRCE-DDS session establishment) and was never surfaced as queryable graph state.</p>
+<p>That is changing. Phase-376 W4 added the graph-enumeration slots to the ABI —
+<code>get_node_names</code>, <code>get_topic_names_and_types</code>, <code>count_publishers</code> and the
+by-node variants — as <em>visitor</em> callbacks rather than allocated
+names-and-types arrays, so a backend walks its own discovery data and the
+caller never owns a table. The slots are declared; backend wiring is the
+in-flight part. The generated
+<a href="../reference/rmw-feature-matrix.html">Per-RMW Feature Matrix</a> is the current
+per-backend truth, and it is derived from the vtables rather than from this
+page.</p>
 <h3 id="compile-time-backend-selection"><a class="header" href="#compile-time-backend-selection">Compile-time backend selection</a></h3>
 <p><code>rmw.h</code> selects backends at runtime via <code>dlopen()</code> of <code>librmw_*.so</code>. This requires a dynamic loader (no embedded MCU has one) and forces every call through a vtable.</p>
-<p>nros-rmw selects the backend at compile time via Cargo features. The <code>Session</code> trait uses associated types, so the compiler monomorphizes all transport calls – no vtables, no dynamic dispatch, no relocation overhead at startup. The trade-off is exactly one RMW backend per binary, enforced by <code>compile_error!()</code>.</p>
+<p>nros-rmw selects the backend at <strong>link time</strong> via Cargo features, and reaches
+it through a <strong>C ABI vtable</strong> (<code>nros_rmw_vtable_t</code>, RFC-0054) that the backend
+hands the runtime once via <code>nros_rmw_cffi_register()</code> before any session is
+created. There is no loader, no <code>.so</code>, and no path search: the only backends
+reachable are the ones linked into the image.</p>
+<p>This page used to claim the opposite — “no vtables, no dynamic dispatch”,
+monomorphized through Rust generics. That was true before RFC-0054 made the C
+headers the SSoT so a backend could be written in C or C++ (Cyclone DDS is);
+<code>nros-rmw</code>’s Rust traits are still the surface a Rust backend implements, and
+<code>rust_adapter.rs</code> in <code>nros-rmw-cffi</code> is what turns such an impl into the
+vtable the runtime calls. The cost is one indirect call per operation; what it
+buys is a backend boundary that is not Rust-only.</p>
 <h2 id="architectural-pattern"><a class="header" href="#architectural-pattern">Architectural Pattern</a></h2>
 <div class="table-wrapper">
 <table>
@@ -205,14 +230,25 @@
 </thead>
 <tbody>
 <tr><td>Language</td><td>C API (<code>rmw/rmw.h</code>)</td><td>Rust traits</td></tr>
-<tr><td>Dispatch</td><td>Runtime plugin loading (shared library via <code>rmw_implementation</code>)</td><td>Compile-time monomorphization (Rust generics)</td></tr>
-<tr><td><code>no_std</code></td><td>No (requires libc, heap, POSIX)</td><td>Yes (zero heap in core path)</td></tr>
-<tr><td>Error model</td><td><code>rmw_ret_t</code> integer codes</td><td><code>TransportError</code> enum + associated <code>type Error</code> per trait</td></tr>
+<tr><td>Dispatch</td><td>Runtime plugin loading (shared library via <code>rmw_implementation</code>)</td><td>Link-time selection; calls cross a C ABI vtable registered at startup (RFC-0054)</td></tr>
+<tr><td><code>no_std</code></td><td>No (requires libc, heap, POSIX)</td><td>Yes — but “no heap” is a property of the BACKEND, not of the abstraction (see below)</td></tr>
+<tr><td>Error model</td><td><code>rmw_ret_t</code> integer codes</td><td><code>nros_rmw_ret_t</code> at the ABI, using upstream rmw’s VALUES (phase-376 W3.d); <code>TransportError</code> on the Rust side</td></tr>
 </tbody>
 </table>
 </div>
-<p>ROS 2 selects the RMW backend at runtime by loading a shared library (e.g., <code>rmw_fastrtps_cpp.so</code>). This enables switching backends without recompilation but requires dynamic linking and heap allocation.</p>
-<p>nros-rmw selects the backend at compile time via Cargo feature flags. The <code>Session</code> trait uses associated types, so the compiler monomorphizes all transport calls – no vtables, no dynamic dispatch, no heap. This is critical for MCUs with 16–256 KB of RAM.</p>
+<p>ROS 2 selects the RMW backend at runtime by loading a shared library (e.g.,
+<code>rmw_fastrtps_cpp.so</code>). This enables switching backends without recompilation
+but requires a dynamic loader — which no MCU has.</p>
+<p>nros-rmw links exactly the backends the image was built with and dispatches
+through a registered vtable. What that removes is the loader and the
+relocation work at startup, not the indirect call.</p>
+<p><strong>On heap:</strong> the abstraction adds none — I/O buffers are caller-owned, and
+entity handles are inline. The BACKENDS are another matter, and this page
+overstated it for years: measured in 2026-08 (issue 0777), Cyclone DDS
+allocates per publish and per take, zenoh-pico allocates inside its transport,
+XRCE allocates per streamed publish, and the CFFI shim itself allocates on a
+fallback loan. uORB is the only backend that allocates nothing. Plan the heap
+budget from your backend’s row, not from this abstraction’s shape.</p>
 <h2 id="object-model"><a class="header" href="#object-model">Object Model</a></h2>
 <h3 id="ros-2"><a class="header" href="#ros-2">ROS 2</a></h3>
 <p>ROS 2 rmw has a deep initialization hierarchy:</p>
@@ -300,19 +336,24 @@ let msg: Option&lt;MyMsg&gt; = subscriber.try_recv(&amp;mut buf)?;</code></pre>
 }</code></pre>
 <p>Blocking waits are composed above the RMW by the executor (which keeps driving <code>drive_io</code> between polls).</p>
 <h2 id="apis-present-in-ros-2-rmw-but-absent-in-nros-rmw"><a class="header" href="#apis-present-in-ros-2-rmw-but-absent-in-nros-rmw">APIs Present in ROS 2 rmw but Absent in nros-rmw</a></h2>
+<p>Phase-376 is closing much of this table: several rows below have gained ABI
+slots, and the ones that are DECLINED now carry a written reason rather than
+silence. Treat the generated
+<a href="../reference/rmw-feature-matrix.html">Per-RMW Feature Matrix</a> as current and
+this table as the design rationale behind the original omissions.</p>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>ROS 2 rmw API</th><th>Purpose</th><th>Why absent</th></tr>
 </thead>
 <tbody>
-<tr><td><code>rmw_node_t</code> / <code>rmw_create_node()</code></td><td>Node lifecycle at RMW level</td><td>Node is above the RMW layer in <code>nros-node</code></td></tr>
+<tr><td><code>rmw_node_t</code> / <code>rmw_create_node()</code></td><td>Node lifecycle at RMW level</td><td><strong>No longer absent</strong> (phase-376 W5/B1): entities are created ON a node, upstream’s shape — <code>create_publisher</code> and its siblings take a <code>const rmw_node_t *</code>. Node lifecycle still lives above the RMW in <code>nros-node</code>.</td></tr>
 <tr><td><code>rmw_wait_set_t</code> / <code>rmw_wait()</code></td><td>Multiplexed readiness waiting</td><td>Replaced by <code>drive_io()</code> + per-entity <code>has_data()</code></td></tr>
 <tr><td><code>rmw_guard_condition_t</code></td><td>Wake wait set from application code</td><td>Replaced by <code>register_waker(&amp;Waker)</code></td></tr>
-<tr><td><code>rmw_event_t</code></td><td>QoS event callbacks (deadline missed, etc.)</td><td>QoS events not supported</td></tr>
-<tr><td><code>rmw_get_topic_names_and_types()</code></td><td>Graph introspection</td><td>Discovery via zenoh liveliness, not exposed at trait level</td></tr>
-<tr><td><code>rmw_get_node_names()</code></td><td>Node discovery</td><td>Same as above</td></tr>
-<tr><td><code>rmw_count_publishers()</code> / <code>rmw_count_subscribers()</code></td><td>Graph statistics</td><td>Not exposed</td></tr>
+<tr><td><code>rmw_event_t</code></td><td>QoS event callbacks (deadline missed, etc.)</td><td>Partly present: <code>subscription_event_init</code> / <code>publisher_event_init</code> are ABI slots and zenoh wires them; the other backends leave them NULL.</td></tr>
+<tr><td><code>rmw_get_topic_names_and_types()</code></td><td>Graph introspection</td><td>Slot declared (phase-376 W4) as a VISITOR callback — the backend walks its own discovery data, the caller owns no table. Backend wiring in flight.</td></tr>
+<tr><td><code>rmw_get_node_names()</code></td><td>Node discovery</td><td>Same — declared as a visitor.</td></tr>
+<tr><td><code>rmw_count_publishers()</code> / <code>rmw_count_subscribers()</code></td><td>Graph statistics</td><td>Same — declared, wiring in flight.</td></tr>
 <tr><td><code>rosidl_message_type_support_t</code></td><td>C type support tables for serialization</td><td>Replaced by <code>TopicInfo</code> string metadata</td></tr>
 <tr><td><code>rmw_serialize()</code> / <code>rmw_deserialize()</code></td><td>Standalone serialization</td><td>CDR handled by <code>nros-serdes</code></td></tr>
 <tr><td><code>rmw_borrow_loaned_message()</code></td><td>Zero-copy shared memory publish</td><td>Not supported (smoltcp/zenoh-pico don’t use shared memory)</td></tr>
