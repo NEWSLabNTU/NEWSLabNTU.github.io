@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["ENCAPSULATION_HEADER_BYTES"],"fn":["bound_fits","buffer_fits","is_loan_eligible","max_serialized_size","serialized_size","size_bound"],"struct":["SizeBound"]};
