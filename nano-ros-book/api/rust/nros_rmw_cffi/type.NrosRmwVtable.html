@@ -283,6 +283,15 @@ silently ignored. There is now one length.</p>
 <code>void **loaned_message</code>; ours is a byte view plus an opaque
 token to release, because there is no typesupport on target
 and the backend owns the buffer until <code>sub_release</code>.</p>
+<p><strong>No backend fills this slot today</strong> (Cyclone NULL, XRCE NULL, and the
+Rust adapter leaves it at <code>EMPTY_VTABLE</code>), so every <code>try_borrow</code> through
+the C ABI takes the copy fallback. The slot is carried, not deleted,
+because it is the only shape that can hand a view to a caller which
+outlives the call — <code>nros-c</code> / <code>nros-cpp</code> <code>try_borrow</code> — where
+<code>process_raw_in_place</code>’s scoped callback cannot reach. Zenoh’s native
+zero-copy receive is live but arrives through Rust
+<code>SlotBorrowing for ZenohSubscriber</code>, not through here. Recorded so
+“the slot exists” is not read as “the capability works”: issue 0781.</p>
 </div><span id="structfield.return_loaned_message_from_subscription" class="structfield section-header"><a href="#structfield.return_loaned_message_from_subscription" class="anchor field">§</a><code>return_loaned_message_from_subscription: <a class="enum" href="https://doc.rust-lang.org/1.98.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;unsafe extern &quot;C&quot; <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.fn.html">fn</a>(<a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.pointer.html">*const </a><a class="struct" href="generated/struct.rmw_subscription_t.html" title="struct nros_rmw_cffi::generated::rmw_subscription_t">rmw_subscription_t</a>, <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.pointer.html">*mut </a><a class="enum" href="https://doc.rust-lang.org/1.98.0/core/ffi/enum.c_void.html" title="enum core::ffi::c_void">c_void</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.i32.html">i32</a>&gt;</code></span><div class="docblock"><p>Phase 124.A — release a previously borrowed view.</p>
 <p><code>token</code> MUST be a value returned from a prior <code>sub_borrow</code>
 on the same subscription. Lets the next message advance into
@@ -352,9 +361,19 @@ drain reports what it got rather than erroring.</p>
 <code>size_cb</code> once to learn the total payload length, allocates
 a single slot of that size in its outbound buffer, then
 invokes <code>chunk_cb</code> repeatedly to fill the slot in chunks
-until the buffer is full. Saves the per-publisher staging
-buffer on RAM-constrained nodes — useful for large messages
-on MCUs where the staging buffer dominates <code>.bss</code>.</p>
+until the buffer is full. What it saves is the CALLER-side
+buffer holding a whole serialised message.</p>
+<p>That justification used to read “saves the per-publisher
+staging buffer … where the staging buffer dominates <code>.bss</code>”,
+which described a design this tree does not have (issue 0782).
+There is no per-publisher buffer and none of it is in <code>.bss</code>:
+<code>EmbeddedPublisher::publish</code> serialises into a per-CALL STACK
+array of <code>DEFAULT_TX_BUF</code> (= <code>NROS_SUBSCRIPTION_BUFFER_SIZE</code>,
+1024 by default), and the runtime’s own NULL-slot fallback
+stages into a 4 KiB stack array and refuses anything larger.
+The saving is real and it is STACK — which on an MCU with
+small per-task stacks is the tighter budget of the two — but a
+reason has to name the thing it is about.</p>
 <p>Callback contract:</p>
 <ul>
 <li><code>size_cb(*out_total_len, user_ctx)</code> — write the exact
@@ -400,17 +419,48 @@ with no participant introspection).</li>
 <p>NULL function pointer = runtime surfaces
 <code>NROS_RMW_RET_UNSUPPORTED</code> to the caller.</p>
 </div><span id="structfield.subscription_supports_in_place" class="structfield section-header"><a href="#structfield.subscription_supports_in_place" class="anchor field">§</a><code>subscription_supports_in_place: <a class="enum" href="https://doc.rust-lang.org/1.98.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;unsafe extern &quot;C&quot; <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.fn.html">fn</a>(<a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.pointer.html">*mut </a><a class="struct" href="generated/struct.rmw_subscription_t.html" title="struct nros_rmw_cffi::generated::rmw_subscription_t">rmw_subscription_t</a>, <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.pointer.html">*mut </a><a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.bool.html">bool</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.i32.html">i32</a>&gt;</code></span><div class="docblock"><p>Capability query: does this subscription support process_raw_in_place()?
-Returns 1 if yes, 0 if no. The runtime consults this at subscription
-registration to choose in-place dispatch over the buffered (copying)
-path. NULL function pointer = treated as unsupported (buffered path). <em>/
-/</em>* Phase 376 W3.d step A — capability out, status returned.
-<code>*out_supports</code> is written only on <code>NROS_RMW_RET_OK</code>.</p>
+The runtime consults it once at subscription registration to choose
+in-place dispatch over the buffered (copying) path.</p>
+<p><code>*out_supports</code> is written only on <code>NROS_RMW_RET_OK</code> (Phase 376 W3.d
+step A — capability out, status returned).</p>
+<p><strong>The capability is the CONJUNCTION</strong> of this probe answering true and
+<code>process_raw_in_place</code> being non-NULL. Either alone is unsupported.</p>
+<p>Why the probe is not redundant with that nullity (issue 0781 proposed
+deleting it, and this is the counterexample that stopped it):
+<code>RustBackendAdapter::&lt;R&gt;::VTABLE</code> is a <code>const</code>, so it installs
+<code>process_raw_in_place</code> for EVERY <code>R: RustBackend</code> — the slot is non-NULL
+whatever the backend can do. The Rust-side answer is a runtime <code>&amp;self</code>
+method (<code>Subscription::supports_process_in_place</code>) because
+<code>CffiSubscription</code> multiplexes over whichever backend registered, so it
+cannot become an associated const the vtable initializer could branch
+on. Today <code>nros-rmw-zenoh</code> says true and <code>nros-rmw-metadata</code> takes the
+<code>false</code> default behind an identically-shaped vtable: two backends, same
+nullity, different capability. Deriving from nullity would route
+metadata’s subscriptions into in-place dispatch and every take would
+return <code>MessageTooLarge</code> from the trait default.</p>
+<p>A C backend that knows its answer at compile time (XRCE says true,
+Cyclone leaves both NULL) may express it with nullity alone; the
+conjunction makes that spelling correct without making it the only one.</p>
+<p>NULL function pointer = treated as unsupported (buffered path).</p>
 </div><span id="structfield.process_raw_in_place" class="structfield section-header"><a href="#structfield.process_raw_in_place" class="anchor field">§</a><code>process_raw_in_place: <a class="enum" href="https://doc.rust-lang.org/1.98.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;unsafe extern &quot;C&quot; <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.fn.html">fn</a>(<a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.pointer.html">*mut </a><a class="struct" href="generated/struct.rmw_subscription_t.html" title="struct nros_rmw_cffi::generated::rmw_subscription_t">rmw_subscription_t</a>, <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.pointer.html">*mut </a><a class="enum" href="https://doc.rust-lang.org/1.98.0/core/ffi/enum.c_void.html" title="enum core::ffi::c_void">c_void</a>, <a class="enum" href="https://doc.rust-lang.org/1.98.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;unsafe extern &quot;C&quot; <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.fn.html">fn</a>(<a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.pointer.html">*mut </a><a class="enum" href="https://doc.rust-lang.org/1.98.0/core/ffi/enum.c_void.html" title="enum core::ffi::c_void">c_void</a>, <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.pointer.html">*const </a><a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.u8.html">u8</a>, <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.usize.html">usize</a>)&gt;, <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.pointer.html">*mut </a><a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.bool.html">bool</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.i32.html">i32</a>&gt;</code></span><div class="docblock"><p>Borrow one ready message in place: hand its raw CDR bytes to <code>cb</code> (with
-the opaque <code>ctx</code>) for the duration of the call, then release the slot —
-no copy into a caller buffer. Returns 1 if a message was processed (<code>cb</code>
-invoked), NROS_RMW_RET_NO_DATA if none was ready, or a negative error.
-<code>cb</code> MUST NOT re-enter this subscription’s receive. NULL function
-pointer = unsupported (the runtime uses the buffered path). <em>/
+the opaque <code>ctx</code>) for the duration of the call, then release the slot.
+<code>cb</code> MUST NOT re-enter this subscription’s receive.</p>
+<p>Deviation from upstream, declared. Avoiding the copy is NOT the reason —
+upstream already has a name for that, <code>rmw_take_loaned_message</code>, and we
+carry it (<code>take_loaned_message</code>). What this shape buys is that the
+borrow is SCOPED: it ends when <code>cb</code> returns, so there is no release
+token to hold and nothing a caller can forget. Upstream’s loan is
+unscoped — a caller who misses
+<code>rmw_return_loaned_message_from_subscription</code> retires one entry of a
+fixed-depth receive ring for good, and a target with no reclaim and no
+swap does not get that entry back. That is the RTOS constraint; “no
+copy” is a property both shapes share.</p>
+<p>Both are carried because they answer different callers: this one serves
+dispatch from inside the executor, where the callback frame is the
+natural scope, and the loan pair serves <code>nros-c</code> / <code>nros-cpp</code>, whose
+<code>try_borrow</code> hands a view back to a caller that outlives the call.</p>
+<p>NULL function pointer = unsupported (the runtime uses the buffered
+path); see <code>subscription_supports_in_place</code> for the conjunction. <em>/
 /</em>* Phase 376 W3.d step A — “did it process one” moves to an
 out-parameter and the return is a plain status.</p>
 <p>This retires <code>NROS_RMW_RET_NO_DATA</code> from this slot: an empty
@@ -576,7 +626,15 @@ the storage, exactly as <code>create_publisher</code> does.</p>
 <p>The runtime calls this once per distinct <code>(name, namespace_)</code>.</p>
 </div><span id="structfield.destroy_node" class="structfield section-header"><a href="#structfield.destroy_node" class="anchor field">§</a><code>destroy_node: <a class="enum" href="https://doc.rust-lang.org/1.98.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;unsafe extern &quot;C&quot; <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.fn.html">fn</a>(<a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.pointer.html">*mut </a><a class="struct" href="generated/struct.rmw_node_t.html" title="struct nros_rmw_cffi::generated::rmw_node_t">rmw_node_t</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.i32.html">i32</a>&gt;</code></span><div class="docblock"><p>Upstream <code>rmw_destroy_node</code>.</p>
 <p>Releases the backend’s <code>backend_data</code>; the shell stays valid until its
-owner drops it.</p>
+owner drops it. Called for every node the session created, from
+<code>close()</code>, BEFORE <code>destroy_session</code> — a backend’s node state hangs off
+its session state, so the order is not free.</p>
+<p>NULL slot: nothing is called and the runtime simply forgets the node.
+Correct only for a backend that allocates nothing in <code>create_node</code>;
+a backend that fills <code>backend_data</code> there must fill this too, or it
+leaks one node’s state per session close (issue 0800 — this slot had a
+producer in no backend and a consumer nowhere, so the leak was
+indistinguishable from an optional slot nobody needed).</p>
 </div><span id="structfield.set_log_severity" class="structfield section-header"><a href="#structfield.set_log_severity" class="anchor field">§</a><code>set_log_severity: <a class="enum" href="https://doc.rust-lang.org/1.98.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;unsafe extern &quot;C&quot; <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.fn.html">fn</a>(<a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.u32.html">u32</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.98.0/std/primitive.i32.html">i32</a>&gt;</code></span><div class="docblock"><p>Upstream <code>rmw_set_log_severity</code>. Exact parity.</p>
 <p>Sets the verbosity of the BACKEND’s own logging — Cyclone’s <code>dds_log</code>,
 zenoh-pico’s log, the XRCE client’s. Not <code>nros_log</code>: that is the
