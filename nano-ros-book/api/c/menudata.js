@@ -80,8 +80,7 @@ var menudata={children:[
 {text:"Globals",url:"globals.html",children:[
 {text:"All",url:"globals.html",children:[
 {text:"m",url:"globals.html#index_m"},
-{text:"n",url:"globals_n.html#index_n"},
-{text:"o",url:"globals_o.html#index_o"}]},
+{text:"n",url:"globals_n.html#index_n"}]},
 {text:"Functions",url:"globals_func.html",children:[
 {text:"n",url:"globals_func.html#index_n"}]},
 {text:"Variables",url:"globals_vars.html"},

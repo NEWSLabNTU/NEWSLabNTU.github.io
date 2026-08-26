@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["LegacyParameterBuilder","ParameterServer"]};
+window.SIDEBAR_ITEMS = {"struct":["LegacyParameterBuilder","ParameterServer","ParameterStorage","ParameterTable"]};

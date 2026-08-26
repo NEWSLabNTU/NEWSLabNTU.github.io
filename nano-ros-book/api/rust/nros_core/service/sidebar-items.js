@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["ServiceClient","ServiceRequest","ServiceServer"],"type":["ServiceCallback","ServiceResult"]};
+window.SIDEBAR_ITEMS = {"struct":["ServiceClient","ServiceRequest","ServiceServer"],"type":["ServiceCallback"]};
