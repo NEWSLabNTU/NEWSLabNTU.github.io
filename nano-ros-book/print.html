@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-f0ae66b8.js";
+            window.path_to_searchindex_js = "searchindex-373ba536.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f8fc0097.js"></script>
@@ -253,8 +253,9 @@ and ergonomics, with a thin C FFI (Foreign Function Interface) layer
 following rclc conventions.</li>
 <li><strong>True <code>no_std</code></strong> — runs on bare-metal Cortex-M3; the <code>alloc</code> and <code>std</code>
 features are opt-in. Whether the IMAGE needs an allocator is the backend’s
-call, not the core’s: XRCE is fully static, zenoh-pico wants one (a bump
-allocator suffices on bare-metal), and Cyclone DDS requires a real heap.</li>
+call, not the core’s: XRCE allocates only at entity setup, zenoh-pico wants
+an allocator (a bump allocator suffices on bare-metal), and Cyclone DDS
+allocates per message. <code>scripts/rmw-alloc-sites.py</code> reports every site.</li>
 <li><strong>Standalone tooling</strong> — <code>nros generate-rust</code> produces message
 bindings without a ROS 2 installation (bundled interface definitions).</li>
 <li><strong>Formally verified</strong> — 148 Kani bounded model checking harnesses and 83
@@ -15339,12 +15340,29 @@ nros_action_client_set_result_callback(client, on_result);
 <p><code>rmw.h</code> was designed for ROS 2 on Linux: a process with a libc heap, an OS scheduler, dynamic loaders, and middleware-owned background threads. None of those assumptions hold on a Cortex-M3 with 64 KB of RAM. Each constraint below drove a specific change.</p>
 <h3 id="heap-availability"><a class="header" href="#heap-availability">Heap availability</a></h3>
 <p><code>rmw.h</code> heap-allocates everywhere – handles, serialized message buffers, wait sets, type support tables. Bare-metal targets often have no allocator; RTOS targets have allocators with hard total budgets (~16-256 KB) that must cover the application as well.</p>
-<p>nros-rmw moves all I/O buffers to the caller. <code>publish_raw(&amp;[u8])</code> and <code>try_recv_raw(&amp;mut [u8])</code> operate on slices that the caller stack- or statically-allocates. Type metadata is a string-only <code>TopicInfo</code> struct, not a pointer-laden <code>rosidl_message_type_support_t</code> table. What the abstraction itself allocates is nothing. What the BACKENDS allocate
-was measured in 2026-08 (issue 0777) and is not nothing: zenoh-pico’s internal
-transport buffers (~64 KB, exposed through <code>PlatformAlloc</code> and replaceable with
-a bump allocator on bare-metal), Cyclone DDS per publish and per take, XRCE per
-streamed publish, and the CFFI shim on a fallback loan. Only uORB allocates
-nothing at all.</p>
+<p>nros-rmw moves all I/O buffers to the caller. <code>publish_raw(&amp;[u8])</code> and <code>try_recv_raw(&amp;mut [u8])</code> operate on slices that the caller stack- or statically-allocates. Type metadata is a string-only <code>TopicInfo</code> struct, not a pointer-laden <code>rosidl_message_type_support_t</code> table. What the abstraction itself allocates is nothing. What the BACKENDS allocate is
+enumerated by <code>scripts/rmw-alloc-sites.py</code>, which reports each site with its
+file and line and — the distinction that decides whether you care — whether it
+sits on the STEADY-STATE path (per message, so it is latency and a heap that
+must sustain traffic) or in CREATE/INIT (bounded, so it lands in startup):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>backend</th><th style="text-align: right">steady-state</th><th style="text-align: right">create / init</th></tr>
+</thead>
+<tbody>
+<tr><td>Cyclone DDS</td><td style="text-align: right">6</td><td style="text-align: right">6</td></tr>
+<tr><td>XRCE-DDS</td><td style="text-align: right">0</td><td style="text-align: right">9</td></tr>
+<tr><td>uORB</td><td style="text-align: right">0</td><td style="text-align: right">3</td></tr>
+</tbody>
+</table>
+</div>
+<p>Run the script rather than trusting this table; it is the re-runnable source and
+this is a snapshot of it. Two caveats it states and this page inherits: it
+counts nano-ros’s OWN sites, so allocations inside Cyclone below <code>dds_write</code> and
+inside zenoh-pico’s <code>z_malloc</code> are real but not listed (they are not ours to
+remove), and zenoh-pico’s internal transport buffers (~64 KB) reach the image
+through <code>PlatformAlloc</code>, where a bump allocator suffices on bare-metal.</p>
 <h3 id="threading-model"><a class="header" href="#threading-model">Threading model</a></h3>
 <p><code>rmw.h</code> assumes the middleware owns threads. <code>rmw_wait()</code> blocks the calling thread on a wait set; some implementations also spawn internal dispatch threads that fire callbacks asynchronously. Bare-metal has no scheduler; cooperative RTOS configurations can’t tolerate hidden threads.</p>
 <p>nros-rmw replaces <code>rmw_wait</code> with <code>Session::drive_io(timeout_ms)</code> – a single call the executor invokes from its own (and only) thread. There is no wait set object, and no entity is implicitly polled by the middleware. The application drives all I/O explicitly. For async runtimes, subscribers and service clients expose <code>register_waker(&amp;Waker)</code> so the transport’s C receive callback can wake a Rust future without a wait set abstraction.</p>
@@ -15399,11 +15417,13 @@ through a registered vtable. What that removes is the loader and the
 relocation work at startup, not the indirect call.</p>
 <p><strong>On heap:</strong> the abstraction adds none — I/O buffers are caller-owned, and
 entity handles are inline. The BACKENDS are another matter, and this page
-overstated it for years: measured in 2026-08 (issue 0777), Cyclone DDS
-allocates per publish and per take, zenoh-pico allocates inside its transport,
-XRCE allocates per streamed publish, and the CFFI shim itself allocates on a
-fallback loan. uORB is the only backend that allocates nothing. Plan the heap
-budget from your backend’s row, not from this abstraction’s shape.</p>
+overstated it for years (“no heap”, flatly). Issue 0777 established that;
+<code>scripts/rmw-alloc-sites.py</code> now answers it precisely and repeatably. Only
+Cyclone DDS allocates on the steady-state path in nano-ros’s own code (6 sites);
+XRCE and uORB allocate at entity/transport setup only. Plan the heap budget from
+your backend’s row in that report — and remember it excludes what the middleware
+libraries do underneath, which for Cyclone and zenoh-pico is a general allocator
+call per message regardless.</p>
 <h2 id="object-model"><a class="header" href="#object-model">Object Model</a></h2>
 <h3 id="ros-2"><a class="header" href="#ros-2">ROS 2</a></h3>
 <p>ROS 2 rmw has a deep initialization hierarchy:</p>
