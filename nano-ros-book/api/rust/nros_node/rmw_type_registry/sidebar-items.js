@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["register_type","subscription_buffer_ok"],"trait":["MessageForRmw"]};
+window.SIDEBAR_ITEMS = {"fn":["register_type","subscription_buffer_ok","subscription_rx_hint"],"trait":["MessageForRmw"]};
