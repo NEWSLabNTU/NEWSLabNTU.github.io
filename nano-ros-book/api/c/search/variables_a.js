@@ -1,7 +1,7 @@
 var searchData=
 [
   ['last_5fcall_5ftime_5fns_0',['last_call_time_ns',['../structnros__timer__t.html#a5745d16413d9f43ed04d896d66d761a4',1,'nros_timer_t']]],
-  ['len_1',['len',['../structnros__parameter__array__t.html#a81ab4704e172ed919f6917bb63e9638c',1,'nros_parameter_array_t::len'],['../parameter_8h.html#aa5d7dd8e6394f7c30c737caa1547108a',1,'len:&#160;parameter.h']]],
+  ['len_1',['len',['../structnros__parameter__array__t.html#a81ab4704e172ed919f6917bb63e9638c',1,'nros_parameter_array_t::len'],['../service_8h.html#aa5d7dd8e6394f7c30c737caa1547108a',1,'len:&#160;service.h'],['../parameter_8h.html#a6d80f0a4d77d50ac6ddc9c151b89d8ac',1,'len:&#160;parameter.h']]],
   ['lifespan_5fms_2',['lifespan_ms',['../structnros__qos__t.html#ae01d67152e842e4b719be4e0b5acc993',1,'nros_qos_t']]],
   ['liveliness_5fkind_3',['liveliness_kind',['../structnros__qos__t.html#a26f4a7d67b65c5b05ae2553f413016a0',1,'nros_qos_t']]],
   ['liveliness_5flease_5fms_4',['liveliness_lease_ms',['../structnros__qos__t.html#a22b9c400c11548fba08e3a17fa9e3041',1,'nros_qos_t']]],
