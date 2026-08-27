@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["RuntimeSizing"]};
+window.SIDEBAR_ITEMS = {"fn":["carve"],"struct":["RuntimeSizing","Slot"]};
