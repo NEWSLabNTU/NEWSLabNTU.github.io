@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["COMPONENT_SLOT_BYTES","MAX_COMPONENTS"]};
