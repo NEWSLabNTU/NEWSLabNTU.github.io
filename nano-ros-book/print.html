@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-8b7b41cb.js";
+            window.path_to_searchindex_js = "searchindex-51955433.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-f053b328.js"></script>
+        <script src="toc-cae74b5d.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -12164,6 +12164,22 @@ eliminate allocation in the C transport layer.</p>
 buffers, and protocol metadata using platform-provided allocators. The Rust
 <code>alloc</code> feature controls only the Rust API surface (boxed callbacks, heap
 containers, etc.) and is orthogonal to C-level memory management.</p>
+<h3 id="checking-your-own-image"><a class="header" href="#checking-your-own-image">Checking your own image</a></h3>
+<p>Because of the row above, a feature list is <em>evidence</em> that an image is
+heap-free and not <em>proof</em> of it: a vendored C dependency or a weak-symbol
+fallback can link an allocator without any Cargo feature changing. Ask the
+linker instead:</p>
+<pre><code class="language-bash">scripts/check-no-alloc-image.py path/to/your.elf
+</code></pre>
+<p>It reads the image’s symbol table and fails on any allocation symbol — libc’s
+<code>malloc</code> family, Rust’s <code>__rust_alloc</code> family, C++ <code>operator new</code>, and the RTOS
+heaps (<code>k_malloc</code>, <code>pvPortMalloc</code>, <code>tx_byte_allocate</code>, <code>kmm_malloc</code>,
+<code>heap_caps_malloc</code>) — reporting for each whether the image <em>calls</em> it or
+<em>contains</em> it. <code>--tier unified</code> takes <code>--objects</code> instead and enforces the
+weaker rule that allocation may happen only inside the <code>nros_platform_*</code>
+backend (RFC-0034 D6).</p>
+<p>None of the examples shipped in this repo are built this way today — they all
+enable <code>alloc</code> — so run it against your own image, not against one of ours.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="rtos-cooperation"><a class="header" href="#rtos-cooperation">RTOS Cooperation</a></h1>
 <p>nano-ros runs on platforms that span pure cooperative bare-metal
@@ -16894,6 +16910,63 @@ first candidate</strong> — <code>platform_net.h</code> already exposes 29 symb
 opaque socket handle — but it is deferred (RFC-0034 “out of scope”)
 until there is a consumer that needs portable socket structs. Threads
 and sync are the least likely to move (deepest struct coupling).</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="measuring-static-memory"><a class="header" href="#measuring-static-memory">Measuring Static Memory</a></h1>
+<p>The <a href="#static-pool-inventory">Static Pool Inventory</a> tells you
+which knobs exist and what they cost at their defaults. It cannot tell you what
+<em>your</em> image costs — your knobs differ, your backend differs, and several pools
+are sized by a <code>sizeof</code> that no comment can see.</p>
+<p>For that, measure the image you built:</p>
+<pre><code class="language-sh">just mem-report path/to/your/binary
+</code></pre>
+<p>You get RAM broken down three ways — by symbol, by crate, and by declared pool —
+plus the section totals, so you can see how much is <em>not</em> attributable to any
+symbol:</p>
+<pre><code>RAM (.bss + .data), by section:  357,154 bytes
+RAM attributed to symbols:       342,962 bytes
+unattributed (padding, linker reservations, symbol-less data): 14,192 bytes (4.0%)
+</code></pre>
+<p>That last line matters. Alignment padding and linker-script reservations are
+real RAM that no symbol names, so a budget built only from a list of pools will
+come up short.</p>
+<h2 id="finding-what-to-cut"><a class="header" href="#finding-what-to-cut">Finding what to cut</a></h2>
+<p>The per-symbol list is sorted, so the first few lines are usually the whole
+story:</p>
+<pre><code>## top 5 RAM symbols
+
+       144,128   40.4%  nros_rmw_zenoh::shim::service::SERVICE_BUFFERS
+       131,072   36.7%  nros_rmw_zenoh::shim::subscriber::LARGE_PAYLOADS
+        32,768    9.2%  nros_rmw_zenoh::shim::subscriber::SMALL_PAYLOADS
+</code></pre>
+<p>Cross-reference each name against the <a href="#static-pool-inventory">pool
+inventory</a> to find the knob that moves
+it. Most of the large ones are pools with a knob you can set at build time.</p>
+<p>Be aware that today these pools are sized by which backend you link, <strong>not</strong> by
+what your node actually does: a publisher-only node still reserves the service
+and large-payload pools in full. If your image looks far larger than the entities
+you created would suggest, that is expected rather than a misconfiguration on
+your side — see <a href="https://github.com/nano-ros/nano-ros/blob/main/docs/issues/0827-unused-rmw-pools-dominate-static-ram.md">issue
+0827</a>.
+Turning the corresponding knobs down is the current remedy.</p>
+<h2 id="showing-a-saving"><a class="header" href="#showing-a-saving">Showing a saving</a></h2>
+<p>Take a baseline, change something, and compare:</p>
+<pre><code class="language-sh">just mem-report my-binary --json &gt; before.json
+# ... tune a knob, rebuild ...
+just mem-report my-binary --baseline before.json
+</code></pre>
+<p>Symbols that moved are annotated with their delta. This is also how a change to
+nano-ros itself should report a memory saving: as a measured difference between
+two named images, not as an estimate.</p>
+<h2 id="cross-compiled-images"><a class="header" href="#cross-compiled-images">Cross-compiled images</a></h2>
+<p>The tool prefers <code>llvm-nm</code>, which reads ELF files for any target; your host’s
+GNU <code>nm</code> is built for one target family and refuses a cross-built image with
+<em>“File format not recognized”</em>.</p>
+<p>You probably already have <code>llvm-nm</code> without knowing it: rustup ships it as part
+of the <code>llvm-tools</code> component, under the toolchain’s own <code>bin</code> directory rather
+than on your <code>PATH</code>, and the tool looks there. If it reports that it found no
+usable <code>nm</code>, run:</p>
+<pre><code class="language-sh">rustup component add llvm-tools
+</code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="rmw-backends--host-language-policy"><a class="header" href="#rmw-backends--host-language-policy">RMW Backends — Host-Language Policy</a></h1>
 <p>This page documents which language each RMW backend is implemented in,
@@ -22426,6 +22499,7 @@ its byte cost yet. Absence of a figure is not a claim that it is free.</p>
 <tr><td><code>ZPICO_MAX_QUERYABLES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:47</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
 <tr><td><code>ZPICO_MAX_SESSIONS</code></td><td style="text-align: right">1</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
 <tr><td><code>ZPICO_MAX_SUBSCRIBERS</code></td><td style="text-align: right">8</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
+<tr><td><code>ZPICO_PUBLISHER_TX_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
 <tr><td><code>ZPICO_READ_TASK_PRIORITY</code></td><td style="text-align: right">16</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
 <tr><td><code>ZPICO_SERVICE_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
 <tr><td><code>ZPICO_SUBSCRIBER_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
