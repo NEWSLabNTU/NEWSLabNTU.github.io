@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['name_0',['name',['../structnros__node__t.html#aeeeb5bb692279a608a0974b447cd15cd',1,'nros_node_t::name'],['../structnros__parameter__t.html#a794c437c732c1748da798c16440aa05d',1,'nros_parameter_t::name']]],
+  ['name_0',['name',['../structnros__node__t.html#aeeeb5bb692279a608a0974b447cd15cd',1,'nros_node_t::name'],['../parameter_8h.html#afcd1706c9144e6d6eee6127661ae3be2',1,'name:&#160;parameter.h'],['../structnros__parameter__t.html#a794c437c732c1748da798c16440aa05d',1,'nros_parameter_t::name']]],
   ['name_5flen_1',['name_len',['../structnros__node__t.html#a703d89de94b9a742b08ede9004032a29',1,'nros_node_t']]],
   ['namespace_5f_2',['namespace_',['../structnros__node__t.html#af8c774eadf66bebf462f6643f6793e37',1,'nros_node_t::namespace_'],['../structnros__node__options__t.html#ae6735f86efc5511fe007fde49578fbac',1,'nros_node_options_t::namespace_']]],
   ['namespace_5flen_3',['namespace_len',['../structnros__node__t.html#acd6e16e36117381173cebc653b97e5ee',1,'nros_node_t::namespace_len'],['../structnros__node__options__t.html#a016d7e41958c634ebf917f4919f8fd17',1,'nros_node_options_t::namespace_len']]],

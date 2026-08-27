@@ -15,7 +15,7 @@ var searchData=
   ['nros_5fgoal_5fstatus_5ft_12',['nros_goal_status_t',['../nros__generated_8h.html#a9faf1654a0f466ea7f203094ed6347c3',1,'nros_generated.h']]],
   ['nros_5fguard_5fcondition_5fstate_5ft_13',['nros_guard_condition_state_t',['../nros__generated_8h.html#a1d14ef409fd377f6a687382d300c08ef',1,'nros_generated.h']]],
   ['nros_5fnode_5fstate_5ft_14',['nros_node_state_t',['../nros__generated_8h.html#ab9ab55bfda54902d7239c5111f542508',1,'nros_generated.h']]],
-  ['nros_5fparam_5fserver_5fstate_5ft_15',['nros_param_server_state_t',['../nros__generated_8h.html#a5aa843370900d2ca4c3072753dac3766',1,'nros_generated.h']]],
+  ['nros_5fparameter_5fserver_5fstate_5ft_15',['nros_parameter_server_state_t',['../nros__generated_8h.html#a8a3dd912d64f49897dc56a0a20100bac',1,'nros_generated.h']]],
   ['nros_5fparameter_5ftype_5ft_16',['nros_parameter_type_t',['../nros__generated_8h.html#a97517abcbe117eadc920a33f4718400a',1,'nros_generated.h']]],
   ['nros_5fpublisher_5fstate_5ft_17',['nros_publisher_state_t',['../nros__generated_8h.html#a627b3b2309bb7844b3628a1002b8f428',1,'nros_generated.h']]],
   ['nros_5fqos_5fdurability_5ft_18',['nros_qos_durability_t',['../nros__generated_8h.html#af9f7df188c8aba0730b3241798df422f',1,'nros_generated.h']]],

@@ -79,8 +79,13 @@ var menudata={children:[
 {text:"File List",url:"files.html"},
 {text:"Globals",url:"globals.html",children:[
 {text:"All",url:"globals.html",children:[
-{text:"m",url:"globals.html#index_m"},
-{text:"n",url:"globals_n.html#index_n"}]},
+{text:"c",url:"globals.html#index_c"},
+{text:"d",url:"globals_d.html#index_d"},
+{text:"l",url:"globals_l.html#index_l"},
+{text:"m",url:"globals_m.html#index_m"},
+{text:"n",url:"globals_n.html#index_n"},
+{text:"s",url:"globals_s.html#index_s"},
+{text:"v",url:"globals_v.html#index_v"}]},
 {text:"Functions",url:"globals_func.html",children:[
 {text:"n",url:"globals_func.html#index_n"}]},
 {text:"Variables",url:"globals_vars.html"},

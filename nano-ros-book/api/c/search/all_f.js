@@ -2,7 +2,7 @@ var searchData=
 [
   ['large_20truncated_0',['Message Too Large / Truncated',['../troubleshooting.html#autotoc_md233',1,'']]],
   ['last_5fcall_5ftime_5fns_1',['last_call_time_ns',['../structnros__timer__t.html#a5745d16413d9f43ed04d896d66d761a4',1,'nros_timer_t']]],
-  ['len_2',['len',['../structnros__param__array__t.html#a81ab4704e172ed919f6917bb63e9638c',1,'nros_param_array_t']]],
+  ['len_2',['len',['../structnros__parameter__array__t.html#a81ab4704e172ed919f6917bb63e9638c',1,'nros_parameter_array_t::len'],['../parameter_8h.html#aa5d7dd8e6394f7c30c737caa1547108a',1,'len:&#160;parameter.h']]],
   ['lifecycle_3',['lifecycle',['../group__grp__lifecycle.html',1,'']]],
   ['lifecycle_2eh_4',['lifecycle.h',['../lifecycle_8h.html',1,'']]],
   ['lifespan_5fms_5',['lifespan_ms',['../structnros__qos__t.html#ae01d67152e842e4b719be4e0b5acc993',1,'nros_qos_t']]],
