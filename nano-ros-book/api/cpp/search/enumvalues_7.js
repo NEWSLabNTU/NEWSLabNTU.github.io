@@ -1,7 +1,5 @@
 var searchData=
 [
-  ['livelinessautomatic_0',['LivelinessAutomatic',['../classnros_1_1QoS.html#a497f4d113a1a0ab61027aadda17bd0f7a0aca9e3f1d37dfddf4589bc1cad8f5ef',1,'nros::QoS']]],
-  ['livelinessmanualbynode_1',['LivelinessManualByNode',['../classnros_1_1QoS.html#a497f4d113a1a0ab61027aadda17bd0f7afa1ca971276095c78f4fb5d66e342bdb',1,'nros::QoS']]],
-  ['livelinessmanualbytopic_2',['LivelinessManualByTopic',['../classnros_1_1QoS.html#a497f4d113a1a0ab61027aadda17bd0f7a5b4989a836fb1f34fa160b33ada4efcc',1,'nros::QoS']]],
-  ['livelinessnone_3',['LivelinessNone',['../classnros_1_1QoS.html#a497f4d113a1a0ab61027aadda17bd0f7a9bed05e0a27b39509b8ff61357d41183',1,'nros::QoS']]]
+  ['keepall_0',['KeepAll',['../namespacenros.html#a6e3a83466949477b1d68de3c97150b4dac3afb79794cd632c72d5b9c6d6f63794',1,'nros']]],
+  ['keeplast_1',['KeepLast',['../namespacenros.html#a6e3a83466949477b1d68de3c97150b4da651235c0520367700c488d2203576f0e',1,'nros']]]
 ];

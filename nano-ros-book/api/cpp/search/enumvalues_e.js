@@ -1,6 +1,7 @@
 var searchData=
 [
-  ['unknown_0',['Unknown',['../namespacenros.html#a824c95a7f291e516552584a26eb63c04a88183b946cc5f0e8c96b2e66e1c74a7e',1,'nros']]],
-  ['unknowngoal_1',['UnknownGoal',['../namespacenros.html#ae2356dc0967fe83da7c3711828ae3a87afc6824e4877a51d6b03edb49b9ab56b7',1,'nros']]],
-  ['unsupported_2',['Unsupported',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19eab4080bdf74febf04d578ff105cce9d3f',1,'nros']]]
+  ['timeout_0',['Timeout',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19eac85a251cc457840f1e032f1b733e9398',1,'nros']]],
+  ['transientlocal_1',['TransientLocal',['../namespacenros.html#aba43f70da8488c12dd1a04921d57b825a01f9fe854ccd6da5f8e541dd17b98f9b',1,'nros']]],
+  ['transporterror_2',['TransportError',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19eaa6bc95be5848e897dbc439dd4dc5f465',1,'nros']]],
+  ['tryagain_3',['TryAgain',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19eaebd61744195aaefd6ea1e66a92e25589',1,'nros']]]
 ];

@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['getting_20started_0',['Getting Started',['../getting_started.html',1,'index']]]
+  ['error_20codes_0',['Error Codes',['../error_codes.html',1,'troubleshooting']]]
 ];

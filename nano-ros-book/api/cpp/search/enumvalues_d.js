@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['timeout_0',['Timeout',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19eac85a251cc457840f1e032f1b733e9398',1,'nros']]],
-  ['transporterror_1',['TransportError',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19eaa6bc95be5848e897dbc439dd4dc5f465',1,'nros']]],
-  ['tryagain_2',['TryAgain',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19eaebd61744195aaefd6ea1e66a92e25589',1,'nros']]]
+  ['servicefailed_0',['ServiceFailed',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19ea81c60df0c0f22ae1438f9f087d53aa09',1,'nros']]],
+  ['subscriptionfailed_1',['SubscriptionFailed',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19ead404077907bc65d1ba2cf7cccceb5978',1,'nros']]],
+  ['succeeded_2',['Succeeded',['../namespacenros.html#a824c95a7f291e516552584a26eb63c04a66d02c2f8a582446f8dd8752366002b5',1,'nros']]]
 ];

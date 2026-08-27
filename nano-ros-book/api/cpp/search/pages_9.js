@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['started_0',['Getting Started',['../getting_started.html',1,'index']]]
+  ['nros_20c_20api_0',['nros C++ API',['../index.html',1,'']]]
 ];
