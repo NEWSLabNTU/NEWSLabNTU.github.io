@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-59f01f6e.js";
+            window.path_to_searchindex_js = "../searchindex-96d7ee78.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-cae74b5d.js"></script>
@@ -372,7 +372,7 @@ package’s <code>msg/*.msg</code> from <code>NROS_&lt;PKG&gt;_DIR</code> (e.g.
 install or any dir holding the <code>.msg</code> files.</li>
 </ol>
 <p>The RMW host daemon must be <strong>running</strong> before an example connects
-(for zenoh: <code>ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7456"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd</code>; the Micro-XRCE-DDS agent for xrce).</p>
+(for zenoh: <code>ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd</code>; the Micro-XRCE-DDS agent for xrce).</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
 <p>Add nano-ros (and a Zephyr pin — <code>zephyr/west.yml</code> is manifest-only;
 it does <strong>not</strong> pull Zephyr itself) to your workspace <code>west.yml</code>:</p>
@@ -425,6 +425,286 @@ west update                              # clones nano-ros + Zephyr into the wor
 </code></pre>
 <p>(If you started from <code>west init -m &lt;remote&gt;</code>, both calls above are
 already done — go straight to <code>west build</code> below.)</p>
+<h3 id="nros-build-on-zephyr-it-hands-off-it-does-not-take-over"><a class="header" href="#nros-build-on-zephyr-it-hands-off-it-does-not-take-over"><code>nros build</code> on Zephyr: it hands off, it does not take over</a></h3>
+<p>The other platforms let <code>nros build</code> own the build: it generates a cargo or
+CMake root from your <code>[image.*]</code> declarations and runs the tool. <strong>Zephyr is not
+like that, on purpose.</strong></p>
+<p>You own the west workspace and the application. <code>west init</code> / <code>west update</code>
+populate the workspace, your app carries its own <code>CMakeLists.txt</code> and
+<code>prj.conf</code>, and <code>west</code> only runs from inside that workspace. None of that is
+ours to generate — an app’s Kconfig is authored, not derived (RFC-0065 D5).</p>
+<p>So for a Zephyr image <code>nros build</code>:</p>
+<ol>
+<li>resolves the <strong>application</strong> — the entry package for that image’s board,
+not the bringup;</li>
+<li>resolves <strong>your Zephyr</strong> — <code>$ZEPHYR_BASE</code>, else <code>$NROS_ZEPHYR_WORKSPACE</code>,
+else an in-tree <code>zephyr-workspace/</code>, else a sibling <code>../nano-ros-workspace</code>.
+Note it is a <em>Zephyr</em> that is needed, not a <code>.west/</code> directory: with
+<code>ZEPHYR_BASE</code> set, <code>west build</code> runs from anywhere, which is what makes a
+<strong>freestanding application</strong> — one outside the west workspace — work;</li>
+<li>runs <code>west build</code> from there with the image’s overlays
+(<code>EXTRA_CONF_FILE</code>, <code>APPLICATION_CONFIG_DIR</code>) already applied.</li>
+</ol>
+<p>If it cannot find a workspace it does <strong>not</strong> guess. It prints the command and
+where to run it:</p>
+<pre><code class="language-text">$ nros build demo_bringup:zephyr
+Error: no west workspace found, so `west build` cannot be run for `zephyr`.
+
+Zephyr differs from the other drivers: YOU own the west workspace and the
+application, and `west` only runs inside a workspace …
+
+Run this from your west workspace:
+
+    west build -b native_sim/native/64 …/src/zephyr_entry
+
+Point nros at your workspace:
+
+    NROS_ZEPHYR_WORKSPACE=&lt;dir&gt;   # the dir containing zephyr/
+</code></pre>
+<p>That is deliberate and it is the same boundary <code>nros setup --system</code> draws when
+it composes an install command and prints it rather than running <code>sudo</code> for you:
+where the tool is yours, nano-ros hands you the command instead of assuming it
+may act.</p>
+<p><strong>The plain <code>west build</code> below keeps working and is still the primary flow.</strong>
+<code>nros build</code> is the convenience that applies an image’s overlays for you; it
+never becomes a required layer between you and west.</p>
+<h4 id="starting-from-nothing-nros-new-entry"><a class="header" href="#starting-from-nothing-nros-new-entry">Starting from nothing: <code>nros new entry</code></a></h4>
+<p>You do not have to write the entry package by hand:</p>
+<pre><code class="language-bash">nros new entry zephyr_entry --platform zephyr
+</code></pre>
+<pre><code class="language-text">nros new entry: scaffolded ./src/zephyr_entry (7 file(s))
+  declared [image.zephyr_entry] in ./src/demo_bringup/system.toml
+
+Next:
+  nros sync
+  nros build demo_bringup:zephyr_entry --zephyr-workspace &lt;dir&gt;
+</code></pre>
+<p>It writes the package — <code>Cargo.toml</code>, <code>CMakeLists.txt</code>, <code>build.rs</code>,
+<code>src/lib.rs</code>, <code>prj.conf</code>, <code>prj-zenoh.conf</code>, <code>boards/&lt;board&gt;.conf</code> — and three
+things outside it that are easy to miss and invisible until they fail:</p>
+<ul>
+<li>the <strong><code>[image.*]</code> block</strong>, with <code>board</code>, <code>entry</code> and the <code>conf</code> overlay the
+entry’s own <code>CMakeLists.txt</code> requires;</li>
+<li>an <strong><code>exclude</code> entry in every enclosing cargo workspace</strong>, because a
+west-built <code>staticlib</code> must not be an ordinary cargo member;</li>
+<li>a <strong>path dependency per node package</strong> the bringup declares, since the entry
+links them.</li>
+</ul>
+<p><code>--board</code>, <code>--rmw</code> and <code>--bringup</code> override the defaults
+(<code>native_sim/native/64</code>, <code>zenoh</code>, and the workspace’s single bringup).</p>
+<h4 id="the-whole-flow-end-to-end"><a class="header" href="#the-whole-flow-end-to-end">The whole flow, end to end</a></h4>
+<p>Five commands, run from your workspace. This is the <code>examples/workspaces/rust</code>
+transcript, verbatim:</p>
+<pre><code class="language-bash"># 0. tell nros where your west workspace is — the directory containing
+#    `zephyr/`. On the command line:
+#
+#      nros build demo_bringup:zephyr --zephyr-workspace /path/to/zephyr-workspace
+#
+#    or once for the shell, if you would rather not repeat it:
+export NROS_ZEPHYR_WORKSPACE=/path/to/zephyr-workspace
+
+# 1. generate the message bindings this workspace's packages depend on.
+#    `nros build` refuses with "this workspace has never been synced" until
+#    you do — it will not silently build against absent bindings.
+nros sync
+
+# 2. build. This resolves the application, applies the image's overlays and
+#    runs `west build` for you.
+nros build demo_bringup:zephyr
+
+# 3. start the router ROS itself uses — the one `rmw_zenoh_cpp` ships, so it
+#    cannot drift from the RMW your ROS 2 nodes use. Separate terminal; it
+#    keeps running. Listens on tcp/127.0.0.1:7447.
+ros2 run rmw_zenoh_cpp rmw_zenohd
+
+# 4. run the image.
+./build/zephyr/zephyr.exe
+</code></pre>
+<pre><code class="language-text">*** Booting Zephyr OS build v3.7.0 ***
+&lt;inf&gt; nros_net_wait: Network ready (NSOS — host kernel sockets)
+&lt;inf&gt; rust: rustapp: nros: zephyr workspace entry up (2 nodes)
+&lt;inf&gt; rust: talker_pkg: talker publishing chatter seq=0
+&lt;inf&gt; rust: talker_pkg: talker publishing chatter seq=1
+</code></pre>
+<p>and from a ROS 2 shell on the same router, the nodes are ordinary ROS nodes:</p>
+<pre><code class="language-console">$ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+$ ros2 topic echo /chatter --once
+data: 6
+---
+</code></pre>
+<p>Step 3 is not optional and its ORDER does not matter, but the <strong>locator</strong> does:
+zenoh-pico is a client, so with no router the image gets</p>
+<pre><code class="language-text">&lt;err&gt; rust: nros: zephyr entry — executor open failed: Transport(ConnectionFailed)
+</code></pre>
+<p>which names no port. Both sides default to <code>tcp/127.0.0.1:7447</code> — the port
+<code>rmw_zenohd</code> listens on and a <code>rmw_zenoh_cpp</code> node connects to. Override with
+<code>CONFIG_NROS_ZENOH_LOCATOR</code> on the image side (via a <code>conf</code> fragment) and
+<code>ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:&lt;port&gt;"]'</code> on the
+router, and change <strong>both</strong>.</p>
+<h4 id="what-an-image-declares"><a class="header" href="#what-an-image-declares">What an image declares</a></h4>
+<p>The Zephyr images in <code>examples/workspaces/*</code> are the worked examples:</p>
+<pre><code class="language-toml">[image.zephyr]
+board = "native_sim/native/64"
+entry = "zephyr_entry"          # only when several entries match, see below
+conf  = ["prj-zenoh.conf"]      # the RMW overlay this app requires
+</code></pre>
+<ul>
+<li><strong><code>conf</code></strong> names the app’s own Kconfig fragments, in order. They are looked
+for beside the board config dir, then <strong>beside the application</strong>, then beside
+the bringup — the app rung matters because a Zephyr app keeps its
+<code>prj-&lt;rmw&gt;.conf</code> next to the <code>CMakeLists.txt</code> west builds. These entries
+<code>FATAL_ERROR</code> without an RMW overlay, so the image has to say which one.</li>
+<li><strong><code>board</code></strong> is the Zephyr board target — and also a name nano-ros must know.
+See below.</li>
+<li><strong><code>entry</code></strong> names the application package. Normally leave it out: an entry
+declares the deploy target it serves — <code>[package.metadata.nros.entry] deploy</code>
+in <code>Cargo.toml</code>, <code>nano_ros_add_executable(... DEPLOY zephyr)</code> in
+<code>CMakeLists.txt</code> — and one package usually claims a given board. Set it when
+several do (<code>realtime-cpp</code> has <code>zephyr_entry</code> and <code>fvp_entry</code>, both
+<code>DEPLOY zephyr</code>, on the same board, for two images that differ in payload).
+Deriving there is a coin flip, so <code>nros build</code> refuses and lists the
+candidates rather than picking one.</li>
+</ul>
+<h4 id="if-you-live-in-west-west-nros"><a class="header" href="#if-you-live-in-west-west-nros">If you live in west: <code>west nros</code></a></h4>
+<p>Everything above assumes you stand in your nano-ros workspace and name the
+Zephyr one. If you work the other way round — inside the west workspace — west
+already knows where Zephyr is, so it can tell <code>nros</code> for you:</p>
+<pre><code class="language-bash">cd ~/zephyr-workspace
+west nros build --workspace ~/my_robot demo_bringup:zephyr
+</code></pre>
+<p>No <code>ZEPHYR_BASE</code>, no <code>NROS_ZEPHYR_WORKSPACE</code>, no <code>--zephyr-workspace</code>. Every
+argument after <code>nros</code> is passed straight through, so anything <code>nros</code> accepts
+works here unchanged.</p>
+<p>It picks up automatically in any workspace whose manifest lists nano-ros — the
+same route <code>west fvp</code> takes. Two things worth knowing:</p>
+<ul>
+<li><strong>It only exists inside a west workspace.</strong> West loads extension commands
+from the manifest, so from an unrelated directory you get
+<code>west: unknown command "nros"</code>. That is why this is an addition rather than a
+replacement: it swaps which of the two trees you have to name, trading the
+Zephyr path (which differs per machine) for your own workspace path (which
+you chose).</li>
+<li><strong>It never overwrites a <code>ZEPHYR_BASE</code> you set yourself</strong> — an exported one is
+a deliberate choice, and this only fills in a missing answer.</li>
+</ul>
+<h4 id="which-boards-you-can-name"><a class="header" href="#which-boards-you-can-name">Which boards you can name</a></h4>
+<p><code>board</code> does two jobs from one string: it is passed to <code>west build -b</code>
+verbatim, and it is looked up in nano-ros’s board catalog, where a descriptor
+carries a set of names:</p>
+<pre><code class="language-toml">names = ["zephyr", "native_sim/native/64"]
+</code></pre>
+<p>So it is not free-form. A board the catalog does not know is refused with the
+list of ones it does, because the descriptor supplies more than the <code>-b</code> string
+— the platform, the toolchain, the entry kind, the declared capabilities. There
+is no safe default for those.</p>
+<p><strong>A board is a package — put it in your workspace.</strong> Drop an <code>nros-board.toml</code>
+beside a package’s <code>package.xml</code> and it joins the catalog like any other
+package in <code>src/</code>:</p>
+<pre><code class="language-text">my_robot/src/
+├── talker_pkg/
+└── my_board/
+    ├── package.xml
+    └── nros-board.toml
+</code></pre>
+<pre><code class="language-toml"># src/my_board/nros-board.toml
+[[board]]
+names = ["my-board"]              # what your images say
+west_board = "qemu_cortex_m3"     # what west is given
+platform = "zephyr"
+toolchain = "stable"
+platform_feature = "platform-zephyr"
+link_kind = "none"
+entry_kind = "zephyr-staticlib"
+</code></pre>
+<pre><code class="language-toml"># src/demo_bringup/system.toml
+[image.zephyr]
+board = "my-board"
+</code></pre>
+<p>No environment variable, nothing outside the tree, nothing copied into the
+nano-ros checkout. <code>west_board</code> is what lets the friendly name be the one your
+workspace uses — leave it out when your board name already <em>is</em> the west board
+target, which is what the shipped descriptors do.</p>
+<p>For a board shared by <strong>several</strong> workspaces there is no single workspace to
+put it in, and <code>$NROS_EXTRA_BOARD_PATH</code> still covers that: PATH-style, naming
+directories shaped like <code>packages/boards/</code>.</p>
+<p><code>nros new board &lt;name&gt; --for-platform zephyr</code> scaffolds the descriptor. Note
+this is the <em>nano-ros</em> descriptor; an out-of-tree Zephyr board <strong>definition</strong>
+(its devicetree and <code>board.yml</code>) is contributed the Zephyr way, through your
+module’s <code>board_root</code>.</p>
+<h4 id="adding-your-own-drivers-modules-and-boards"><a class="header" href="#adding-your-own-drivers-modules-and-boards">Adding your own drivers, modules and boards</a></h4>
+<p><strong>Everything Zephyr lets you extend, you still extend the Zephyr way.</strong> The
+application <code>CMakeLists.txt</code> is yours (RFC-0065 D5) and <code>nros build</code> runs
+<code>west build</code> against it, so the extension points are untouched:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>you want</th><th>you do</th><th><code>nros build</code> involvement</th></tr>
+</thead>
+<tbody>
+<tr><td>an out-of-tree module</td><td><code>list(APPEND ZEPHYR_EXTRA_MODULES &lt;dir&gt;)</code> before <code>find_package(Zephyr)</code></td><td>none</td></tr>
+<tr><td>a driver in that module</td><td><code>zephyr_library()</code> + <code>zephyr_library_sources()</code>, gated on your own Kconfig</td><td>none</td></tr>
+<tr><td>its devicetree binding</td><td><code>dts/bindings/</code> + <code>settings: {dts_root: .}</code> in the module’s <code>zephyr/module.yml</code></td><td>none</td></tr>
+<tr><td>an out-of-tree board / SoC / arch / snippet</td><td>the matching <code>*_root</code> in the same <code>module.yml</code> (<code>board_root</code>, <code>soc_root</code>, <code>arch_root</code>, <code>snippet_root</code>, <code>module_ext_root</code>)</td><td>none</td></tr>
+<tr><td>turning your Kconfig on for one image</td><td>a <code>conf</code> fragment on <code>[image.*]</code></td><td>passed as <code>EXTRA_CONF_FILE</code></td></tr>
+<tr><td>a devicetree overlay for one image</td><td>an <code>.overlay</code> in the same <code>conf</code> list</td><td>passed as <code>EXTRA_DTC_OVERLAY_FILE</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>Only the last two rows are ours, and they are how an IMAGE differs from its
+siblings — the module itself is a property of the application, not of one
+image, so it belongs in the app’s <code>CMakeLists.txt</code> where you would have put it
+anyway.</p>
+<p><code>nros build</code> passes exactly four things to west of its own —
+<code>APPLICATION_CONFIG_DIR</code>, <code>EXTRA_CONF_FILE</code>, <code>EXTRA_DTC_OVERLAY_FILE</code>,
+<code>FILE_SUFFIX</code>, all Zephyr’s own variables — and there is deliberately <strong>no
+image key for arbitrary <code>-D</code> defines</strong>. Something your application always needs
+belongs in its <code>CMakeLists.txt</code>, which keeps one place to look.</p>
+<h4 id="customizing-the-west-command-itself"><a class="header" href="#customizing-the-west-command-itself">Customizing the west command itself</a></h4>
+<p>Anything after <code>--</code> goes to west. <code>west build</code> has two argument zones, and
+<code>nros build</code> routes each token to the right one using west’s own flag list:</p>
+<pre><code class="language-bash">nros build demo_bringup:zephyr -- --pristine        # a west option
+nros build demo_bringup:zephyr -- -t run            # build, then run it
+nros build demo_bringup:zephyr -- -DMY_OPT=1        # a cmake option
+nros build demo_bringup:zephyr -- -p always -DX=1   # both, in one go
+</code></pre>
+<p>which becomes, respectively, the west option zone and the cmake zone:</p>
+<pre><code class="language-text">west build -b &lt;board&gt; &lt;app&gt; -p always -- -DEXTRA_CONF_FILE=… -DX=1
+</code></pre>
+<p><code>nros build --dry-run</code> prints that line without running it, so you can always
+see exactly what west is being asked to do — and copy it if you would rather
+drive west yourself.</p>
+<p><strong>Two flags are refused rather than routed</strong>, because the image already decides
+them and a build must not be able to disagree with its own declaration:</p>
+<pre><code class="language-console">$ nros build demo_bringup:zephyr -- --sysbuild
+Error: `--sysbuild` is decided by the image, not by the command line.
+It comes from the presence of a `sysbuild.conf` beside the application.
+
+Change it there, so one build cannot disagree with the declaration it was
+resolved from.
+</code></pre>
+<p>The other is <code>-b</code>/<code>--board</code>, which comes from the image’s <code>board</code>.</p>
+<p>Verified by building one. An out-of-tree module with its own Kconfig, a driver
+source gated on it, a devicetree overlay declaring a node and a binding shipped
+from the module’s <code>dts_root</code>, added to <code>examples/workspaces/rust</code>’s entry and
+enabled through the image:</p>
+<pre><code class="language-toml">[image.zephyr]
+conf = ["prj-zenoh.conf", "prj-user-extra.conf", "user-widget.overlay"]
+</code></pre>
+<pre><code class="language-text">*** Booting Zephyr OS build v3.7.0 ***
+user_extra: out-of-tree driver init, widget-id=42
+&lt;inf&gt; rust: rustapp: nros: zephyr workspace entry up (2 nodes)
+&lt;inf&gt; rust: talker_pkg: talker publishing chatter seq=0
+</code></pre>
+<p>The driver’s <code>BUILD_ASSERT(DT_NODE_EXISTS(DT_NODELABEL(user_widget)))</code> is what
+makes that a test rather than a screenshot: without the overlay reaching the
+build, it fails to compile instead of quietly doing nothing.</p>
+<p>A mistake in your module surfaces as Zephyr’s own error, unmediated — a wrong
+<code>kconfig:</code> path in <code>module.yml</code> reports</p>
+<pre><code class="language-text">ERROR: "kconfig" key in …/extra_module/zephyr/module.yml has value
+"../Kconfig" which does not point to a valid Kconfig file.
+</code></pre>
+<p>which is the message you would get from a plain <code>west build</code>, because it is a
+plain <code>west build</code>.</p>
 <p>The transports + <code>px4-rs</code> come from the <a href="#prerequisites">prerequisites</a> step
 (<code>west update</code> clones nano-ros but <strong>not</strong> its submodules). With the Zephyr SDK +
 <code>NROS_STD_MSGS_DIR</code> exported (also prerequisites), build your app — <code>nros</code> on
@@ -439,7 +719,7 @@ west build -b qemu_cortex_a9 apps/my_app
 </code></pre>
 <p>(Verified end-to-end on a fresh BYO west workspace: this builds to
 <code>zephyr.exe</code> and runs to <code>Published: 0</code> against a router started with
-<code>ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7456"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd</code>.
+<code>ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd</code>.
 On the Zephyr 4.4 line, <code>find_package(Python3)</code> requires ≥ 3.12 and you
 select the RMW with <code>-S nros-zenoh</code> instead of the overlay.)</p>
 <p>For a quick sanity check that the module is wired correctly:</p>
@@ -471,10 +751,10 @@ The example apps’ committed <code>.cargo/config.toml</code> is for the in-tree
 </ol>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
 <pre><code class="language-bash"># 1. Start the router (ROS's `rmw_zenohd` — nano-ros ships no router
-#    of its own) on port 7456, the port your app's Kconfig default
+#    of its own) on port 7447, the port your app's Kconfig default
 #    picks up (CONFIG_NROS_ZENOH_LOCATOR defaults to
-#    "tcp/127.0.0.1:7456"; change either side to match):
-ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:7456"];scouting/multicast/enabled=false' \
+#    "tcp/127.0.0.1:7447"; change either side to match):
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:7447"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
 # 2. Boot the app from your BYO west workspace:
@@ -517,7 +797,7 @@ without it the module shell never <code>add_subdirectory</code>’s nano-ros.</l
 <li>Check <code>CONFIG_NETWORKING=y</code>, <code>CONFIG_NET_IPV4=y</code>, <code>CONFIG_NET_TCP=y</code>
 in <code>prj.conf</code> — Zephyr networking is opt-in.</li>
 <li>Confirm <code>zenohd</code> reachable from the simulated network (Slirp
-needs <code>10.0.2.2:7456</code> on QEMU; native_sim uses host loopback).</li>
+needs <code>10.0.2.2:7447</code> on QEMU; native_sim uses host loopback).</li>
 <li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
 <p><strong>Zephyr 4.x build gotchas.</strong></p>
