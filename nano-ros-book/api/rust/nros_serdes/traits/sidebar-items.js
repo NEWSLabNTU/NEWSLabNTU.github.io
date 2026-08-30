@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"trait":["Deserialize","DeserializeBorrowed","Serialize"]};
+window.SIDEBAR_ITEMS = {"trait":["Deserialize","DeserializeView","Serialize"]};

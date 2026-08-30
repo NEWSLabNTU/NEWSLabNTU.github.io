@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"trait":["BorrowedMessage","RosMessage","RosService"]};
+window.SIDEBAR_ITEMS = {"trait":["RosMessage","RosService","ViewableMessage"]};
