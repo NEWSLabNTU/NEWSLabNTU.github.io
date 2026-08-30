@@ -57,10 +57,11 @@ var searchData=
   ['nros_5fret_5freentrant_54',['NROS_RET_REENTRANT',['../nros__generated_8h.html#a3892cedd292fdc8125539bea628400a6',1,'nros_generated.h']]],
   ['nros_5fret_5frejected_55',['NROS_RET_REJECTED',['../nros__generated_8h.html#aaaa0564303cf6faa8cf2be66a0c9fb3c',1,'nros_generated.h']]],
   ['nros_5fret_5fservice_5ffailed_56',['NROS_RET_SERVICE_FAILED',['../nros__generated_8h.html#aabd457b20c95d26e0fc668bdda93b721',1,'nros_generated.h']]],
-  ['nros_5fret_5fsubscription_5ffailed_57',['NROS_RET_SUBSCRIPTION_FAILED',['../nros__generated_8h.html#ab60cd014a90eb71e6b4ce55bc7647004',1,'nros_generated.h']]],
-  ['nros_5fret_5ftimeout_58',['NROS_RET_TIMEOUT',['../nros__generated_8h.html#a289b49fcfdc08c5b66da221d5412cbef',1,'nros_generated.h']]],
-  ['nros_5fret_5ftry_5fagain_59',['NROS_RET_TRY_AGAIN',['../nros__generated_8h.html#a2040b7576bd23420ecb3006f451e9d0b',1,'nros_generated.h']]],
-  ['nros_5fret_5funsupported_60',['NROS_RET_UNSUPPORTED',['../nros__generated_8h.html#a1ff74449e80ca5461c165515ff5cdf6a',1,'nros_generated.h']]],
-  ['nros_5fshutdown_5fcallback_5fhandle_5finvalid_61',['NROS_SHUTDOWN_CALLBACK_HANDLE_INVALID',['../nros__generated_8h.html#aabd94b0686f449b031084ce5a6b6fd46',1,'nros_generated.h']]],
-  ['nros_5fwarn_5funused_62',['NROS_WARN_UNUSED',['../visibility_8h.html#a55f3fee016bd58e00f2ec8bfe593dbd7',1,'visibility.h']]]
+  ['nros_5fret_5fstale_5fnode_57',['NROS_RET_STALE_NODE',['../nros__generated_8h.html#a3660cb28593deb0331f10f852892f2a9',1,'nros_generated.h']]],
+  ['nros_5fret_5fsubscription_5ffailed_58',['NROS_RET_SUBSCRIPTION_FAILED',['../nros__generated_8h.html#ab60cd014a90eb71e6b4ce55bc7647004',1,'nros_generated.h']]],
+  ['nros_5fret_5ftimeout_59',['NROS_RET_TIMEOUT',['../nros__generated_8h.html#a289b49fcfdc08c5b66da221d5412cbef',1,'nros_generated.h']]],
+  ['nros_5fret_5ftry_5fagain_60',['NROS_RET_TRY_AGAIN',['../nros__generated_8h.html#a2040b7576bd23420ecb3006f451e9d0b',1,'nros_generated.h']]],
+  ['nros_5fret_5funsupported_61',['NROS_RET_UNSUPPORTED',['../nros__generated_8h.html#a1ff74449e80ca5461c165515ff5cdf6a',1,'nros_generated.h']]],
+  ['nros_5fshutdown_5fcallback_5fhandle_5finvalid_62',['NROS_SHUTDOWN_CALLBACK_HANDLE_INVALID',['../nros__generated_8h.html#aabd94b0686f449b031084ce5a6b6fd46',1,'nros_generated.h']]],
+  ['nros_5fwarn_5funused_63',['NROS_WARN_UNUSED',['../visibility_8h.html#a55f3fee016bd58e00f2ec8bfe593dbd7',1,'visibility.h']]]
 ];
