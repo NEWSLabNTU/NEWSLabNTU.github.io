@@ -179,24 +179,74 @@
 <a href=#179 id=179 data-nosnippet>179</a>    default
 <a href=#180 id=180 data-nosnippet>180</a>}
 <a href=#181 id=181 data-nosnippet>181</a>
-<a href=#182 id=182 data-nosnippet>182</a><span class="doccomment">/// Phase 380 W4 — can a default-sized receive buffer hold every message of `M`?
-<a href=#183 id=183 data-nosnippet>183</a>///
-<a href=#184 id=184 data-nosnippet>184</a>/// `true` when it can, when `M` is unbounded (nothing to prove), AND on backends
-<a href=#185 id=185 data-nosnippet>185</a>/// whose `MessageForRmw` does not carry a schema — there the question cannot be
-<a href=#186 id=186 data-nosnippet>186</a>/// asked at all, so the honest answer for a build assertion is "no objection".
-<a href=#187 id=187 data-nosnippet>187</a>///
-<a href=#188 id=188 data-nosnippet>188</a>/// The cfg lives here because this is where it is defined; `create_subscription`
-<a href=#189 id=189 data-nosnippet>189</a>/// calls this unconditionally and gets a compile-time `true` where the schema is
-<a href=#190 id=190 data-nosnippet>190</a>/// absent. Keeping the branch here rather than at the call site is what stops a
-<a href=#191 id=191 data-nosnippet>191</a>/// second spelling of "does this backend have schemas" growing in the API crate.
-<a href=#192 id=192 data-nosnippet>192</a></span><span class="attr">#[cfg(rmw_needs_type_descriptors)]
-<a href=#193 id=193 data-nosnippet>193</a></span><span class="kw">pub const fn </span>subscription_buffer_ok&lt;M: MessageForRmw&gt;() -&gt; bool {
-<a href=#194 id=194 data-nosnippet>194</a>    nros_serdes::size::bound_fits::&lt;M&gt;(<span class="kw">crate</span>::config::DEFAULT_RX_BUF_SIZE)
-<a href=#195 id=195 data-nosnippet>195</a>}
-<a href=#196 id=196 data-nosnippet>196</a>
-<a href=#197 id=197 data-nosnippet>197</a><span class="doccomment">/// See the documented sibling — no schema on this backend, so no check.
-<a href=#198 id=198 data-nosnippet>198</a></span><span class="attr">#[cfg(not(rmw_needs_type_descriptors))]
-<a href=#199 id=199 data-nosnippet>199</a></span><span class="kw">pub const fn </span>subscription_buffer_ok&lt;M: MessageForRmw&gt;() -&gt; bool {
-<a href=#200 id=200 data-nosnippet>200</a>    <span class="bool-val">true
-<a href=#201 id=201 data-nosnippet>201</a></span>}
+<a href=#182 id=182 data-nosnippet>182</a><span class="doccomment">/// Phase 403 W2 -- the number of BYTES a buffered subscription's arena slot
+<a href=#183 id=183 data-nosnippet>183</a>/// needs for `M`, given the caller's own ceiling `rx_buf`, or `None` when `M`
+<a href=#184 id=184 data-nosnippet>184</a>/// has NO BOUND.
+<a href=#185 id=185 data-nosnippet>185</a>///
+<a href=#186 id=186 data-nosnippet>186</a>/// Distinct from [`subscription_rx_hint`] on purpose, and the difference is the
+<a href=#187 id=187 data-nosnippet>187</a>/// whole point: the hint describes the MESSAGE and is handed to the backend, so
+<a href=#188 id=188 data-nosnippet>188</a>/// it is the bound alone. This describes OUR STORAGE, so it is clamped by what
+<a href=#189 id=189 data-nosnippet>189</a>/// the caller asked for. A type whose bound EXCEEDS `rx_buf` keeps `rx_buf` --
+<a href=#190 id=190 data-nosnippet>190</a>/// growing it here would silently spend arena the caller budgeted elsewhere and
+<a href=#191 id=191 data-nosnippet>191</a>/// can exhaust it (`report_arena_exhausted`), and the too-small case is already
+<a href=#192 id=192 data-nosnippet>192</a>/// diagnosed by `report_dropped_take` and refused at build time on the
+<a href=#193 id=193 data-nosnippet>193</a>/// declarative path by `subscription_buffer_ok`.
+<a href=#194 id=194 data-nosnippet>194</a>///
+<a href=#195 id=195 data-nosnippet>195</a>/// `max_serialized_bound` takes the LARGER of XCDR1 and XCDR2, which is the
+<a href=#196 id=196 data-nosnippet>196</a>/// rule a RECEIVE buffer needs: this stack WRITES XCDR1, but a peer chooses the
+<a href=#197 id=197 data-nosnippet>197</a>/// encoding, and XCDR2 adds a 4-byte DHEADER and aligns differently. The C
+<a href=#198 id=198 data-nosnippet>198</a>/// constants say the same thing (`{PREFIX}_RX_MAX_SERIALIZED_SIZE` in
+<a href=#199 id=199 data-nosnippet>199</a>/// `packs/c/message.h.jinja`); sizing from XCDR1 alone is a trap.
+<a href=#200 id=200 data-nosnippet>200</a>///
+<a href=#201 id=201 data-nosnippet>201</a>/// # Why `Option` and not a fallback
+<a href=#202 id=202 data-nosnippet>202</a>///
+<a href=#203 id=203 data-nosnippet>203</a>/// Every message type is REQUIRED to carry a bound -- stated in the `.msg`
+<a href=#204 id=204 data-nosnippet>204</a>/// (`string&lt;=64`) or as a `cap` in `nros-codegen.toml` -- so a type without one
+<a href=#205 id=205 data-nosnippet>205</a>/// is an error to be reported, not a case to be absorbed. Returning `rx_buf`
+<a href=#206 id=206 data-nosnippet>206</a>/// here would be exactly the substitution phase 380 forbids: `None` from
+<a href=#207 id=207 data-nosnippet>207</a>/// `max_serialized_bound` means "no bound EXISTS", never "unknown", and a buffer
+<a href=#208 id=208 data-nosnippet>208</a>/// sized from a fallback is the failure that rule was written to prevent.
+<a href=#209 id=209 data-nosnippet>209</a>/// Propagating the `None` makes the fallback impossible to write by accident and
+<a href=#210 id=210 data-nosnippet>210</a>/// leaves the caller to raise a diagnostic naming the type -- the same shape the
+<a href=#211 id=211 data-nosnippet>211</a>/// C header takes, where naming an unbounded type's size constant is a
+<a href=#212 id=212 data-nosnippet>212</a>/// deliberate compile error (`unbounded_token` / `unbounded_reason`).
+<a href=#213 id=213 data-nosnippet>213</a>///
+<a href=#214 id=214 data-nosnippet>214</a>/// Unlike its two neighbours this takes `nros_serdes::schema::Message` DIRECTLY
+<a href=#215 id=215 data-nosnippet>215</a>/// rather than `MessageForRmw`, so it needs no `rmw_needs_type_descriptors`
+<a href=#216 id=216 data-nosnippet>216</a>/// split: the caller that opts in supplies the schema bound itself. That is
+<a href=#217 id=217 data-nosnippet>217</a>/// deliberate -- the bound is a property of the TYPE, not of the backend, and
+<a href=#218 id=218 data-nosnippet>218</a>/// the non-descriptor arm of `MessageForRmw` deliberately does not require a
+<a href=#219 id=219 data-nosnippet>219</a>/// schema (a hand-written message type must keep working, phase-380 W4). Under
+<a href=#220 id=220 data-nosnippet>220</a>/// that arm the two neighbours can only answer "no opinion"; this one is simply
+<a href=#221 id=221 data-nosnippet>221</a>/// not reachable without a schema, which is the honest shape.
+<a href=#222 id=222 data-nosnippet>222</a></span><span class="kw">pub const fn </span>subscription_rx_bytes&lt;M: nros_serdes::schema::Message&gt;(
+<a href=#223 id=223 data-nosnippet>223</a>    rx_buf: usize,
+<a href=#224 id=224 data-nosnippet>224</a>) -&gt; <span class="prelude-ty">Option</span>&lt;usize&gt; {
+<a href=#225 id=225 data-nosnippet>225</a>    <span class="kw">match </span>nros_serdes::size::max_serialized_bound::&lt;M&gt;() {
+<a href=#226 id=226 data-nosnippet>226</a>        <span class="prelude-val">Some</span>(bound) <span class="kw">if </span>bound &lt; rx_buf =&gt; <span class="prelude-val">Some</span>(bound),
+<a href=#227 id=227 data-nosnippet>227</a>        <span class="prelude-val">Some</span>(<span class="kw">_</span>) =&gt; <span class="prelude-val">Some</span>(rx_buf),
+<a href=#228 id=228 data-nosnippet>228</a>        <span class="prelude-val">None </span>=&gt; <span class="prelude-val">None</span>,
+<a href=#229 id=229 data-nosnippet>229</a>    }
+<a href=#230 id=230 data-nosnippet>230</a>}
+<a href=#231 id=231 data-nosnippet>231</a>
+<a href=#232 id=232 data-nosnippet>232</a><span class="doccomment">/// Phase 380 W4 — can a default-sized receive buffer hold every message of `M`?
+<a href=#233 id=233 data-nosnippet>233</a>///
+<a href=#234 id=234 data-nosnippet>234</a>/// `true` when it can, when `M` is unbounded (nothing to prove), AND on backends
+<a href=#235 id=235 data-nosnippet>235</a>/// whose `MessageForRmw` does not carry a schema — there the question cannot be
+<a href=#236 id=236 data-nosnippet>236</a>/// asked at all, so the honest answer for a build assertion is "no objection".
+<a href=#237 id=237 data-nosnippet>237</a>///
+<a href=#238 id=238 data-nosnippet>238</a>/// The cfg lives here because this is where it is defined; `create_subscription`
+<a href=#239 id=239 data-nosnippet>239</a>/// calls this unconditionally and gets a compile-time `true` where the schema is
+<a href=#240 id=240 data-nosnippet>240</a>/// absent. Keeping the branch here rather than at the call site is what stops a
+<a href=#241 id=241 data-nosnippet>241</a>/// second spelling of "does this backend have schemas" growing in the API crate.
+<a href=#242 id=242 data-nosnippet>242</a></span><span class="attr">#[cfg(rmw_needs_type_descriptors)]
+<a href=#243 id=243 data-nosnippet>243</a></span><span class="kw">pub const fn </span>subscription_buffer_ok&lt;M: MessageForRmw&gt;() -&gt; bool {
+<a href=#244 id=244 data-nosnippet>244</a>    nros_serdes::size::bound_fits::&lt;M&gt;(<span class="kw">crate</span>::config::DEFAULT_RX_BUF_SIZE)
+<a href=#245 id=245 data-nosnippet>245</a>}
+<a href=#246 id=246 data-nosnippet>246</a>
+<a href=#247 id=247 data-nosnippet>247</a><span class="doccomment">/// See the documented sibling — no schema on this backend, so no check.
+<a href=#248 id=248 data-nosnippet>248</a></span><span class="attr">#[cfg(not(rmw_needs_type_descriptors))]
+<a href=#249 id=249 data-nosnippet>249</a></span><span class="kw">pub const fn </span>subscription_buffer_ok&lt;M: MessageForRmw&gt;() -&gt; bool {
+<a href=#250 id=250 data-nosnippet>250</a>    <span class="bool-val">true
+<a href=#251 id=251 data-nosnippet>251</a></span>}
 </code></pre></div></section></main></body></html>
