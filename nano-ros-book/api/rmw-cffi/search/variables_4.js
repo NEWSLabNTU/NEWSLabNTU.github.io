@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['data_0',['data',['../structrmw__gid__t.html#a052a5925bae8d37784da7ce631bc0841',1,'rmw_gid_t']]],
+  ['data_0',['data',['../structrmw__byte__span__t.html#a8d94e636d5c07c702432c403260bbcd7',1,'rmw_byte_span_t::data'],['../structrmw__mut__byte__span__t.html#a2b23b3bd665d3592076232a80ed134f1',1,'rmw_mut_byte_span_t::data'],['../structrmw__gid__t.html#a052a5925bae8d37784da7ce631bc0841',1,'rmw_gid_t::data']]],
   ['deadline_5fms_1',['deadline_ms',['../structrmw__qos__profile__t.html#ad736a00ebb4d9aabdc8692f401c64dde',1,'rmw_qos_profile_t']]],
   ['depth_2',['depth',['../structrmw__qos__profile__t.html#a89b2e0eed4c9fc143654c1df3ad987c4',1,'rmw_qos_profile_t']]],
   ['destroy_5fclient_3',['destroy_client',['../structnros__rmw__vtable__t.html#aed9eab80ac29dd239639b3067ae27c6f',1,'nros_rmw_vtable_t']]],
