@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-91cbdee6.js";
+            window.path_to_searchindex_js = "searchindex-e375eead.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-694d33c3.js"></script>
@@ -1100,9 +1100,10 @@ pkg = "talker_pkg"
 class = "talker_pkg::Talker"
 name = "talker"
 
-[deploy.native]                      # one block per build target
-kind = "self"
+[image.native]                       # one block per BUILDABLE image
 board = "native"
+
+[host.native]                        # WHERE the nodes run; no `nodes` = all
 </code></pre>
 <p>The launch file is the <strong>ROS 2 launch XML schema, verbatim</strong> —
 <code>&lt;node&gt;</code>, <code>&lt;param&gt;</code>, <code>&lt;remap&gt;</code>, <code>&lt;group&gt;</code>, <code>&lt;include&gt;</code> with <code>$(find)</code> /
@@ -1113,7 +1114,7 @@ even carries a per-topic QoS override to show the plumbing:</p>
   &lt;param name="qos_overrides./chatter.publisher.reliability" value="best_effort"/&gt;
 &lt;/node&gt;
 </code></pre>
-<p>When you later target hardware, you add a <code>[deploy.&lt;name&gt;]</code> block per
+<p>When you later target hardware, you add an <code>[image.&lt;id&gt;]</code> block per
 board — the code and topology stay put. That is the growth rule:
 <strong>configuration is a new block, never a restructure.</strong></p>
 <h2 id="the-entry-package--the-deliverable"><a class="header" href="#the-entry-package--the-deliverable">The entry package — the deliverable</a></h2>
@@ -2557,7 +2558,7 @@ shows the same pattern under an ARINC-653-style cyclic schedule.</p>
 <h2 id="rmw-selection"><a class="header" href="#rmw-selection">RMW Selection</a></h2>
 <p>RMW selection is a <strong>declared, language-agnostic, per-deploy value</strong> —
 you set it once in <code>system.toml</code> (<code>[system].rmw</code>, optionally overridden
-per target by <code>[deploy.&lt;t&gt;].rmw</code>) or via a CLI/build flag, and the
+per image by <code>[image.&lt;id&gt;].rmw</code>) or via a CLI/build flag, and the
 toolchain <strong>lowers</strong> that declaration to each language’s native build
 mechanism: a Rust cargo <code>rmw-&lt;x&gt;</code> feature, or a CMake <code>-DNANO_ROS_RMW</code>
 cache var. The cargo feature and the CMake var below are the <em>lowering
@@ -2568,42 +2569,46 @@ walker resolves it at <code>Executor::open</code>. See
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0031-rmw-selection-and-lowering.md">RFC-0031</a>
 for the full selection-and-lowering model and precedence rules.</p>
 <h3 id="cargotoml-rust"><a class="header" href="#cargotoml-rust">Cargo.toml (Rust)</a></h3>
-<p>Lowered form of the declared RMW: add <code>nros</code> with the platform feature
-plus exactly one <code>nros-rmw-&lt;x&gt;</code> shim dep (cyclonedds is the exception —
-see below):</p>
-<pre><code class="language-toml"># Zenoh backend
-[dependencies]
-nros = { path = "&lt;...&gt;/packages/api/nros",
-         default-features = false,
-         features = ["std", "rmw-cffi", "platform-posix"] }
-nros-rmw-zenoh = { path = "&lt;...&gt;/packages/rmw/zenoh/nros-rmw-zenoh",
-                   features = ["std", "platform-posix", "ros-humble"] }
-
-# XRCE-DDS backend
-[dependencies]
-nros = { path = "&lt;...&gt;/packages/api/nros",
-         default-features = false,
-         features = ["std", "rmw-cffi", "platform-posix"] }
-nros-rmw-xrce-cffi = { path = "&lt;...&gt;/packages/rmw/xrce/nros-rmw-xrce-cffi",
-                       features = ["std"] }
-
-# Cyclone DDS backend — Rust runtime sees the generic rmw-cffi C-ABI
-# vtable; actual Cyclone wiring lives C++-side under
-# packages/rmw/cyclonedds/nros-rmw-cyclonedds/ and is selected at CMake
-# configure time via -DNANO_ROS_RMW=cyclonedds. The Rust
-# manifest only carries the `rmw-cffi` feature; no Rust shim dep.
-[dependencies]
-nros = { path = "&lt;...&gt;/packages/api/nros",
-         default-features = false,
-         features = ["std", "rmw-cffi", "platform-posix"] }
+<p>Lowered form of the declared RMW. The selection point is the <strong>board crate</strong>
+(RFC-0031’s phase-248 C5b amendment): an app declares one <code>rmw-&lt;x&gt;</code> feature
+that activates the backend dep <em>and</em> forwards to the board crate’s matching
+feature. Codegen no longer emits <code>nros/rmw-&lt;x&gt;</code> or <code>nros/platform-&lt;y&gt;</code> — the
+board brings both.</p>
+<pre><code class="language-toml">[features]
+default = ["rmw-zenoh"]
+# Each `rmw-*` activates the app-owned optional backend dep and forwards to
+# the board crate, which is what actually selects the backend.
+rmw-zenoh = ["dep:nros-rmw-zenoh", "nros-board-linux/rmw-zenoh"]
+rmw-cyclonedds = [
+    "nros/rmw-cyclonedds",              # the marker feature; see below
+    "dep:nros-rmw-cyclonedds-sys",
+    "nros-board-linux/rmw-cyclonedds",
+]
 </code></pre>
-<p>Each example also calls <code>&lt;backend&gt;::register()</code> from <code>main()</code> before
-<code>Executor::open</code> — this drags the rlib’s CGU into the binary so the
+<p>In a WORKSPACE you write none of this: <code>[image.&lt;id&gt;].rmw</code> in the bringup’s
+<code>system.toml</code> is the declaration, and the Entry pkg’s generated manifest carries
+the lowered form. The block above is the standalone copy-out shape, where there
+is no bringup to declare it in.</p>
+<h1 id="cyclone-dds-backend--rust-runtime-sees-the-generic-rmw-cffi-c-abi"><a class="header" href="#cyclone-dds-backend--rust-runtime-sees-the-generic-rmw-cffi-c-abi">Cyclone DDS backend — Rust runtime sees the generic rmw-cffi C-ABI</a></h1>
+<h1 id="vtable-actual-cyclone-wiring-lives-c-side-under"><a class="header" href="#vtable-actual-cyclone-wiring-lives-c-side-under">vtable; actual Cyclone wiring lives C++-side under</a></h1>
+<h1 id="packagesrmwcycloneddsnros-rmw-cyclonedds-and-is-selected-at-cmake"><a class="header" href="#packagesrmwcycloneddsnros-rmw-cyclonedds-and-is-selected-at-cmake">packages/rmw/cyclonedds/nros-rmw-cyclonedds/ and is selected at CMake</a></h1>
+<h1 id="configure-time-via--dnano_ros_rmwcyclonedds-the-rust"><a class="header" href="#configure-time-via--dnano_ros_rmwcyclonedds-the-rust">configure time via -DNANO_ROS_RMW=cyclonedds. The Rust</a></h1>
+<h1 id="manifest-only-carries-the-rmw-cffi-feature-no-rust-shim-dep"><a class="header" href="#manifest-only-carries-the-rmw-cffi-feature-no-rust-shim-dep">manifest only carries the <code>rmw-cffi</code> feature; no Rust shim dep.</a></h1>
+<p>[dependencies]
+nros = { path = “&lt;…&gt;/packages/api/nros”,
+default-features = false,
+features = [“std”, “rmw-cffi”, “platform-posix”] }</p>
+<pre><code>
+Each example also calls `&lt;backend&gt;::register()` from `main()` before
+`Executor::open` — this drags the rlib's CGU into the binary so the
 linkme distributed-slice walker finds the backend. C/C++ builds rely
-on the CMake-emitted strong stub from <code>nano_ros_link_rmw(... RMW &lt;x&gt;)</code>
-instead.</p>
-<p>For C++ consumers, the declared RMW lowers to the CMake cache var:</p>
-<pre><code class="language-bash">cmake -S . -B build -DNANO_ROS_RMW=cyclonedds  # zenoh / xrce / cyclonedds
+on the CMake-emitted strong stub from `nano_ros_link_rmw(... RMW &lt;x&gt;)`
+instead.
+
+For C++ consumers, the declared RMW lowers to the CMake cache var:
+
+```bash
+cmake -S . -B build -DNANO_ROS_RMW=cyclonedds  # zenoh / xrce / cyclonedds
 </code></pre>
 <h3 id="kconfig-zephyr"><a class="header" href="#kconfig-zephyr">Kconfig (Zephyr)</a></h3>
 <pre><code class="language-kconfig"># Zenoh backend
@@ -3175,7 +3180,7 @@ into the Entry pkg.</p>
 <h2 id="anatomy"><a class="header" href="#anatomy">Anatomy</a></h2>
 <pre><code>src/demo_bringup/
 ├── package.xml          # ROS 2 manifest; &lt;exec_depend&gt; per node pkg
-├── system.toml          # [system] + [[component]] + [deploy.&lt;target&gt;]
+├── system.toml          # [system] + [[component]] + [image.&lt;id&gt;] + [host.&lt;name&gt;]
 ├── launch/
 │   └── system.launch.xml   # ROS 2 launch schema, verbatim
 └── config/                 # optional — params.yaml, per-target overrides
@@ -3202,9 +3207,10 @@ pkg = "listener_pkg"
 class = "listener_pkg::Listener"
 name = "listener"
 
-[deploy.native]
-kind = "self"
-target = "x86_64-unknown-linux-gnu"
+[image.native]
+board = "native"
+
+[host.native]
 </code></pre>
 <p>Key fields:</p>
 <div class="table-wrapper">
@@ -3219,9 +3225,10 @@ target = "x86_64-unknown-linux-gnu"
 <tr><td><code>[[component]] pkg</code></td><td>The ROS package name (matches <code>&lt;name&gt;</code> in <code>package.xml</code>)</td></tr>
 <tr><td><code>[[component]] class</code></td><td>Fully-qualified Rust type (<code>crate::TypeName</code>)</td></tr>
 <tr><td><code>[[component]] name</code></td><td>Node name at runtime</td></tr>
-<tr><td><code>[deploy.&lt;target&gt;]</code></td><td>Deploy target block; read by <code>nros check</code> and Entry codegen</td></tr>
-<tr><td><code>[deploy.&lt;t&gt;] kind</code></td><td><code>"self"</code> = host native binary; <code>"flash"</code> = embedded target</td></tr>
-<tr><td><code>[deploy.&lt;t&gt;] target</code></td><td>Rust target triple</td></tr>
+<tr><td><code>[image.&lt;id&gt;]</code></td><td>A buildable image; read by <code>nros build</code>, <code>nros check</code> and Entry codegen</td></tr>
+<tr><td><code>[image.&lt;id&gt;] board</code></td><td>The board this image is built for; its descriptor supplies the rustc triple</td></tr>
+<tr><td><code>[host.&lt;name&gt;]</code></td><td>A machine nodes run on. No <code>nodes</code> means every node</td></tr>
+<tr><td><code>[board_config.&lt;board&gt;]</code></td><td>Site facts for that board (SDK roots, netstack)</td></tr>
 </tbody>
 </table>
 </div>
@@ -3460,7 +3467,7 @@ domain_id = 0
 <p><code>deploy</code> is the key that <code>nros check</code> and the Entry macro use to
 find the board crate and verify the topology. Keep it short and descriptive —
 it becomes the identifier in <code>nros plan</code> output and in <code>system.toml</code>’s
-<code>[deploy.&lt;name&gt;]</code> table when you later add a Bringup pkg.</p>
+<code>[image.&lt;id&gt;]</code> table when you later add a Bringup pkg.</p>
 <h2 id="nrosmain--the-forms"><a class="header" href="#nrosmain--the-forms"><code>nros::main!()</code> — the forms</a></h2>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -4136,7 +4143,7 @@ Codegen owns the spin loop — your code only describes what the node
 per-target deploy config, and contains no compiled code:</p>
 <pre><code>src/demo_bringup/
 ├── package.xml          # &lt;name&gt;demo_bringup&lt;/name&gt;, &lt;exec_depend&gt; per node
-├── system.toml          # [system] + [[component]] + [deploy.&lt;target&gt;] (+ [[domain]]/[[bridge]])
+├── system.toml          # [system] + [[component]] + [image.&lt;id&gt;] + [host.&lt;name&gt;] (+ [[domain]]/[[bridge]])
 ├── launch/
 │   └── system.launch.xml   # ROS 2 launch schema, verbatim
 └── config/                 # optional — params.yaml, etc.
@@ -4332,14 +4339,15 @@ reusable and shareable. Discovery: the CLI’s board catalog scans
 <code>NROS_EXTRA_BOARD_PATH</code> (PATH-style list of directories shaped like
 <code>packages/boards/</code>), so an out-of-tree board dir is seen without
 copying it into the checkout.</p>
-<p><strong>2. A <code>[deploy.&lt;name&gt;]</code> block — facts about this checkout, this
+<p><strong>2. An <code>[image.&lt;id&gt;]</code> block, and a <code>[board_config.&lt;board&gt;]</code> beside it — facts about this checkout, this
 machine, this application.</strong> It lives in your bringup package’s
 <code>system.toml</code>, next to your nodes and launch files:</p>
-<pre><code class="language-toml">[deploy.my-board]
-kind   = "embedded"
-board  = "my-board"        # joins to the board package by name
-target = "thumbv7em-none-eabihf"
-# site facts: where YOUR SDK lives, which config headers are yours, …
+<pre><code class="language-toml">[image.my-board]
+board = "my-board"         # joins to the board package by name
+                           # the rustc triple comes from that board's descriptor
+
+[board_config."my-board"]  # site facts: where YOUR SDK lives, which config
+sdk.vendor = "{env:VENDOR_SDK_DIR}"     # headers are yours — keyed by BOARD
 </code></pre>
 <p>SDK paths, config-header locations, serial ports: anything another
 developer’s checkout would spell differently belongs here, keyed per
@@ -8093,7 +8101,7 @@ package.xml <code>&lt;export&gt;&lt;nano_ros deploy=… rmw=…/&gt;</code> tupl
 </div>
 <p>Where a concern has both a native-idiom projection and a <code>system.toml</code>, the
 resolution is a <strong>fixed precedence ladder</strong>, not a merge: explicit CLI/build
-flag (<code>--rmw</code> / <code>-DNANO_ROS_*</code>) &gt; <code>system.toml</code> (<code>[deploy.&lt;t&gt;]</code> &gt; <code>[system]</code>)</p>
+flag (<code>--rmw</code> / <code>-DNANO_ROS_*</code>) &gt; <code>system.toml</code> (<code>[image.&lt;id&gt;]</code> &gt; <code>[system]</code>)</p>
 <blockquote>
 <p>the per-package projection (<code>[package.metadata.nros.*]</code> / CMake) &gt; built-in
 default. <code>nros config show</code> prints the resolved effective config with
@@ -8858,12 +8866,12 @@ contract is a documented three-step sequence (per
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0003-rtos-integration-pattern.md">RFC-0003 §4</a>):</p>
 <ol>
 <li><strong>Bake</strong> — <code>nros codegen-system --bringup &lt;pkg&gt;</code> reads
-<code>system.toml</code> + <code>[deploy.&lt;board&gt;]</code> + <code>launch/*.xml</code> and emits the
+<code>system.toml</code> + <code>[image.&lt;id&gt;]</code> + <code>launch/*.xml</code> and emits the
 baked tree under <code>build/&lt;board&gt;/</code>.</li>
 <li><strong>Build</strong> — the vendor tool builds it: <code>cargo build</code> / <code>cmake --build</code>
 / <code>west build</code> / <code>idf.py build</code> (<strong>contributors:</strong> the in-tree
 <code>just &lt;plat&gt; build*</code> recipes wrap these with the right <code>-D</code> args
-derived from <code>[deploy.&lt;board&gt;]</code>).</li>
+derived from <code>[image.&lt;id&gt;]</code>).</li>
 <li><strong>Flash + monitor</strong> — the vendor tool again: <code>probe-rs run</code> /
 <code>west flash</code> / <code>idf.py flash monitor</code>, or the platform’s QEMU runner.</li>
 </ol>
@@ -14299,7 +14307,7 @@ registration step is required at boot:</p>
 <blockquote>
 <p>The <code>rmw-zenoh</code> feature is the <em>lowering</em> of the declared RMW: the
 backend is declared once in <code>system.toml</code> (<code>[system].rmw</code> /
-<code>[deploy.&lt;t&gt;].rmw</code>) and the toolchain emits the cargo feature. The
+<code>[image.&lt;id&gt;].rmw</code>) and the toolchain emits the cargo feature. The
 feature is the build mechanism, not the user-facing knob — see
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0031-rmw-selection-and-lowering.md">RFC-0031</a>.</p>
 </blockquote>
@@ -17436,7 +17444,7 @@ nano-ros equivalent of ROS 2’s <code>RMW_IMPLEMENTATION</code>. Single-
 backend binaries with one auto-registering backend Just Work
 without user code mentioning the backend’s name.</p>
 <p>The user-facing knob is a <strong>declared, language-agnostic, per-deploy
-value</strong> (<code>system.toml</code> <code>[system].rmw</code> / <code>[deploy.&lt;t&gt;].rmw</code>, or a
+value</strong> (<code>system.toml</code> <code>[system].rmw</code> / <code>[image.&lt;id&gt;].rmw</code>, or a
 CLI/build flag) that the toolchain <strong>lowers</strong> to each language’s
 native link mechanism. The Cargo feature / shim dep and the CMake
 cache var below are those <em>lowering targets</em> — what the build uses,
@@ -21561,7 +21569,7 @@ generated-package layout.</p>
 static checker — catches unconnected required topics, conflicting QoS,
 missing parameters, and SchedContext binding errors before the platform
 build runs. A <code>.toml</code> argument is instead validated as a <strong>root <code>nros.toml</code></strong>
-(the workspace deployment SSOT) — <code>[system]</code>/<code>[deploy.&lt;name&gt;]</code> shape,
+(the workspace deployment SSOT) — <code>[system]</code>/<code>[image.&lt;id&gt;]</code>/<code>[host.&lt;name&gt;]</code> shape,
 default-deploy + system references, bridge endpoints, etc.</p>
 <h3 id="nros-explain-plan"><a class="header" href="#nros-explain-plan"><code>nros explain [&lt;plan&gt;]</code></a></h3>
 <p>Render a generated <code>nros-plan.json</code> in human-readable form.</p>
@@ -24927,7 +24935,7 @@ NROS_LOCATOR=udp/127.0.0.1:7447 cargo run --features zenoh
 <blockquote>
 <p>The <code>rmw-zenoh</code> feature here is the <em>lowering</em> of the declared RMW —
 you declare the backend once in <code>system.toml</code> (<code>[system].rmw</code> /
-<code>[deploy.&lt;t&gt;].rmw</code>) and the toolchain sets the cargo feature; the
+<code>[image.&lt;id&gt;].rmw</code>) and the toolchain sets the cargo feature; the
 feature is what the build uses, not the user-facing selector. See
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0031-rmw-selection-and-lowering.md">RFC-0031</a>.</p>
 </blockquote>
