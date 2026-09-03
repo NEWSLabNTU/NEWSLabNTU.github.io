@@ -13,6 +13,6 @@ var searchData=
   ['for_5feach_5factive_5fgoal_10',['for_each_active_goal',['../classnros_1_1ActionServer.html#a1e1bdddb8f356e7441aea4fef4cae78a',1,'nros::ActionServer']]],
   ['freestanding_20vs_20tt_20std_20tt_11',['Freestanding vs &lt;tt&gt;std&lt;/tt&gt;',['../index.html#autotoc_md5',1,'']]],
   ['full_12',['Full',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19eabbd47109890259c0127154db1af26c75',1,'nros']]],
-  ['future_13',['future',['../classnros_1_1Future.html',1,'nros::Future&lt; T &gt;'],['../classnros_1_1Future.html#a6ea47b80fe7834a918bd4c08bd7770d8',1,'nros::Future::Future(Future &amp;&amp;other) noexcept'],['../classnros_1_1Future.html#a8a054f2f22b8bbb3b9904ea0561fe521',1,'nros::Future::Future()']]],
+  ['future_13',['future',['../classnros_1_1Future.html',1,'nros::Future&lt; T, Cap &gt;'],['../classnros_1_1Future.html#ac0758de246b14e81095a17df3232b4d3',1,'nros::Future::Future(Future &amp;&amp;other) noexcept'],['../classnros_1_1Future.html#ad169f67c2bdaf5cbbccf0370352d690c',1,'nros::Future::Future()']]],
   ['future_2ehpp_14',['future.hpp',['../future_8hpp.html',1,'']]]
 ];
