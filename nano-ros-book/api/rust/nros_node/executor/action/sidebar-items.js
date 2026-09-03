@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["ACTION_SERVER_QUERYABLES","INVALID_ENTRY_INDEX"],"struct":["ActionClientRawHandle","ActionServerHandle","ActionServerRawHandle","RawActionClientSpec","RawActionServerSpec"]};
+window.SIDEBAR_ITEMS = {"constant":["ACTION_CLIENT_SUBSCRIPTIONS","ACTION_SERVER_PUBLISHERS","ACTION_SERVER_QUERYABLES","INVALID_ENTRY_INDEX"],"struct":["ActionClientRawHandle","ActionServerHandle","ActionServerRawHandle","RawActionClientSpec","RawActionServerSpec"]};
