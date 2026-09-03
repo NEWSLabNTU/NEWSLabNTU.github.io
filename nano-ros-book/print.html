@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-a17add0a.js";
+            window.path_to_searchindex_js = "searchindex-24bfae35.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-694d33c3.js"></script>
@@ -9364,7 +9364,7 @@ are cheap.</p>
 </thead>
 <tbody>
 <tr><td>Cyclone DDS</td><td>✗ Not wired through the nano-ros event API yet</td><td>✗ Not wired yet</td><td>✗ Not wired yet</td></tr>
-<tr><td>XRCE-DDS</td><td>✗ Not exposed (xrce-dds-client API limitation)</td><td>✅ Shim-side clock check (sub: <code>has_data</code> / <code>try_recv_raw</code>; pub: <code>publish_raw</code>)</td><td>✗ Not exposed</td></tr>
+<tr><td>XRCE-DDS</td><td>✗ Not exposed (xrce-dds-client API limitation)</td><td>✅ Shim-side clock check (sub: <code>has_data</code> / <code>take_serialized</code>; pub: <code>publish_raw</code>)</td><td>✗ Not exposed</td></tr>
 <tr><td>zenoh-pico</td><td>✅ Poll-based via zenoh tokens (alive_count ∈ {0,1})</td><td>✅ Shim-side clock check (<code>&lt;P as PlatformClock&gt;::clock_ms</code>)</td><td>✅ Seq-gap detection from RMW attachment</td></tr>
 <tr><td>uORB</td><td>✗ No wire-level liveliness</td><td>✗ No rate concept</td><td>✅ Native (host mock + real PX4 via <code>RustSubscriptionCallback</code> publish-counter)</td></tr>
 </tbody>
@@ -11349,7 +11349,7 @@ belongs.</p>
 executor dispatches them. <code>rclrs</code> &lt;0.7 was manual-poll only. <code>rclc</code>
 exposes both but treats manual-poll as the second-class path.</p>
 <p>nano-ros treats them as equals. A subscription created via
-<code>node.create_subscription(...)</code> exposes <code>try_recv()</code>. A subscription
+<code>node.create_subscription(...)</code> exposes <code>take()</code>. A subscription
 registered via <code>executor.node_mut(nid).create_subscription::&lt;M, _&gt;("/topic", callback)</code>
 runs the callback during <code>spin_once</code>. Pick whichever fits the control loop.</p>
 <p><strong>Why.</strong> Embedded apps often want the predictability of an explicit
@@ -11916,14 +11916,14 @@ types work across Rust, C, and C++ APIs.</p>
 <tbody>
 <tr><td><strong>Verb</strong></td><td><code>Node::create_*</code></td><td><code>Executor::register_*</code></td></tr>
 <tr><td><strong>Returns</strong></td><td>Owned handle</td><td>Handle ID + dispatched closure</td></tr>
-<tr><td><strong>Receive shape</strong></td><td><code>try_recv()</code> / <code>call()</code> → <code>Promise&lt;T&gt;</code> / <code>try_accept_goal(...)</code></td><td>Closure runs on rx / reply / timer fire</td></tr>
+<tr><td><strong>Receive shape</strong></td><td><code>take()</code> / <code>call()</code> → <code>Promise&lt;T&gt;</code> / <code>try_accept_goal(...)</code></td><td>Closure runs on rx / reply / timer fire</td></tr>
 <tr><td><strong>Scheduler</strong></td><td>Caller (RTIC, embassy, app loop)</td><td><code>Executor::spin_once</code></td></tr>
 <tr><td><strong>Typical use</strong></td><td>RTIC tasks, single-task FreeRTOS, RT-bounded loops</td><td>Callback-shaped apps, multi-handler servers</td></tr>
 </tbody>
 </table>
 </div>
 <h2 id="rationale"><a class="header" href="#rationale">Rationale</a></h2>
-<p>Embedded callers want both. RTIC owns scheduling and refuses to hand its loop to a library; an embassy task wants to <code>.await</code> a <code>Promise</code>; a FreeRTOS task-per-entity port wants tight <code>try_recv</code> polling. None of those fit the L2 callback model.</p>
+<p>Embedded callers want both. RTIC owns scheduling and refuses to hand its loop to a library; an embassy task wants to <code>.await</code> a <code>Promise</code>; a FreeRTOS task-per-entity port wants tight <code>take</code> polling. None of those fit the L2 callback model.</p>
 <p>But a posix app that handles a dozen topics + a couple of services + an action server wants L2 — write one closure per entity and let <code>spin_once()</code> route events. Forcing it through L1 means writing a manual dispatcher.</p>
 <p>The two layers are deliberately <strong>separate verb sets</strong> so the choice is explicit in source:</p>
 <ul>
@@ -11979,9 +11979,9 @@ let publisher = {
 <h2 id="c--c-mirror"><a class="header" href="#c--c-mirror">C / C++ mirror</a></h2>
 <p>Both layers cross the FFI cleanly:</p>
 <ul>
-<li><strong>C, L1 polling</strong> — <code>nros_subscription_init_polling</code> writes a <code>RawSubscription</code> inline in <code>nros_subscription_t._opaque</code>. <code>nros_subscription_try_recv_raw</code> reads from the inline buffer. Same shape for service / service-client / action server / action client.</li>
+<li><strong>C, L1 polling</strong> — <code>nros_subscription_init_polling</code> writes a <code>RawSubscription</code> inline in <code>nros_subscription_t._opaque</code>. <code>nros_subscription_take_serialized</code> reads from the inline buffer. Same shape for service / service-client / action server / action client.</li>
 <li><strong>C, L2 callback</strong> — <code>nros_subscription_init</code> records the C callback pointer; <code>nros_executor_register_subscription</code> allocates the executor-arena entry.</li>
-<li><strong>C++</strong> — typed templates wrap each FFI surface: <code>nros::Subscription&lt;M&gt;</code> + <code>try_recv</code> for L1, <code>nros::PollingActionServer&lt;A&gt;</code> for the L1 action path (122.3.d.b), the L2 executor-registered callback model via the existing <code>nros::ActionServer&lt;A&gt;</code> API.</li>
+<li><strong>C++</strong> — typed templates wrap each FFI surface: <code>nros::Subscription&lt;M&gt;</code> + <code>take</code> for L1, <code>nros::PollingActionServer&lt;A&gt;</code> for the L1 action path (122.3.d.b), the L2 executor-registered callback model via the existing <code>nros::ActionServer&lt;A&gt;</code> API.</li>
 </ul>
 <p>For the per-FFI-function spec, see the <a href="api/platform-cffi/index.html">Doxygen reference</a>. For the example migration tally (32 examples on L2, 16 intentionally L1), see the <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/archived/phase-122-unify-api-paths.md">unify-api-paths roadmap doc</a>.</p>
 <h2 id="event-driven-path-1223c6e"><a class="header" href="#event-driven-path-1223c6e">Event-driven path (122.3.c.6.e)</a></h2>
@@ -12354,8 +12354,8 @@ is propagated through the feature chain but does not add any API surface.</p>
 <p><strong>Two-layer API.</strong> Phase 122 unified the verb discipline:</p>
 <ul>
 <li><strong>Layer 1 (caller polls)</strong> – <code>Node::create_*</code> returns an owned
-handle. Caller drives <code>try_recv</code> / <code>call</code> / <code>try_accept_goal</code> /
-<code>try_recv_request_raw</code> itself. Good for RTIC, Embassy,
+handle. Caller drives <code>take</code> / <code>call</code> / <code>try_accept_goal</code> /
+<code>take_request_raw</code> itself. Good for RTIC, Embassy,
 task-per-entity FreeRTOS.</li>
 <li><strong>Layer 2 (executor dispatches)</strong> – <code>Executor::register_*</code>
 takes a closure; <code>spin_once</code> fires it on rx / reply / timer.
@@ -12365,7 +12365,7 @@ Good for callback-shaped applications.</li>
 <p><strong>Publish/Subscribe:</strong></p>
 <ul>
 <li>L1 — <code>node.create_publisher::&lt;M&gt;(topic)</code>,
-<code>node.create_subscription::&lt;M&gt;(topic)</code> (poll with <code>try_recv()</code>)</li>
+<code>node.create_subscription::&lt;M&gt;(topic)</code> (poll with <code>take()</code>)</li>
 <li>L2 — <code>executor.register_timer(period, || publisher.publish(...))</code>,
 <code>executor.register_subscription::&lt;M, _&gt;(topic, |msg| { ... })</code></li>
 <li><code>publisher.publish(&amp;msg)</code> / <code>publish_raw(&amp;bytes)</code> — publish messages</li>
@@ -12395,7 +12395,7 @@ shape for the same reason as service clients.</li>
 <ul>
 <li><code>executor.spin_async()</code> – async spin loop (drives I/O, dispatches callbacks, yields between iterations)</li>
 <li><code>Promise&lt;'a, T, Cli&gt;</code> – allocation-free promise, borrows client’s reply slot</li>
-<li><code>Promise::try_recv()</code> – non-blocking poll for reply</li>
+<li><code>Promise::take()</code> – non-blocking poll for reply</li>
 <li><code>Promise: Future</code> – implements <code>core::future::Future</code> for <code>.await</code></li>
 <li>Uses only <code>core::future</code> and <code>core::task</code> – no external async runtime dependency</li>
 </ul>
@@ -12487,7 +12487,7 @@ crate’s <code>#[ctor]</code> registers its vtable before <code>main</code>.</p
 nros-rmw-zenoh = { path = "…/nros-rmw-zenoh", features = ["platform-bare-metal"] }
 </code></pre>
 <p>Full pub/sub, services, actions, timers (fn pointers), parameters (local).
-Async: <code>spin_async()</code>, <code>Promise</code>, <code>try_recv()</code>, <code>.await</code> – all available without std or alloc.
+Async: <code>spin_async()</code>, <code>Promise</code>, <code>take()</code>, <code>.await</code> – all available without std or alloc.
 Use <code>spin_once()</code> or <code>spin_period()</code> in your main loop, or <code>spin_async()</code> with an async runtime (Embassy, RTIC v2).</p>
 <p><strong>Embedded with allocator (e.g., Zephyr with heap):</strong></p>
 <pre><code class="language-toml">nros = { path = "…/nros", default-features = false, features = ["alloc", "rmw-cffi", "platform-zephyr"] }
@@ -14775,9 +14775,9 @@ match.)</p>
 <tr><td><code>Rmw</code></td><td><code>open()</code></td></tr>
 <tr><td><code>Session</code></td><td><code>create_publisher()</code>, <code>create_subscription()</code>, <code>create_service()</code>, <code>create_client()</code>, <code>close()</code></td></tr>
 <tr><td><code>Publisher</code></td><td><code>publish_raw()</code>, <code>buffer_error()</code>, <code>serialization_error()</code></td></tr>
-<tr><td><code>Subscription</code></td><td><code>try_recv_raw()</code>, <code>deserialization_error()</code></td></tr>
-<tr><td><code>ServiceTrait</code></td><td><code>try_recv_request()</code>, <code>send_response()</code></td></tr>
-<tr><td><code>ClientTrait</code></td><td><code>send_request_raw()</code>, <code>try_recv_reply_raw()</code></td></tr>
+<tr><td><code>Subscription</code></td><td><code>take_serialized()</code>, <code>deserialization_error()</code></td></tr>
+<tr><td><code>ServiceTrait</code></td><td><code>take_request()</code>, <code>send_response()</code></td></tr>
+<tr><td><code>ClientTrait</code></td><td><code>send_request_raw()</code>, <code>take_response_raw()</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -14851,7 +14851,7 @@ impl Publisher for MyProtoPub {
 pub struct MyProtoSub;
 impl Subscription for MyProtoSub {
     type Error = TransportError;
-    fn try_recv_raw(&amp;mut self, buf: &amp;mut [u8])
+    fn take_serialized(&amp;mut self, buf: &amp;mut [u8])
         -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; { todo!() }
     fn deserialization_error(&amp;self) -&gt; TransportError { TransportError::DeserializationError }
 }
@@ -14859,7 +14859,7 @@ impl Subscription for MyProtoSub {
 pub struct MyProtoServer;
 impl ServiceTrait for MyProtoServer {
     type Error = TransportError;
-    fn try_recv_request&lt;'a&gt;(&amp;mut self, buf: &amp;'a mut [u8])
+    fn take_request&lt;'a&gt;(&amp;mut self, buf: &amp;'a mut [u8])
         -&gt; Result&lt;Option&lt;ServiceRequest&lt;'a&gt;&gt;, TransportError&gt; { todo!() }
     fn send_response(&amp;mut self, seq: i64, data: &amp;[u8])
         -&gt; Result&lt;(), TransportError&gt; { todo!() }
@@ -14870,7 +14870,7 @@ impl ClientTrait for MyProtoClient {
     type Error = TransportError;
     fn send_request_raw(&amp;mut self, req: &amp;[u8])
         -&gt; Result&lt;(), TransportError&gt; { todo!() }
-    fn try_recv_reply_raw(&amp;mut self, buf: &amp;mut [u8])
+    fn take_response_raw(&amp;mut self, buf: &amp;mut [u8])
         -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; { todo!() }
 }
 <span class="boring">}</span></code></pre>
@@ -15014,7 +15014,7 @@ static rmw_ret_t my_create_subscription(
         const rmw_subscription_options_t *options,  /* hints (rx_buffer_hint); NULL = defaults */
         rmw_subscription_t *out) { /* ... */ }
 static void    my_destroy_subscription(rmw_subscription_t *subscription) { /* ... */ }
-static int32_t my_try_recv_raw(rmw_subscription_t *subscription,
+static int32_t my_take_serialized(rmw_subscription_t *subscription,
         uint8_t *buf, size_t buf_len) {
     /* &gt;= 0 = bytes received (0 = no data),
      * negative rmw_ret_t (e.g. NROS_RMW_RET_NO_DATA, _BUFFER_TOO_SMALL). */
@@ -15028,7 +15028,7 @@ static rmw_ret_t my_create_service(
         uint32_t domain_id, const rmw_qos_profile_t *qos,
         rmw_service_t *out) { /* ... */ }
 static void    my_destroy_service(rmw_service_t *server) { /* ... */ }
-static int32_t my_try_recv_request(rmw_service_t *server,
+static int32_t my_take_request(rmw_service_t *server,
         uint8_t *buf, size_t buf_len, int64_t *seq_out) { /* ... */ }
 static int32_t my_has_request(rmw_service_t *server) { /* 1 = yes, 0 = no */ }
 static rmw_ret_t my_send_reply(rmw_service_t *server,
@@ -15045,7 +15045,7 @@ static rmw_ret_t my_send_request_raw(rmw_client_t *client,
         const uint8_t *request, size_t req_len) {
     /* Send without blocking for the reply; return NROS_RMW_RET_OK. */
 }
-static int32_t my_try_recv_reply_raw(rmw_client_t *client,
+static int32_t my_take_response_raw(rmw_client_t *client,
         uint8_t *reply_buf, size_t reply_buf_len) {
     /* &gt;= 0 = reply bytes, NROS_RMW_RET_NO_DATA = no reply yet. */
 }
@@ -15059,17 +15059,17 @@ static const nros_rmw_vtable_t MY_RMW = {
     .publish         = my_publish_raw,
     .create_subscription = my_create_subscription,
     .destroy_subscription = my_destroy_subscription,
-    .take        = my_try_recv_raw,
+    .take        = my_take_serialized,
     .has_data            = my_has_data,
     .create_service      = my_create_service,
     .destroy_service     = my_destroy_service,
-    .take_request    = my_try_recv_request,
+    .take_request    = my_take_request,
     .has_request         = my_has_request,
     .send_response          = my_send_reply,
     .create_client       = my_create_client,
     .destroy_client      = my_destroy_client,
     .send_request    = my_send_request_raw,
-    .take_response  = my_try_recv_reply_raw,
+    .take_response  = my_take_response_raw,
 };
 </code></pre>
 <h3 id="2-register-before-opening-a-session"><a class="header" href="#2-register-before-opening-a-session">2. Register before opening a session</a></h3>
@@ -15107,7 +15107,7 @@ slot — the runtime fills metadata fields (<code>topic_name</code>, <code>qos</
 before calling <code>create_*</code>; the backend writes <code>backend_data</code>. Return
 convention: <code>NROS_RMW_RET_OK</code> = success, negative = named
 <code>rmw_ret_t</code> constant, positive = byte count (only on
-<code>try_recv_*</code>).</p>
+<code>take_*</code>).</p>
 <hr>
 <h2 id="example-local-echo-rmw"><a class="header" href="#example-local-echo-rmw">Example: local echo RMW</a></h2>
 <p>Loops published messages back to subscribers – no real transport. Only
@@ -15135,7 +15135,7 @@ impl Publisher for EchoPub {
 pub struct EchoSub;
 impl Subscription for EchoSub {
     type Error = TransportError;
-    fn try_recv_raw(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; {
+    fn take_serialized(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; {
         unsafe {
             if ECHO_LEN == 0 { return Ok(None); }
             let len = ECHO_LEN;
@@ -15677,7 +15677,7 @@ let reply = promise.wait(&amp;mut executor, 5000)?;  // blocks up to 5s, drives 
 <li><strong>rclc</strong> has no future or promise concept. The only way to receive a service reply is to register a callback that fires from <code>rclc_executor_spin_some()</code>. Building request/response chains becomes an explicit state machine.</li>
 <li><strong>rclrs</strong> has <code>impl Future</code> but no callback-poll path; you must <code>.await</code> from a Tokio task. No blocking-with-timeout helper that drives I/O internally.</li>
 </ul>
-<p>In nano-ros, the same <code>Promise</code> carries a borrow of the standalone service client and a sequence number; <code>try_recv()</code> polls it, <code>wait()</code> polls it in a loop while spinning the executor, and the <code>Future</code> impl integrates with any executor that calls <code>register_waker(&amp;Waker)</code> underneath.</p>
+<p>In nano-ros, the same <code>Promise</code> carries a borrow of the standalone service client and a sequence number; <code>take()</code> polls it, <code>wait()</code> polls it in a loop while spinning the executor, and the <code>Future</code> impl integrates with any executor that calls <code>register_waker(&amp;Waker)</code> underneath.</p>
 <h2 id="no-internal-spin"><a class="header" href="#no-internal-spin">No internal spin</a></h2>
 <p><code>rclcpp::spin(node)</code> blocks the calling thread inside the library and owns the dispatch loop. This works on Linux but cannot work on bare-metal: there is no thread to give up, and the application loop must remain in user code (for power management, interrupt servicing, smoltcp polling, RTIC integration).</p>
 <p>nano-ros never owns the spin loop. The user <em>always</em> writes the loop:</p>
@@ -15701,7 +15701,7 @@ let pub_ = node.create_publisher::&lt;Int32&gt;("/topic")?;</code></pre>
 <p>The deeper reason: there is no other thread that can drive I/O. If <code>Promise::wait()</code> did not have the executor, it could not call <code>spin_once()</code> – the network would freeze and the wait would always time out. By forcing the executor parameter, the API makes the I/O dependency explicit and impossible to forget.</p>
 <h2 id="language-parity"><a class="header" href="#language-parity">Language parity</a></h2>
 <p>The same Future/Promise + explicit-executor model is preserved in C and C++ wrappers.</p>
-<p><strong>Rust</strong> uses <code>Promise&lt;'_, T&gt;</code> directly. It implements <code>core::future::Future</code> and exposes <code>try_recv()</code> + <code>wait(&amp;mut executor, ms)</code>.</p>
+<p><strong>Rust</strong> uses <code>Promise&lt;'_, T&gt;</code> directly. It implements <code>core::future::Future</code> and exposes <code>take()</code> + <code>wait(&amp;mut executor, ms)</code>.</p>
 <p><strong>C++</strong> wraps the promise as <code>nros::Future&lt;T&gt;</code>:</p>
 <pre><code class="language-cpp">auto fut = client.send_request(req);
 ResponseType resp;
@@ -15735,7 +15735,7 @@ nros_action_client_set_result_callback(client, on_result);
 <p><code>rmw.h</code> was designed for ROS 2 on Linux: a process with a libc heap, an OS scheduler, dynamic loaders, and middleware-owned background threads. None of those assumptions hold on a Cortex-M3 with 64 KB of RAM. Each constraint below drove a specific change.</p>
 <h3 id="heap-availability"><a class="header" href="#heap-availability">Heap availability</a></h3>
 <p><code>rmw.h</code> heap-allocates everywhere – handles, serialized message buffers, wait sets, type support tables. Bare-metal targets often have no allocator; RTOS targets have allocators with hard total budgets (~16-256 KB) that must cover the application as well.</p>
-<p>nros-rmw moves all I/O buffers to the caller. <code>publish_raw(&amp;[u8])</code> and <code>try_recv_raw(&amp;mut [u8])</code> operate on slices that the caller stack- or statically-allocates. Type metadata is a string-only <code>TopicInfo</code> struct, not a pointer-laden <code>rosidl_message_type_support_t</code> table. What the abstraction itself allocates is nothing. What the BACKENDS allocate is
+<p>nros-rmw moves all I/O buffers to the caller. <code>publish_raw(&amp;[u8])</code> and <code>take_serialized(&amp;mut [u8])</code> operate on slices that the caller stack- or statically-allocates. Type metadata is a string-only <code>TopicInfo</code> struct, not a pointer-laden <code>rosidl_message_type_support_t</code> table. What the abstraction itself allocates is nothing. What the BACKENDS allocate is
 enumerated by <code>scripts/rmw-alloc-sites.py</code>, which reports each site with its
 file and line and — the distinction that decides whether you care — whether it
 sits on the STEADY-STATE path (per message, so it is latency and a heap that
@@ -15852,8 +15852,8 @@ call per message regardless.</p>
 }
 
 pub trait Subscription {
-    fn try_recv_raw(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
-    fn try_recv&lt;M: RosMessage&gt;(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;M&gt;, Self::Error&gt;;
+    fn take_serialized(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
+    fn take&lt;M: RosMessage&gt;(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;M&gt;, Self::Error&gt;;
 }</code></pre>
 <p>The typed methods have default implementations that call the raw methods with CDR serialization/deserialization from <code>nros-serdes</code>. This keeps the RMW layer self-contained – no separate serialization layer is needed.</p>
 <p>Type metadata uses simple structs (<code>TopicInfo { name, type_name, type_hash }</code>) instead of C type support function tables.</p>
@@ -15873,7 +15873,7 @@ pub trait Subscription {
 <p><strong>nros-rmw:</strong> Uses caller-provided <code>&amp;mut [u8]</code> buffers everywhere. All receive and serialize operations write into stack-allocated or statically-allocated buffers:</p>
 <pre><code class="language-rust ignore">// Caller provides the buffer
 let mut buf = [0u8; 512];
-let msg: Option&lt;MyMsg&gt; = subscriber.try_recv(&amp;mut buf)?;</code></pre>
+let msg: Option&lt;MyMsg&gt; = subscriber.take(&amp;mut buf)?;</code></pre>
 <p>Zero-copy receive is supported via <code>process_raw_in_place()</code>, which invokes a closure with a reference to the subscriber’s internal receive buffer, avoiding the copy into a caller-provided buffer. This is gated behind the <code>unstable-zenoh-api</code> feature.</p>
 <h2 id="qos-settings"><a class="header" href="#qos-settings">QoS Settings</a></h2>
 <p>ROS 2 <code>rmw_qos_profile_t</code> includes:</p>
@@ -15902,7 +15902,7 @@ let msg: Option&lt;MyMsg&gt; = subscriber.try_recv(&amp;mut buf)?;</code></pre>
 <pre><code class="language-rust ignore">pub trait ClientTrait {
     // Async: send request, poll for reply separately
     fn send_request_raw(&amp;mut self, request: &amp;[u8]) -&gt; Result&lt;(), Self::Error&gt;;
-    fn try_recv_reply_raw(&amp;mut self, reply_buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
+    fn take_response_raw(&amp;mut self, reply_buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
 }</code></pre>
 <p>Blocking waits are composed above the RMW by the executor (which keeps driving <code>drive_io</code> between polls).</p>
 <h2 id="apis-present-in-ros-2-rmw-but-absent-in-nros-rmw"><a class="header" href="#apis-present-in-ros-2-rmw-but-absent-in-nros-rmw">APIs Present in ROS 2 rmw but Absent in nros-rmw</a></h2>
@@ -15939,9 +15939,9 @@ this table as the design rationale behind the original omissions.</p>
 </thead>
 <tbody>
 <tr><td><code>Publisher::publish&lt;M&gt;(msg, buf)</code></td><td>Typed publish with built-in CDR serialization</td></tr>
-<tr><td><code>Subscription::try_recv&lt;M&gt;(buf)</code></td><td>Typed receive with built-in CDR deserialization</td></tr>
+<tr><td><code>Subscription::take&lt;M&gt;(buf)</code></td><td>Typed receive with built-in CDR deserialization</td></tr>
 <tr><td><code>Subscription::process_raw_in_place(f)</code></td><td>Zero-copy in-place processing via closure</td></tr>
-<tr><td><code>Subscription::try_recv_validated()</code></td><td>E2E safety validation (CRC-32 + sequence tracking)</td></tr>
+<tr><td><code>Subscription::take_validated()</code></td><td>E2E safety validation (CRC-32 + sequence tracking)</td></tr>
 <tr><td><code>ServiceTrait::handle_request&lt;S&gt;()</code></td><td>Typed request handling with automatic CDR roundtrip</td></tr>
 <tr><td><code>Session::drive_io(timeout_ms)</code></td><td>Explicit network polling (ROS 2 rmw relies on middleware threads)</td></tr>
 </tbody>
@@ -16309,11 +16309,11 @@ serialization-from-typesupport itself:</p>
 <code>rosidl_message_type_support_t</code> table to compute the wire bytes.</p>
 <p><strong>nano-ros.</strong> The runtime serializes upstream of the RMW. Backends
 receive <em>already-CDR-encoded</em> bytes:</p>
-<pre><code class="language-c">rmw_ret_t (*publish_raw)(rmw_publisher_t * publisher,
-                              const uint8_t * data, size_t len);
+<pre><code class="language-c">rmw_ret_t (*publish)(rmw_publisher_t * publisher,
+                     const uint8_t * data, size_t len);
 
-int32_t (*try_recv_raw)(rmw_subscription_t * subscription,
-                        uint8_t * buf, size_t len);
+int32_t (*take)(rmw_subscription_t * subscription,
+                uint8_t * buf, size_t len);
 </code></pre>
 <p><strong>Why.</strong> rosidl typesupport is heavy: dynamic dispatch through a
 function-pointer table per field type, dependence on dynamic
@@ -20226,7 +20226,7 @@ It is available in <code>nros-rmw</code>, <code>nros-node</code>, and the top-le
 
 Subscriber side:
   zenoh callback -&gt; Copy payload + attachment to static SubscriberBuffer
-  User calls try_recv_raw() -&gt; Copy from static buffer to user buffer
+  User calls take_serialized() -&gt; Copy from static buffer to user buffer
   User buffer -&gt; CdrReader::deserialize() -&gt; User msg
   (Attachment parsed into MessageInfo but NOT validated without safety-e2e)
 </code></pre>
@@ -20296,18 +20296,18 @@ Extended attachment (37 bytes):
 <li><code>safety</code> module: CRC-32 function, <code>IntegrityStatus</code> type, <code>SafetyValidator</code> state tracker</li>
 <li><code>ShimPublisher::publish_raw()</code>: computes CRC and extends attachment to 37 bytes</li>
 <li><code>SubscriberBuffer</code>: attachment buffer sized to 37 bytes</li>
-<li><code>ShimSubscriber</code>: <code>SafetyValidator</code> field, <code>try_recv_validated()</code> method</li>
+<li><code>ShimSubscriber</code>: <code>SafetyValidator</code> field, <code>take_validated()</code> method</li>
 </ul>
 <p><strong><code>nros-node</code></strong> (API surface):</p>
 <ul>
-<li><code>ShimNodeSubscription</code>: <code>try_recv_validated()</code> returning the message + <code>IntegrityStatus</code></li>
+<li><code>ShimNodeSubscription</code>: <code>take_validated()</code> returning the message + <code>IntegrityStatus</code></li>
 </ul>
 <p><strong>Unchanged</strong>:</p>
 <ul>
 <li>CDR serialization (<code>nros-serdes</code>) – payload format unchanged</li>
 <li>Core types (<code>nros-core</code>) – no new traits needed</li>
 <li>Zenoh backend (<code>nros-rmw-zenoh</code>) – attachment handling supports variable sizes</li>
-<li>Existing <code>try_recv()</code> API – unchanged behavior</li>
+<li>Existing <code>take()</code> API – unchanged behavior</li>
 </ul>
 <h3 id="memory-impact"><a class="header" href="#memory-impact">Memory Impact</a></h3>
 <div class="table-wrapper">
@@ -21848,7 +21848,7 @@ public surface a user application needs.</p>
 <p><strong>Two-layer API.</strong> Every entity exposes two parallel C entry-point
 sets: <code>nros_*_init</code> (Layer 1, caller polls) and
 <code>nros_executor_register_*</code> (Layer 2, executor callback). Layer 1
-grew an <code>_init_polling</code> + <code>try_recv_*_raw</code> / <code>send_*_raw</code> family
+grew an <code>_init_polling</code> + <code>take_*_raw</code> / <code>send_*_raw</code> family
 for inline-storage callers (no executor arena).
 Layer 2 keeps the existing <code>nros_*_init</code> + executor-register
 pair. See <a href="#two-layer-api">Two-Layer API</a> for the
@@ -21937,7 +21937,7 @@ public surface a user application needs.</p>
 <li><a href="api/cpp/classnros_1_1Publisher.html"><code>nros::Publisher&lt;M&gt;</code></a> / <a href="api/cpp/classnros_1_1Subscription.html"><code>Subscription&lt;M&gt;</code></a></li>
 <li><a href="api/cpp/classnros_1_1Service.html"><code>nros::Service&lt;S&gt;</code></a> / <a href="api/cpp/classnros_1_1Client.html"><code>Client&lt;S&gt;</code></a></li>
 <li><a href="api/cpp/classnros_1_1ActionServer.html"><code>nros::ActionServer&lt;A&gt;</code></a> / <a href="api/cpp/classnros_1_1ActionClient.html"><code>ActionClient&lt;A&gt;</code></a> — L2 callback model (executor-arena registered).</li>
-<li><a href="api/cpp/classnros_1_1PollingActionServer.html"><code>nros::PollingActionServer&lt;A&gt;</code></a> / <a href="api/cpp/classnros_1_1PollingActionClient.html"><code>PollingActionClient&lt;A&gt;</code></a> — L1 polling model. Caller drives <code>try_recv_*</code> / <code>accept_goal</code> / <code>complete_goal</code> from a spin loop.</li>
+<li><a href="api/cpp/classnros_1_1PollingActionServer.html"><code>nros::PollingActionServer&lt;A&gt;</code></a> / <a href="api/cpp/classnros_1_1PollingActionClient.html"><code>PollingActionClient&lt;A&gt;</code></a> — L1 polling model. Caller drives <code>take_*</code> / <code>accept_goal</code> / <code>complete_goal</code> from a spin loop.</li>
 <li><a href="api/cpp/classnros_1_1Future.html"><code>nros::Future&lt;T&gt;</code></a> — async result handle</li>
 <li><a href="api/cpp/classnros_1_1Executor.html"><code>nros::Executor</code></a>, <a href="api/cpp/classnros_1_1Timer.html"><code>Timer</code></a>, <a href="api/cpp/classnros_1_1GuardCondition.html"><code>GuardCondition</code></a></li>
 <li><a href="api/cpp/classnros_1_1ParameterServer.html"><code>nros::ParameterServer&lt;Cap&gt;</code></a> — node-local typed parameter store (<code>bool</code> / <code>int64_t</code> / <code>double</code> / <code>const char*</code>); compose alongside a <code>Node</code>. See <a href="#9-parameters-node-local-server-no-descriptors-no-callbacks-yet">Differences from ROS 2 §9</a> for what is intentionally smaller than <code>rclcpp</code>.</li>

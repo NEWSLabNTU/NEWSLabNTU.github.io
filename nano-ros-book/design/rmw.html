@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-a17add0a.js";
+            window.path_to_searchindex_js = "../searchindex-24bfae35.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-694d33c3.js"></script>
@@ -184,7 +184,7 @@
 <p><code>rmw.h</code> was designed for ROS 2 on Linux: a process with a libc heap, an OS scheduler, dynamic loaders, and middleware-owned background threads. None of those assumptions hold on a Cortex-M3 with 64 KB of RAM. Each constraint below drove a specific change.</p>
 <h3 id="heap-availability"><a class="header" href="#heap-availability">Heap availability</a></h3>
 <p><code>rmw.h</code> heap-allocates everywhere – handles, serialized message buffers, wait sets, type support tables. Bare-metal targets often have no allocator; RTOS targets have allocators with hard total budgets (~16-256 KB) that must cover the application as well.</p>
-<p>nros-rmw moves all I/O buffers to the caller. <code>publish_raw(&amp;[u8])</code> and <code>try_recv_raw(&amp;mut [u8])</code> operate on slices that the caller stack- or statically-allocates. Type metadata is a string-only <code>TopicInfo</code> struct, not a pointer-laden <code>rosidl_message_type_support_t</code> table. What the abstraction itself allocates is nothing. What the BACKENDS allocate is
+<p>nros-rmw moves all I/O buffers to the caller. <code>publish_raw(&amp;[u8])</code> and <code>take_serialized(&amp;mut [u8])</code> operate on slices that the caller stack- or statically-allocates. Type metadata is a string-only <code>TopicInfo</code> struct, not a pointer-laden <code>rosidl_message_type_support_t</code> table. What the abstraction itself allocates is nothing. What the BACKENDS allocate is
 enumerated by <code>scripts/rmw-alloc-sites.py</code>, which reports each site with its
 file and line and — the distinction that decides whether you care — whether it
 sits on the STEADY-STATE path (per message, so it is latency and a heap that
@@ -301,8 +301,8 @@ call per message regardless.</p>
 }
 
 pub trait Subscription {
-    fn try_recv_raw(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
-    fn try_recv&lt;M: RosMessage&gt;(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;M&gt;, Self::Error&gt;;
+    fn take_serialized(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
+    fn take&lt;M: RosMessage&gt;(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;M&gt;, Self::Error&gt;;
 }</code></pre>
 <p>The typed methods have default implementations that call the raw methods with CDR serialization/deserialization from <code>nros-serdes</code>. This keeps the RMW layer self-contained – no separate serialization layer is needed.</p>
 <p>Type metadata uses simple structs (<code>TopicInfo { name, type_name, type_hash }</code>) instead of C type support function tables.</p>
@@ -322,7 +322,7 @@ pub trait Subscription {
 <p><strong>nros-rmw:</strong> Uses caller-provided <code>&amp;mut [u8]</code> buffers everywhere. All receive and serialize operations write into stack-allocated or statically-allocated buffers:</p>
 <pre><code class="language-rust ignore">// Caller provides the buffer
 let mut buf = [0u8; 512];
-let msg: Option&lt;MyMsg&gt; = subscriber.try_recv(&amp;mut buf)?;</code></pre>
+let msg: Option&lt;MyMsg&gt; = subscriber.take(&amp;mut buf)?;</code></pre>
 <p>Zero-copy receive is supported via <code>process_raw_in_place()</code>, which invokes a closure with a reference to the subscriber’s internal receive buffer, avoiding the copy into a caller-provided buffer. This is gated behind the <code>unstable-zenoh-api</code> feature.</p>
 <h2 id="qos-settings"><a class="header" href="#qos-settings">QoS Settings</a></h2>
 <p>ROS 2 <code>rmw_qos_profile_t</code> includes:</p>
@@ -351,7 +351,7 @@ let msg: Option&lt;MyMsg&gt; = subscriber.try_recv(&amp;mut buf)?;</code></pre>
 <pre><code class="language-rust ignore">pub trait ClientTrait {
     // Async: send request, poll for reply separately
     fn send_request_raw(&amp;mut self, request: &amp;[u8]) -&gt; Result&lt;(), Self::Error&gt;;
-    fn try_recv_reply_raw(&amp;mut self, reply_buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
+    fn take_response_raw(&amp;mut self, reply_buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
 }</code></pre>
 <p>Blocking waits are composed above the RMW by the executor (which keeps driving <code>drive_io</code> between polls).</p>
 <h2 id="apis-present-in-ros-2-rmw-but-absent-in-nros-rmw"><a class="header" href="#apis-present-in-ros-2-rmw-but-absent-in-nros-rmw">APIs Present in ROS 2 rmw but Absent in nros-rmw</a></h2>
@@ -388,9 +388,9 @@ this table as the design rationale behind the original omissions.</p>
 </thead>
 <tbody>
 <tr><td><code>Publisher::publish&lt;M&gt;(msg, buf)</code></td><td>Typed publish with built-in CDR serialization</td></tr>
-<tr><td><code>Subscription::try_recv&lt;M&gt;(buf)</code></td><td>Typed receive with built-in CDR deserialization</td></tr>
+<tr><td><code>Subscription::take&lt;M&gt;(buf)</code></td><td>Typed receive with built-in CDR deserialization</td></tr>
 <tr><td><code>Subscription::process_raw_in_place(f)</code></td><td>Zero-copy in-place processing via closure</td></tr>
-<tr><td><code>Subscription::try_recv_validated()</code></td><td>E2E safety validation (CRC-32 + sequence tracking)</td></tr>
+<tr><td><code>Subscription::take_validated()</code></td><td>E2E safety validation (CRC-32 + sequence tracking)</td></tr>
 <tr><td><code>ServiceTrait::handle_request&lt;S&gt;()</code></td><td>Typed request handling with automatic CDR roundtrip</td></tr>
 <tr><td><code>Session::drive_io(timeout_ms)</code></td><td>Explicit network polling (ROS 2 rmw relies on middleware threads)</td></tr>
 </tbody>
