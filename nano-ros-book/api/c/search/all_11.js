@@ -14,7 +14,7 @@ var searchData=
   ['not_5falive_5fcount_5fchange_11',['not_alive_count_change',['../structnros__liveliness__changed__status__t.html#a2d3d9d3f10002cbac3fd2a1c6688e7f0',1,'nros_liveliness_changed_status_t']]],
   ['nros_20c_20api_12',['nros C API',['../index.html',1,'']]],
   ['nros_2eh_13',['nros.h',['../nros_8h.html',1,'']]],
-  ['nros_5f_14',['C API Buffer Tuning (NROS_*)',['../configuration.html#autotoc_md239',1,'']]],
+  ['nros_5f_14',['C API Buffer Tuning (NROS_*)',['../configuration.html#autotoc_md240',1,'']]],
   ['nros_5faccepted_5fcallback_5ft_15',['nros_accepted_callback_t',['../nros__generated_8h.html#a05cbf708d89f8361edf40189a69dfc8d',1,'nros_generated.h']]],
   ['nros_5faction_5fabort_16',['nros_action_abort',['../nros__generated_8h.html#aa94db34f34cfc7f608bf67a0cf9ff9f7',1,'nros_generated.h']]],
   ['nros_5faction_5fcancel_5fgoal_17',['nros_action_cancel_goal',['../nros__generated_8h.html#acbdb48e7aee8e65bb0a3ef899b168b13',1,'nros_generated.h']]],

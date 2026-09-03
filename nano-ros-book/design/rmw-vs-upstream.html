@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e1875d1c.js";
+            window.path_to_searchindex_js = "../searchindex-c4d4d887.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-694d33c3.js"></script>
@@ -316,9 +316,9 @@ before <code>backend_data</code>). New fields up to N bytes can be added later
 without changing struct size or the offset of any field after
 <code>backend_data</code>. Backends and runtime keep these bytes zero.</p>
 <p><strong>Storage ownership.</strong> The runtime allocates the entity-struct shell;
-the backend writes its <code>backend_data</code> (plus <code>can_loan_messages</code> for
-publisher / subscriber entities) into the runtime-supplied
-out-parameter at <code>create_*</code> time. The backend never <code>malloc</code>s a
+the backend writes its <code>backend_data</code> into the runtime-supplied
+out-parameter at <code>create_*</code> time (<code>can_loan_messages</code> is derived by the
+runtime — see below). The backend never <code>malloc</code>s a
 struct shell — embedded targets cannot afford a per-entity heap
 allocation. <code>destroy_*</code> releases only the backend’s <code>backend_data</code>;
 the shell stays valid until the runtime drops its owner.</p>
@@ -332,11 +332,18 @@ that outlives the publisher — no allocation per entity.</li>
 compile-time (see <a href="#1-plugin-loading-vs-compile-time-backend">Section 1</a>);
 there’s no plugin loader to dispatch through, so no need to
 identify which backend owns a struct.</li>
-<li><strong><code>can_loan_messages</code> matches upstream.</strong> Same bool, same name,
-same semantics — <code>true</code> if the backend exposes the loan
-primitive (the CDR-byte zero-copy loan path). The runtime reads
-it once at create time and dispatches the publish path with no
-per-call branch.</li>
+<li><strong><code>can_loan_messages</code> matches upstream in shape, but the runtime
+DERIVES it</strong> (issue 0814). Same bool, same name, same meaning —
+<code>true</code> if the backend exposes the loan primitive (the CDR-byte
+zero-copy loan path) — except that a backend does not write it. Its
+value is exactly <code>vtable-&gt;borrow_loaned_message != NULL</code>, because that
+is the same fact stated twice, and the two spellings had drifted in
+both directions: nothing outside a test ever wrote <code>true</code> (so a zenoh
+build whose loans worked advertised that it could not loan), while a
+backend writing <code>true</code> with a NULL slot was believed. This paragraph
+used to claim the runtime “dispatches the publish path with no
+per-call branch” from the flag; it never did — dispatch reads the
+vtable slot on every call.</li>
 <li><strong><code>depth: uint16_t</code>.</strong> Upstream uses 32-bit; embedded queue depths
 are 1–100, the 16-bit width saves 2 bytes × N entities.</li>
 <li><strong>Explicit <code>_reserved[N]</code> bytes.</strong> Upstream uses an embedded
@@ -570,6 +577,23 @@ runtime events.</p>
 upstream <code>rmw_qos_profile_*</code> field-for-field, so applications
 porting from rclcpp / rclrs can pull the equivalent profile
 constant unchanged.</p>
+<p><code>_SYSTEM_DEFAULT</code> is the one where “field-for-field” is worth
+spelling out: like upstream’s, it names <strong>no concrete policy at
+all</strong>. Every field is the sentinel — <code>NROS_RMW_{RELIABILITY, DURABILITY,HISTORY,LIVELINESS}_SYSTEM_DEFAULT</code> are all <code>0</code>, and
+the depth sentinel is <code>0</code> too, matching
+<code>RMW_QOS_POLICY_DEPTH_SYSTEM_DEFAULT</code>. The backend resolves it at
+entity-create time, and <strong>the answer differs per backend</strong>, which
+is the whole point of the name: cyclonedds resolves to
+RELIABLE / VOLATILE / KEEP_LAST(1), mirroring what
+<code>rmw_cyclonedds_cpp</code> does with the same sentinel; zenoh resolves
+the depth to the subscriber ring the shim actually enforces; xrce
+resolves the three policies the same way and leaves the depth
+absent from the wire for the Agent to fill. Upstream’s own two
+reference RMWs disagree here as well — <code>rmw_cyclonedds_cpp</code> picks
+depth 1, <code>rmw_zenoh_cpp</code> picks 42 — so a profile constant that
+baked a number would be wrong for every backend but one. Ask for
+<code>_DEFAULT</code> if you want a stated reliable / volatile /
+keep-last(10) profile. (issue 0829)</p>
 <h3 id="per-backend-support-no-silent-downgrade"><a class="header" href="#per-backend-support-no-silent-downgrade">Per-backend support, no silent downgrade</a></h3>
 <p>Each backend advertises which policies it can honour via
 <code>Session::supported_qos_policies()</code>, returning a <code>QoSPolicyMask</code>
