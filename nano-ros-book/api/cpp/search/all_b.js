@@ -11,8 +11,9 @@ var searchData=
   ['fixedsequence_8',['fixedsequence',['../structnros_1_1FixedSequence.html#a61b28d8bb86d1f725ce1bfbd081a44df',1,'nros::FixedSequence::FixedSequence()'],['../structnros_1_1FixedSequence.html',1,'nros::FixedSequence&lt; T, N &gt;']]],
   ['fixedstring_9',['fixedstring',['../structnros_1_1FixedString.html',1,'nros::FixedString&lt; N &gt;'],['../structnros_1_1FixedString.html#a7bcb28705a717a0eac1e525aeafe2974',1,'nros::FixedString::FixedString()']]],
   ['for_5feach_5factive_5fgoal_10',['for_each_active_goal',['../classnros_1_1ActionServer.html#a1e1bdddb8f356e7441aea4fef4cae78a',1,'nros::ActionServer']]],
-  ['freestanding_20vs_20tt_20std_20tt_11',['Freestanding vs &lt;tt&gt;std&lt;/tt&gt;',['../index.html#autotoc_md5',1,'']]],
-  ['full_12',['Full',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19eabbd47109890259c0127154db1af26c75',1,'nros']]],
-  ['future_13',['future',['../classnros_1_1Future.html',1,'nros::Future&lt; T, Cap &gt;'],['../classnros_1_1Future.html#ac0758de246b14e81095a17df3232b4d3',1,'nros::Future::Future(Future &amp;&amp;other) noexcept'],['../classnros_1_1Future.html#ad169f67c2bdaf5cbbccf0370352d690c',1,'nros::Future::Future()']]],
-  ['future_2ehpp_14',['future.hpp',['../future_8hpp.html',1,'']]]
+  ['format_5fof_11',['format_of',['../structnros_1_1format__of.html',1,'nros']]],
+  ['freestanding_20vs_20tt_20std_20tt_12',['Freestanding vs &lt;tt&gt;std&lt;/tt&gt;',['../index.html#autotoc_md5',1,'']]],
+  ['full_13',['Full',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19eabbd47109890259c0127154db1af26c75',1,'nros']]],
+  ['future_14',['future',['../classnros_1_1Future.html',1,'nros::Future&lt; T, Cap &gt;'],['../classnros_1_1Future.html#ac0758de246b14e81095a17df3232b4d3',1,'nros::Future::Future(Future &amp;&amp;other) noexcept'],['../classnros_1_1Future.html#ad169f67c2bdaf5cbbccf0370352d690c',1,'nros::Future::Future()']]],
+  ['future_2ehpp_15',['future.hpp',['../future_8hpp.html',1,'']]]
 ];

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SchemaError"],"fn":["decode_to_cdr","encode_from_cdr"],"trait":["SchemaSerializer","SchemaSink","SchemaSource"]};

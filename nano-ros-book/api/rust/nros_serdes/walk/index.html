@@ -1,0 +1,47 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="phase-421 W5 — the schema-driven serialization strategy (RFC-0088 D7)."><title>nros_serdes::walk - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="nros_serdes" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module walk</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../nros_serdes/index.html">nros_<wbr>serdes</a><span class="version">0.5.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module walk</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#the-signature-rfc-0088-d7-sketched-cannot-be-implemented" title="The signature RFC-0088 D7 sketched cannot be implemented">The signature RFC-0088 D7 sketched cannot be implemented</a></li><li><a href="#what-the-walk-does-not-cover" title="What the walk does not cover">What the walk does not cover</a></li></ul><h3><a href="#enums">Module Items</a></h3><ul class="block"><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#traits" title="Traits">Traits</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate nros_<wbr>serdes</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">nros_serdes</a></div><h1>Module <span>walk</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/nros_serdes/walk.rs.html#1-671">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>phase-421 W5 — the schema-driven serialization strategy (RFC-0088 D7).</p>
+<p>A provider that declares <code>impl = "schema"</code> in its <code>nros-serdes.toml</code> writes
+ONE implementation and gets every message, with no codegen plugin and no
+generated code per type. This module is the machinery that makes that true:
+the walk over <a href="../schema/struct.Field.html" title="struct nros_serdes::schema::Field"><code>crate::schema::Field</code></a> lives here, once, and a provider
+supplies only the primitive encode/decode operations of its own wire.</p>
+<h2 id="the-signature-rfc-0088-d7-sketched-cannot-be-implemented"><a class="doc-anchor" href="#the-signature-rfc-0088-d7-sketched-cannot-be-implemented">§</a>The signature RFC-0088 D7 sketched cannot be implemented</h2>
+<p>D7 wrote:</p>
+<div class="example-wrap"><pre class="language-text"><code>fn serialize(msg: *const u8, schema: &amp;&#39;static [Field], out: &amp;mut [u8]) -&gt; …</code></pre></div>
+<p>That takes the HOST STRUCT as a pointer and reads fields at <code>Field::offset</code>.
+Measured against the schemas codegen actually emits, it stops at the first
+variable-length field, and it does so for three independent reasons:</p>
+<ul>
+<li><strong>A <code>String</code> field’s host type is <code>heapless::String&lt;N&gt;</code> and the schema
+does not carry <code>N</code>.</strong> <code>nros generate-rust</code> emits
+<code>FieldType::String</code> — the IDL type — for a member whose Rust storage is a
+fixed-capacity buffer. <code>BoundedString(n)</code> is the IDL bound, not the host
+capacity, and the two are different numbers.</li>
+<li><strong><code>heapless::String</code> / <code>heapless::Vec</code> are <code>repr(Rust)</code>.</strong> Their field
+order and padding are unspecified, so “the length is at offset 0” is not a
+fact this crate is allowed to assume. <code>Field::offset</code> is well defined —
+<code>offset_of!</code> works on a <code>repr(Rust)</code> struct — but it only gets you to the
+START of the container, and the container’s own interior is opaque.</li>
+<li><strong>A nested type’s SIZE is not in the schema.</strong> <a href="../schema/struct.NestedType.html" title="struct nros_serdes::schema::NestedType"><code>crate::schema::NestedType</code></a>
+carries <code>type_name</code> and <code>fields</code>; striding an <code>Array(N, Nested(..))</code> or a
+sequence of structs needs <code>size_of</code> of the element, and the largest
+<code>offset</code> in a <code>repr(Rust)</code> child does not determine it.</li>
+</ul>
+<p>Extending the schema to carry host layout would change what codegen must
+emit for every committed generated message, which is a different change from
+this one. So the pivot moves: the value access a schema-driven provider has
+today is <strong>the CDR byte stream</strong>, which nano-ros already produces for every
+message from generated code. <code>impl = "schema"</code> is therefore a TRANSCODER
+strategy in v1 — CDR in, foreign wire out, and back — and that is precisely
+why the walk belongs here rather than in each provider.</p>
+<p>The cost is the one D7 already accepted: schema-driven is slower than the
+per-type serializer we emit for CDR, and <code>impl = "codegen"</code> is the answer
+when someone hits the wall.</p>
+<h2 id="what-the-walk-does-not-cover"><a class="doc-anchor" href="#what-the-walk-does-not-cover">§</a>What the walk does not cover</h2>
+<p><code>FieldType::WString</code> / <code>FieldType::BoundedWString</code> reach
+<a href="enum.SchemaError.html#variant.Unsupported" title="variant nros_serdes::walk::SchemaError::Unsupported"><code>SchemaError::Unsupported</code></a>, because <a href="../cdr/struct.CdrReader.html" title="struct nros_serdes::cdr::CdrReader"><code>crate::cdr::CdrReader</code></a> has no
+wide-string primitive to read them WITH — there is no <code>read_wstring</code>, in
+either direction. No message in <code>packages/interfaces/*</code> uses one, so this is
+a hole in the CDR codec that the schema walk inherits rather than one it
+introduces.</p>
+</div></details><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.SchemaError.html" title="enum nros_serdes::walk::SchemaError">Schema<wbr>Error</a></dt><dd>What can go wrong in a schema-driven encode or decode.</dd></dl><h2 id="traits" class="section-header">Traits<a href="#traits" class="anchor">§</a></h2><dl class="item-table"><dt><a class="trait" href="trait.SchemaSerializer.html" title="trait nros_serdes::walk::SchemaSerializer">Schema<wbr>Serializer</a></dt><dd>A serialization format implemented once, by walking the schema (RFC-0088 D7).</dd><dt><a class="trait" href="trait.SchemaSink.html" title="trait nros_serdes::walk::SchemaSink">Schema<wbr>Sink</a></dt><dd>The encode half of a schema-driven format: the walk pushes typed values in,
+the implementor writes its wire.</dd><dt><a class="trait" href="trait.SchemaSource.html" title="trait nros_serdes::walk::SchemaSource">Schema<wbr>Source</a></dt><dd>The decode half: the walk pulls typed values out, in schema order.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.decode_to_cdr.html" title="fn nros_serdes::walk::decode_to_cdr">decode_<wbr>to_<wbr>cdr</a></dt><dd>Walk <code>schema</code>, pulling each value from <code>source</code> and writing CDR.</dd><dt><a class="fn" href="fn.encode_from_cdr.html" title="fn nros_serdes::walk::encode_from_cdr">encode_<wbr>from_<wbr>cdr</a></dt><dd>Walk <code>schema</code>, reading CDR and pushing each value into <code>sink</code>.</dd></dl></section></div></main></body></html>
