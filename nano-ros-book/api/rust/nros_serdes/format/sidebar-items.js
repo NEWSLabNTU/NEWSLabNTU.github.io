@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SerializationFormatId"],"struct":["Cdr","Uorb"],"trait":["SerializationFormat"]};
