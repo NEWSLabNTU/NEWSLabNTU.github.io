@@ -139,465 +139,548 @@
 <a href=#139 id=139 data-nosnippet>139</a></span><span class="kw">pub struct </span>Violation {
 <a href=#140 id=140 data-nosnippet>140</a>    <span class="doccomment">/// `"rate-hierarchy-runtime"` | `"max-age-runtime"` |
 <a href=#141 id=141 data-nosnippet>141</a>    /// `"max-latency-runtime"` | `"deadline-miss-runtime"` |
-<a href=#142 id=142 data-nosnippet>142</a>    /// `"timer-overrun-runtime"` | `"release-jitter-runtime"`.
-<a href=#143 id=143 data-nosnippet>143</a>    </span><span class="kw">pub </span>rule: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
-<a href=#144 id=144 data-nosnippet>144</a>    <span class="doccomment">/// Violating endpoint ref (from the spec's `fqn`; the SC name for
-<a href=#145 id=145 data-nosnippet>145</a>    /// deadline misses).
-<a href=#146 id=146 data-nosnippet>146</a>    </span><span class="kw">pub </span>fqn: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
-<a href=#147 id=147 data-nosnippet>147</a>    <span class="doccomment">/// Measured value. Unit is per-rule: milli-Hz for the rate rule, ms
-<a href=#148 id=148 data-nosnippet>148</a>    /// for age/latency, µs for deadline misses, dropped activations for
-<a href=#149 id=149 data-nosnippet>149</a>    /// the timer-overrun rule.
-<a href=#150 id=150 data-nosnippet>150</a>    </span><span class="kw">pub </span>measured: u32,
-<a href=#151 id=151 data-nosnippet>151</a>    <span class="doccomment">/// Declared bound, same unit as `measured`.
-<a href=#152 id=152 data-nosnippet>152</a>    </span><span class="kw">pub </span>declared: u32,
-<a href=#153 id=153 data-nosnippet>153</a>}
-<a href=#154 id=154 data-nosnippet>154</a>
-<a href=#155 id=155 data-nosnippet>155</a><span class="doccomment">/// Per-spec accounting state (parallel to the spec table).
-<a href=#156 id=156 data-nosnippet>156</a></span><span class="attr">#[derive(Debug, Clone, Copy, Default)]
-<a href=#157 id=157 data-nosnippet>157</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>MonitorState {
-<a href=#158 id=158 data-nosnippet>158</a>    <span class="doccomment">/// Window opened (a plain bool, not a 0-sentinel on the timestamp —
-<a href=#159 id=159 data-nosnippet>159</a>    /// `now_us == 0` is a legitimate first sample on freshly-started
-<a href=#160 id=160 data-nosnippet>160</a>    /// monotonic clocks).
-<a href=#161 id=161 data-nosnippet>161</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) opened: bool,
-<a href=#162 id=162 data-nosnippet>162</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) window_start_us: u64,
-<a href=#163 id=163 data-nosnippet>163</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) count_at_window_start: u32,
-<a href=#164 id=164 data-nosnippet>164</a>    <span class="doccomment">/// Suppress duplicate reports: only re-report after a clean window.
-<a href=#165 id=165 data-nosnippet>165</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) violated_last_window: bool,
-<a href=#166 id=166 data-nosnippet>166</a>    <span class="doccomment">/// W3b.5 — separate dedup for the latency rule on the same spec row.
-<a href=#167 id=167 data-nosnippet>167</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) latency_violated_last_window: bool,
-<a href=#168 id=168 data-nosnippet>168</a>}
-<a href=#169 id=169 data-nosnippet>169</a>
-<a href=#170 id=170 data-nosnippet>170</a><span class="doccomment">/// Pure rate check over one window boundary. Returns `Some(violation)`
-<a href=#171 id=171 data-nosnippet>171</a>/// when the window elapsed AND the measured rate is below the declared
-<a href=#172 id=172 data-nosnippet>172</a>/// minimum (and we didn't already report last window).
-<a href=#173 id=173 data-nosnippet>173</a>///
-<a href=#174 id=174 data-nosnippet>174</a>/// Extracted from the executor so the math is unit-testable without a
-<a href=#175 id=175 data-nosnippet>175</a>/// session: publish counting is injected via the cell, time via `now_us`.
-<a href=#176 id=176 data-nosnippet>176</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>check_rate(
-<a href=#177 id=177 data-nosnippet>177</a>    spec: <span class="kw-2">&amp;</span>MonitorSpec,
-<a href=#178 id=178 data-nosnippet>178</a>    state: <span class="kw-2">&amp;mut </span>MonitorState,
-<a href=#179 id=179 data-nosnippet>179</a>    now_us: u64,
-<a href=#180 id=180 data-nosnippet>180</a>) -&gt; <span class="prelude-ty">Option</span>&lt;Violation&gt; {
-<a href=#181 id=181 data-nosnippet>181</a>    <span class="kw">if </span>spec.min_rate_hz_milli == <span class="number">0 </span>{
-<a href=#182 id=182 data-nosnippet>182</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#183 id=183 data-nosnippet>183</a>    }
-<a href=#184 id=184 data-nosnippet>184</a>    <span class="kw">let </span>count = spec.cell.count.load(Ordering::Relaxed);
-<a href=#185 id=185 data-nosnippet>185</a>    <span class="kw">if </span>!state.opened {
-<a href=#186 id=186 data-nosnippet>186</a>        <span class="comment">// First observation: open the window, no verdict yet.
-<a href=#187 id=187 data-nosnippet>187</a>        </span>state.opened = <span class="bool-val">true</span>;
-<a href=#188 id=188 data-nosnippet>188</a>        state.window_start_us = now_us;
-<a href=#189 id=189 data-nosnippet>189</a>        state.count_at_window_start = count;
-<a href=#190 id=190 data-nosnippet>190</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#191 id=191 data-nosnippet>191</a>    }
-<a href=#192 id=192 data-nosnippet>192</a>    <span class="kw">let </span>window_us = now_us.saturating_sub(state.window_start_us);
-<a href=#193 id=193 data-nosnippet>193</a>    <span class="kw">if </span>window_us &lt; RATE_CHECK_INTERVAL_US {
-<a href=#194 id=194 data-nosnippet>194</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#195 id=195 data-nosnippet>195</a>    }
-<a href=#196 id=196 data-nosnippet>196</a>    <span class="kw">let </span>published = count.wrapping_sub(state.count_at_window_start) <span class="kw">as </span>u64;
-<a href=#197 id=197 data-nosnippet>197</a>    <span class="comment">// milli-Hz = published * 1e3 / window_s = published * 1e9 / window_us
-<a href=#198 id=198 data-nosnippet>198</a>    </span><span class="kw">let </span>measured_milli_hz =
-<a href=#199 id=199 data-nosnippet>199</a>        (published.saturating_mul(<span class="number">1_000_000_000</span>) / window_us.max(<span class="number">1</span>)).min(u32::MAX <span class="kw">as </span>u64) <span class="kw">as </span>u32;
-<a href=#200 id=200 data-nosnippet>200</a>
-<a href=#201 id=201 data-nosnippet>201</a>    <span class="comment">// Roll the window.
-<a href=#202 id=202 data-nosnippet>202</a>    </span>state.window_start_us = now_us;
-<a href=#203 id=203 data-nosnippet>203</a>    state.count_at_window_start = count;
-<a href=#204 id=204 data-nosnippet>204</a>
-<a href=#205 id=205 data-nosnippet>205</a>    <span class="kw">if </span>measured_milli_hz &lt; spec.min_rate_hz_milli {
-<a href=#206 id=206 data-nosnippet>206</a>        <span class="kw">if </span>state.violated_last_window {
-<a href=#207 id=207 data-nosnippet>207</a>            <span class="kw">return </span><span class="prelude-val">None</span>; <span class="comment">// still violated — already reported
-<a href=#208 id=208 data-nosnippet>208</a>        </span>}
-<a href=#209 id=209 data-nosnippet>209</a>        state.violated_last_window = <span class="bool-val">true</span>;
-<a href=#210 id=210 data-nosnippet>210</a>        <span class="prelude-val">Some</span>(Violation {
-<a href=#211 id=211 data-nosnippet>211</a>            rule: <span class="string">"rate-hierarchy-runtime"</span>,
-<a href=#212 id=212 data-nosnippet>212</a>            fqn: spec.fqn,
-<a href=#213 id=213 data-nosnippet>213</a>            measured: measured_milli_hz,
-<a href=#214 id=214 data-nosnippet>214</a>            declared: spec.min_rate_hz_milli,
-<a href=#215 id=215 data-nosnippet>215</a>        })
-<a href=#216 id=216 data-nosnippet>216</a>    } <span class="kw">else </span>{
-<a href=#217 id=217 data-nosnippet>217</a>        state.violated_last_window = <span class="bool-val">false</span>;
-<a href=#218 id=218 data-nosnippet>218</a>        <span class="prelude-val">None
-<a href=#219 id=219 data-nosnippet>219</a>    </span>}
-<a href=#220 id=220 data-nosnippet>220</a>}
-<a href=#221 id=221 data-nosnippet>221</a>
-<a href=#222 id=222 data-nosnippet>222</a><span class="doccomment">/// Pure latency check: drains the spec cell's window-max take→publish
-<a href=#223 id=223 data-nosnippet>223</a>/// latency and fires when it exceeds the declared node-path budget.
-<a href=#224 id=224 data-nosnippet>224</a>/// Same report-once-until-recovery semantics as the rate rule; runs on
-<a href=#225 id=225 data-nosnippet>225</a>/// every monitor tick (the cell accumulates between ticks, so no window
-<a href=#226 id=226 data-nosnippet>226</a>/// bookkeeping is needed — draining IS the window roll).
-<a href=#227 id=227 data-nosnippet>227</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>check_latency(spec: <span class="kw-2">&amp;</span>MonitorSpec, state: <span class="kw-2">&amp;mut </span>MonitorState) -&gt; <span class="prelude-ty">Option</span>&lt;Violation&gt; {
-<a href=#228 id=228 data-nosnippet>228</a>    <span class="kw">if </span>spec.max_latency_ms == <span class="number">0 </span>{
-<a href=#229 id=229 data-nosnippet>229</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#230 id=230 data-nosnippet>230</a>    }
-<a href=#231 id=231 data-nosnippet>231</a>    <span class="kw">let </span>max_us = spec.cell.max_latency_us.swap(<span class="number">0</span>, Ordering::Relaxed);
-<a href=#232 id=232 data-nosnippet>232</a>    <span class="kw">let </span>max_ms = max_us / <span class="number">1_000</span>;
-<a href=#233 id=233 data-nosnippet>233</a>    <span class="kw">if </span>max_ms &gt; spec.max_latency_ms {
-<a href=#234 id=234 data-nosnippet>234</a>        <span class="kw">if </span>state.latency_violated_last_window {
-<a href=#235 id=235 data-nosnippet>235</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#236 id=236 data-nosnippet>236</a>        }
-<a href=#237 id=237 data-nosnippet>237</a>        state.latency_violated_last_window = <span class="bool-val">true</span>;
-<a href=#238 id=238 data-nosnippet>238</a>        <span class="prelude-val">Some</span>(Violation {
-<a href=#239 id=239 data-nosnippet>239</a>            rule: <span class="string">"max-latency-runtime"</span>,
-<a href=#240 id=240 data-nosnippet>240</a>            fqn: spec.fqn,
-<a href=#241 id=241 data-nosnippet>241</a>            measured: max_ms,
-<a href=#242 id=242 data-nosnippet>242</a>            declared: spec.max_latency_ms,
-<a href=#243 id=243 data-nosnippet>243</a>        })
-<a href=#244 id=244 data-nosnippet>244</a>    } <span class="kw">else </span>{
-<a href=#245 id=245 data-nosnippet>245</a>        <span class="comment">// A quiet window (no dispatch attributed) also counts as clean —
-<a href=#246 id=246 data-nosnippet>246</a>        // recovery resets the dedup like the rate rule's clean window.
-<a href=#247 id=247 data-nosnippet>247</a>        </span>state.latency_violated_last_window = <span class="bool-val">false</span>;
-<a href=#248 id=248 data-nosnippet>248</a>        <span class="prelude-val">None
-<a href=#249 id=249 data-nosnippet>249</a>    </span>}
-<a href=#250 id=250 data-nosnippet>250</a>}
-<a href=#251 id=251 data-nosnippet>251</a>
-<a href=#252 id=252 data-nosnippet>252</a><span class="doccomment">/// Per-age-spec dedup state.
-<a href=#253 id=253 data-nosnippet>253</a></span><span class="attr">#[derive(Debug, Clone, Copy, Default)]
-<a href=#254 id=254 data-nosnippet>254</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>AgeState {
-<a href=#255 id=255 data-nosnippet>255</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) violated_last_window: bool,
-<a href=#256 id=256 data-nosnippet>256</a>}
-<a href=#257 id=257 data-nosnippet>257</a>
-<a href=#258 id=258 data-nosnippet>258</a><span class="doccomment">/// Pure age check: drains the sub cell's window-max take-age and fires
-<a href=#259 id=259 data-nosnippet>259</a>/// when it exceeds the declared bound. Report-once-until-recovery.
-<a href=#260 id=260 data-nosnippet>260</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>check_age(spec: <span class="kw-2">&amp;</span>AgeMonitorSpec, state: <span class="kw-2">&amp;mut </span>AgeState) -&gt; <span class="prelude-ty">Option</span>&lt;Violation&gt; {
-<a href=#261 id=261 data-nosnippet>261</a>    <span class="kw">if </span>spec.max_age_ms == <span class="number">0 </span>{
-<a href=#262 id=262 data-nosnippet>262</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#263 id=263 data-nosnippet>263</a>    }
-<a href=#264 id=264 data-nosnippet>264</a>    <span class="kw">let </span>max_ms = spec.cell.max_age_ms.swap(<span class="number">0</span>, Ordering::Relaxed);
-<a href=#265 id=265 data-nosnippet>265</a>    <span class="kw">if </span>max_ms &gt; spec.max_age_ms {
-<a href=#266 id=266 data-nosnippet>266</a>        <span class="kw">if </span>state.violated_last_window {
-<a href=#267 id=267 data-nosnippet>267</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#268 id=268 data-nosnippet>268</a>        }
-<a href=#269 id=269 data-nosnippet>269</a>        state.violated_last_window = <span class="bool-val">true</span>;
-<a href=#270 id=270 data-nosnippet>270</a>        <span class="prelude-val">Some</span>(Violation {
-<a href=#271 id=271 data-nosnippet>271</a>            rule: <span class="string">"max-age-runtime"</span>,
-<a href=#272 id=272 data-nosnippet>272</a>            fqn: spec.fqn,
-<a href=#273 id=273 data-nosnippet>273</a>            measured: max_ms,
-<a href=#274 id=274 data-nosnippet>274</a>            declared: spec.max_age_ms,
-<a href=#275 id=275 data-nosnippet>275</a>        })
-<a href=#276 id=276 data-nosnippet>276</a>    } <span class="kw">else </span>{
-<a href=#277 id=277 data-nosnippet>277</a>        state.violated_last_window = <span class="bool-val">false</span>;
-<a href=#278 id=278 data-nosnippet>278</a>        <span class="prelude-val">None
-<a href=#279 id=279 data-nosnippet>279</a>    </span>}
-<a href=#280 id=280 data-nosnippet>280</a>}
-<a href=#281 id=281 data-nosnippet>281</a>
-<a href=#282 id=282 data-nosnippet>282</a><span class="attr">#[cfg(test)]
-<a href=#283 id=283 data-nosnippet>283</a></span><span class="kw">mod </span>tests {
-<a href=#284 id=284 data-nosnippet>284</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#285 id=285 data-nosnippet>285</a>
-<a href=#286 id=286 data-nosnippet>286</a>    <span class="kw">static </span>CELL: PubMonitorCell = PubMonitorCell::new();
-<a href=#287 id=287 data-nosnippet>287</a>
-<a href=#288 id=288 data-nosnippet>288</a>    <span class="kw">fn </span>spec(min_milli: u32) -&gt; MonitorSpec {
-<a href=#289 id=289 data-nosnippet>289</a>        MonitorSpec {
-<a href=#290 id=290 data-nosnippet>290</a>            topic: <span class="string">"/chatter"</span>,
-<a href=#291 id=291 data-nosnippet>291</a>            fqn: <span class="string">"/demo/talker/chatter"</span>,
-<a href=#292 id=292 data-nosnippet>292</a>            min_rate_hz_milli: min_milli,
-<a href=#293 id=293 data-nosnippet>293</a>            max_latency_ms: <span class="number">0</span>,
-<a href=#294 id=294 data-nosnippet>294</a>            cell: <span class="kw-2">&amp;</span>CELL,
-<a href=#295 id=295 data-nosnippet>295</a>        }
-<a href=#296 id=296 data-nosnippet>296</a>    }
-<a href=#297 id=297 data-nosnippet>297</a>
-<a href=#298 id=298 data-nosnippet>298</a>    <span class="attr">#[test]
-<a href=#299 id=299 data-nosnippet>299</a>    </span><span class="kw">fn </span>slow_publisher_fires_once_until_recovery() {
-<a href=#300 id=300 data-nosnippet>300</a>        CELL.count.store(<span class="number">0</span>, Ordering::Relaxed);
-<a href=#301 id=301 data-nosnippet>301</a>        <span class="kw">let </span>s = spec(<span class="number">100_000</span>); <span class="comment">// 100 Hz declared
-<a href=#302 id=302 data-nosnippet>302</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>st = MonitorState::default();
-<a href=#303 id=303 data-nosnippet>303</a>
-<a href=#304 id=304 data-nosnippet>304</a>        <span class="comment">// t=0: opens window.
-<a href=#305 id=305 data-nosnippet>305</a>        </span><span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, <span class="number">0</span>).is_none());
-<a href=#306 id=306 data-nosnippet>306</a>        <span class="comment">// 5 publishes in 5 s = 1 Hz — violation.
-<a href=#307 id=307 data-nosnippet>307</a>        </span>CELL.count.store(<span class="number">5</span>, Ordering::Relaxed);
-<a href=#308 id=308 data-nosnippet>308</a>        <span class="kw">let </span>v = check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, RATE_CHECK_INTERVAL_US).expect(<span class="string">"fires"</span>);
-<a href=#309 id=309 data-nosnippet>309</a>        <span class="macro">assert_eq!</span>(v.rule, <span class="string">"rate-hierarchy-runtime"</span>);
-<a href=#310 id=310 data-nosnippet>310</a>        <span class="macro">assert_eq!</span>(v.fqn, <span class="string">"/demo/talker/chatter"</span>);
-<a href=#311 id=311 data-nosnippet>311</a>        <span class="macro">assert_eq!</span>(v.measured, <span class="number">1_000</span>);
-<a href=#312 id=312 data-nosnippet>312</a>        <span class="macro">assert_eq!</span>(v.declared, <span class="number">100_000</span>);
-<a href=#313 id=313 data-nosnippet>313</a>        <span class="comment">// Still slow next window — suppressed (no re-report spam).
-<a href=#314 id=314 data-nosnippet>314</a>        </span>CELL.count.store(<span class="number">10</span>, Ordering::Relaxed);
-<a href=#315 id=315 data-nosnippet>315</a>        <span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, <span class="number">2 </span>* RATE_CHECK_INTERVAL_US).is_none());
-<a href=#316 id=316 data-nosnippet>316</a>        <span class="comment">// Recovers (500 publishes in 5 s = 100 Hz) — clean window resets.
-<a href=#317 id=317 data-nosnippet>317</a>        </span>CELL.count.store(<span class="number">510</span>, Ordering::Relaxed);
-<a href=#318 id=318 data-nosnippet>318</a>        <span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, <span class="number">3 </span>* RATE_CHECK_INTERVAL_US).is_none());
-<a href=#319 id=319 data-nosnippet>319</a>        <span class="comment">// Degrades again — fires again.
-<a href=#320 id=320 data-nosnippet>320</a>        </span>CELL.count.store(<span class="number">511</span>, Ordering::Relaxed);
-<a href=#321 id=321 data-nosnippet>321</a>        <span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, <span class="number">4 </span>* RATE_CHECK_INTERVAL_US).is_some());
-<a href=#322 id=322 data-nosnippet>322</a>    }
-<a href=#323 id=323 data-nosnippet>323</a>
-<a href=#324 id=324 data-nosnippet>324</a>    <span class="attr">#[test]
-<a href=#325 id=325 data-nosnippet>325</a>    </span><span class="kw">fn </span>compliant_and_uncontracted_stay_silent() {
-<a href=#326 id=326 data-nosnippet>326</a>        <span class="kw">static </span>C2: PubMonitorCell = PubMonitorCell::new();
-<a href=#327 id=327 data-nosnippet>327</a>        <span class="kw">let </span>s = MonitorSpec {
-<a href=#328 id=328 data-nosnippet>328</a>            topic: <span class="string">"/t"</span>,
-<a href=#329 id=329 data-nosnippet>329</a>            fqn: <span class="string">"/n/t"</span>,
-<a href=#330 id=330 data-nosnippet>330</a>            min_rate_hz_milli: <span class="number">500</span>, <span class="comment">// 0.5 Hz
-<a href=#331 id=331 data-nosnippet>331</a>            </span>max_latency_ms: <span class="number">0</span>,
-<a href=#332 id=332 data-nosnippet>332</a>            cell: <span class="kw-2">&amp;</span>C2,
-<a href=#333 id=333 data-nosnippet>333</a>        };
-<a href=#334 id=334 data-nosnippet>334</a>        <span class="kw">let </span><span class="kw-2">mut </span>st = MonitorState::default();
-<a href=#335 id=335 data-nosnippet>335</a>        <span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, <span class="number">0</span>).is_none());
-<a href=#336 id=336 data-nosnippet>336</a>        C2.count.store(<span class="number">5</span>, Ordering::Relaxed); <span class="comment">// 1 Hz measured ≥ 0.5 Hz declared
-<a href=#337 id=337 data-nosnippet>337</a>        </span><span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, RATE_CHECK_INTERVAL_US).is_none());
-<a href=#338 id=338 data-nosnippet>338</a>
-<a href=#339 id=339 data-nosnippet>339</a>        <span class="comment">// min_rate 0 = uncontracted: never fires, no state.
-<a href=#340 id=340 data-nosnippet>340</a>        </span><span class="kw">let </span>s0 = MonitorSpec {
-<a href=#341 id=341 data-nosnippet>341</a>            topic: <span class="string">"/t"</span>,
-<a href=#342 id=342 data-nosnippet>342</a>            fqn: <span class="string">"/n/t"</span>,
-<a href=#343 id=343 data-nosnippet>343</a>            min_rate_hz_milli: <span class="number">0</span>,
-<a href=#344 id=344 data-nosnippet>344</a>            max_latency_ms: <span class="number">0</span>,
-<a href=#345 id=345 data-nosnippet>345</a>            cell: <span class="kw-2">&amp;</span>C2,
-<a href=#346 id=346 data-nosnippet>346</a>        };
-<a href=#347 id=347 data-nosnippet>347</a>        <span class="kw">let </span><span class="kw-2">mut </span>st0 = MonitorState::default();
-<a href=#348 id=348 data-nosnippet>348</a>        <span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s0, <span class="kw-2">&amp;mut </span>st0, <span class="number">10 </span>* RATE_CHECK_INTERVAL_US).is_none());
-<a href=#349 id=349 data-nosnippet>349</a>    }
-<a href=#350 id=350 data-nosnippet>350</a>
-<a href=#351 id=351 data-nosnippet>351</a>    <span class="attr">#[test]
-<a href=#352 id=352 data-nosnippet>352</a>    </span><span class="kw">fn </span>stale_take_fires_age_once_until_recovery() {
-<a href=#353 id=353 data-nosnippet>353</a>        <span class="kw">static </span>SC: SubMonitorCell = SubMonitorCell::new();
-<a href=#354 id=354 data-nosnippet>354</a>        <span class="kw">let </span>s = AgeMonitorSpec {
-<a href=#355 id=355 data-nosnippet>355</a>            topic: <span class="string">"/scan"</span>,
-<a href=#356 id=356 data-nosnippet>356</a>            fqn: <span class="string">"/perc/detector/scan"</span>,
-<a href=#357 id=357 data-nosnippet>357</a>            max_age_ms: <span class="number">100</span>,
-<a href=#358 id=358 data-nosnippet>358</a>            cell: <span class="kw-2">&amp;</span>SC,
-<a href=#359 id=359 data-nosnippet>359</a>        };
-<a href=#360 id=360 data-nosnippet>360</a>        <span class="kw">let </span><span class="kw-2">mut </span>st = AgeState::default();
-<a href=#361 id=361 data-nosnippet>361</a>
-<a href=#362 id=362 data-nosnippet>362</a>        <span class="comment">// Fresh message: stamped 5 ms ago — silent.
-<a href=#363 id=363 data-nosnippet>363</a>        </span>SC.observe(<span class="number">1_000_000_000</span>, <span class="number">1_000_005_000</span>);
-<a href=#364 id=364 data-nosnippet>364</a>        <span class="macro">assert!</span>(check_age(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_none());
-<a href=#365 id=365 data-nosnippet>365</a>        <span class="comment">// Stale: 250 ms old — fires with the measured age.
-<a href=#366 id=366 data-nosnippet>366</a>        </span>SC.observe(<span class="number">1_000_000_000</span>, <span class="number">1_000_250_000</span>);
-<a href=#367 id=367 data-nosnippet>367</a>        <span class="kw">let </span>v = check_age(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).expect(<span class="string">"fires"</span>);
-<a href=#368 id=368 data-nosnippet>368</a>        <span class="macro">assert_eq!</span>(v.rule, <span class="string">"max-age-runtime"</span>);
-<a href=#369 id=369 data-nosnippet>369</a>        <span class="macro">assert_eq!</span>(v.fqn, <span class="string">"/perc/detector/scan"</span>);
-<a href=#370 id=370 data-nosnippet>370</a>        <span class="macro">assert_eq!</span>(v.measured, <span class="number">250</span>);
-<a href=#371 id=371 data-nosnippet>371</a>        <span class="macro">assert_eq!</span>(v.declared, <span class="number">100</span>);
-<a href=#372 id=372 data-nosnippet>372</a>        <span class="comment">// Still stale next window — suppressed.
-<a href=#373 id=373 data-nosnippet>373</a>        </span>SC.observe(<span class="number">1_000_000_000</span>, <span class="number">1_000_300_000</span>);
-<a href=#374 id=374 data-nosnippet>374</a>        <span class="macro">assert!</span>(check_age(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_none());
-<a href=#375 id=375 data-nosnippet>375</a>        <span class="comment">// Recovers — clean window resets; stale again refires.
-<a href=#376 id=376 data-nosnippet>376</a>        </span>SC.observe(<span class="number">1_000_000_000</span>, <span class="number">1_000_010_000</span>);
-<a href=#377 id=377 data-nosnippet>377</a>        <span class="macro">assert!</span>(check_age(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_none());
-<a href=#378 id=378 data-nosnippet>378</a>        SC.observe(<span class="number">1_000_000_000</span>, <span class="number">1_000_999_000</span>);
-<a href=#379 id=379 data-nosnippet>379</a>        <span class="macro">assert!</span>(check_age(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_some());
-<a href=#380 id=380 data-nosnippet>380</a>    }
-<a href=#381 id=381 data-nosnippet>381</a>
-<a href=#382 id=382 data-nosnippet>382</a>    <span class="attr">#[test]
-<a href=#383 id=383 data-nosnippet>383</a>    </span><span class="kw">fn </span>peek_stamp_reads_le_time_and_rejects_unstamped() {
-<a href=#384 id=384 data-nosnippet>384</a>        <span class="comment">// Encapsulation header (4B) + sec=100 nsec=5000 at offset 4.
-<a href=#385 id=385 data-nosnippet>385</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>raw = [<span class="number">0u8</span>; <span class="number">12</span>];
-<a href=#386 id=386 data-nosnippet>386</a>        raw[<span class="number">4</span>..<span class="number">8</span>].copy_from_slice(<span class="kw-2">&amp;</span><span class="number">100i32</span>.to_le_bytes());
-<a href=#387 id=387 data-nosnippet>387</a>        raw[<span class="number">8</span>..<span class="number">12</span>].copy_from_slice(<span class="kw-2">&amp;</span><span class="number">5_000u32</span>.to_le_bytes());
-<a href=#388 id=388 data-nosnippet>388</a>        <span class="macro">assert_eq!</span>(peek_stamp_us(<span class="kw-2">&amp;</span>raw, <span class="number">4</span>), <span class="prelude-val">Some</span>(<span class="number">100_000_005</span>));
-<a href=#389 id=389 data-nosnippet>389</a>        <span class="comment">// Zero / negative sec = unstamped: no age sample.
-<a href=#390 id=390 data-nosnippet>390</a>        </span><span class="macro">assert_eq!</span>(peek_stamp_us(<span class="kw-2">&amp;</span>[<span class="number">0u8</span>; <span class="number">12</span>], <span class="number">4</span>), <span class="prelude-val">None</span>);
-<a href=#391 id=391 data-nosnippet>391</a>        <span class="comment">// Short buffer: no panic, no sample.
-<a href=#392 id=392 data-nosnippet>392</a>        </span><span class="macro">assert_eq!</span>(peek_stamp_us(<span class="kw-2">&amp;</span>raw[..<span class="number">8</span>], <span class="number">4</span>), <span class="prelude-val">None</span>);
-<a href=#393 id=393 data-nosnippet>393</a>    }
-<a href=#394 id=394 data-nosnippet>394</a>
-<a href=#395 id=395 data-nosnippet>395</a>    <span class="attr">#[test]
-<a href=#396 id=396 data-nosnippet>396</a>    </span><span class="kw">fn </span>slow_path_fires_latency_once_until_recovery() {
-<a href=#397 id=397 data-nosnippet>397</a>        <span class="kw">static </span>C3: PubMonitorCell = PubMonitorCell::new();
-<a href=#398 id=398 data-nosnippet>398</a>        <span class="kw">let </span>s = MonitorSpec {
-<a href=#399 id=399 data-nosnippet>399</a>            topic: <span class="string">"/cmd"</span>,
-<a href=#400 id=400 data-nosnippet>400</a>            fqn: <span class="string">"/ctrl/control/cmd"</span>,
-<a href=#401 id=401 data-nosnippet>401</a>            min_rate_hz_milli: <span class="number">0</span>,
-<a href=#402 id=402 data-nosnippet>402</a>            max_latency_ms: <span class="number">10</span>,
-<a href=#403 id=403 data-nosnippet>403</a>            cell: <span class="kw-2">&amp;</span>C3,
-<a href=#404 id=404 data-nosnippet>404</a>        };
-<a href=#405 id=405 data-nosnippet>405</a>        <span class="kw">let </span><span class="kw-2">mut </span>st = MonitorState::default();
-<a href=#406 id=406 data-nosnippet>406</a>        <span class="comment">// 4 ms dispatch — within budget.
-<a href=#407 id=407 data-nosnippet>407</a>        </span>C3.max_latency_us.store(<span class="number">4_000</span>, Ordering::Relaxed);
-<a href=#408 id=408 data-nosnippet>408</a>        <span class="macro">assert!</span>(check_latency(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_none());
-<a href=#409 id=409 data-nosnippet>409</a>        <span class="macro">assert_eq!</span>(C3.max_latency_us.load(Ordering::Relaxed), <span class="number">0</span>, <span class="string">"drained"</span>);
-<a href=#410 id=410 data-nosnippet>410</a>        <span class="comment">// 25 ms dispatch — fires.
-<a href=#411 id=411 data-nosnippet>411</a>        </span>C3.max_latency_us.store(<span class="number">25_000</span>, Ordering::Relaxed);
-<a href=#412 id=412 data-nosnippet>412</a>        <span class="kw">let </span>v = check_latency(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).expect(<span class="string">"fires"</span>);
-<a href=#413 id=413 data-nosnippet>413</a>        <span class="macro">assert_eq!</span>(v.rule, <span class="string">"max-latency-runtime"</span>);
-<a href=#414 id=414 data-nosnippet>414</a>        <span class="macro">assert_eq!</span>(v.measured, <span class="number">25</span>);
-<a href=#415 id=415 data-nosnippet>415</a>        <span class="macro">assert_eq!</span>(v.declared, <span class="number">10</span>);
-<a href=#416 id=416 data-nosnippet>416</a>        <span class="comment">// Still slow — suppressed; recovery resets.
-<a href=#417 id=417 data-nosnippet>417</a>        </span>C3.max_latency_us.store(<span class="number">30_000</span>, Ordering::Relaxed);
-<a href=#418 id=418 data-nosnippet>418</a>        <span class="macro">assert!</span>(check_latency(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_none());
-<a href=#419 id=419 data-nosnippet>419</a>        C3.max_latency_us.store(<span class="number">1_000</span>, Ordering::Relaxed);
-<a href=#420 id=420 data-nosnippet>420</a>        <span class="macro">assert!</span>(check_latency(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_none());
-<a href=#421 id=421 data-nosnippet>421</a>        C3.max_latency_us.store(<span class="number">30_000</span>, Ordering::Relaxed);
-<a href=#422 id=422 data-nosnippet>422</a>        <span class="macro">assert!</span>(check_latency(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_some());
-<a href=#423 id=423 data-nosnippet>423</a>    }
-<a href=#424 id=424 data-nosnippet>424</a>}
-<a href=#425 id=425 data-nosnippet>425</a>
-<a href=#426 id=426 data-nosnippet>426</a><span class="doccomment">/// Issue #514 — emit one violation to the log.
-<a href=#427 id=427 data-nosnippet>427</a>///
-<a href=#428 id=428 data-nosnippet>428</a>/// A log line is deliberately the floor rather than a `/diagnostics`
-<a href=#429 id=429 data-nosnippet>429</a>/// publication: it needs no publisher, no topic wiring, and no contract
-<a href=#430 id=430 data-nosnippet>430</a>/// on the reporting path itself, so it works on a bare RTOS image and
-<a href=#431 id=431 data-nosnippet>431</a>/// during boot. Publishing the same verdicts as `DiagnosticArray`
-<a href=#432 id=432 data-nosnippet>432</a>/// belongs on top of this, not instead of it.
-<a href=#433 id=433 data-nosnippet>433</a>///
-<a href=#434 id=434 data-nosnippet>434</a>/// Free function rather than an `Executor` method because every call
-<a href=#435 id=435 data-nosnippet>435</a>/// site sits inside a loop that already borrows the executor's spec
-<a href=#436 id=436 data-nosnippet>436</a>/// tables.
-<a href=#437 id=437 data-nosnippet>437</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>log_violation(v: <span class="kw-2">&amp;</span>Violation) {
-<a href=#438 id=438 data-nosnippet>438</a>    <span class="macro">nros_log::nros_warn!</span>(
-<a href=#439 id=439 data-nosnippet>439</a>        nros_log::get_logger(<span class="string">"nros"</span>),
-<a href=#440 id=440 data-nosnippet>440</a>        <span class="string">"contract violation: {} {} measured={} declared={}"</span>,
-<a href=#441 id=441 data-nosnippet>441</a>        v.rule,
-<a href=#442 id=442 data-nosnippet>442</a>        v.fqn,
-<a href=#443 id=443 data-nosnippet>443</a>        v.measured,
-<a href=#444 id=444 data-nosnippet>444</a>        v.declared
-<a href=#445 id=445 data-nosnippet>445</a>    );
-<a href=#446 id=446 data-nosnippet>446</a>}
-<a href=#447 id=447 data-nosnippet>447</a>
-<a href=#448 id=448 data-nosnippet>448</a><span class="doccomment">/// Issue #505 — periodic activations a timer dropped because its
-<a href=#449 id=449 data-nosnippet>449</a>/// executor was blocked past the period boundary.
-<a href=#450 id=450 data-nosnippet>450</a>///
-<a href=#451 id=451 data-nosnippet>451</a>/// This rule exists because `check_rate` cannot see an isolated stall:
-<a href=#452 id=452 data-nosnippet>452</a>/// it samples publish counts over a ~5 s window, so 20 missed
-<a href=#453 id=453 data-nosnippet>453</a>/// activations of a 100 Hz loop are a 0.4% rate deficit — under any
-<a href=#454 id=454 data-nosnippet>454</a>/// sane declared minimum, silence. (And under
-<a href=#455 id=455 data-nosnippet>455</a>/// [`TimerOverrunPolicy::CatchUp`](super::arena::TimerOverrunPolicy)
-<a href=#456 id=456 data-nosnippet>456</a>/// the replayed activations refill the window entirely, so the rate
-<a href=#457 id=457 data-nosnippet>457</a>/// rule reports a HEALTHY loop while the tier is stalling.) The
-<a href=#458 id=458 data-nosnippet>458</a>/// overrun counter is exact, needs no window, and does not depend on
-<a href=#459 id=459 data-nosnippet>459</a>/// clock resolution.
-<a href=#460 id=460 data-nosnippet>460</a>///
-<a href=#461 id=461 data-nosnippet>461</a>/// `overruns` is the timer's monotonic saturating counter;
-<a href=#462 id=462 data-nosnippet>462</a>/// `last_reported` is the value at the previous check, so the verdict
-<a href=#463 id=463 data-nosnippet>463</a>/// is on the delta. Returns a violation when more than `tolerated`
-<a href=#464 id=464 data-nosnippet>464</a>/// activations were dropped since the last check.
-<a href=#465 id=465 data-nosnippet>465</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>check_timer_overrun(
-<a href=#466 id=466 data-nosnippet>466</a>    overruns: u32,
-<a href=#467 id=467 data-nosnippet>467</a>    last_reported: <span class="kw-2">&amp;mut </span>u32,
-<a href=#468 id=468 data-nosnippet>468</a>    tolerated: u32,
-<a href=#469 id=469 data-nosnippet>469</a>) -&gt; <span class="prelude-ty">Option</span>&lt;Violation&gt; {
-<a href=#470 id=470 data-nosnippet>470</a>    <span class="kw">let </span>dropped = overruns.saturating_sub(<span class="kw-2">*</span>last_reported);
-<a href=#471 id=471 data-nosnippet>471</a>    <span class="kw-2">*</span>last_reported = overruns;
-<a href=#472 id=472 data-nosnippet>472</a>    <span class="kw">if </span>dropped &lt;= tolerated {
-<a href=#473 id=473 data-nosnippet>473</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#474 id=474 data-nosnippet>474</a>    }
-<a href=#475 id=475 data-nosnippet>475</a>    <span class="prelude-val">Some</span>(Violation {
-<a href=#476 id=476 data-nosnippet>476</a>        rule: <span class="string">"timer-overrun-runtime"</span>,
-<a href=#477 id=477 data-nosnippet>477</a>        <span class="comment">// Timer entries carry no name at this altitude; same stand-in
-<a href=#478 id=478 data-nosnippet>478</a>        // as `deadline-miss-runtime`.
-<a href=#479 id=479 data-nosnippet>479</a>        </span>fqn: <span class="string">"timer"</span>,
-<a href=#480 id=480 data-nosnippet>480</a>        measured: dropped,
-<a href=#481 id=481 data-nosnippet>481</a>        declared: tolerated,
-<a href=#482 id=482 data-nosnippet>482</a>    })
-<a href=#483 id=483 data-nosnippet>483</a>}
-<a href=#484 id=484 data-nosnippet>484</a>
-<a href=#485 id=485 data-nosnippet>485</a><span class="doccomment">/// Issue #515 — report a spin wake that arrived so late the cadence it
-<a href=#486 id=486 data-nosnippet>486</a>/// claims cannot have been met.
-<a href=#487 id=487 data-nosnippet>487</a>///
-<a href=#488 id=488 data-nosnippet>488</a>/// Like `check_timer_overrun` and unlike the rate/age/latency rules, this
-<a href=#489 id=489 data-nosnippet>489</a>/// needs no baked spec table. The bound is the spin period ITSELF: the
-<a href=#490 id=490 data-nosnippet>490</a>/// caller passes it to `spin_once` as the pacing quantum, it is what
-<a href=#491 id=491 data-nosnippet>491</a>/// `system.toml` declares as `spin_period_us`, and a wake later than a full
-<a href=#492 id=492 data-nosnippet>492</a>/// period past its predecessor means an activation's worth of cadence was
-<a href=#493 id=493 data-nosnippet>493</a>/// lost. That is a contract failure for any declared period, so there is
-<a href=#494 id=494 data-nosnippet>494</a>/// nothing further to declare.
-<a href=#495 id=495 data-nosnippet>495</a>///
-<a href=#496 id=496 data-nosnippet>496</a>/// The tolerance is one whole period rather than zero, and deliberately so.
-<a href=#497 id=497 data-nosnippet>497</a>/// Sub-period lateness is ordinary scheduling noise -- on the measured FVP
-<a href=#498 id=498 data-nosnippet>498</a>/// lane the executor is late on a large fraction of wakes while still
-<a href=#499 id=499 data-nosnippet>499</a>/// holding its rate -- and a rule that fired on each one would report a
-<a href=#500 id=500 data-nosnippet>500</a>/// healthy system as broken thousands of times a second. What is NOT
-<a href=#501 id=501 data-nosnippet>501</a>/// ordinary is being a full period late, because by then the wake that
-<a href=#502 id=502 data-nosnippet>502</a>/// should have happened in between never did.
-<a href=#503 id=503 data-nosnippet>503</a>///
-<a href=#504 id=504 data-nosnippet>504</a>/// `max_jitter_us` is the executor's high-water since the last check and
-<a href=#505 id=505 data-nosnippet>505</a>/// `last_reported` the value at the previous one, so the verdict is on the
-<a href=#506 id=506 data-nosnippet>506</a>/// delta -- the same shape as the overrun counter, and for the same reason:
-<a href=#507 id=507 data-nosnippet>507</a>/// a maximum that has not moved is not a new fault.
-<a href=#508 id=508 data-nosnippet>508</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>check_release_jitter(
-<a href=#509 id=509 data-nosnippet>509</a>    max_jitter_us: u64,
-<a href=#510 id=510 data-nosnippet>510</a>    last_reported: <span class="kw-2">&amp;mut </span>u64,
-<a href=#511 id=511 data-nosnippet>511</a>    period_us: u64,
-<a href=#512 id=512 data-nosnippet>512</a>) -&gt; <span class="prelude-ty">Option</span>&lt;Violation&gt; {
-<a href=#513 id=513 data-nosnippet>513</a>    <span class="kw">if </span>period_us == <span class="number">0 </span>|| max_jitter_us &lt;= <span class="kw-2">*</span>last_reported {
-<a href=#514 id=514 data-nosnippet>514</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#515 id=515 data-nosnippet>515</a>    }
-<a href=#516 id=516 data-nosnippet>516</a>    <span class="kw-2">*</span>last_reported = max_jitter_us;
-<a href=#517 id=517 data-nosnippet>517</a>    <span class="kw">if </span>max_jitter_us &lt; period_us {
-<a href=#518 id=518 data-nosnippet>518</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#519 id=519 data-nosnippet>519</a>    }
-<a href=#520 id=520 data-nosnippet>520</a>    <span class="prelude-val">Some</span>(Violation {
-<a href=#521 id=521 data-nosnippet>521</a>        rule: <span class="string">"release-jitter-runtime"</span>,
-<a href=#522 id=522 data-nosnippet>522</a>        <span class="comment">// Same stand-in as the timer and deadline rules: the spin loop is
-<a href=#523 id=523 data-nosnippet>523</a>        // not an endpoint and carries no fqn at this altitude.
-<a href=#524 id=524 data-nosnippet>524</a>        </span>fqn: <span class="string">"spin"</span>,
-<a href=#525 id=525 data-nosnippet>525</a>        measured: max_jitter_us.min(u32::MAX <span class="kw">as </span>u64) <span class="kw">as </span>u32,
-<a href=#526 id=526 data-nosnippet>526</a>        declared: period_us.min(u32::MAX <span class="kw">as </span>u64) <span class="kw">as </span>u32,
-<a href=#527 id=527 data-nosnippet>527</a>    })
-<a href=#528 id=528 data-nosnippet>528</a>}
-<a href=#529 id=529 data-nosnippet>529</a>
-<a href=#530 id=530 data-nosnippet>530</a><span class="attr">#[cfg(test)]
-<a href=#531 id=531 data-nosnippet>531</a></span><span class="kw">mod </span>release_jitter_rule_tests {
-<a href=#532 id=532 data-nosnippet>532</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#533 id=533 data-nosnippet>533</a>
-<a href=#534 id=534 data-nosnippet>534</a>    <span class="doccomment">/// Sub-period lateness is noise, not a violation -- otherwise a
-<a href=#535 id=535 data-nosnippet>535</a>    /// healthy-but-jittery loop reports thousands of faults a second.
-<a href=#536 id=536 data-nosnippet>536</a>    </span><span class="attr">#[test]
-<a href=#537 id=537 data-nosnippet>537</a>    </span><span class="kw">fn </span>tolerates_lateness_within_one_period() {
-<a href=#538 id=538 data-nosnippet>538</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
-<a href=#539 id=539 data-nosnippet>539</a>        <span class="macro">assert!</span>(check_release_jitter(<span class="number">4_000</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">5_000</span>).is_none());
-<a href=#540 id=540 data-nosnippet>540</a>        <span class="macro">assert_eq!</span>(last, <span class="number">4_000</span>, <span class="string">"still recorded, so the next delta is honest"</span>);
-<a href=#541 id=541 data-nosnippet>541</a>    }
-<a href=#542 id=542 data-nosnippet>542</a>
-<a href=#543 id=543 data-nosnippet>543</a>    <span class="doccomment">/// A full period late means the wake that belonged in between never
-<a href=#544 id=544 data-nosnippet>544</a>    /// happened.
-<a href=#545 id=545 data-nosnippet>545</a>    </span><span class="attr">#[test]
-<a href=#546 id=546 data-nosnippet>546</a>    </span><span class="kw">fn </span>reports_a_wake_a_whole_period_late() {
-<a href=#547 id=547 data-nosnippet>547</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
-<a href=#548 id=548 data-nosnippet>548</a>        <span class="kw">let </span>v = check_release_jitter(<span class="number">5_000</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">5_000</span>).expect(<span class="string">"one period late reports"</span>);
-<a href=#549 id=549 data-nosnippet>549</a>        <span class="macro">assert_eq!</span>(v.rule, <span class="string">"release-jitter-runtime"</span>);
-<a href=#550 id=550 data-nosnippet>550</a>        <span class="macro">assert_eq!</span>(v.measured, <span class="number">5_000</span>);
-<a href=#551 id=551 data-nosnippet>551</a>        <span class="macro">assert_eq!</span>(v.declared, <span class="number">5_000</span>);
-<a href=#552 id=552 data-nosnippet>552</a>    }
-<a href=#553 id=553 data-nosnippet>553</a>
-<a href=#554 id=554 data-nosnippet>554</a>    <span class="doccomment">/// The verdict is on the DELTA. A high-water that has not moved is the
-<a href=#555 id=555 data-nosnippet>555</a>    /// same fault already reported, not a new one.
-<a href=#556 id=556 data-nosnippet>556</a>    </span><span class="attr">#[test]
-<a href=#557 id=557 data-nosnippet>557</a>    </span><span class="kw">fn </span>an_unchanged_maximum_is_not_a_new_fault() {
-<a href=#558 id=558 data-nosnippet>558</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
-<a href=#559 id=559 data-nosnippet>559</a>        <span class="macro">assert!</span>(check_release_jitter(<span class="number">9_000</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">5_000</span>).is_some());
-<a href=#560 id=560 data-nosnippet>560</a>        <span class="macro">assert!</span>(check_release_jitter(<span class="number">9_000</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">5_000</span>).is_none());
-<a href=#561 id=561 data-nosnippet>561</a>        <span class="macro">assert!</span>(check_release_jitter(<span class="number">12_000</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">5_000</span>).is_some());
+<a href=#142 id=142 data-nosnippet>142</a>    /// `"timer-overrun-runtime"` | `"release-jitter-runtime"` |
+<a href=#143 id=143 data-nosnippet>143</a>    /// `"stack-headroom-runtime"`.
+<a href=#144 id=144 data-nosnippet>144</a>    </span><span class="kw">pub </span>rule: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
+<a href=#145 id=145 data-nosnippet>145</a>    <span class="doccomment">/// Violating endpoint ref (from the spec's `fqn`; the SC name for
+<a href=#146 id=146 data-nosnippet>146</a>    /// deadline misses).
+<a href=#147 id=147 data-nosnippet>147</a>    </span><span class="kw">pub </span>fqn: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
+<a href=#148 id=148 data-nosnippet>148</a>    <span class="doccomment">/// Measured value. Unit is per-rule: milli-Hz for the rate rule, ms
+<a href=#149 id=149 data-nosnippet>149</a>    /// for age/latency, µs for deadline misses, dropped activations for
+<a href=#150 id=150 data-nosnippet>150</a>    /// the timer-overrun rule.
+<a href=#151 id=151 data-nosnippet>151</a>    </span><span class="kw">pub </span>measured: u32,
+<a href=#152 id=152 data-nosnippet>152</a>    <span class="doccomment">/// Declared bound, same unit as `measured`.
+<a href=#153 id=153 data-nosnippet>153</a>    </span><span class="kw">pub </span>declared: u32,
+<a href=#154 id=154 data-nosnippet>154</a>}
+<a href=#155 id=155 data-nosnippet>155</a>
+<a href=#156 id=156 data-nosnippet>156</a><span class="doccomment">/// Per-spec accounting state (parallel to the spec table).
+<a href=#157 id=157 data-nosnippet>157</a></span><span class="attr">#[derive(Debug, Clone, Copy, Default)]
+<a href=#158 id=158 data-nosnippet>158</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>MonitorState {
+<a href=#159 id=159 data-nosnippet>159</a>    <span class="doccomment">/// Window opened (a plain bool, not a 0-sentinel on the timestamp —
+<a href=#160 id=160 data-nosnippet>160</a>    /// `now_us == 0` is a legitimate first sample on freshly-started
+<a href=#161 id=161 data-nosnippet>161</a>    /// monotonic clocks).
+<a href=#162 id=162 data-nosnippet>162</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) opened: bool,
+<a href=#163 id=163 data-nosnippet>163</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) window_start_us: u64,
+<a href=#164 id=164 data-nosnippet>164</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) count_at_window_start: u32,
+<a href=#165 id=165 data-nosnippet>165</a>    <span class="doccomment">/// Suppress duplicate reports: only re-report after a clean window.
+<a href=#166 id=166 data-nosnippet>166</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) violated_last_window: bool,
+<a href=#167 id=167 data-nosnippet>167</a>    <span class="doccomment">/// W3b.5 — separate dedup for the latency rule on the same spec row.
+<a href=#168 id=168 data-nosnippet>168</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) latency_violated_last_window: bool,
+<a href=#169 id=169 data-nosnippet>169</a>}
+<a href=#170 id=170 data-nosnippet>170</a>
+<a href=#171 id=171 data-nosnippet>171</a><span class="doccomment">/// Pure rate check over one window boundary. Returns `Some(violation)`
+<a href=#172 id=172 data-nosnippet>172</a>/// when the window elapsed AND the measured rate is below the declared
+<a href=#173 id=173 data-nosnippet>173</a>/// minimum (and we didn't already report last window).
+<a href=#174 id=174 data-nosnippet>174</a>///
+<a href=#175 id=175 data-nosnippet>175</a>/// Extracted from the executor so the math is unit-testable without a
+<a href=#176 id=176 data-nosnippet>176</a>/// session: publish counting is injected via the cell, time via `now_us`.
+<a href=#177 id=177 data-nosnippet>177</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>check_rate(
+<a href=#178 id=178 data-nosnippet>178</a>    spec: <span class="kw-2">&amp;</span>MonitorSpec,
+<a href=#179 id=179 data-nosnippet>179</a>    state: <span class="kw-2">&amp;mut </span>MonitorState,
+<a href=#180 id=180 data-nosnippet>180</a>    now_us: u64,
+<a href=#181 id=181 data-nosnippet>181</a>) -&gt; <span class="prelude-ty">Option</span>&lt;Violation&gt; {
+<a href=#182 id=182 data-nosnippet>182</a>    <span class="kw">if </span>spec.min_rate_hz_milli == <span class="number">0 </span>{
+<a href=#183 id=183 data-nosnippet>183</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#184 id=184 data-nosnippet>184</a>    }
+<a href=#185 id=185 data-nosnippet>185</a>    <span class="kw">let </span>count = spec.cell.count.load(Ordering::Relaxed);
+<a href=#186 id=186 data-nosnippet>186</a>    <span class="kw">if </span>!state.opened {
+<a href=#187 id=187 data-nosnippet>187</a>        <span class="comment">// First observation: open the window, no verdict yet.
+<a href=#188 id=188 data-nosnippet>188</a>        </span>state.opened = <span class="bool-val">true</span>;
+<a href=#189 id=189 data-nosnippet>189</a>        state.window_start_us = now_us;
+<a href=#190 id=190 data-nosnippet>190</a>        state.count_at_window_start = count;
+<a href=#191 id=191 data-nosnippet>191</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#192 id=192 data-nosnippet>192</a>    }
+<a href=#193 id=193 data-nosnippet>193</a>    <span class="kw">let </span>window_us = now_us.saturating_sub(state.window_start_us);
+<a href=#194 id=194 data-nosnippet>194</a>    <span class="kw">if </span>window_us &lt; RATE_CHECK_INTERVAL_US {
+<a href=#195 id=195 data-nosnippet>195</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#196 id=196 data-nosnippet>196</a>    }
+<a href=#197 id=197 data-nosnippet>197</a>    <span class="kw">let </span>published = count.wrapping_sub(state.count_at_window_start) <span class="kw">as </span>u64;
+<a href=#198 id=198 data-nosnippet>198</a>    <span class="comment">// milli-Hz = published * 1e3 / window_s = published * 1e9 / window_us
+<a href=#199 id=199 data-nosnippet>199</a>    </span><span class="kw">let </span>measured_milli_hz =
+<a href=#200 id=200 data-nosnippet>200</a>        (published.saturating_mul(<span class="number">1_000_000_000</span>) / window_us.max(<span class="number">1</span>)).min(u32::MAX <span class="kw">as </span>u64) <span class="kw">as </span>u32;
+<a href=#201 id=201 data-nosnippet>201</a>
+<a href=#202 id=202 data-nosnippet>202</a>    <span class="comment">// Roll the window.
+<a href=#203 id=203 data-nosnippet>203</a>    </span>state.window_start_us = now_us;
+<a href=#204 id=204 data-nosnippet>204</a>    state.count_at_window_start = count;
+<a href=#205 id=205 data-nosnippet>205</a>
+<a href=#206 id=206 data-nosnippet>206</a>    <span class="kw">if </span>measured_milli_hz &lt; spec.min_rate_hz_milli {
+<a href=#207 id=207 data-nosnippet>207</a>        <span class="kw">if </span>state.violated_last_window {
+<a href=#208 id=208 data-nosnippet>208</a>            <span class="kw">return </span><span class="prelude-val">None</span>; <span class="comment">// still violated — already reported
+<a href=#209 id=209 data-nosnippet>209</a>        </span>}
+<a href=#210 id=210 data-nosnippet>210</a>        state.violated_last_window = <span class="bool-val">true</span>;
+<a href=#211 id=211 data-nosnippet>211</a>        <span class="prelude-val">Some</span>(Violation {
+<a href=#212 id=212 data-nosnippet>212</a>            rule: <span class="string">"rate-hierarchy-runtime"</span>,
+<a href=#213 id=213 data-nosnippet>213</a>            fqn: spec.fqn,
+<a href=#214 id=214 data-nosnippet>214</a>            measured: measured_milli_hz,
+<a href=#215 id=215 data-nosnippet>215</a>            declared: spec.min_rate_hz_milli,
+<a href=#216 id=216 data-nosnippet>216</a>        })
+<a href=#217 id=217 data-nosnippet>217</a>    } <span class="kw">else </span>{
+<a href=#218 id=218 data-nosnippet>218</a>        state.violated_last_window = <span class="bool-val">false</span>;
+<a href=#219 id=219 data-nosnippet>219</a>        <span class="prelude-val">None
+<a href=#220 id=220 data-nosnippet>220</a>    </span>}
+<a href=#221 id=221 data-nosnippet>221</a>}
+<a href=#222 id=222 data-nosnippet>222</a>
+<a href=#223 id=223 data-nosnippet>223</a><span class="doccomment">/// Pure latency check: drains the spec cell's window-max take→publish
+<a href=#224 id=224 data-nosnippet>224</a>/// latency and fires when it exceeds the declared node-path budget.
+<a href=#225 id=225 data-nosnippet>225</a>/// Same report-once-until-recovery semantics as the rate rule; runs on
+<a href=#226 id=226 data-nosnippet>226</a>/// every monitor tick (the cell accumulates between ticks, so no window
+<a href=#227 id=227 data-nosnippet>227</a>/// bookkeeping is needed — draining IS the window roll).
+<a href=#228 id=228 data-nosnippet>228</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>check_latency(spec: <span class="kw-2">&amp;</span>MonitorSpec, state: <span class="kw-2">&amp;mut </span>MonitorState) -&gt; <span class="prelude-ty">Option</span>&lt;Violation&gt; {
+<a href=#229 id=229 data-nosnippet>229</a>    <span class="kw">if </span>spec.max_latency_ms == <span class="number">0 </span>{
+<a href=#230 id=230 data-nosnippet>230</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#231 id=231 data-nosnippet>231</a>    }
+<a href=#232 id=232 data-nosnippet>232</a>    <span class="kw">let </span>max_us = spec.cell.max_latency_us.swap(<span class="number">0</span>, Ordering::Relaxed);
+<a href=#233 id=233 data-nosnippet>233</a>    <span class="kw">let </span>max_ms = max_us / <span class="number">1_000</span>;
+<a href=#234 id=234 data-nosnippet>234</a>    <span class="kw">if </span>max_ms &gt; spec.max_latency_ms {
+<a href=#235 id=235 data-nosnippet>235</a>        <span class="kw">if </span>state.latency_violated_last_window {
+<a href=#236 id=236 data-nosnippet>236</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#237 id=237 data-nosnippet>237</a>        }
+<a href=#238 id=238 data-nosnippet>238</a>        state.latency_violated_last_window = <span class="bool-val">true</span>;
+<a href=#239 id=239 data-nosnippet>239</a>        <span class="prelude-val">Some</span>(Violation {
+<a href=#240 id=240 data-nosnippet>240</a>            rule: <span class="string">"max-latency-runtime"</span>,
+<a href=#241 id=241 data-nosnippet>241</a>            fqn: spec.fqn,
+<a href=#242 id=242 data-nosnippet>242</a>            measured: max_ms,
+<a href=#243 id=243 data-nosnippet>243</a>            declared: spec.max_latency_ms,
+<a href=#244 id=244 data-nosnippet>244</a>        })
+<a href=#245 id=245 data-nosnippet>245</a>    } <span class="kw">else </span>{
+<a href=#246 id=246 data-nosnippet>246</a>        <span class="comment">// A quiet window (no dispatch attributed) also counts as clean —
+<a href=#247 id=247 data-nosnippet>247</a>        // recovery resets the dedup like the rate rule's clean window.
+<a href=#248 id=248 data-nosnippet>248</a>        </span>state.latency_violated_last_window = <span class="bool-val">false</span>;
+<a href=#249 id=249 data-nosnippet>249</a>        <span class="prelude-val">None
+<a href=#250 id=250 data-nosnippet>250</a>    </span>}
+<a href=#251 id=251 data-nosnippet>251</a>}
+<a href=#252 id=252 data-nosnippet>252</a>
+<a href=#253 id=253 data-nosnippet>253</a><span class="doccomment">/// Per-age-spec dedup state.
+<a href=#254 id=254 data-nosnippet>254</a></span><span class="attr">#[derive(Debug, Clone, Copy, Default)]
+<a href=#255 id=255 data-nosnippet>255</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>AgeState {
+<a href=#256 id=256 data-nosnippet>256</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) violated_last_window: bool,
+<a href=#257 id=257 data-nosnippet>257</a>}
+<a href=#258 id=258 data-nosnippet>258</a>
+<a href=#259 id=259 data-nosnippet>259</a><span class="doccomment">/// Pure age check: drains the sub cell's window-max take-age and fires
+<a href=#260 id=260 data-nosnippet>260</a>/// when it exceeds the declared bound. Report-once-until-recovery.
+<a href=#261 id=261 data-nosnippet>261</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>check_age(spec: <span class="kw-2">&amp;</span>AgeMonitorSpec, state: <span class="kw-2">&amp;mut </span>AgeState) -&gt; <span class="prelude-ty">Option</span>&lt;Violation&gt; {
+<a href=#262 id=262 data-nosnippet>262</a>    <span class="kw">if </span>spec.max_age_ms == <span class="number">0 </span>{
+<a href=#263 id=263 data-nosnippet>263</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#264 id=264 data-nosnippet>264</a>    }
+<a href=#265 id=265 data-nosnippet>265</a>    <span class="kw">let </span>max_ms = spec.cell.max_age_ms.swap(<span class="number">0</span>, Ordering::Relaxed);
+<a href=#266 id=266 data-nosnippet>266</a>    <span class="kw">if </span>max_ms &gt; spec.max_age_ms {
+<a href=#267 id=267 data-nosnippet>267</a>        <span class="kw">if </span>state.violated_last_window {
+<a href=#268 id=268 data-nosnippet>268</a>            <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#269 id=269 data-nosnippet>269</a>        }
+<a href=#270 id=270 data-nosnippet>270</a>        state.violated_last_window = <span class="bool-val">true</span>;
+<a href=#271 id=271 data-nosnippet>271</a>        <span class="prelude-val">Some</span>(Violation {
+<a href=#272 id=272 data-nosnippet>272</a>            rule: <span class="string">"max-age-runtime"</span>,
+<a href=#273 id=273 data-nosnippet>273</a>            fqn: spec.fqn,
+<a href=#274 id=274 data-nosnippet>274</a>            measured: max_ms,
+<a href=#275 id=275 data-nosnippet>275</a>            declared: spec.max_age_ms,
+<a href=#276 id=276 data-nosnippet>276</a>        })
+<a href=#277 id=277 data-nosnippet>277</a>    } <span class="kw">else </span>{
+<a href=#278 id=278 data-nosnippet>278</a>        state.violated_last_window = <span class="bool-val">false</span>;
+<a href=#279 id=279 data-nosnippet>279</a>        <span class="prelude-val">None
+<a href=#280 id=280 data-nosnippet>280</a>    </span>}
+<a href=#281 id=281 data-nosnippet>281</a>}
+<a href=#282 id=282 data-nosnippet>282</a>
+<a href=#283 id=283 data-nosnippet>283</a><span class="attr">#[cfg(test)]
+<a href=#284 id=284 data-nosnippet>284</a></span><span class="kw">mod </span>tests {
+<a href=#285 id=285 data-nosnippet>285</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#286 id=286 data-nosnippet>286</a>
+<a href=#287 id=287 data-nosnippet>287</a>    <span class="kw">static </span>CELL: PubMonitorCell = PubMonitorCell::new();
+<a href=#288 id=288 data-nosnippet>288</a>
+<a href=#289 id=289 data-nosnippet>289</a>    <span class="kw">fn </span>spec(min_milli: u32) -&gt; MonitorSpec {
+<a href=#290 id=290 data-nosnippet>290</a>        MonitorSpec {
+<a href=#291 id=291 data-nosnippet>291</a>            topic: <span class="string">"/chatter"</span>,
+<a href=#292 id=292 data-nosnippet>292</a>            fqn: <span class="string">"/demo/talker/chatter"</span>,
+<a href=#293 id=293 data-nosnippet>293</a>            min_rate_hz_milli: min_milli,
+<a href=#294 id=294 data-nosnippet>294</a>            max_latency_ms: <span class="number">0</span>,
+<a href=#295 id=295 data-nosnippet>295</a>            cell: <span class="kw-2">&amp;</span>CELL,
+<a href=#296 id=296 data-nosnippet>296</a>        }
+<a href=#297 id=297 data-nosnippet>297</a>    }
+<a href=#298 id=298 data-nosnippet>298</a>
+<a href=#299 id=299 data-nosnippet>299</a>    <span class="attr">#[test]
+<a href=#300 id=300 data-nosnippet>300</a>    </span><span class="kw">fn </span>slow_publisher_fires_once_until_recovery() {
+<a href=#301 id=301 data-nosnippet>301</a>        CELL.count.store(<span class="number">0</span>, Ordering::Relaxed);
+<a href=#302 id=302 data-nosnippet>302</a>        <span class="kw">let </span>s = spec(<span class="number">100_000</span>); <span class="comment">// 100 Hz declared
+<a href=#303 id=303 data-nosnippet>303</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>st = MonitorState::default();
+<a href=#304 id=304 data-nosnippet>304</a>
+<a href=#305 id=305 data-nosnippet>305</a>        <span class="comment">// t=0: opens window.
+<a href=#306 id=306 data-nosnippet>306</a>        </span><span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, <span class="number">0</span>).is_none());
+<a href=#307 id=307 data-nosnippet>307</a>        <span class="comment">// 5 publishes in 5 s = 1 Hz — violation.
+<a href=#308 id=308 data-nosnippet>308</a>        </span>CELL.count.store(<span class="number">5</span>, Ordering::Relaxed);
+<a href=#309 id=309 data-nosnippet>309</a>        <span class="kw">let </span>v = check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, RATE_CHECK_INTERVAL_US).expect(<span class="string">"fires"</span>);
+<a href=#310 id=310 data-nosnippet>310</a>        <span class="macro">assert_eq!</span>(v.rule, <span class="string">"rate-hierarchy-runtime"</span>);
+<a href=#311 id=311 data-nosnippet>311</a>        <span class="macro">assert_eq!</span>(v.fqn, <span class="string">"/demo/talker/chatter"</span>);
+<a href=#312 id=312 data-nosnippet>312</a>        <span class="macro">assert_eq!</span>(v.measured, <span class="number">1_000</span>);
+<a href=#313 id=313 data-nosnippet>313</a>        <span class="macro">assert_eq!</span>(v.declared, <span class="number">100_000</span>);
+<a href=#314 id=314 data-nosnippet>314</a>        <span class="comment">// Still slow next window — suppressed (no re-report spam).
+<a href=#315 id=315 data-nosnippet>315</a>        </span>CELL.count.store(<span class="number">10</span>, Ordering::Relaxed);
+<a href=#316 id=316 data-nosnippet>316</a>        <span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, <span class="number">2 </span>* RATE_CHECK_INTERVAL_US).is_none());
+<a href=#317 id=317 data-nosnippet>317</a>        <span class="comment">// Recovers (500 publishes in 5 s = 100 Hz) — clean window resets.
+<a href=#318 id=318 data-nosnippet>318</a>        </span>CELL.count.store(<span class="number">510</span>, Ordering::Relaxed);
+<a href=#319 id=319 data-nosnippet>319</a>        <span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, <span class="number">3 </span>* RATE_CHECK_INTERVAL_US).is_none());
+<a href=#320 id=320 data-nosnippet>320</a>        <span class="comment">// Degrades again — fires again.
+<a href=#321 id=321 data-nosnippet>321</a>        </span>CELL.count.store(<span class="number">511</span>, Ordering::Relaxed);
+<a href=#322 id=322 data-nosnippet>322</a>        <span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, <span class="number">4 </span>* RATE_CHECK_INTERVAL_US).is_some());
+<a href=#323 id=323 data-nosnippet>323</a>    }
+<a href=#324 id=324 data-nosnippet>324</a>
+<a href=#325 id=325 data-nosnippet>325</a>    <span class="attr">#[test]
+<a href=#326 id=326 data-nosnippet>326</a>    </span><span class="kw">fn </span>compliant_and_uncontracted_stay_silent() {
+<a href=#327 id=327 data-nosnippet>327</a>        <span class="kw">static </span>C2: PubMonitorCell = PubMonitorCell::new();
+<a href=#328 id=328 data-nosnippet>328</a>        <span class="kw">let </span>s = MonitorSpec {
+<a href=#329 id=329 data-nosnippet>329</a>            topic: <span class="string">"/t"</span>,
+<a href=#330 id=330 data-nosnippet>330</a>            fqn: <span class="string">"/n/t"</span>,
+<a href=#331 id=331 data-nosnippet>331</a>            min_rate_hz_milli: <span class="number">500</span>, <span class="comment">// 0.5 Hz
+<a href=#332 id=332 data-nosnippet>332</a>            </span>max_latency_ms: <span class="number">0</span>,
+<a href=#333 id=333 data-nosnippet>333</a>            cell: <span class="kw-2">&amp;</span>C2,
+<a href=#334 id=334 data-nosnippet>334</a>        };
+<a href=#335 id=335 data-nosnippet>335</a>        <span class="kw">let </span><span class="kw-2">mut </span>st = MonitorState::default();
+<a href=#336 id=336 data-nosnippet>336</a>        <span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, <span class="number">0</span>).is_none());
+<a href=#337 id=337 data-nosnippet>337</a>        C2.count.store(<span class="number">5</span>, Ordering::Relaxed); <span class="comment">// 1 Hz measured ≥ 0.5 Hz declared
+<a href=#338 id=338 data-nosnippet>338</a>        </span><span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st, RATE_CHECK_INTERVAL_US).is_none());
+<a href=#339 id=339 data-nosnippet>339</a>
+<a href=#340 id=340 data-nosnippet>340</a>        <span class="comment">// min_rate 0 = uncontracted: never fires, no state.
+<a href=#341 id=341 data-nosnippet>341</a>        </span><span class="kw">let </span>s0 = MonitorSpec {
+<a href=#342 id=342 data-nosnippet>342</a>            topic: <span class="string">"/t"</span>,
+<a href=#343 id=343 data-nosnippet>343</a>            fqn: <span class="string">"/n/t"</span>,
+<a href=#344 id=344 data-nosnippet>344</a>            min_rate_hz_milli: <span class="number">0</span>,
+<a href=#345 id=345 data-nosnippet>345</a>            max_latency_ms: <span class="number">0</span>,
+<a href=#346 id=346 data-nosnippet>346</a>            cell: <span class="kw-2">&amp;</span>C2,
+<a href=#347 id=347 data-nosnippet>347</a>        };
+<a href=#348 id=348 data-nosnippet>348</a>        <span class="kw">let </span><span class="kw-2">mut </span>st0 = MonitorState::default();
+<a href=#349 id=349 data-nosnippet>349</a>        <span class="macro">assert!</span>(check_rate(<span class="kw-2">&amp;</span>s0, <span class="kw-2">&amp;mut </span>st0, <span class="number">10 </span>* RATE_CHECK_INTERVAL_US).is_none());
+<a href=#350 id=350 data-nosnippet>350</a>    }
+<a href=#351 id=351 data-nosnippet>351</a>
+<a href=#352 id=352 data-nosnippet>352</a>    <span class="attr">#[test]
+<a href=#353 id=353 data-nosnippet>353</a>    </span><span class="kw">fn </span>stale_take_fires_age_once_until_recovery() {
+<a href=#354 id=354 data-nosnippet>354</a>        <span class="kw">static </span>SC: SubMonitorCell = SubMonitorCell::new();
+<a href=#355 id=355 data-nosnippet>355</a>        <span class="kw">let </span>s = AgeMonitorSpec {
+<a href=#356 id=356 data-nosnippet>356</a>            topic: <span class="string">"/scan"</span>,
+<a href=#357 id=357 data-nosnippet>357</a>            fqn: <span class="string">"/perc/detector/scan"</span>,
+<a href=#358 id=358 data-nosnippet>358</a>            max_age_ms: <span class="number">100</span>,
+<a href=#359 id=359 data-nosnippet>359</a>            cell: <span class="kw-2">&amp;</span>SC,
+<a href=#360 id=360 data-nosnippet>360</a>        };
+<a href=#361 id=361 data-nosnippet>361</a>        <span class="kw">let </span><span class="kw-2">mut </span>st = AgeState::default();
+<a href=#362 id=362 data-nosnippet>362</a>
+<a href=#363 id=363 data-nosnippet>363</a>        <span class="comment">// Fresh message: stamped 5 ms ago — silent.
+<a href=#364 id=364 data-nosnippet>364</a>        </span>SC.observe(<span class="number">1_000_000_000</span>, <span class="number">1_000_005_000</span>);
+<a href=#365 id=365 data-nosnippet>365</a>        <span class="macro">assert!</span>(check_age(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_none());
+<a href=#366 id=366 data-nosnippet>366</a>        <span class="comment">// Stale: 250 ms old — fires with the measured age.
+<a href=#367 id=367 data-nosnippet>367</a>        </span>SC.observe(<span class="number">1_000_000_000</span>, <span class="number">1_000_250_000</span>);
+<a href=#368 id=368 data-nosnippet>368</a>        <span class="kw">let </span>v = check_age(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).expect(<span class="string">"fires"</span>);
+<a href=#369 id=369 data-nosnippet>369</a>        <span class="macro">assert_eq!</span>(v.rule, <span class="string">"max-age-runtime"</span>);
+<a href=#370 id=370 data-nosnippet>370</a>        <span class="macro">assert_eq!</span>(v.fqn, <span class="string">"/perc/detector/scan"</span>);
+<a href=#371 id=371 data-nosnippet>371</a>        <span class="macro">assert_eq!</span>(v.measured, <span class="number">250</span>);
+<a href=#372 id=372 data-nosnippet>372</a>        <span class="macro">assert_eq!</span>(v.declared, <span class="number">100</span>);
+<a href=#373 id=373 data-nosnippet>373</a>        <span class="comment">// Still stale next window — suppressed.
+<a href=#374 id=374 data-nosnippet>374</a>        </span>SC.observe(<span class="number">1_000_000_000</span>, <span class="number">1_000_300_000</span>);
+<a href=#375 id=375 data-nosnippet>375</a>        <span class="macro">assert!</span>(check_age(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_none());
+<a href=#376 id=376 data-nosnippet>376</a>        <span class="comment">// Recovers — clean window resets; stale again refires.
+<a href=#377 id=377 data-nosnippet>377</a>        </span>SC.observe(<span class="number">1_000_000_000</span>, <span class="number">1_000_010_000</span>);
+<a href=#378 id=378 data-nosnippet>378</a>        <span class="macro">assert!</span>(check_age(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_none());
+<a href=#379 id=379 data-nosnippet>379</a>        SC.observe(<span class="number">1_000_000_000</span>, <span class="number">1_000_999_000</span>);
+<a href=#380 id=380 data-nosnippet>380</a>        <span class="macro">assert!</span>(check_age(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_some());
+<a href=#381 id=381 data-nosnippet>381</a>    }
+<a href=#382 id=382 data-nosnippet>382</a>
+<a href=#383 id=383 data-nosnippet>383</a>    <span class="attr">#[test]
+<a href=#384 id=384 data-nosnippet>384</a>    </span><span class="kw">fn </span>peek_stamp_reads_le_time_and_rejects_unstamped() {
+<a href=#385 id=385 data-nosnippet>385</a>        <span class="comment">// Encapsulation header (4B) + sec=100 nsec=5000 at offset 4.
+<a href=#386 id=386 data-nosnippet>386</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>raw = [<span class="number">0u8</span>; <span class="number">12</span>];
+<a href=#387 id=387 data-nosnippet>387</a>        raw[<span class="number">4</span>..<span class="number">8</span>].copy_from_slice(<span class="kw-2">&amp;</span><span class="number">100i32</span>.to_le_bytes());
+<a href=#388 id=388 data-nosnippet>388</a>        raw[<span class="number">8</span>..<span class="number">12</span>].copy_from_slice(<span class="kw-2">&amp;</span><span class="number">5_000u32</span>.to_le_bytes());
+<a href=#389 id=389 data-nosnippet>389</a>        <span class="macro">assert_eq!</span>(peek_stamp_us(<span class="kw-2">&amp;</span>raw, <span class="number">4</span>), <span class="prelude-val">Some</span>(<span class="number">100_000_005</span>));
+<a href=#390 id=390 data-nosnippet>390</a>        <span class="comment">// Zero / negative sec = unstamped: no age sample.
+<a href=#391 id=391 data-nosnippet>391</a>        </span><span class="macro">assert_eq!</span>(peek_stamp_us(<span class="kw-2">&amp;</span>[<span class="number">0u8</span>; <span class="number">12</span>], <span class="number">4</span>), <span class="prelude-val">None</span>);
+<a href=#392 id=392 data-nosnippet>392</a>        <span class="comment">// Short buffer: no panic, no sample.
+<a href=#393 id=393 data-nosnippet>393</a>        </span><span class="macro">assert_eq!</span>(peek_stamp_us(<span class="kw-2">&amp;</span>raw[..<span class="number">8</span>], <span class="number">4</span>), <span class="prelude-val">None</span>);
+<a href=#394 id=394 data-nosnippet>394</a>    }
+<a href=#395 id=395 data-nosnippet>395</a>
+<a href=#396 id=396 data-nosnippet>396</a>    <span class="attr">#[test]
+<a href=#397 id=397 data-nosnippet>397</a>    </span><span class="kw">fn </span>slow_path_fires_latency_once_until_recovery() {
+<a href=#398 id=398 data-nosnippet>398</a>        <span class="kw">static </span>C3: PubMonitorCell = PubMonitorCell::new();
+<a href=#399 id=399 data-nosnippet>399</a>        <span class="kw">let </span>s = MonitorSpec {
+<a href=#400 id=400 data-nosnippet>400</a>            topic: <span class="string">"/cmd"</span>,
+<a href=#401 id=401 data-nosnippet>401</a>            fqn: <span class="string">"/ctrl/control/cmd"</span>,
+<a href=#402 id=402 data-nosnippet>402</a>            min_rate_hz_milli: <span class="number">0</span>,
+<a href=#403 id=403 data-nosnippet>403</a>            max_latency_ms: <span class="number">10</span>,
+<a href=#404 id=404 data-nosnippet>404</a>            cell: <span class="kw-2">&amp;</span>C3,
+<a href=#405 id=405 data-nosnippet>405</a>        };
+<a href=#406 id=406 data-nosnippet>406</a>        <span class="kw">let </span><span class="kw-2">mut </span>st = MonitorState::default();
+<a href=#407 id=407 data-nosnippet>407</a>        <span class="comment">// 4 ms dispatch — within budget.
+<a href=#408 id=408 data-nosnippet>408</a>        </span>C3.max_latency_us.store(<span class="number">4_000</span>, Ordering::Relaxed);
+<a href=#409 id=409 data-nosnippet>409</a>        <span class="macro">assert!</span>(check_latency(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_none());
+<a href=#410 id=410 data-nosnippet>410</a>        <span class="macro">assert_eq!</span>(C3.max_latency_us.load(Ordering::Relaxed), <span class="number">0</span>, <span class="string">"drained"</span>);
+<a href=#411 id=411 data-nosnippet>411</a>        <span class="comment">// 25 ms dispatch — fires.
+<a href=#412 id=412 data-nosnippet>412</a>        </span>C3.max_latency_us.store(<span class="number">25_000</span>, Ordering::Relaxed);
+<a href=#413 id=413 data-nosnippet>413</a>        <span class="kw">let </span>v = check_latency(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).expect(<span class="string">"fires"</span>);
+<a href=#414 id=414 data-nosnippet>414</a>        <span class="macro">assert_eq!</span>(v.rule, <span class="string">"max-latency-runtime"</span>);
+<a href=#415 id=415 data-nosnippet>415</a>        <span class="macro">assert_eq!</span>(v.measured, <span class="number">25</span>);
+<a href=#416 id=416 data-nosnippet>416</a>        <span class="macro">assert_eq!</span>(v.declared, <span class="number">10</span>);
+<a href=#417 id=417 data-nosnippet>417</a>        <span class="comment">// Still slow — suppressed; recovery resets.
+<a href=#418 id=418 data-nosnippet>418</a>        </span>C3.max_latency_us.store(<span class="number">30_000</span>, Ordering::Relaxed);
+<a href=#419 id=419 data-nosnippet>419</a>        <span class="macro">assert!</span>(check_latency(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_none());
+<a href=#420 id=420 data-nosnippet>420</a>        C3.max_latency_us.store(<span class="number">1_000</span>, Ordering::Relaxed);
+<a href=#421 id=421 data-nosnippet>421</a>        <span class="macro">assert!</span>(check_latency(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_none());
+<a href=#422 id=422 data-nosnippet>422</a>        C3.max_latency_us.store(<span class="number">30_000</span>, Ordering::Relaxed);
+<a href=#423 id=423 data-nosnippet>423</a>        <span class="macro">assert!</span>(check_latency(<span class="kw-2">&amp;</span>s, <span class="kw-2">&amp;mut </span>st).is_some());
+<a href=#424 id=424 data-nosnippet>424</a>    }
+<a href=#425 id=425 data-nosnippet>425</a>}
+<a href=#426 id=426 data-nosnippet>426</a>
+<a href=#427 id=427 data-nosnippet>427</a><span class="doccomment">/// Issue #514 — emit one violation to the log.
+<a href=#428 id=428 data-nosnippet>428</a>///
+<a href=#429 id=429 data-nosnippet>429</a>/// A log line is deliberately the floor rather than a `/diagnostics`
+<a href=#430 id=430 data-nosnippet>430</a>/// publication: it needs no publisher, no topic wiring, and no contract
+<a href=#431 id=431 data-nosnippet>431</a>/// on the reporting path itself, so it works on a bare RTOS image and
+<a href=#432 id=432 data-nosnippet>432</a>/// during boot. Publishing the same verdicts as `DiagnosticArray`
+<a href=#433 id=433 data-nosnippet>433</a>/// belongs on top of this, not instead of it.
+<a href=#434 id=434 data-nosnippet>434</a>///
+<a href=#435 id=435 data-nosnippet>435</a>/// Free function rather than an `Executor` method because every call
+<a href=#436 id=436 data-nosnippet>436</a>/// site sits inside a loop that already borrows the executor's spec
+<a href=#437 id=437 data-nosnippet>437</a>/// tables.
+<a href=#438 id=438 data-nosnippet>438</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>log_violation(v: <span class="kw-2">&amp;</span>Violation) {
+<a href=#439 id=439 data-nosnippet>439</a>    <span class="macro">nros_log::nros_warn!</span>(
+<a href=#440 id=440 data-nosnippet>440</a>        nros_log::get_logger(<span class="string">"nros"</span>),
+<a href=#441 id=441 data-nosnippet>441</a>        <span class="string">"contract violation: {} {} measured={} declared={}"</span>,
+<a href=#442 id=442 data-nosnippet>442</a>        v.rule,
+<a href=#443 id=443 data-nosnippet>443</a>        v.fqn,
+<a href=#444 id=444 data-nosnippet>444</a>        v.measured,
+<a href=#445 id=445 data-nosnippet>445</a>        v.declared
+<a href=#446 id=446 data-nosnippet>446</a>    );
+<a href=#447 id=447 data-nosnippet>447</a>}
+<a href=#448 id=448 data-nosnippet>448</a>
+<a href=#449 id=449 data-nosnippet>449</a><span class="doccomment">/// Issue #505 — periodic activations a timer dropped because its
+<a href=#450 id=450 data-nosnippet>450</a>/// executor was blocked past the period boundary.
+<a href=#451 id=451 data-nosnippet>451</a>///
+<a href=#452 id=452 data-nosnippet>452</a>/// This rule exists because `check_rate` cannot see an isolated stall:
+<a href=#453 id=453 data-nosnippet>453</a>/// it samples publish counts over a ~5 s window, so 20 missed
+<a href=#454 id=454 data-nosnippet>454</a>/// activations of a 100 Hz loop are a 0.4% rate deficit — under any
+<a href=#455 id=455 data-nosnippet>455</a>/// sane declared minimum, silence. (And under
+<a href=#456 id=456 data-nosnippet>456</a>/// [`TimerOverrunPolicy::CatchUp`](super::arena::TimerOverrunPolicy)
+<a href=#457 id=457 data-nosnippet>457</a>/// the replayed activations refill the window entirely, so the rate
+<a href=#458 id=458 data-nosnippet>458</a>/// rule reports a HEALTHY loop while the tier is stalling.) The
+<a href=#459 id=459 data-nosnippet>459</a>/// overrun counter is exact, needs no window, and does not depend on
+<a href=#460 id=460 data-nosnippet>460</a>/// clock resolution.
+<a href=#461 id=461 data-nosnippet>461</a>///
+<a href=#462 id=462 data-nosnippet>462</a>/// `overruns` is the timer's monotonic saturating counter;
+<a href=#463 id=463 data-nosnippet>463</a>/// `last_reported` is the value at the previous check, so the verdict
+<a href=#464 id=464 data-nosnippet>464</a>/// is on the delta. Returns a violation when more than `tolerated`
+<a href=#465 id=465 data-nosnippet>465</a>/// activations were dropped since the last check.
+<a href=#466 id=466 data-nosnippet>466</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>check_timer_overrun(
+<a href=#467 id=467 data-nosnippet>467</a>    overruns: u32,
+<a href=#468 id=468 data-nosnippet>468</a>    last_reported: <span class="kw-2">&amp;mut </span>u32,
+<a href=#469 id=469 data-nosnippet>469</a>    tolerated: u32,
+<a href=#470 id=470 data-nosnippet>470</a>) -&gt; <span class="prelude-ty">Option</span>&lt;Violation&gt; {
+<a href=#471 id=471 data-nosnippet>471</a>    <span class="kw">let </span>dropped = overruns.saturating_sub(<span class="kw-2">*</span>last_reported);
+<a href=#472 id=472 data-nosnippet>472</a>    <span class="kw-2">*</span>last_reported = overruns;
+<a href=#473 id=473 data-nosnippet>473</a>    <span class="kw">if </span>dropped &lt;= tolerated {
+<a href=#474 id=474 data-nosnippet>474</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#475 id=475 data-nosnippet>475</a>    }
+<a href=#476 id=476 data-nosnippet>476</a>    <span class="prelude-val">Some</span>(Violation {
+<a href=#477 id=477 data-nosnippet>477</a>        rule: <span class="string">"timer-overrun-runtime"</span>,
+<a href=#478 id=478 data-nosnippet>478</a>        <span class="comment">// Timer entries carry no name at this altitude; same stand-in
+<a href=#479 id=479 data-nosnippet>479</a>        // as `deadline-miss-runtime`.
+<a href=#480 id=480 data-nosnippet>480</a>        </span>fqn: <span class="string">"timer"</span>,
+<a href=#481 id=481 data-nosnippet>481</a>        measured: dropped,
+<a href=#482 id=482 data-nosnippet>482</a>        declared: tolerated,
+<a href=#483 id=483 data-nosnippet>483</a>    })
+<a href=#484 id=484 data-nosnippet>484</a>}
+<a href=#485 id=485 data-nosnippet>485</a>
+<a href=#486 id=486 data-nosnippet>486</a><span class="doccomment">/// Issue #515 — report a spin wake that arrived so late the cadence it
+<a href=#487 id=487 data-nosnippet>487</a>/// claims cannot have been met.
+<a href=#488 id=488 data-nosnippet>488</a>///
+<a href=#489 id=489 data-nosnippet>489</a>/// Like `check_timer_overrun` and unlike the rate/age/latency rules, this
+<a href=#490 id=490 data-nosnippet>490</a>/// needs no baked spec table. The bound is the spin period ITSELF: the
+<a href=#491 id=491 data-nosnippet>491</a>/// caller passes it to `spin_once` as the pacing quantum, it is what
+<a href=#492 id=492 data-nosnippet>492</a>/// `system.toml` declares as `spin_period_us`, and a wake later than a full
+<a href=#493 id=493 data-nosnippet>493</a>/// period past its predecessor means an activation's worth of cadence was
+<a href=#494 id=494 data-nosnippet>494</a>/// lost. That is a contract failure for any declared period, so there is
+<a href=#495 id=495 data-nosnippet>495</a>/// nothing further to declare.
+<a href=#496 id=496 data-nosnippet>496</a>///
+<a href=#497 id=497 data-nosnippet>497</a>/// The tolerance is one whole period rather than zero, and deliberately so.
+<a href=#498 id=498 data-nosnippet>498</a>/// Sub-period lateness is ordinary scheduling noise -- on the measured FVP
+<a href=#499 id=499 data-nosnippet>499</a>/// lane the executor is late on a large fraction of wakes while still
+<a href=#500 id=500 data-nosnippet>500</a>/// holding its rate -- and a rule that fired on each one would report a
+<a href=#501 id=501 data-nosnippet>501</a>/// healthy system as broken thousands of times a second. What is NOT
+<a href=#502 id=502 data-nosnippet>502</a>/// ordinary is being a full period late, because by then the wake that
+<a href=#503 id=503 data-nosnippet>503</a>/// should have happened in between never did.
+<a href=#504 id=504 data-nosnippet>504</a>///
+<a href=#505 id=505 data-nosnippet>505</a>/// `max_jitter_us` is the executor's high-water since the last check and
+<a href=#506 id=506 data-nosnippet>506</a>/// `last_reported` the value at the previous one, so the verdict is on the
+<a href=#507 id=507 data-nosnippet>507</a>/// delta -- the same shape as the overrun counter, and for the same reason:
+<a href=#508 id=508 data-nosnippet>508</a>/// a maximum that has not moved is not a new fault.
+<a href=#509 id=509 data-nosnippet>509</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>check_release_jitter(
+<a href=#510 id=510 data-nosnippet>510</a>    max_jitter_us: u64,
+<a href=#511 id=511 data-nosnippet>511</a>    last_reported: <span class="kw-2">&amp;mut </span>u64,
+<a href=#512 id=512 data-nosnippet>512</a>    period_us: u64,
+<a href=#513 id=513 data-nosnippet>513</a>) -&gt; <span class="prelude-ty">Option</span>&lt;Violation&gt; {
+<a href=#514 id=514 data-nosnippet>514</a>    <span class="kw">if </span>period_us == <span class="number">0 </span>|| max_jitter_us &lt;= <span class="kw-2">*</span>last_reported {
+<a href=#515 id=515 data-nosnippet>515</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#516 id=516 data-nosnippet>516</a>    }
+<a href=#517 id=517 data-nosnippet>517</a>    <span class="kw-2">*</span>last_reported = max_jitter_us;
+<a href=#518 id=518 data-nosnippet>518</a>    <span class="kw">if </span>max_jitter_us &lt; period_us {
+<a href=#519 id=519 data-nosnippet>519</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#520 id=520 data-nosnippet>520</a>    }
+<a href=#521 id=521 data-nosnippet>521</a>    <span class="prelude-val">Some</span>(Violation {
+<a href=#522 id=522 data-nosnippet>522</a>        rule: <span class="string">"release-jitter-runtime"</span>,
+<a href=#523 id=523 data-nosnippet>523</a>        <span class="comment">// Same stand-in as the timer and deadline rules: the spin loop is
+<a href=#524 id=524 data-nosnippet>524</a>        // not an endpoint and carries no fqn at this altitude.
+<a href=#525 id=525 data-nosnippet>525</a>        </span>fqn: <span class="string">"spin"</span>,
+<a href=#526 id=526 data-nosnippet>526</a>        measured: max_jitter_us.min(u32::MAX <span class="kw">as </span>u64) <span class="kw">as </span>u32,
+<a href=#527 id=527 data-nosnippet>527</a>        declared: period_us.min(u32::MAX <span class="kw">as </span>u64) <span class="kw">as </span>u32,
+<a href=#528 id=528 data-nosnippet>528</a>    })
+<a href=#529 id=529 data-nosnippet>529</a>}
+<a href=#530 id=530 data-nosnippet>530</a>
+<a href=#531 id=531 data-nosnippet>531</a><span class="doccomment">/// Report a spin thread whose stack has come closer to its end than the
+<a href=#532 id=532 data-nosnippet>532</a>/// declared minimum.
+<a href=#533 id=533 data-nosnippet>533</a>///
+<a href=#534 id=534 data-nosnippet>534</a>/// Unlike every other rule here the bound CANNOT be derived from something
+<a href=#535 id=535 data-nosnippet>535</a>/// already declared, and that is worth stating rather than papering over.
+<a href=#536 id=536 data-nosnippet>536</a>/// `check_timer_overrun` and `check_release_jitter` both judge against a
+<a href=#537 id=537 data-nosnippet>537</a>/// period the caller already passes in; there is no equivalent for a stack.
+<a href=#538 id=538 data-nosnippet>538</a>/// The executor never sees `stack_bytes` -- it lives in the spawn attr and
+<a href=#539 id=539 data-nosnippet>539</a>/// goes no further -- and the total is not portably queryable either:
+<a href=#540 id=540 data-nosnippet>540</a>/// FreeRTOS exposes the high-water mark and not the size it was taken
+<a href=#541 id=541 data-nosnippet>541</a>/// against, so even a percentage cannot be computed. A minimum headroom is
+<a href=#542 id=542 data-nosnippet>542</a>/// therefore a real declaration, and `min_bytes == 0` means the caller has
+<a href=#543 id=543 data-nosnippet>543</a>/// not made one, which disables the rule.
+<a href=#544 id=544 data-nosnippet>544</a>///
+<a href=#545 id=545 data-nosnippet>545</a>/// Reports on the WORST case, not on each crossing: `worst_reported` holds
+<a href=#546 id=546 data-nosnippet>546</a>/// the lowest headroom already reported, so a stack hovering just under the
+<a href=#547 id=547 data-nosnippet>547</a>/// bound says so once and then only when it gets worse. The same delta
+<a href=#548 id=548 data-nosnippet>548</a>/// discipline as the overrun and jitter rules, inverted because for headroom
+<a href=#549 id=549 data-nosnippet>549</a>/// smaller is worse.
+<a href=#550 id=550 data-nosnippet>550</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>check_stack_headroom(
+<a href=#551 id=551 data-nosnippet>551</a>    unused_bytes: usize,
+<a href=#552 id=552 data-nosnippet>552</a>    min_bytes: usize,
+<a href=#553 id=553 data-nosnippet>553</a>    worst_reported: <span class="kw-2">&amp;mut </span>usize,
+<a href=#554 id=554 data-nosnippet>554</a>) -&gt; <span class="prelude-ty">Option</span>&lt;Violation&gt; {
+<a href=#555 id=555 data-nosnippet>555</a>    <span class="kw">if </span>min_bytes == <span class="number">0 </span>|| unused_bytes &gt;= min_bytes {
+<a href=#556 id=556 data-nosnippet>556</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#557 id=557 data-nosnippet>557</a>    }
+<a href=#558 id=558 data-nosnippet>558</a>    <span class="comment">// `usize::MAX` is the "nothing reported yet" sentinel: any real headroom
+<a href=#559 id=559 data-nosnippet>559</a>    // is below it, so the first breach always reports.
+<a href=#560 id=560 data-nosnippet>560</a>    </span><span class="kw">if </span><span class="kw-2">*</span>worst_reported != usize::MAX &amp;&amp; unused_bytes &gt;= <span class="kw-2">*</span>worst_reported {
+<a href=#561 id=561 data-nosnippet>561</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
 <a href=#562 id=562 data-nosnippet>562</a>    }
-<a href=#563 id=563 data-nosnippet>563</a>
-<a href=#564 id=564 data-nosnippet>564</a>    <span class="doccomment">/// No declared period means no cadence to be late for.
-<a href=#565 id=565 data-nosnippet>565</a>    </span><span class="attr">#[test]
-<a href=#566 id=566 data-nosnippet>566</a>    </span><span class="kw">fn </span>a_zero_period_declares_nothing() {
-<a href=#567 id=567 data-nosnippet>567</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
-<a href=#568 id=568 data-nosnippet>568</a>        <span class="macro">assert!</span>(check_release_jitter(<span class="number">1_000_000</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">0</span>).is_none());
-<a href=#569 id=569 data-nosnippet>569</a>    }
-<a href=#570 id=570 data-nosnippet>570</a>}
-<a href=#571 id=571 data-nosnippet>571</a>
-<a href=#572 id=572 data-nosnippet>572</a><span class="attr">#[cfg(test)]
-<a href=#573 id=573 data-nosnippet>573</a></span><span class="kw">mod </span>timer_overrun_rule_tests {
-<a href=#574 id=574 data-nosnippet>574</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#575 id=575 data-nosnippet>575</a>
-<a href=#576 id=576 data-nosnippet>576</a>    <span class="attr">#[test]
-<a href=#577 id=577 data-nosnippet>577</a>    </span><span class="kw">fn </span>reports_the_delta_not_the_total() {
-<a href=#578 id=578 data-nosnippet>578</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
-<a href=#579 id=579 data-nosnippet>579</a>        <span class="kw">let </span>v = check_timer_overrun(<span class="number">19</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">0</span>).expect(<span class="string">"first drop reports"</span>);
-<a href=#580 id=580 data-nosnippet>580</a>        <span class="macro">assert_eq!</span>(v.rule, <span class="string">"timer-overrun-runtime"</span>);
-<a href=#581 id=581 data-nosnippet>581</a>        <span class="macro">assert_eq!</span>(v.measured, <span class="number">19</span>);
-<a href=#582 id=582 data-nosnippet>582</a>        <span class="comment">// Same total on the next check is not a new fault.
-<a href=#583 id=583 data-nosnippet>583</a>        </span><span class="macro">assert!</span>(check_timer_overrun(<span class="number">19</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">0</span>).is_none());
-<a href=#584 id=584 data-nosnippet>584</a>        <span class="comment">// Only the newly dropped activations are reported.
-<a href=#585 id=585 data-nosnippet>585</a>        </span><span class="macro">assert_eq!</span>(check_timer_overrun(<span class="number">25</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">0</span>).unwrap().measured, <span class="number">6</span>);
-<a href=#586 id=586 data-nosnippet>586</a>    }
-<a href=#587 id=587 data-nosnippet>587</a>
-<a href=#588 id=588 data-nosnippet>588</a>    <span class="attr">#[test]
-<a href=#589 id=589 data-nosnippet>589</a>    </span><span class="kw">fn </span>a_clean_timer_never_reports() {
-<a href=#590 id=590 data-nosnippet>590</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
-<a href=#591 id=591 data-nosnippet>591</a>        <span class="kw">for _ in </span><span class="number">0</span>..<span class="number">10 </span>{
-<a href=#592 id=592 data-nosnippet>592</a>            <span class="macro">assert!</span>(check_timer_overrun(<span class="number">0</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">0</span>).is_none());
-<a href=#593 id=593 data-nosnippet>593</a>        }
-<a href=#594 id=594 data-nosnippet>594</a>    }
-<a href=#595 id=595 data-nosnippet>595</a>
-<a href=#596 id=596 data-nosnippet>596</a>    <span class="attr">#[test]
-<a href=#597 id=597 data-nosnippet>597</a>    </span><span class="kw">fn </span>tolerance_suppresses_small_drops() {
-<a href=#598 id=598 data-nosnippet>598</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
-<a href=#599 id=599 data-nosnippet>599</a>        <span class="macro">assert!</span>(check_timer_overrun(<span class="number">2</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">2</span>).is_none());
-<a href=#600 id=600 data-nosnippet>600</a>        <span class="macro">assert_eq!</span>(check_timer_overrun(<span class="number">6</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">2</span>).unwrap().measured, <span class="number">4</span>);
-<a href=#601 id=601 data-nosnippet>601</a>    }
-<a href=#602 id=602 data-nosnippet>602</a>}
+<a href=#563 id=563 data-nosnippet>563</a>    <span class="kw-2">*</span>worst_reported = unused_bytes;
+<a href=#564 id=564 data-nosnippet>564</a>    <span class="prelude-val">Some</span>(Violation {
+<a href=#565 id=565 data-nosnippet>565</a>        rule: <span class="string">"stack-headroom-runtime"</span>,
+<a href=#566 id=566 data-nosnippet>566</a>        <span class="comment">// The spin thread is not an endpoint; same stand-in as the timer,
+<a href=#567 id=567 data-nosnippet>567</a>        // deadline and jitter rules.
+<a href=#568 id=568 data-nosnippet>568</a>        </span>fqn: <span class="string">"stack"</span>,
+<a href=#569 id=569 data-nosnippet>569</a>        measured: unused_bytes.min(u32::MAX <span class="kw">as </span>usize) <span class="kw">as </span>u32,
+<a href=#570 id=570 data-nosnippet>570</a>        declared: min_bytes.min(u32::MAX <span class="kw">as </span>usize) <span class="kw">as </span>u32,
+<a href=#571 id=571 data-nosnippet>571</a>    })
+<a href=#572 id=572 data-nosnippet>572</a>}
+<a href=#573 id=573 data-nosnippet>573</a>
+<a href=#574 id=574 data-nosnippet>574</a><span class="attr">#[cfg(test)]
+<a href=#575 id=575 data-nosnippet>575</a></span><span class="kw">mod </span>stack_headroom_rule_tests {
+<a href=#576 id=576 data-nosnippet>576</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#577 id=577 data-nosnippet>577</a>
+<a href=#578 id=578 data-nosnippet>578</a>    <span class="doccomment">/// No declared minimum means no claim to breach.
+<a href=#579 id=579 data-nosnippet>579</a>    </span><span class="attr">#[test]
+<a href=#580 id=580 data-nosnippet>580</a>    </span><span class="kw">fn </span>a_zero_minimum_disables_the_rule() {
+<a href=#581 id=581 data-nosnippet>581</a>        <span class="kw">let </span><span class="kw-2">mut </span>worst = usize::MAX;
+<a href=#582 id=582 data-nosnippet>582</a>        <span class="macro">assert!</span>(check_stack_headroom(<span class="number">8</span>, <span class="number">0</span>, <span class="kw-2">&amp;mut </span>worst).is_none());
+<a href=#583 id=583 data-nosnippet>583</a>    }
+<a href=#584 id=584 data-nosnippet>584</a>
+<a href=#585 id=585 data-nosnippet>585</a>    <span class="attr">#[test]
+<a href=#586 id=586 data-nosnippet>586</a>    </span><span class="kw">fn </span>headroom_at_the_bound_is_not_a_breach() {
+<a href=#587 id=587 data-nosnippet>587</a>        <span class="kw">let </span><span class="kw-2">mut </span>worst = usize::MAX;
+<a href=#588 id=588 data-nosnippet>588</a>        <span class="macro">assert!</span>(check_stack_headroom(<span class="number">1024</span>, <span class="number">1024</span>, <span class="kw-2">&amp;mut </span>worst).is_none());
+<a href=#589 id=589 data-nosnippet>589</a>        <span class="macro">assert!</span>(check_stack_headroom(<span class="number">2048</span>, <span class="number">1024</span>, <span class="kw-2">&amp;mut </span>worst).is_none());
+<a href=#590 id=590 data-nosnippet>590</a>    }
+<a href=#591 id=591 data-nosnippet>591</a>
+<a href=#592 id=592 data-nosnippet>592</a>    <span class="attr">#[test]
+<a href=#593 id=593 data-nosnippet>593</a>    </span><span class="kw">fn </span>reports_the_first_breach_with_both_numbers() {
+<a href=#594 id=594 data-nosnippet>594</a>        <span class="kw">let </span><span class="kw-2">mut </span>worst = usize::MAX;
+<a href=#595 id=595 data-nosnippet>595</a>        <span class="kw">let </span>v = check_stack_headroom(<span class="number">512</span>, <span class="number">1024</span>, <span class="kw-2">&amp;mut </span>worst).expect(<span class="string">"under the bound reports"</span>);
+<a href=#596 id=596 data-nosnippet>596</a>        <span class="macro">assert_eq!</span>(v.rule, <span class="string">"stack-headroom-runtime"</span>);
+<a href=#597 id=597 data-nosnippet>597</a>        <span class="macro">assert_eq!</span>(v.measured, <span class="number">512</span>);
+<a href=#598 id=598 data-nosnippet>598</a>        <span class="macro">assert_eq!</span>(v.declared, <span class="number">1024</span>);
+<a href=#599 id=599 data-nosnippet>599</a>    }
+<a href=#600 id=600 data-nosnippet>600</a>
+<a href=#601 id=601 data-nosnippet>601</a>    <span class="doccomment">/// Smaller is worse for headroom, so the delta runs the other way.
+<a href=#602 id=602 data-nosnippet>602</a>    </span><span class="attr">#[test]
+<a href=#603 id=603 data-nosnippet>603</a>    </span><span class="kw">fn </span>only_a_new_low_is_a_new_fault() {
+<a href=#604 id=604 data-nosnippet>604</a>        <span class="kw">let </span><span class="kw-2">mut </span>worst = usize::MAX;
+<a href=#605 id=605 data-nosnippet>605</a>        <span class="macro">assert!</span>(check_stack_headroom(<span class="number">512</span>, <span class="number">1024</span>, <span class="kw-2">&amp;mut </span>worst).is_some());
+<a href=#606 id=606 data-nosnippet>606</a>        <span class="macro">assert!</span>(check_stack_headroom(<span class="number">512</span>, <span class="number">1024</span>, <span class="kw-2">&amp;mut </span>worst).is_none());
+<a href=#607 id=607 data-nosnippet>607</a>        <span class="macro">assert!</span>(check_stack_headroom(<span class="number">600</span>, <span class="number">1024</span>, <span class="kw-2">&amp;mut </span>worst).is_none());
+<a href=#608 id=608 data-nosnippet>608</a>        <span class="kw">let </span>v = check_stack_headroom(<span class="number">100</span>, <span class="number">1024</span>, <span class="kw-2">&amp;mut </span>worst).expect(<span class="string">"a new low reports"</span>);
+<a href=#609 id=609 data-nosnippet>609</a>        <span class="macro">assert_eq!</span>(v.measured, <span class="number">100</span>);
+<a href=#610 id=610 data-nosnippet>610</a>    }
+<a href=#611 id=611 data-nosnippet>611</a>}
+<a href=#612 id=612 data-nosnippet>612</a>
+<a href=#613 id=613 data-nosnippet>613</a><span class="attr">#[cfg(test)]
+<a href=#614 id=614 data-nosnippet>614</a></span><span class="kw">mod </span>release_jitter_rule_tests {
+<a href=#615 id=615 data-nosnippet>615</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#616 id=616 data-nosnippet>616</a>
+<a href=#617 id=617 data-nosnippet>617</a>    <span class="doccomment">/// Sub-period lateness is noise, not a violation -- otherwise a
+<a href=#618 id=618 data-nosnippet>618</a>    /// healthy-but-jittery loop reports thousands of faults a second.
+<a href=#619 id=619 data-nosnippet>619</a>    </span><span class="attr">#[test]
+<a href=#620 id=620 data-nosnippet>620</a>    </span><span class="kw">fn </span>tolerates_lateness_within_one_period() {
+<a href=#621 id=621 data-nosnippet>621</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
+<a href=#622 id=622 data-nosnippet>622</a>        <span class="macro">assert!</span>(check_release_jitter(<span class="number">4_000</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">5_000</span>).is_none());
+<a href=#623 id=623 data-nosnippet>623</a>        <span class="macro">assert_eq!</span>(last, <span class="number">4_000</span>, <span class="string">"still recorded, so the next delta is honest"</span>);
+<a href=#624 id=624 data-nosnippet>624</a>    }
+<a href=#625 id=625 data-nosnippet>625</a>
+<a href=#626 id=626 data-nosnippet>626</a>    <span class="doccomment">/// A full period late means the wake that belonged in between never
+<a href=#627 id=627 data-nosnippet>627</a>    /// happened.
+<a href=#628 id=628 data-nosnippet>628</a>    </span><span class="attr">#[test]
+<a href=#629 id=629 data-nosnippet>629</a>    </span><span class="kw">fn </span>reports_a_wake_a_whole_period_late() {
+<a href=#630 id=630 data-nosnippet>630</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
+<a href=#631 id=631 data-nosnippet>631</a>        <span class="kw">let </span>v = check_release_jitter(<span class="number">5_000</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">5_000</span>).expect(<span class="string">"one period late reports"</span>);
+<a href=#632 id=632 data-nosnippet>632</a>        <span class="macro">assert_eq!</span>(v.rule, <span class="string">"release-jitter-runtime"</span>);
+<a href=#633 id=633 data-nosnippet>633</a>        <span class="macro">assert_eq!</span>(v.measured, <span class="number">5_000</span>);
+<a href=#634 id=634 data-nosnippet>634</a>        <span class="macro">assert_eq!</span>(v.declared, <span class="number">5_000</span>);
+<a href=#635 id=635 data-nosnippet>635</a>    }
+<a href=#636 id=636 data-nosnippet>636</a>
+<a href=#637 id=637 data-nosnippet>637</a>    <span class="doccomment">/// The verdict is on the DELTA. A high-water that has not moved is the
+<a href=#638 id=638 data-nosnippet>638</a>    /// same fault already reported, not a new one.
+<a href=#639 id=639 data-nosnippet>639</a>    </span><span class="attr">#[test]
+<a href=#640 id=640 data-nosnippet>640</a>    </span><span class="kw">fn </span>an_unchanged_maximum_is_not_a_new_fault() {
+<a href=#641 id=641 data-nosnippet>641</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
+<a href=#642 id=642 data-nosnippet>642</a>        <span class="macro">assert!</span>(check_release_jitter(<span class="number">9_000</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">5_000</span>).is_some());
+<a href=#643 id=643 data-nosnippet>643</a>        <span class="macro">assert!</span>(check_release_jitter(<span class="number">9_000</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">5_000</span>).is_none());
+<a href=#644 id=644 data-nosnippet>644</a>        <span class="macro">assert!</span>(check_release_jitter(<span class="number">12_000</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">5_000</span>).is_some());
+<a href=#645 id=645 data-nosnippet>645</a>    }
+<a href=#646 id=646 data-nosnippet>646</a>
+<a href=#647 id=647 data-nosnippet>647</a>    <span class="doccomment">/// No declared period means no cadence to be late for.
+<a href=#648 id=648 data-nosnippet>648</a>    </span><span class="attr">#[test]
+<a href=#649 id=649 data-nosnippet>649</a>    </span><span class="kw">fn </span>a_zero_period_declares_nothing() {
+<a href=#650 id=650 data-nosnippet>650</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
+<a href=#651 id=651 data-nosnippet>651</a>        <span class="macro">assert!</span>(check_release_jitter(<span class="number">1_000_000</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">0</span>).is_none());
+<a href=#652 id=652 data-nosnippet>652</a>    }
+<a href=#653 id=653 data-nosnippet>653</a>}
+<a href=#654 id=654 data-nosnippet>654</a>
+<a href=#655 id=655 data-nosnippet>655</a><span class="attr">#[cfg(test)]
+<a href=#656 id=656 data-nosnippet>656</a></span><span class="kw">mod </span>timer_overrun_rule_tests {
+<a href=#657 id=657 data-nosnippet>657</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#658 id=658 data-nosnippet>658</a>
+<a href=#659 id=659 data-nosnippet>659</a>    <span class="attr">#[test]
+<a href=#660 id=660 data-nosnippet>660</a>    </span><span class="kw">fn </span>reports_the_delta_not_the_total() {
+<a href=#661 id=661 data-nosnippet>661</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
+<a href=#662 id=662 data-nosnippet>662</a>        <span class="kw">let </span>v = check_timer_overrun(<span class="number">19</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">0</span>).expect(<span class="string">"first drop reports"</span>);
+<a href=#663 id=663 data-nosnippet>663</a>        <span class="macro">assert_eq!</span>(v.rule, <span class="string">"timer-overrun-runtime"</span>);
+<a href=#664 id=664 data-nosnippet>664</a>        <span class="macro">assert_eq!</span>(v.measured, <span class="number">19</span>);
+<a href=#665 id=665 data-nosnippet>665</a>        <span class="comment">// Same total on the next check is not a new fault.
+<a href=#666 id=666 data-nosnippet>666</a>        </span><span class="macro">assert!</span>(check_timer_overrun(<span class="number">19</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">0</span>).is_none());
+<a href=#667 id=667 data-nosnippet>667</a>        <span class="comment">// Only the newly dropped activations are reported.
+<a href=#668 id=668 data-nosnippet>668</a>        </span><span class="macro">assert_eq!</span>(check_timer_overrun(<span class="number">25</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">0</span>).unwrap().measured, <span class="number">6</span>);
+<a href=#669 id=669 data-nosnippet>669</a>    }
+<a href=#670 id=670 data-nosnippet>670</a>
+<a href=#671 id=671 data-nosnippet>671</a>    <span class="attr">#[test]
+<a href=#672 id=672 data-nosnippet>672</a>    </span><span class="kw">fn </span>a_clean_timer_never_reports() {
+<a href=#673 id=673 data-nosnippet>673</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
+<a href=#674 id=674 data-nosnippet>674</a>        <span class="kw">for _ in </span><span class="number">0</span>..<span class="number">10 </span>{
+<a href=#675 id=675 data-nosnippet>675</a>            <span class="macro">assert!</span>(check_timer_overrun(<span class="number">0</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">0</span>).is_none());
+<a href=#676 id=676 data-nosnippet>676</a>        }
+<a href=#677 id=677 data-nosnippet>677</a>    }
+<a href=#678 id=678 data-nosnippet>678</a>
+<a href=#679 id=679 data-nosnippet>679</a>    <span class="attr">#[test]
+<a href=#680 id=680 data-nosnippet>680</a>    </span><span class="kw">fn </span>tolerance_suppresses_small_drops() {
+<a href=#681 id=681 data-nosnippet>681</a>        <span class="kw">let </span><span class="kw-2">mut </span>last = <span class="number">0</span>;
+<a href=#682 id=682 data-nosnippet>682</a>        <span class="macro">assert!</span>(check_timer_overrun(<span class="number">2</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">2</span>).is_none());
+<a href=#683 id=683 data-nosnippet>683</a>        <span class="macro">assert_eq!</span>(check_timer_overrun(<span class="number">6</span>, <span class="kw-2">&amp;mut </span>last, <span class="number">2</span>).unwrap().measured, <span class="number">4</span>);
+<a href=#684 id=684 data-nosnippet>684</a>    }
+<a href=#685 id=685 data-nosnippet>685</a>}
 </code></pre></div></section></main></body></html>

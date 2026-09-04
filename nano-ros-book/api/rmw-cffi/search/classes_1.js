@@ -19,9 +19,10 @@ var searchData=
   ['rmw_5fservice_5ft_16',['rmw_service_t',['../structrmw__service__t.html',1,'']]],
   ['rmw_5fservice_5ftype_5fsupport_5ft_17',['rmw_service_type_support_t',['../structrmw__service__type__support__t.html',1,'']]],
   ['rmw_5fsession_5foptions_5ft_18',['rmw_session_options_t',['../structrmw__session__options__t.html',1,'']]],
-  ['rmw_5fsession_5ft_19',['rmw_session_t',['../structrmw__session__t.html',1,'']]],
-  ['rmw_5fsubscription_5foptions_5ft_20',['rmw_subscription_options_t',['../structrmw__subscription__options__t.html',1,'']]],
-  ['rmw_5fsubscription_5ft_21',['rmw_subscription_t',['../structrmw__subscription__t.html',1,'']]],
-  ['rmw_5ftopic_5fendpoint_5finfo_5ft_22',['rmw_topic_endpoint_info_t',['../structrmw__topic__endpoint__info__t.html',1,'']]],
-  ['rmw_5ftopic_5fendpoint_5finfo_5fvisitor_5ft_23',['rmw_topic_endpoint_info_visitor_t',['../structrmw__topic__endpoint__info__visitor__t.html',1,'']]]
+  ['rmw_5fsession_5fproperty_5ft_19',['rmw_session_property_t',['../structrmw__session__property__t.html',1,'']]],
+  ['rmw_5fsession_5ft_20',['rmw_session_t',['../structrmw__session__t.html',1,'']]],
+  ['rmw_5fsubscription_5foptions_5ft_21',['rmw_subscription_options_t',['../structrmw__subscription__options__t.html',1,'']]],
+  ['rmw_5fsubscription_5ft_22',['rmw_subscription_t',['../structrmw__subscription__t.html',1,'']]],
+  ['rmw_5ftopic_5fendpoint_5finfo_5ft_23',['rmw_topic_endpoint_info_t',['../structrmw__topic__endpoint__info__t.html',1,'']]],
+  ['rmw_5ftopic_5fendpoint_5finfo_5fvisitor_5ft_24',['rmw_topic_endpoint_info_visitor_t',['../structrmw__topic__endpoint__info__visitor__t.html',1,'']]]
 ];

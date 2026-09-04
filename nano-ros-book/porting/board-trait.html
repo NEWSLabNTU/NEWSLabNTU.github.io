@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8394d8b9.js";
+            window.path_to_searchindex_js = "../searchindex-dd761a1a.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3e810859.js"></script>
@@ -195,8 +195,6 @@ sequenced with the RTIC/Embassy integration work.</p>
 │
 ├── Board: BoardInit + BoardPrint + BoardExit     // super-trait (blanket impl)
 │
-├── TransportBringup: Board                       // mixin — Ethernet / WiFi / serial / CAN / USB CDC / IVC
-├── NetworkWait:    Board                         // mixin — carrier / DHCP / link-up gate
 │
 └── BoardEntry: Board
         fn run&lt;F, E&gt;(setup: F) -&gt; Result&lt;(), E&gt;
@@ -206,8 +204,6 @@ sequenced with the RTIC/Embassy integration work.</p>
 <li><strong><code>BoardInit::init_hardware()</code></strong> — clock tree, pin mux, peripheral wakes. Runs once on boot before allocation. Panicking here is the same as panicking from <code>fn main()</code> — no recovery.</li>
 <li><strong><code>BoardPrint::println(args: core::fmt::Arguments&lt;'_&gt;)</code></strong> — emit a line. Boards wrap whatever stdout makes sense: <code>cortex_m_semihosting::hprintln!</code>, a vendor printf bridge, a UART writer, <code>libc::write(STDOUT_FILENO, …)</code>, or <code>printk</code>.</li>
 <li><strong><code>BoardExit::{exit_success, exit_failure}() -&gt; !</code></strong> — terminate cleanly (or with failure). QEMU boards call <code>cortex_m_semihosting::debug::exit</code>; real hardware resets or halts; POSIX shells <code>std::process::exit</code>.</li>
-<li><strong><code>TransportBringup::init_transport()</code></strong> — bring the link layer up to L2 (Ethernet frames flow / WiFi associated / UART open at baud). Returns <em>before</em> any L3/IP state — that’s <code>NetworkWait</code>’s job.</li>
-<li><strong><code>NetworkWait::wait_link_up()</code></strong> — block until carrier + DHCP/static IP + default route. Only IP-aware transports implement it; CAN-only, serial-only, IVC-only boards skip it.</li>
 <li><strong><code>BoardEntry::run(setup)</code></strong> — the boot driver. Implementations live in the family driver crates (<code>nros-board-{posix,freertos,threadx,…}</code>); user Entry pkg <code>main.rs</code> calls it.</li>
 </ul>
 <p><code>Board</code> is itself a blanket-implemented super-trait: any type that carries <code>BoardInit + BoardPrint + BoardExit</code> automatically satisfies <code>Board</code>. Concrete board crates do <em>not</em> <code>impl Board</code> directly — they impl the three sub-traits (plus whichever mixins they need).</p>
@@ -215,14 +211,37 @@ sequenced with the RTIC/Embassy integration work.</p>
 <p><code>BoardEntry::run</code> owns the full boot → user-closure → exit flow. The exact body lives in the family driver crate (e.g. <code>nros-board-linux</code>, <code>nros-board-freertos</code>); each family folds its RTOS specifics in, but the <em>order</em> is fixed:</p>
 <ol>
 <li><strong><code>BoardInit::init_hardware()</code></strong> — clocks, pinmux, MMIO setup.</li>
-<li><strong><code>TransportBringup::init_transport()</code></strong> — driver up at L2 (skipped if the board doesn’t impl the mixin).</li>
-<li><strong><code>NetworkWait::wait_link_up()</code></strong> — DHCP / carrier (skipped if the board doesn’t impl the mixin).</li>
+<li><strong>Device bring-up — the family crate’s job, inside <code>run</code>.</strong> Bring the link
+layer to L2 (Ethernet frames flow / WiFi associated / UART open at baud),
+then gate on carrier / DHCP if the board has an IP stack. There is no mixin
+trait for this: see the note below.</li>
 <li>Open the executor, build a <a href="#runtimectx"><code>RuntimeCtx</code></a> with overlay knobs from the launch file / CLI, and invoke <code>setup(&amp;mut runtime)</code>. The codegen-emitted <code>run_plan(runtime)</code> body is what <code>setup</code> ultimately calls.</li>
 <li>Spin the executor to completion (or termination signal).</li>
 <li><strong><code>BoardExit::exit_success()</code></strong> on <code>Ok</code>, <strong><code>BoardExit::exit_failure()</code></strong> on <code>Err</code> or any failed init step.</li>
 </ol>
 <p><code>run</code> returns <code>Result&lt;(), E&gt;</code> rather than <code>!</code> so unit tests can drive it in a hosted process without <code>exit()</code> killing the test harness — but production boards still call <code>exit_*</code> from inside <code>run</code>’s body after spin returns, so in practice the caller’s <code>Ok(())</code> arm is unreachable on a real target.</p>
 <p>The <code>setup</code> callback is the only place user code runs inside <code>run</code>. Everything else is family-crate boilerplate.</p>
+<blockquote>
+<h3 id="why-there-is-no-transportbringup--networkwait-mixin"><a class="header" href="#why-there-is-no-transportbringup--networkwait-mixin">Why there is no <code>TransportBringup</code> / <code>NetworkWait</code> mixin</a></h3>
+<p>Earlier revisions of this page documented two mixin traits and a family-crate
+blanket impl that would call them:</p>
+<pre><code class="language-rust ignore">impl&lt;B: Board + TransportBringup + NetworkWait&gt; BoardEntry for B { fn run … }</code></pre>
+<p><strong>That could not be built, and the traits were removed in phase-206 W4</strong>
+(issue 1067). Two reasons, both structural:</p>
+<ul>
+<li>The blanket impl <strong>overlaps</strong> the direct <code>BoardEntry</code> impls that twelve
+board crates already carry. Rust’s coherence rules do not allow both.</li>
+<li>“Skipped if the board doesn’t impl the mixin” <strong>is not expressible</strong> — Rust
+has no way to call a method only when the type happens to implement a trait.
+The order was written as if specialization existed.</li>
+</ul>
+<p>Measured before removal: <code>TransportBringup</code> had <strong>zero</strong> implementations and
+<strong>zero</strong> call sites; <code>NetworkWait</code> had one implementation and no callers,
+because the one place that would have called it — the <code>nros::main!</code> Zephyr arm
+— routed around it deliberately (<code>ZephyrBoard::wait_link_up</code> calls <code>static inline</code> Zephyr headers with no link symbol, so the native_sim link failed).</p>
+<p>Devices are still brought up: <strong>inside <code>BoardEntry::run</code></strong>, or the family
+helper it delegates to. That is the contract, and it is the one that runs.</p>
+</blockquote>
 <h2 id="runtimectx"><a class="header" href="#runtimectx"><code>RuntimeCtx</code></a></h2>
 <p><code>RuntimeCtx&lt;'a&gt;</code> is the per-invocation overlay context the <code>setup</code> callback receives:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -242,11 +261,11 @@ sequenced with the RTIC/Embassy integration work.</p>
 <tr><th>Board transport class</th><th>Implement</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td>Ethernet (smoltcp / lwIP / NetX BSD)</td><td><code>TransportBringup</code> + <code>NetworkWait</code></td><td>Both — driver up, then DHCP/link gate</td></tr>
-<tr><td>WiFi (ESP32)</td><td><code>TransportBringup</code> + <code>NetworkWait</code></td><td>Same shape — association is L2, DHCP is L3</td></tr>
-<tr><td>Serial UART only</td><td><code>TransportBringup</code></td><td>No IP, so no <code>NetworkWait</code></td></tr>
-<tr><td>CAN / USB CDC / IVC</td><td><code>TransportBringup</code></td><td>Link-layer only</td></tr>
-<tr><td>Bridged-net (threadx-linux veth)</td><td><code>TransportBringup</code> + <code>NetworkWait</code></td><td>Host kernel owns IP — <code>wait_link_up</code> just probes the bridge</td></tr>
+<tr><td>Ethernet (smoltcp / lwIP / NetX BSD)</td><td>driver up, then DHCP/link gate</td><td>both, in <code>run</code></td></tr>
+<tr><td>WiFi (ESP32)</td><td>same shape — association is L2, DHCP is L3</td><td>both, in <code>run</code></td></tr>
+<tr><td>Serial UART only</td><td>open at baud</td><td>no IP, so no link gate</td></tr>
+<tr><td>CAN / USB CDC / IVC</td><td>link layer only</td><td>no IP</td></tr>
+<tr><td>Bridged-net (threadx-linux veth)</td><td>host kernel owns IP</td><td>probe the bridge in <code>run</code></td></tr>
 <tr><td>Native (host)</td><td>None</td><td>Host OS owns everything; the family crate’s <code>run</code> skips both mixins</td></tr>
 </tbody>
 </table>
@@ -259,7 +278,6 @@ sequenced with the RTIC/Embassy integration work.</p>
 
 use nros_platform::board::{
     BoardEntry, BoardExit, BoardInit, BoardPrint,
-    NetworkWait, TransportBringup,
     NetworkError, TransportError, RuntimeCtx,
 };
 
@@ -290,28 +308,18 @@ impl BoardExit for AcmeCortexM4Eth {
     fn exit_failure() -&gt; ! { acme_hal::system::halt_with_blinkenlight() }
 }
 
-impl TransportBringup for AcmeCortexM4Eth {
-    fn init_transport() -&gt; Result&lt;(), TransportError&gt; {
-        // Brings the MAC up to L2; smoltcp owns the IP stack and joins
-        // it in NetworkWait.
-        acme_phy_smoltcp::init().map_err(|_| TransportError::DriverInit)?;
-        acme_phy_smoltcp::wait_link(core::time::Duration::from_secs(5))
-            .map_err(|_| TransportError::LinkDown)
+// Device bring-up lives in the BoardEntry::run body — usually by delegating
+// to the family helper, which is where the ORDER for that RTOS is fixed:
+impl BoardEntry for AcmeCortexM4Eth {
+    fn run&lt;F, E&gt;(setup: F) -&gt; Result&lt;(), E&gt;
+    where
+        F: FnOnce(&amp;mut RuntimeCtx&lt;'_&gt;) -&gt; Result&lt;(), E&gt;,
+        E: core::fmt::Debug,
+    {
+        let cfg = Config::default();          // MAC / IP / netmask / gateway
+        nros_board_freertos::run_entry::&lt;Self, F, E&gt;(cfg, setup)
     }
-}
-
-impl NetworkWait for AcmeCortexM4Eth {
-    fn wait_link_up() -&gt; Result&lt;(), NetworkError&gt; {
-        acme_phy_smoltcp::dhcp_acquire(core::time::Duration::from_secs(10))
-            .map_err(|_| NetworkError::DhcpTimeout)
-    }
-}
-
-// BoardEntry comes from the family crate's blanket impl:
-//   impl&lt;B: Board + TransportBringup + NetworkWait&gt; BoardEntry for B { fn run … }
-// The family crate provides the FreeRTOS-shaped run body; you do not
-// hand-write a BoardEntry impl unless your target is exotic enough to
-// step outside the family.</code></pre>
+}</code></pre>
 <p>That’s the whole board crate. A downstream Entry pkg consumes it as:</p>
 <pre><code class="language-rust ignore">// pkgs/robot_acme_entry/src/main.rs
 use nros_board_acme_cortex_m4_eth::AcmeCortexM4Eth;
@@ -332,7 +340,7 @@ fn main() {
 <li><code>nros-board-freertos</code> — FreeRTOS-Kernel + lwIP; <code>run</code> spawns the executor task, hands DHCP to lwIP’s hook.</li>
 <li><code>nros-board-threadx</code> — ThreadX + NetX BSD; same shape over NetX.</li>
 <li><code>nros-board-nuttx</code> — NuttX POSIX layer; <code>init_transport</code> shells <code>ifup</code>-style logic.</li>
-<li><code>nros-board-zephyr</code> — carve-out: Kconfig + DTS own BSP, family crate impls only <code>NetworkWait</code> over <code>&lt;zephyr/net/net_if.h&gt;</code>. The Rust staticlib cannot take over <code>main</code> on Zephyr.</li>
+<li><code>nros-board-zephyr</code> — carve-out: Kconfig + DTS own BSP; the crate exposes an inherent <code>wait_link_up</code> over <code>&lt;zephyr/net/net_if.h&gt;</code>. The Rust staticlib cannot take over <code>main</code> on Zephyr.</li>
 <li><code>nros-board-esp-idf</code> — ESP-IDF component shape; WiFi association lives in <code>init_transport</code>, IP lease in <code>wait_link_up</code>.</li>
 <li>Direct-exec (Cortex-M / RV32, no RTOS) has <strong>no family crate</strong>: each board
 implements <code>BoardEntry::run</code> itself with a single-thread <code>zp_read</code> loop. A

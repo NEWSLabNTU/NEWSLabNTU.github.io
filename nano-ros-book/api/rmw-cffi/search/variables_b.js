@@ -1,11 +1,9 @@
 var searchData=
 [
-  ['name_0',['name',['../structrmw__node__t.html#ac267760143b4ddc802487bdb08121bb1',1,'rmw_node_t']]],
-  ['namespace_5f_1',['namespace_',['../structrmw__session__t.html#a1bb74315a8005928949122202b9a7276',1,'rmw_session_t::namespace_'],['../structrmw__node__t.html#a2702449d54dee4857234c2b74ded44da',1,'rmw_node_t::namespace_']]],
-  ['next_5fdeadline_5fms_2',['next_deadline_ms',['../structnros__rmw__vtable__t.html#a3a8038aefd708dfad6a9ed434bf5f644',1,'nros_rmw_vtable_t']]],
-  ['node_5fget_5fgraph_5fguard_5fcondition_3',['node_get_graph_guard_condition',['../structnros__rmw__vtable__t.html#ad06f31fb7e0659ddcb4850eee846c8a0',1,'nros_rmw_vtable_t']]],
-  ['node_5fname_4',['node_name',['../structrmw__topic__endpoint__info__t.html#a011e82e91debcf0bdd39beedd4648abe',1,'rmw_topic_endpoint_info_t::node_name'],['../structrmw__session__t.html#a07dee3b48a74c3d0c82b23ec93a2c36b',1,'rmw_session_t::node_name']]],
-  ['node_5fnamespace_5',['node_namespace',['../structrmw__topic__endpoint__info__t.html#ac4ae7404be088fefde764ffba8dfd0b2',1,'rmw_topic_endpoint_info_t']]],
-  ['not_5falive_5fcount_6',['not_alive_count',['../structrmw__liveliness__changed__status__t.html#acd868c39ead0c7974754dbfc5eb80da1',1,'rmw_liveliness_changed_status_t']]],
-  ['not_5falive_5fcount_5fchange_7',['not_alive_count_change',['../structrmw__liveliness__changed__status__t.html#a4c2bbc54d655f5d7c897e38442d5f454',1,'rmw_liveliness_changed_status_t']]]
+  ['len_0',['len',['../structrmw__byte__span__t.html#a61394a67b684992e3b3bfed6ddf3773d',1,'rmw_byte_span_t::len'],['../structrmw__mut__byte__span__t.html#a6b5b98418a2cf6dff0f47f07b2c43ceb',1,'rmw_mut_byte_span_t::len']]],
+  ['lifespan_5fms_1',['lifespan_ms',['../structrmw__qos__profile__t.html#a9e70ddeb04c10867277688a1cdb90a91',1,'rmw_qos_profile_t']]],
+  ['liveliness_5fchanged_2',['liveliness_changed',['../unionrmw__event__payload__t.html#a78872d7e4f02ad3cb5117531f4f64250',1,'rmw_event_payload_t']]],
+  ['liveliness_5fkind_3',['liveliness_kind',['../structrmw__qos__profile__t.html#aae8a22a7eeb1360617986a6ffb2f1d36',1,'rmw_qos_profile_t']]],
+  ['liveliness_5flease_5fms_4',['liveliness_lease_ms',['../structrmw__qos__profile__t.html#ae129b6bb0538e3dca96774657a8847b3',1,'rmw_qos_profile_t']]],
+  ['localhost_5fonly_5',['localhost_only',['../structrmw__session__options__t.html#a96f7913916ec865368712dea5b5163d1',1,'rmw_session_options_t']]]
 ];
