@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["PlatformTask"]};
+window.SIDEBAR_ITEMS = {"fn":["stack_unused_bytes"],"struct":["PlatformTask"]};
