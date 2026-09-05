@@ -1,7 +1,7 @@
 var searchData=
 [
-  ['underlying_20errors_0',['zenoh-pico Underlying Errors',['../error_codes.html#autotoc_md260',1,'']]],
-  ['use_20these_20macros_1',['Scope — a bridge image must not use these macros',['../serialization__format_8h.html#autotoc_md229',1,'']]],
+  ['underlying_20errors_0',['zenoh-pico Underlying Errors',['../error_codes.html#autotoc_md261',1,'']]],
+  ['use_20these_20macros_1',['Scope — a bridge image must not use these macros',['../serialization__format_8h.html#autotoc_md230',1,'']]],
   ['user_5fdata_2',['user_data',['../structnros__transport__ops__t.html#ab6fae9713cb3881f71a82efadd98abd3',1,'nros_transport_ops_t']]],
   ['uuid_3',['uuid',['../structnros__goal__uuid__t.html#ad26a806a7818b552fc5b6c98a68732e8',1,'nros_goal_uuid_t::uuid'],['../structnros__goal__handle__t.html#a1347acd21c5214c7385d3bae8535f719',1,'nros_goal_handle_t::uuid']]]
 ];

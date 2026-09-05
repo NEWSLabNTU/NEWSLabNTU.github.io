@@ -18,7 +18,7 @@ var searchData=
   ['create_5faction_5fclient_15',['create_action_client',['../classnros_1_1Node.html#a69b1865073490ed4c033c01cdd817e91',1,'nros::Node']]],
   ['create_5faction_5fserver_16',['create_action_server',['../classnros_1_1Node.html#a3275a5f429c2a8e23b502550b02b7ec1',1,'nros::Node']]],
   ['create_5fcallback_5fgroup_17',['create_callback_group',['../classnros_1_1Node.html#a4b2e0b6f2ba10b69d9840988bac9cbbf',1,'nros::Node']]],
-  ['create_5fclient_18',['create_client',['../classnros_1_1Node.html#a8d19c1b8c3dcdb0cbf3ceb4291affa59',1,'nros::Node::create_client(Client&lt; S &gt; &amp;out, const char *service_name, F callback, const QoS &amp;qos=QoS::services(), const ClientOptions &amp;options={})'],['../classnros_1_1Node.html#a14bfc22c50a47b0c4d96dce99b53cef0',1,'nros::Node::create_client(Client&lt; S &gt; &amp;out, const char *service_name, const QoS &amp;qos=QoS::services())']]],
+  ['create_5fclient_18',['create_client',['../classnros_1_1Node.html#a14bfc22c50a47b0c4d96dce99b53cef0',1,'nros::Node::create_client(Client&lt; S &gt; &amp;out, const char *service_name, const QoS &amp;qos=QoS::services())'],['../classnros_1_1Node.html#a8d19c1b8c3dcdb0cbf3ceb4291affa59',1,'nros::Node::create_client(Client&lt; S &gt; &amp;out, const char *service_name, F callback, const QoS &amp;qos=QoS::services(), const ClientOptions &amp;options={})']]],
   ['create_5fguard_5fcondition_19',['create_guard_condition',['../classnros_1_1Node.html#ad8a657e19db0d9d242ba4dfcc63804a5',1,'nros::Node']]],
   ['create_5fnode_20',['create_node',['../classnros_1_1Executor.html#afe4abbbe96bfc493c508877f60b130ab',1,'nros::Executor::create_node()'],['../namespacenros.html#ad03f5d25b58677506379a479c6c921df',1,'nros::create_node(Node &amp;out, const char *name, const char *ns=nullptr)']]],
   ['create_5fnode_5fon_21',['create_node_on',['../namespacenros.html#adf746716bda3fc3c036e2724be21aec7',1,'nros']]],
@@ -34,5 +34,6 @@ var searchData=
   ['create_5ftimer_31',['create_timer',['../classnros_1_1Node.html#a11cdbc6ae3f3057f18c6edb507dd3691',1,'nros::Node']]],
   ['create_5ftimer_5fin_32',['create_timer_in',['../classnros_1_1Node.html#acfda232291154b63b135444abb95b169',1,'nros::Node']]],
   ['create_5ftimer_5foneshot_33',['create_timer_oneshot',['../classnros_1_1Node.html#ac61aef6e69a2b807ac35186b645099f0',1,'nros::Node']]],
-  ['create_5fwall_5ftimer_34',['create_wall_timer',['../classnros_1_1Node.html#ab1f974ee607b23ee278826e9f5536bf0',1,'nros::Node']]]
+  ['create_5fwall_5ftimer_34',['create_wall_timer',['../classnros_1_1Node.html#ab1f974ee607b23ee278826e9f5536bf0',1,'nros::Node']]],
+  ['create_5fwith_5frmw_35',['create_with_rmw',['../classnros_1_1Executor.html#ab7f656032eca6f5963904a926f6887f3',1,'nros::Executor']]]
 ];
