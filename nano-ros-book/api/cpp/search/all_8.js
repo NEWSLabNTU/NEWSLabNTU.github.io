@@ -60,7 +60,7 @@ var searchData=
   ['create_5fsubscription_57',['create_subscription',['../classnros_1_1Node.html#ab08b04d31425e67b5cdbd86ffc1cda73',1,'nros::Node::create_subscription(Subscription&lt; M &gt; &amp;out, const char *topic, F callback, const QoS &amp;qos=QoS::default_profile(), const SubscriptionOptions &amp;options={})'],['../classnros_1_1Node.html#ab798a01ec92de1605edd2436a2d279a3',1,'nros::Node::create_subscription(Subscription&lt; M &gt; &amp;out, const char *topic, const QoS &amp;qos, const SubscriptionOptions &amp;options)'],['../classnros_1_1Node.html#a594d23b322d5f723d82932c7cd45283b',1,'nros::Node::create_subscription(Subscription&lt; M &gt; &amp;out, const char *topic, const QoS &amp;qos=QoS::default_profile())']]],
   ['create_5fsubscription_5fin_58',['create_subscription_in',['../classnros_1_1Node.html#a0ec99a5a70e48f45490d5bfaf711e49a',1,'nros::Node']]],
   ['create_5fsubscription_5fwith_5finfo_59',['create_subscription_with_info',['../classnros_1_1Node.html#aa79bc04c75a2f848a926717ee1caa222',1,'nros::Node']]],
-  ['create_5ftimer_60',['create_timer',['../classnros_1_1Node.html#a762b5f440fffdec2f1661dbf07cbe556',1,'nros::Node']]],
-  ['create_5ftimer_5fin_61',['create_timer_in',['../classnros_1_1Node.html#acfda232291154b63b135444abb95b169',1,'nros::Node']]],
-  ['create_5ftimer_5foneshot_62',['create_timer_oneshot',['../classnros_1_1Node.html#ac61aef6e69a2b807ac35186b645099f0',1,'nros::Node']]]
+  ['create_5ftimer_5fin_60',['create_timer_in',['../classnros_1_1Node.html#acfda232291154b63b135444abb95b169',1,'nros::Node']]],
+  ['create_5ftimer_5foneshot_61',['create_timer_oneshot',['../classnros_1_1Node.html#ac61aef6e69a2b807ac35186b645099f0',1,'nros::Node']]],
+  ['create_5fwall_5ftimer_62',['create_wall_timer',['../classnros_1_1Node.html#ab1f974ee607b23ee278826e9f5536bf0',1,'nros::Node']]]
 ];
