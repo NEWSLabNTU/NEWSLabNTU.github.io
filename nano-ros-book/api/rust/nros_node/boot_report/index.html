@@ -1,0 +1,57 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="phase-412 – the boot self-report, for boards with no reachable log sink. A fixed RAM record the image writes about itself, for targets where no log sink reaches a human."><title>nros_node::boot_report - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="nros_node" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module boot_report</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../nros_node/index.html">nros_<wbr>node</a><span class="version">0.5.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module boot_<wbr>report</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#why-this-exists" title="Why this exists">Why this exists</a></li><li><a href="#reading-it" title="Reading it">Reading it</a></li><li><a href="#cost-and-why-it-is-opt-in" title="Cost, and why it is opt-in">Cost, and why it is opt-in</a></li></ul><h3><a href="#enums">Module Items</a></h3><ul class="block"><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#constants" title="Constants">Constants</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate nros_<wbr>node</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">nros_node</a></div><h1>Module <span>boot_<wbr>report</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/nros_node/boot_report.rs.html#1-444">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>phase-412 – the boot self-report, for boards with no reachable log sink.
+A fixed RAM record the image writes about itself, for targets where no log
+sink reaches a human.</p>
+<h2 id="why-this-exists"><a class="doc-anchor" href="#why-this-exists">§</a>Why this exists</h2>
+<p>phase-412 derived six pool counts and the executor arena for the
+mr-canhubk344 island, and then could not tell whether the derived image was
+correct. The only available signal was the ROS graph’s node count, and one
+unchanged configuration produced 4, 0, 0, 4, 4 across five runs. Every other
+channel was already disqualified for that board:</p>
+<ul>
+<li>The console is on <code>lpuart0</code>, which is not wired on the MR-CANHUBK344.
+<code>lpuart2</code> is the zenoh serial transport and cannot carry a second protocol.</li>
+<li><code>nros_log</code> therefore reaches nothing. Both arena diagnostics (issue 0900)
+go through it, so the two messages written specifically to explain an
+arena failure are invisible on the one board that needed them.</li>
+<li>SEGGER RTT was tried and could not discriminate: a working image and a
+derived image both emitted only the Zephyr banner, and a deliberate
+positive control produced nothing at all.</li>
+<li>Semihosting halts the core until a probe answers and FAULTS with no probe
+attached, so an image carrying it cannot run standalone.</li>
+</ul>
+<p>What all of those share is that they are STREAMS: they need the board to
+still be running, and they need somebody attached at the moment the
+interesting thing happens. The failure this campaign is trying to see is the
+opposite shape. An under-sized arena halts DURING entity creation, before
+the first spin, so issue 0900’s advisory never prints – the failure cannot
+report itself through any stream.</p>
+<p>So this is not a stream. It is a fixed-size record in RAM that the image
+keeps up to date as it boots, read out AFTERWARDS by halting the core and
+dumping memory. It survives the halt because it does not depend on anything
+still running, and a PARTIAL record is the useful case rather than a lost
+one: the last stage reached and the allocation that did not fit are exactly
+what names the knob to change.</p>
+<h2 id="reading-it"><a class="doc-anchor" href="#reading-it">§</a>Reading it</h2>
+<p>The record is a <code>#[no_mangle]</code> static, so it has a symbol in the ELF and a
+debugger can find it without the address being wired in anywhere:</p>
+<div class="example-wrap"><pre class="language-text"><code>pyocd commander -t s32k344 -c &quot;halt&quot; -c &quot;savemem &lt;addr&gt; &lt;len&gt; report.bin&quot;
+python3 scripts/read-boot-report.py &lt;elf&gt; report.bin</code></pre></div>
+<p>[<code>MAGIC</code>] distinguishes a written record from uninitialised RAM, and
+[<code>BootReport::struct_size</code>] lets a reader refuse a layout it does not know
+rather than decode it wrongly.</p>
+<h2 id="cost-and-why-it-is-opt-in"><a class="doc-anchor" href="#cost-and-why-it-is-opt-in">§</a>Cost, and why it is opt-in</h2>
+<p>Enabled by setting <code>NROS_BOOT_REPORT=1</code> at build time (Zephyr:
+<code>CONFIG_NROS_BOOT_REPORT=y</code>), which makes <code>nros-node</code>’s build script emit
+<code>cfg(nros_boot_report)</code>. With the cfg absent every function here is an empty
+<code>#[inline(always)]</code> body and the static does not exist, so an image that
+does not opt in is byte-identical to one built before this module – the
+same rule issue 0900’s arena knob and phase-403’s <code>rx_buffer_from_type()</code>
+both keep.</p>
+<p>Enabled, it costs [<code>BootReport::struct_size</code>] bytes of <code>.bss</code> (60 on a
+32-bit target) and a handful of relaxed atomic stores on paths that run once
+per entity at registration. Nothing here is on the spin path.</p>
+</div></details><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.Stage.html" title="enum nros_node::boot_report::Stage">Stage</a></dt><dd>How far boot got. Monotonic, and the single most useful field: an arena
+failure halts during entity creation, so the stage that was NOT reached
+names the phase to look at.</dd></dl><h2 id="constants" class="section-header">Constants<a href="#constants" class="anchor">§</a></h2><dl class="item-table"><dt><a class="constant" href="constant.MAGIC.html" title="constant nros_node::boot_report::MAGIC">MAGIC</a></dt><dd><code>"NRSR"</code> – nano-ros self report. Written LAST, so a reader that finds it
+knows every field before it is already valid.</dd><dt><a class="constant" href="constant.VERSION.html" title="constant nros_node::boot_report::VERSION">VERSION</a></dt><dd>Layout version. Bump on any field change; a reader refuses what it does not
+know rather than decoding a record it would misread.</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.checkpoint.html" title="fn nros_node::boot_report::checkpoint">checkpoint</a></dt><dt><a class="fn" href="fn.init.html" title="fn nros_node::boot_report::init">init</a></dt><dt><a class="fn" href="fn.note_alloc.html" title="fn nros_node::boot_report::note_alloc">note_<wbr>alloc</a></dt><dt><a class="fn" href="fn.note_alloc_failed.html" title="fn nros_node::boot_report::note_alloc_failed">note_<wbr>alloc_<wbr>failed</a></dt><dt><a class="fn" href="fn.note_arena_capacity.html" title="fn nros_node::boot_report::note_arena_capacity">note_<wbr>arena_<wbr>capacity</a></dt></dl></section></div></main></body></html>

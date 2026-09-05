@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAGIC","VERSION"],"enum":["Stage"],"fn":["checkpoint","init","note_alloc","note_alloc_failed","note_arena_capacity"]};

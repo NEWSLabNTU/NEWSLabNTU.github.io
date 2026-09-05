@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-3788a75a.js";
+            window.path_to_searchindex_js = "searchindex-6b181ebd.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-3e810859.js"></script>
+        <script src="toc-9e89164b.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -8699,6 +8699,117 @@ dispatcher’s <code>&amp;'static [&amp;dyn LogSink]</code> shape leaves room fo
 add-later <code>RosoutSink</code> that consumes records alongside
 <code>PlatformSink</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="simulated-time"><a class="header" href="#simulated-time">Simulated Time</a></h1>
+<p>A node in a simulation or replaying a bag should run on the simulator’s clock,
+not the wall. nano-ros implements ROS 2’s answer to that: <code>rosgraph_msgs/msg/Clock</code>
+on <code>/clock</code>, the <code>use_sim_time</code> parameter, and timers that can be told which
+clock advances them.</p>
+<h2 id="the-distinction-the-names-carry"><a class="header" href="#the-distinction-the-names-carry">The distinction the names carry</a></h2>
+<p>rclcpp draws it in the method name, and so do we:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>you write</th><th>it advances with</th><th>affected by <code>/clock</code></th></tr>
+</thead>
+<tbody>
+<tr><td><code>create_wall_timer(period, cb)</code></td><td>the platform’s monotonic clock</td><td>no</td></tr>
+<tr><td><code>create_timer(clock, period, cb)</code></td><td>whatever <code>clock</code> is</td><td>yes, if it is a ROS-time clock</td></tr>
+</tbody>
+</table>
+</div>
+<p>A wall timer is the right choice for a watchdog, a transport keep-alive, or
+anything whose job is to notice that real time has passed — a paused simulator
+must not pause those. Everything that consumes simulated data wants the other
+one.</p>
+<p>If you are porting from rclcpp, the spelling you already write is the spelling
+that works. If you are reading older nano-ros code, note that <code>create_timer</code>
+used to mean the wall timer here; it does not any more, and there is no alias.</p>
+<h2 id="reading-the-time"><a class="header" href="#reading-the-time">Reading the time</a></h2>
+<p>A node’s clock is ROS time, as in rclcpp:</p>
+<pre><code class="language-cpp">nros::Time now = node.get_clock()-&gt;now();
+</code></pre>
+<p>With no <code>/clock</code> source installed, a ROS-time clock reads system time. That is
+the same fallback <code>rclcpp::Clock</code> has, and it is what makes a node written for
+simulation still run standalone.</p>
+<p>Two predicates report which situation you are in:</p>
+<pre><code class="language-cpp">node.get_clock()-&gt;ros_time_is_active();  // is a /clock source driving this?
+node.get_clock()-&gt;started();             // has a first sample arrived?
+</code></pre>
+<h2 id="turning-it-on"><a class="header" href="#turning-it-on">Turning it on</a></h2>
+<h3 id="with-the-parameter-as-in-ros-2"><a class="header" href="#with-the-parameter-as-in-ros-2">With the parameter, as in ROS 2</a></h3>
+<p>Declare <code>use_sim_time</code> and the runtime attaches the source itself — from a
+launch file, a params YAML, or <code>ros2 param set</code>:</p>
+<pre><code class="language-yaml">talker:
+  ros__parameters:
+    use_sim_time: true
+</code></pre>
+<p><code>use_sim_time</code> is reserved: nothing reads its value, the runtime acts on it.
+Set it false and <code>/clock</code> samples stop being installed.</p>
+<p>The Rust crate needs the <code>sim-time</code> feature, because the subscription costs an
+entity slot and an RX buffer:</p>
+<pre><code class="language-toml">nros-node = { version = "0.5", features = ["sim-time"] }
+</code></pre>
+<h3 id="explicitly"><a class="header" href="#explicitly">Explicitly</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>node.install_ros_time_source()?;          // subscribes /clock
+node.install_ros_time_source_on("/sim/clock")?;  // a remapped clock
+<span class="boring">}</span></code></pre>
+<p>QoS is <code>ClockQoS</code> — best effort, keep-last 1, volatile. A late subscriber wants
+the next sample, not a replay of the simulation’s history.</p>
+<h2 id="writing-a-timer-that-follows-it"><a class="header" href="#writing-a-timer-that-follows-it">Writing a timer that follows it</a></h2>
+<h3 id="c-2"><a class="header" href="#c-2">C++</a></h3>
+<pre><code class="language-cpp">nros::Timer t;
+NROS_TRY(node.create_timer(t, *node.get_clock(), 100, on_tick));
+</code></pre>
+<h3 id="rust-2"><a class="header" href="#rust-2">Rust</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>executor.register_timer_on_clock(
+    TimerDuration::from_millis(100),
+    TimerClockSource::Ros,
+    || { /* … */ },
+)?;
+<span class="boring">}</span></code></pre>
+<p><code>TimerClockSource::Steady</code> is the default everywhere and stays free: it consumes
+the spin delta the executor has already measured. <code>Ros</code> and <code>System</code> read their
+clock on every poll of the timer, which on a target is a platform call — that is
+why the choice is a separate entry point rather than a defaulted argument.</p>
+<h2 id="what-happens-at-the-edges"><a class="header" href="#what-happens-at-the-edges">What happens at the edges</a></h2>
+<p><strong>Paused.</strong> <code>/clock</code> stops advancing, so the delta is zero and a ROS-time timer
+does not fire. Wall timers on the same executor keep their cadence.</p>
+<p><strong>Replayed at 0.5x or 2x.</strong> The timer tracks the rate, because it advances by
+the clock’s own delta rather than by elapsed real time.</p>
+<p><strong>A jump backwards</strong> — a bag looping, a simulator reset — restarts the period.
+The alternative would be a timer that stays silent for the length of the jump.</p>
+<p><strong>A jump forwards</strong> is not special-cased. It lands as a backlog, and
+<code>TimerOverrunPolicy</code> decides: <code>Skip</code> (the default) coalesces it into one
+activation and counts the rest, <code>CatchUp</code> replays every missed period.</p>
+<p><strong>Unsubscribing does not reset the clock.</strong> A node that stops listening keeps
+the last simulated time rather than snapping back to the wall, which every
+ROS-time timer would otherwise absorb as a jump backwards. Clearing is
+deliberate: <code>Clock::clear_ros_time_override()</code>.</p>
+<h2 id="limits-worth-knowing-before-you-rely-on-this"><a class="header" href="#limits-worth-knowing-before-you-rely-on-this">Limits worth knowing before you rely on this</a></h2>
+<p><strong>One simulated clock per image.</strong> The override is process-global, which is the
+model <code>nros_core::Clock</code> has always documented. Two nodes in one image cannot be
+on different simulated times.</p>
+<p><strong>No jump callbacks.</strong> <code>rclcpp::Clock::create_jump_callback</code> and the
+<code>rcl_jump_threshold_t</code> machinery have no counterpart. The behaviour a jump
+produces is fixed (above); you cannot subscribe to the event.</p>
+<p><strong>No <code>wait_until_started</code> / <code>sleep_until</code>.</strong> RFC-0021 forbids a blocking helper
+that does not drive the executor. Poll <code>started()</code> from your spin loop.</p>
+<p><strong>Timers only.</strong> A ROS-time clock changes what <code>now()</code> returns and what a
+ROS-time timer does. It does not retime message delivery, QoS deadlines, or
+transport lease timers — those remain on the monotonic clock, which is what you
+want for a link that has to stay up while the simulation is paused.</p>
+<p><strong>The age monitor is on a different clock from your stamps.</strong> RFC-0052’s
+<code>max-age-runtime</code> rule compares a message’s <code>header.stamp</code> against an EPOCH
+clock (µs since the UNIX epoch, installed by the board via
+<code>Executor::set_epoch_clock</code>). If you stamp with <code>node.get_clock()-&gt;now()</code> while
+a simulator is driving ROS time, the two disagree and the reported ages are
+meaningless — usually enormous. Either stamp from the epoch clock, or leave the
+age rule off for that topic while running under simulation.</p>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="build-profiles"><a class="header" href="#build-profiles">Build Profiles</a></h1>
 <p>nano-ros builds both C/C++ and Rust code on your behalf. You choose the
 optimization level <strong>once, in your own build system</strong>, and nano-ros propagates
@@ -9268,7 +9379,7 @@ patterns that motivate having events at all on RTOS targets.</p>
 <p>Same shape as message callbacks. Register at construction time;
 callback fires from inside <code>spin_once</code> when the backend detects the
 event.</p>
-<h3 id="rust-2"><a class="header" href="#rust-2">Rust</a></h3>
+<h3 id="rust-3"><a class="header" href="#rust-3">Rust</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use core::time::Duration;
@@ -9299,7 +9410,7 @@ sub.on_message_lost(|status| {
 </span>let status = sub.next_liveliness_change().await?;
 let status = sub.next_deadline_miss().await?;
 <span class="boring">}</span></code></pre>
-<h3 id="c-2"><a class="header" href="#c-2">C</a></h3>
+<h3 id="c-3"><a class="header" href="#c-3">C</a></h3>
 <pre><code class="language-c">static void on_liveliness_changed(
         nros_subscription_t *sub,
         nros_liveliness_changed_status_t status,
@@ -14606,7 +14717,7 @@ abi_version mismatch is rejected. Run via:</p>
 <pre><code class="language-bash">cargo test -p nros-rmw-cffi --features c-stub-test --test c_stub_transport
 </code></pre>
 <h2 id="api"><a class="header" href="#api">API</a></h2>
-<h3 id="rust-3"><a class="header" href="#rust-3">Rust</a></h3>
+<h3 id="rust-4"><a class="header" href="#rust-4">Rust</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use core::ffi::c_void;
@@ -14635,7 +14746,7 @@ unsafe {
     })).expect("abi_version must match runtime");
 }
 <span class="boring">}</span></code></pre>
-<h3 id="c-3"><a class="header" href="#c-3">C</a></h3>
+<h3 id="c-4"><a class="header" href="#c-4">C</a></h3>
 <pre><code class="language-c">#include &lt;nros/transport.h&gt;
 
 static nros_ret_t my_open(void *ud, const void *params) {
@@ -24830,8 +24941,8 @@ its byte cost yet. Absence of a figure is not a claim that it is free.</p>
 <tr><th>knob</th><th style="text-align: right">default</th><th>read by</th></tr>
 </thead>
 <tbody>
-<tr><td><code>NROS_EXECUTOR_ACTION_CLIENTS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:105</code></td><td><code>packages/core/nros-node</code></td></tr>
-<tr><td><code>NROS_EXECUTOR_ARENA_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:242</code></td><td><code>packages/core/nros-node</code></td></tr>
+<tr><td><code>NROS_EXECUTOR_ACTION_CLIENTS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:114</code></td><td><code>packages/core/nros-node</code></td></tr>
+<tr><td><code>NROS_EXECUTOR_ARENA_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:251</code></td><td><code>packages/core/nros-node</code></td></tr>
 <tr><td><code>NROS_EXECUTOR_MAX_CBS</code></td><td style="text-align: right">4</td><td><code>packages/core/nros-node</code></td></tr>
 <tr><td><code>NROS_EXECUTOR_MAX_NODES</code></td><td style="text-align: right">4</td><td><code>packages/core/nros-node</code></td></tr>
 <tr><td><code>NROS_EXECUTOR_MAX_SC</code></td><td style="text-align: right">8</td><td><code>packages/core/nros-node</code></td></tr>
@@ -24860,9 +24971,9 @@ its byte cost yet. Absence of a figure is not a claim that it is free.</p>
 <tr><td><code>NROS_SMOLTCP_MAX_SOCKETS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:44</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td></tr>
 <tr><td><code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:52</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td></tr>
 <tr><td><code>NROS_SMOLTCP_SOCKET_TIMEOUT_MS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:67</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td></tr>
-<tr><td><code>NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:171</code></td><td><code>packages/core/nros-node</code> <strong>(conflicting defaults — see below)</strong></td></tr>
+<tr><td><code>NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:180</code></td><td><code>packages/core/nros-node</code> <strong>(conflicting defaults — see below)</strong></td></tr>
 <tr><td><code>NROS_SUBSCRIPTION_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/core/nros-node</code></td></tr>
-<tr><td><code>NROS_XRCE_CUSTOM_TRANSPORT_MTU</code></td><td style="text-align: right">computed — see <code>packages/rmw/xrce/nros-rmw-xrce-cffi/build.rs:409</code></td><td><code>packages/rmw/xrce/nros-rmw-xrce-cffi</code></td></tr>
+<tr><td><code>NROS_XRCE_CUSTOM_TRANSPORT_MTU</code></td><td style="text-align: right">computed — see <code>packages/rmw/xrce/nros-rmw-xrce-cffi/build.rs:429</code></td><td><code>packages/rmw/xrce/nros-rmw-xrce-cffi</code></td></tr>
 <tr><td><code>NROS_XRCE_STREAM_HISTORY</code></td><td style="text-align: right">computed — see <code>packages/rmw/xrce/nros-rmw-xrce-cffi/build.rs:240</code></td><td><code>packages/rmw/xrce/nros-rmw-xrce-cffi</code></td></tr>
 <tr><td><code>NROS_ZEPHYR_HEAP_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:891</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>ZPICO_BATCH_MULTICAST_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1081</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
@@ -24913,7 +25024,7 @@ hand bypasses the question Kconfig asked.</p>
 <p>The <code>evidence</code> column is where each value is consumed, so a symbol with no
 reader stands out: a prompt asking a question whose answer is discarded is
 worse than no prompt.</p>
-<p>79 Kconfig symbols — <strong>78 settable</strong>, 1 provided for application code, 0 derived, 0 dead.</p>
+<p>80 Kconfig symbols — <strong>79 settable</strong>, 1 provided for application code, 0 derived, 0 dead.</p>
 <h2 id="facts-with-more-than-one-spelling"><a class="header" href="#facts-with-more-than-one-spelling">Facts with more than one spelling</a></h2>
 <p>Where a decision has an authority OUTSIDE Kconfig, that authority is the
 place to set it and these symbols carry it.</p>
@@ -24992,6 +25103,7 @@ place to set it and these symbols carry it.</p>
 </thead>
 <tbody>
 <tr><td><code>CONFIG_NROS_BATCH_UNICAST_SIZE</code></td><td><code>1024</code></td><td>forwarded-to-cargo, cmake, rust-source</td></tr>
+<tr><td><code>CONFIG_NROS_BOOT_REPORT</code></td><td><code>n</code></td><td>cmake, rust-source</td></tr>
 <tr><td><code>CONFIG_NROS_CODEGEN_TOOL</code></td><td>—</td><td>cmake</td></tr>
 <tr><td><code>CONFIG_NROS_CPP_API</code></td><td>—</td><td>cmake, kconfig select/depends</td></tr>
 <tr><td><code>CONFIG_NROS_CYCLONE_CONFIG_XML</code></td><td>—</td><td>c-source</td></tr>
@@ -25021,7 +25133,7 @@ place to set it and these symbols carry it.</p>
 <tr><td><code>CONFIG_NROS_TRANSPORT_SERIAL</code></td><td>—</td><td>kconfig select/depends</td></tr>
 <tr><td><code>CONFIG_NROS_XRCE_BUFFER_SIZE</code></td><td><code>1024</code></td><td>forwarded-to-cargo, cmake</td></tr>
 <tr><td><code>CONFIG_NROS_XRCE_MAX_SERVICE_CLIENTS</code></td><td><code>4</code></td><td>forwarded-to-cargo, cmake</td></tr>
-<tr><td><code>CONFIG_NROS_XRCE_MAX_SERVICE_SERVERS</code></td><td><code>4</code></td><td>forwarded-to-cargo, cmake</td></tr>
+<tr><td><code>CONFIG_NROS_XRCE_MAX_SERVICE_SERVERS</code></td><td><code>-1</code></td><td>forwarded-to-cargo, cmake</td></tr>
 <tr><td><code>CONFIG_NROS_XRCE_MAX_SUBSCRIBERS</code></td><td><code>-1</code></td><td>forwarded-to-cargo, cmake</td></tr>
 <tr><td><code>CONFIG_NROS_XRCE_STREAM_HISTORY</code></td><td><code>16</code></td><td>forwarded-to-cargo, cmake</td></tr>
 <tr><td><code>CONFIG_NROS_XRCE_TRANSPORT_MTU</code></td><td><code>512</code></td><td>forwarded-to-cargo, cmake, rust-source</td></tr>
