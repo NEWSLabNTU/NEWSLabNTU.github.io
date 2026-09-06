@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-20598b7b.js";
+            window.path_to_searchindex_js = "searchindex-ea93c929.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-9e89164b.js"></script>
@@ -17320,16 +17320,62 @@ hashes the <em>bundled</em> packs; an external override would silently produce o
 that disagrees with the recorded fingerprint.</p>
 </blockquote>
 <h2 id="adding-a-language"><a class="header" href="#adding-a-language">Adding a language</a></h2>
-<p>Adding a target language is a <strong>pack + a spelling filter</strong>, not a rewrite:</p>
+<h3 id="step-0--decide-which-surfaces-you-need"><a class="header" href="#step-0--decide-which-surfaces-you-need">Step 0 — decide which SURFACES you need</a></h3>
+<p>This is the step that sizes the work, and skipping it is why “add a language”
+sounds bigger than it is. A pack is a <strong>(language × surface)</strong> pair, not a
+language: Rust has four message packs, and the <code>cpp</code> pack emits Rust as well as
+C++.</p>
+<p>There are two independent axes. On the <strong>message</strong> side: idiomatic,
+embedded-idiomatic (<code>no_std</code>), FFI/ABI (<code>repr(C)</code>), bridge glue, packaging. On
+the <strong>entry</strong> side: the entry TU, and the component seam. A language can take
+an entry surface with no message surface (it consumes another language’s
+messages) or the reverse.</p>
+<p>RFC-0091 §6 has the full table, including what each surface <em>drags in</em> — an
+FFI surface inherits the cross-language memory-agreement gate, a bridge surface
+is two spellings of one type that must move together. <strong>A language can ship
+with two surfaces and gain the rest later</strong>: a Zig component installed by a C
+or C++ entry needs the idiomatic and FFI message surfaces and the component
+seam, and nothing else.</p>
+<h3 id="step-1--the-message-pack"><a class="header" href="#step-1--the-message-pack">Step 1 — the message pack</a></h3>
 <ol>
 <li>add its <code>.jinja</code> templates (a new <code>packs/&lt;lang&gt;/</code>) and its rows in <code>PACKS</code>;</li>
-<li>if it needs type spelling the existing filters don’t cover, register one more
-filter wrapping a <code>*_spelling</code> function in <code>types.rs</code>;</li>
+<li>if it needs type spelling the existing filters don’t cover, add a <strong>filter
+set</strong> for the language (<code>rosidl_codegen::filters::FILTER_SETS</code>) wrapping a
+<code>*_spelling</code> function in <code>types.rs</code>. A language’s Rust surface area is a
+pack plus a filter set and nothing more; the set is keyed by the pack that
+CALLS the filter, not by the syntax it emits — <code>cpp_repr_c_type</code> returns
+Rust;</li>
 <li>add the generator entry that builds the view struct and calls
 <code>render::render("&lt;template-name&gt;", &amp;ctx)</code>.</li>
 </ol>
-<p>No per-language type logic lives in the builders — the packs and their filters own
-it. Implemented by phase-335 (RFC-0068).</p>
+<h3 id="step-2--the-entry-pack-if-the-language-writes-entries"><a class="header" href="#step-2--the-entry-pack-if-the-language-writes-entries">Step 2 — the entry pack, if the language writes entries</a></h3>
+<ol>
+<li><code>packs/entry/&lt;surface&gt;/entry.&lt;ext&gt;.jinja</code> over the entry view. Board paths,
+boot shape, tier rows, QoS codes and escaped literals all arrive already
+computed — a template decides where a value goes, never how to quote one;</li>
+<li><code>packs/entry/&lt;surface&gt;/pack.toml</code> — the extension, whether the TU is
+C-family, the entry template and its partials. CMake reads this through
+<code>nros codegen entry-pack</code> rather than deriving it, so this file is what
+makes the build know how to name and compile the output;</li>
+<li>one row in the template registry (<code>render.rs</code>), keyed
+<code>&lt;artifact&gt;_&lt;surface&gt;.&lt;ext&gt;</code> for an output and <code>*.jinja</code> for a partial;</li>
+<li>one variant on <code>Language</code> in <code>nros-lang</code>. Every consumer sees it — one
+enumeration.</li>
+</ol>
+<h3 id="step-3--the-goldens"><a class="header" href="#step-3--the-goldens">Step 3 — the goldens</a></h3>
+<p>Add the coordinate to the entry golden harness, run
+<code>NROS_UPDATE_GOLDEN=1 cargo test -p nros-cli-core --lib codegen::entry::golden</code>,
+and <strong>read the diff</strong>. The generated source is a file, not a claim.</p>
+<p><code>just check entry-pack-conformance</code> refuses a half-wired pack: a directory with
+no manifest, a language pack missing the fields CMake needs, a <code>Language</code>
+variant nothing renders, or a language whose bytes are recorded in no golden.
+Run it before you believe the pack works.</p>
+<h3 id="what-this-does-not-make-cheap"><a class="header" href="#what-this-does-not-make-cheap">What this does NOT make cheap</a></h3>
+<p>The <strong>toolchain story</strong> — how CMake compiles the language, how it links
+<code>libnros</code>, how its components declare themselves. The codegen cost becomes a
+pack; the build-integration cost does not. Budget for it separately.</p>
+<p>No per-language type logic lives in the builders — the packs and their filters
+own it. Implemented by phase-335 (RFC-0068) and phase-432 (RFC-0091).</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="canonical-platform-c-abi"><a class="header" href="#canonical-platform-c-abi">Canonical Platform C ABI</a></h1>
 <p>nano-ros separates the platform layer (clock, sleep, allocator,
