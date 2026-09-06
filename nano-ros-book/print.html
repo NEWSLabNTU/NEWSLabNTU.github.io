@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-337967e4.js";
+            window.path_to_searchindex_js = "searchindex-dba99c98.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-9e89164b.js"></script>
@@ -1951,10 +1951,10 @@ stub that wires signal handling and forwards to your function.</p>
 
 int nros_app_main(int argc, char** argv) {
     // 1. nros_support_init() — opens the zenoh session
-    // 2. nros_executor_init() / nros_node_init()
+    // 2. nros_executor_init() / rclc_node_init_default()
     // 3. std_msgs_msg_int32_publisher_init() — typed publisher
     // 4. nros_timer_init() with a 1 Hz period + publish callback
-    // 5. nros_executor_spin() until SIGINT
+    // 5. rclc_executor_spin() until SIGINT
 }
 </code></pre>
 <h2 id="configure-1"><a class="header" href="#configure-1">Configure</a></h2>
@@ -8588,7 +8588,7 @@ with the same <code>Logger</code> + severity surface as <code>rclcpp::Logger</co
 <h2 id="quick-start"><a class="header" href="#quick-start">Quick start</a></h2>
 <h3 id="rust-1"><a class="header" href="#rust-1">Rust</a></h3>
 <pre class="playground"><code class="language-rust">use nros_log::{Logger, Severity};
-use nros_log::{nros_info, nros_warn};
+use nros_log::{log_info, log_warn};
 
 static LOGGER: Logger = Logger::new("my_node");
 
@@ -8596,15 +8596,15 @@ fn main() {
     nros_log::register_logger(&amp;LOGGER);
     nros_log::init(nros_log::sinks::default());
 
-    nros_info!(&amp;LOGGER, "started; domain = {}", 42);
-    nros_warn!(&amp;LOGGER, "queue depth {} exceeds soft limit", 5);
+    log_info!(&amp;LOGGER, "started; domain = {}", 42);
+    log_warn!(&amp;LOGGER, "queue depth {} exceeds soft limit", 5);
 }</code></pre>
 <p>Inside a node, prefer the <code>Node::logger()</code> accessor — it resolves
 to the same intern’d entry when the name matches:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>let mut node = executor.create_node("my_node")?;
-nros_info!(node.logger(), "subscribed to {}", topic);
+log_info!(node.logger(), "subscribed to {}", topic);
 <span class="boring">}</span></code></pre>
 <h3 id="c-1"><a class="header" href="#c-1">C</a></h3>
 <pre><code class="language-c">#include &lt;nros/init.h&gt;
@@ -8615,15 +8615,15 @@ int main(void) {
     nros_support_t support = nros_support_get_zero_initialized();
     nros_support_init(&amp;support, "tcp/127.0.0.1:7447", 0);
 
-    nros_node_t node = nros_node_get_zero_initialized();
-    nros_node_init(&amp;node, &amp;support, "my_node", "/");
+    nros_node_t node = rcl_get_zero_initialized_node();
+    rclc_node_init_default(&amp;node, "my_node", "/", &amp;support);
 
     nros_logger_t logger = nros_node_get_logger(&amp;node);
     NROS_LOG_INFO(logger, "started; domain=%u", 42);
     NROS_LOG_WARN(logger, "queue depth %u exceeds soft limit", 5);
 
-    nros_node_fini(&amp;node);
-    nros_support_fini(&amp;support);
+    rcl_node_fini(&amp;node);
+    rclc_support_fini(&amp;support);
     return 0;
 }
 </code></pre>
@@ -9386,7 +9386,7 @@ lists which <code>&lt;plat&gt; × &lt;lang&gt;</code> combinations ship a bridge
 <tbody>
 <tr><td><code>Transport(ConnectionFailed)</code> on <code>open_with_rmw("X", ...)</code></td><td>Backend X’s rlib not pulled into the link line. Rust: add a <code>register()</code> call. C / C++: confirm <code>--whole-archive</code> wraps the staticlib.</td></tr>
 <tr><td>Second node’s <code>.rmw("zenoh")</code> returns <code>Transport(...)</code></td><td>Both nodes try to open against the same singleton-state backend. Set <code>NROS_RMW=zenoh</code> so the primary lands on zenoh + the second Node hits the session-cache (slot 0) instead of double-opening.</td></tr>
-<tr><td><code>nros_publisher_init -&gt; -7</code> after <code>nros_executor_node_init</code></td><td>Stale build — the C-side multi-Session dispatch predates nros-v0.5.0; rebuild <code>nros-c</code> after updating.</td></tr>
+<tr><td><code>rclc_publisher_init_default -&gt; -7</code> after <code>nros_executor_node_init</code></td><td>Stale build — the C-side multi-Session dispatch predates nros-v0.5.0; rebuild <code>nros-c</code> after updating.</td></tr>
 <tr><td><code>Bridge spinning</code> marker never reaches piped test harness</td><td>Add <code>setvbuf(stdout, NULL, _IOLBF, 0)</code> at the top of <code>nros_app_main</code>. glibc full-buffers piped stdout; line-buffering surfaces readiness markers before the long-lived <code>spin_period</code> loop.</td></tr>
 </tbody>
 </table>
@@ -11211,9 +11211,13 @@ example before moving to a platform-specific guide.</p>
 <h1 id="porting-a-ros-2-c-node-to-nano-ros"><a class="header" href="#porting-a-ros-2-c-node-to-nano-ros">Porting a ROS 2 C++ node to nano-ros</a></h1>
 <p>Goal: take a normal ROS 2 C++ node (one that compiles + runs under
 <code>colcon build</code> against <code>ros-humble-*</code>) and run it under nano-ros — without
-rewriting the source. The rclcpp source-compat layer (<code>nros/rclcpp_compat.hpp</code> +
-<code>cmake/compat/NrosRclcppCompat.cmake</code> + <code>nros-diagnostic-updater</code>) is built for
-this; the only delta is <strong>build-script glue</strong>.</p>
+rewriting the source. The <code>rclcpp::</code> names are declared by nano-ros’s own C++
+headers — <code>#include &lt;rclcpp/rclcpp.hpp&gt;</code> resolves through
+<code>cmake/compat/include/rclcpp/rclcpp.hpp</code> straight to <code>&lt;nros/nros.hpp&gt;</code>, with no
+compat header in between (phase-417 stage 6 deleted <code>nros/rclcpp_compat.hpp</code>).
+What remains of the compat layer is build glue —
+<code>cmake/compat/NrosRclcppCompat.cmake</code> plus <code>nros-diagnostic-updater</code> — so the
+only delta is <strong>build-script glue</strong>.</p>
 <p>The canonical proof lives at
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/cpp-port-minimal-publisher"><code>examples/templates/cpp-port-minimal-publisher/</code></a> —
 the ROS 2 tutorial’s <code>minimal_publisher.cpp</code> vendored unmodified, building
@@ -11235,8 +11239,10 @@ ament_target_dependencies(my_node rclcpp std_msgs)
 
 ament_package()
 </code></pre>
-<p><code>find_package(rclcpp)</code> resolves through the rclcpp Find-stub (which
-auto-applies the <code>rclcpp_compat.hpp</code> force-include); <code>find_package(std_msgs)</code>
+<p><code>find_package(rclcpp)</code> resolves through the rclcpp Find-stub (which puts
+<code>cmake/compat/include/</code> on the include path so <code>&lt;rclcpp/rclcpp.hpp&gt;</code> lands on
+nano-ros’s headers, and force-includes <code>nros/rclcpp_components_compat.hpp</code> for
+the components macros); <code>find_package(std_msgs)</code>
 resolves through the smart Find-stub (it walks
 <code>NROS_INTERFACE_SEARCH_PATH &gt; AMENT_PREFIX_PATH &gt; bundled</code>); the
 <code>ament_target_dependencies</code> compat shim wires both link targets.</p>
@@ -11657,7 +11663,7 @@ zenoh endpoints communicate intent through the topic-key encoding.</p>
 <code>MANUAL_BY_TOPIC</code> / <code>MANUAL_BY_NODE</code> liveliness call
 <code>assert_liveliness()</code> explicitly to refresh the lease. Available on
 every language surface (Rust <code>Publisher&lt;M&gt;::assert_liveliness()</code>, C
-<code>nros_publisher_assert_liveliness(&amp;pub)</code>, C++
+<code>rcl_publisher_assert_liveliness(&amp;pub)</code>, C++
 <code>pub.assert_liveliness()</code>). The zenoh backend wires it: a shim-side
 keepalive lease that <code>assert_liveliness()</code> refreshes, with
 <code>LivelinessLost</code> fired on expiry. Backends without manual-assertion
@@ -11787,9 +11793,10 @@ root). Compatible with tokio out of the box.</li>
 </ul>
 <p>If you are coming from <code>rclc</code>:</p>
 <ul>
-<li>Same C names where they map (<code>nros_node_init</code>, <code>nros_publisher_init</code>,
-<code>nros_subscription_init</code>). Memory ownership rules are the same — the
-caller owns storage, the API initialises it.</li>
+<li>The C entry points carry rclc’s own names (<code>rclc_node_init_default</code>,
+<code>rclc_publisher_init_default</code>, <code>rclc_subscription_init_default</code>), in
+rclc’s argument order and at rclc’s arity. Memory ownership rules are
+the same — the caller owns storage, the API initialises it.</li>
 <li>See the <a href="#c-api-1">C API reference</a> for the full
 surface.</li>
 </ul>
@@ -11881,12 +11888,16 @@ PIWeb).</li>
 </ul>
 <h2 id="migration-sketch"><a class="header" href="#migration-sketch">Migration sketch</a></h2>
 <p>If you’re porting from micro-ROS to nano-ros:</p>
+<p>Several rows below are now <strong>identity</strong> on the C side: phase-417 took rcl/rclc’s
+spellings, so <code>rclc_publisher_init_default</code> and <code>rclc_executor_t</code> are what
+nano-ros calls them too. The migration is a rename only where the shape differs.</p>
 <ul>
 <li><code>rcl_node_init</code> → <code>Executor::create_node</code> (Rust) /
-<code>nros_executor_node_init</code> (C).</li>
-<li><code>rclc_executor_t</code> → <code>nros::Executor</code>.</li>
-<li><code>rclc_publisher_init_default</code> → <code>Node::create_publisher::&lt;M&gt;</code> or
-<code>nros_publisher_init</code>.</li>
+<code>rclc_node_init_default</code> (C — same name as micro-ROS, but the ARGUMENTS are
+rclc’s order <code>(node, name, namespace, support)</code>).</li>
+<li><code>rclc_executor_t</code> → <code>nros::Executor</code> (Rust/C++); <strong>unchanged</strong> in C.</li>
+<li><code>rclc_publisher_init_default</code> → <code>Node::create_publisher::&lt;M&gt;</code> (Rust) or
+the identically-spelled <code>rclc_publisher_init_default</code> (C).</li>
 <li>micro-ROS’s <code>rmw_uros_set_custom_transport</code> → nano-ros’s custom
 transport pattern via <code>nros_platform_*</code> C ABI (see
 <a href="#custom-transport">Custom Transport</a>).</li>
@@ -12110,7 +12121,7 @@ types work across Rust, C, and C++ APIs.</p>
 <li><code>node.create_subscription::&lt;M&gt;("/topic")</code> — caller polls. No executor magic.</li>
 <li><code>executor.register_subscription::&lt;M, _&gt;("/topic", |m| { ... })</code> — executor dispatches.</li>
 </ul>
-<p>The C / C++ FFI mirrors this split: <code>nros_subscription_init</code> (L1) vs <code>nros_executor_register_subscription</code> (L2); <code>nros_subscription_init_polling</code> (L1, inline-storage) vs <code>register_subscription_*</code> (L2, executor arena).</p>
+<p>The C / C++ FFI mirrors this split: <code>nros_subscription_init_polling</code> + <code>nros_subscription_take_serialized</code> (L1, inline storage — the caller takes from the entity) vs <code>rclc_subscription_init_default</code> + <code>nros_executor_add_subscription*</code> (L2, executor arena, callback supplied at registration).</p>
 <h2 id="what-goes-where"><a class="header" href="#what-goes-where">What goes where</a></h2>
 <pre class="mermaid">graph LR
     EX["Executor::open(&amp;config)"] --&gt; NODE["executor.create_node(name)"]
@@ -12160,7 +12171,7 @@ let publisher = {
 <p>Both layers cross the FFI cleanly:</p>
 <ul>
 <li><strong>C, L1 polling</strong> — <code>nros_subscription_init_polling</code> writes a <code>RawSubscription</code> inline in <code>nros_subscription_t._opaque</code>. <code>nros_subscription_take_serialized</code> reads from the inline buffer. Same shape for service / service-client / action server / action client.</li>
-<li><strong>C, L2 callback</strong> — <code>nros_subscription_init</code> records the C callback pointer; <code>nros_executor_register_subscription</code> allocates the executor-arena entry.</li>
+<li><strong>C, L2 callback</strong> — <code>rclc_subscription_init_default</code> creates the entity; the callback is supplied at registration (<code>nros_executor_add_subscription_typed</code> for the typed path, <code>nros_executor_add_subscription_raw</code> for the byte path), which also allocates the executor-arena entry.</li>
 <li><strong>C++</strong> — typed templates wrap each FFI surface: <code>nros::Subscription&lt;M&gt;</code> + <code>take</code> for L1, <code>nros::PollingActionServer&lt;A&gt;</code> for the L1 action path (122.3.d.b), the L2 executor-registered callback model via the existing <code>nros::ActionServer&lt;A&gt;</code> API.</li>
 </ul>
 <p>For the per-FFI-function spec, see the <a href="api/platform-cffi/index.html">Doxygen reference</a>. For the example migration tally (32 examples on L2, 16 intentionally L1), see the <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/archived/phase-122-unify-api-paths.md">unify-api-paths roadmap doc</a>.</p>
@@ -14854,7 +14865,7 @@ int main(void) {
     };
     nros_set_custom_transport(&amp;ops);
 
-    // ... continue with nros_support_init, nros_node_init, etc.
+    // ... continue with nros_support_init, rclc_node_init_default, etc.
 }
 </code></pre>
 <h3 id="c-1-3"><a class="header" href="#c-1-3">C++</a></h3>
@@ -16639,7 +16650,7 @@ publishers call <code>assert_liveliness()</code> explicitly:</p>
 </span><span class="boring">fn main() {
 </span>pub.assert_liveliness()?;   // refresh this publisher's lease
 <span class="boring">}</span></code></pre>
-<p>C side: <code>nros_publisher_assert_liveliness(&amp;pub)</code>. C++ side:
+<p>C side: <code>rcl_publisher_assert_liveliness(&amp;pub)</code>. C++ side:
 <code>pub.assert_liveliness()</code>. No-op for <code>AUTOMATIC</code> and <code>NONE</code> kinds.</p>
 <h3 id="differences-from-upstreams-matching"><a class="header" href="#differences-from-upstreams-matching">Differences from upstream’s matching</a></h3>
 <p>Upstream surfaces QoS mismatches via runtime events
@@ -22039,8 +22050,8 @@ public surface a user application needs.</p>
 <h2 id="where-to-start-1"><a class="header" href="#where-to-start-1">Where to start</a></h2>
 <ul>
 <li><a href="api/c/nros_8h.html"><code>nros/nros.h</code></a> — convenience umbrella include</li>
-<li><a href="api/c/init_8h.html"><code>nros/init.h</code></a> — <code>nros_support_init</code>, <code>nros_support_fini</code></li>
-<li><a href="api/c/node_8h.html"><code>nros/node.h</code></a> — <code>nros_node_init</code>, <code>nros_node_fini</code></li>
+<li><a href="api/c/init_8h.html"><code>nros/init.h</code></a> — <code>nros_support_init</code>, <code>rclc_support_fini</code></li>
+<li><a href="api/c/node_8h.html"><code>nros/node.h</code></a> — <code>rclc_node_init_default</code>, <code>rcl_node_fini</code></li>
 <li><a href="api/c/executor_8h.html"><code>nros/executor.h</code></a> — spin loop, executor lifecycle</li>
 <li><a href="api/c/publisher_8h.html"><code>nros/publisher.h</code></a> / <a href="api/c/subscription_8h.html"><code>subscription.h</code></a> — pub/sub</li>
 <li><a href="api/c/service_8h.html"><code>nros/service.h</code></a> / <a href="api/c/client_8h.html"><code>client.h</code></a> — services</li>
@@ -22050,12 +22061,14 @@ public surface a user application needs.</p>
 </ul>
 <blockquote>
 <p><strong>Two-layer API.</strong> Every entity exposes two parallel C entry-point
-sets: <code>nros_*_init</code> (Layer 1, caller polls) and
-<code>nros_executor_register_*</code> (Layer 2, executor callback). Layer 1
+sets: <code>rclc_*_init_default</code> (Layer 1, caller polls) and
+<code>nros_executor_add_*</code> (Layer 2, executor callback). Layer 1
 grew an <code>_init_polling</code> + <code>take_*_raw</code> / <code>send_*_raw</code> family
 for inline-storage callers (no executor arena).
-Layer 2 keeps the existing <code>nros_*_init</code> + executor-register
-pair. See <a href="#two-layer-api">Two-Layer API</a> for the
+Layer 2 pairs the same <code>rclc_*_init_default</code> with the
+executor-add call, which is where the callback is supplied
+(rclc’s binding site). See
+<a href="#two-layer-api">Two-Layer API</a> for the
 verb discipline and per-layer trade-offs.</p>
 </blockquote>
 <blockquote>
@@ -22079,11 +22092,11 @@ delivered through the callbacks registered with
 <code>nros_action_client_set_goal_response_callback()</code>,
 <code>nros_action_client_set_feedback_callback()</code>, and
 <code>nros_action_client_set_result_callback()</code>. The callbacks fire from
-<code>nros_executor_spin_some()</code> — your spin loop is the only place
+<code>rclc_executor_spin_some()</code> — your spin loop is the only place
 callbacks run.</li>
 <li><strong>Blocking convenience:</strong> <code>nros_action_send_goal()</code> and
 <code>nros_action_get_result()</code>. These call the async variant and then
-drive <code>nros_executor_spin_some()</code> internally on a wall-clock budget
+drive <code>rclc_executor_spin_some()</code> internally on a wall-clock budget
 until the reply lands (or 15 s / 30 s timeout). They take the
 <code>nros_executor_t*</code> explicitly because the action client stores its
 handle as an opaque slot inside the executor (registered via
@@ -22097,7 +22110,7 @@ take an explicit executor — the client stashes the executor pointer
 during <code>nros_executor_register_client()</code> and recovers it internally —
 but it follows the same async-then-spin contract.</p>
 <p>Canonical pattern: declare the executor, register the client, then
-either call the blocking helper or drive <code>nros_executor_spin_some()</code>
+either call the blocking helper or drive <code>rclc_executor_spin_some()</code>
 yourself between async calls until your callback flags the result. See
 the example layouts in <code>examples/native/c/action-client/</code> and
 <code>examples/qemu-arm-freertos/c/action-client/</code>.</p>

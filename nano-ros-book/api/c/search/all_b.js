@@ -1,6 +1,13 @@
 var searchData=
 [
-  ['feedback_5fcallback_0',['feedback_callback',['../structnros__action__client__t.html#a7a746b29b06e8d9f16a4ba57df151a34',1,'nros_action_client_t']]],
-  ['feedback_5fserialized_5fsize_5fmax_1',['feedback_serialized_size_max',['../structnros__action__type__t.html#afe29414eeaa1aa6f4241b2aa2c8969cd',1,'nros_action_type_t']]],
-  ['ffi_20callback_20crashes_2',['FFI Callback Crashes',['../troubleshooting.html#autotoc_md262',1,'']]]
+  ['endpoint_5fgid_0',['endpoint_gid',['../structnros__endpoint__info__t.html#a3ce72ad5afabf001606887184e98e3be',1,'nros_endpoint_info_t']]],
+  ['environment_20variables_1',['Runtime Environment Variables',['../configuration.html#autotoc_md270',1,'']]],
+  ['error_20codes_2',['error codes',['../error_codes.html',1,'Error Codes'],['../troubleshooting.html#autotoc_md285',1,'zenoh-pico Error Codes']]],
+  ['error_2dcodes_2emd_3',['error-codes.md',['../error-codes_8md.html',1,'']]],
+  ['errors_4',['errors',['../group__grp__errors.html',1,'errors'],['../error_codes.html#autotoc_md288',1,'Pattern: Handling Errors'],['../error_codes.html#autotoc_md287',1,'zenoh-pico Underlying Errors']]],
+  ['example_5',['Example',['../configuration.html#autotoc_md275',1,'']]],
+  ['executor_6',['executor',['../group__grp__executor.html',1,'executor'],['../structnros__node__t.html#a303491f30fc3a1e1bb784d168160eda3',1,'nros_node_t::executor']]],
+  ['executor_2eh_7',['executor.h',['../executor_8h.html',1,'']]],
+  ['executor_5fptr_8',['executor_ptr',['../structServiceClientInternal.html#a32fc8a61cd0ff3307781f646e1d06bce',1,'ServiceClientInternal::executor_ptr'],['../structServiceServerInternal.html#aa284f970627306175acfd73414406137',1,'ServiceServerInternal::executor_ptr'],['../structActionServerInternal.html#acfaceab2b02fc56a09b0836aefeffb56',1,'ActionServerInternal::executor_ptr'],['../structActionClientInternal.html#a8268802cf1977882d44ff09454f67fea',1,'ActionClientInternal::executor_ptr']]],
+  ['exists_20and_20why_20it_20takes_20two_20strings_20rather_20than_20a_20handle_9',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md109',1,'']]]
 ];

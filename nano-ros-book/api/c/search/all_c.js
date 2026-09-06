@@ -1,13 +1,9 @@
 var searchData=
 [
-  ['gap_0',['gap',['../structnros__integrity__status__t.html#ad98429c8c76af64a8bd53685968ab678',1,'nros_integrity_status_t']]],
-  ['generation_1',['generation',['../getting_started.html#autotoc_md244',1,'2. Code Generation'],['../structnros__node__ref__t.html#ad1fbf57c47da2849c38dcafd0a91f059',1,'nros_node_ref_t::generation']]],
-  ['getting_20started_2',['Getting Started',['../getting_started.html',1,'index']]],
-  ['getting_2dstarted_2emd_3',['getting-started.md',['../getting-started_8md.html',1,'']]],
-  ['goal_5fcallback_4',['goal_callback',['../structnros__action__server__t.html#aff371e87636d6cf8e9c8e541fd1b67d4',1,'nros_action_server_t']]],
-  ['goal_5fresponse_5fcallback_5',['goal_response_callback',['../structnros__action__client__t.html#ad8263d6f04199d3a23f8f110504ad273',1,'nros_action_client_t']]],
-  ['goal_5fserialized_5fsize_5fmax_6',['goal_serialized_size_max',['../structnros__action__type__t.html#ab54ef05e2f4ae8dd483c849f1007b783',1,'nros_action_type_t']]],
-  ['groups_2edox_7',['groups.dox',['../groups_8dox.html',1,'']]],
-  ['guard_5fcondition_2eh_8',['guard_condition.h',['../guard__condition_8h.html',1,'']]],
-  ['guides_9',['Guides',['../index.html#autotoc_md241',1,'']]]
+  ['fails_0',['What the callback sees when decoding fails',['../nros__generated_8h.html#autotoc_md61',1,'']]],
+  ['feedback_5fcallback_1',['feedback_callback',['../structnros__action__client__t.html#a7a746b29b06e8d9f16a4ba57df151a34',1,'nros_action_client_t']]],
+  ['feedback_5fserialized_5fsize_5fmax_2',['feedback_serialized_size_max',['../structnros__action__type__t.html#afe29414eeaa1aa6f4241b2aa2c8969cd',1,'nros_action_type_t']]],
+  ['ffi_20callback_20crashes_3',['FFI Callback Crashes',['../troubleshooting.html#autotoc_md282',1,'']]],
+  ['from_20rcl_4',['Overflow, and how this differs from rcl',['../timer_8h.html#autotoc_md255',1,'']]],
+  ['from_20rcl_20deliberate_5',['Divergence from rcl, deliberate',['../timer_8h.html#autotoc_md256',1,'']]]
 ];

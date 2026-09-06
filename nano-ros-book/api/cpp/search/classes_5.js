@@ -1,5 +1,4 @@
 var searchData=
 [
-  ['lespan_0',['LeSpan',['../structnros_1_1LeSpan.html',1,'nros']]],
-  ['loan_1',['Loan',['../classnros_1_1Publisher_1_1Loan.html',1,'nros::Publisher']]]
+  ['is_5fqos_5farg_0',['is_qos_arg',['../classrclcpp_1_1detail_1_1is__qos__arg.html',1,'rclcpp::detail']]]
 ];

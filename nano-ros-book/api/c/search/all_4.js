@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['5_20build_20and_20run_0',['5. Build and Run',['../getting_started.html#autotoc_md247',1,'']]]
+  ['4_20write_20a_20publisher_0',['4. Write a Publisher',['../getting_started.html#autotoc_md266',1,'']]]
 ];

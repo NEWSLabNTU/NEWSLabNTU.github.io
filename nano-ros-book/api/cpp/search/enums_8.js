@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['serializationformat_0',['SerializationFormat',['../namespacenros.html#a7373ed4271238dc7a006a658a6388fc9',1,'nros']]]
+  ['reliabilitypolicy_0',['ReliabilityPolicy',['../namespacenros.html#a81b31d75b3c1ba927a20c4efbb3cc36b',1,'nros']]]
 ];

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_LOGGER_NAME_LEN"],"fn":["dynamic_logger_capacity","dynamic_logger_name_arena","dynamic_loggers_in_use"]};

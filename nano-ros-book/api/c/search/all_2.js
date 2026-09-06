@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['3_20rmw_20backend_20selection_0',['3. RMW Backend Selection',['../getting_started.html#autotoc_md245',1,'']]],
-  ['3_20terminals_1',['Quick Start (3 Terminals)',['../ros2_interop.html#autotoc_md256',1,'']]]
+  ['2_20code_20generation_0',['2. Code Generation',['../getting_started.html#autotoc_md264',1,'']]],
+  ['2_20interoperability_1',['ROS 2 Interoperability',['../ros2_interop.html',1,'index']]]
 ];

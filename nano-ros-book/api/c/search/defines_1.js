@@ -66,10 +66,16 @@ var searchData=
   ['nros_5fserialization_5fformat_5fid_63',['NROS_SERIALIZATION_FORMAT_ID',['../nros__generated_8h.html#a52fa0c398a3852466bda8a49b896bf6c',1,'nros_generated.h']]],
   ['nros_5fserialization_5fformat_5fid_5fcdr_64',['NROS_SERIALIZATION_FORMAT_ID_CDR',['../serialization__format_8h.html#a6dbbb8c5aa594109cdce8f50474458ef',1,'serialization_format.h']]],
   ['nros_5fserialization_5fformat_5fid_5fuorb_65',['NROS_SERIALIZATION_FORMAT_ID_UORB',['../serialization__format_8h.html#ae163baa0bd0ae860fa16a136de50bee8',1,'serialization_format.h']]],
-  ['nros_5fshutdown_5fcallback_5fhandle_5finvalid_66',['NROS_SHUTDOWN_CALLBACK_HANDLE_INVALID',['../nros__generated_8h.html#aabd94b0686f449b031084ce5a6b6fd46',1,'nros_generated.h']]],
-  ['nros_5fstatic_5fassert_67',['NROS_STATIC_ASSERT',['../serialization__format_8h.html#ae813b72c1ded88765742e7a5b18080f0',1,'serialization_format.h']]],
-  ['nros_5fstatic_5fassert_5fcat_68',['NROS_STATIC_ASSERT_CAT',['../serialization__format_8h.html#aef11f60a2ccbc51cce120ea817554052',1,'serialization_format.h']]],
-  ['nros_5fstatic_5fassert_5fcat_5f_69',['NROS_STATIC_ASSERT_CAT_',['../serialization__format_8h.html#ab7935c180797c150ab8c82595998f44b',1,'serialization_format.h']]],
-  ['nros_5fstatic_5fassert_5ftag_5f_70',['NROS_STATIC_ASSERT_TAG_',['../serialization__format_8h.html#a8e3eabb963e83da74db2615d4d300bdf',1,'serialization_format.h']]],
-  ['nros_5fwarn_5funused_71',['NROS_WARN_UNUSED',['../visibility_8h.html#a55f3fee016bd58e00f2ec8bfe593dbd7',1,'visibility.h']]]
+  ['nros_5fservice_5ftyped_5ferr_5fno_5fcallback_66',['NROS_SERVICE_TYPED_ERR_NO_CALLBACK',['../nros__generated_8h.html#af720319e006042c8e78259ad5b165b68',1,'nros_generated.h']]],
+  ['nros_5fservice_5ftyped_5ferr_5frequest_5fdeserialize_67',['NROS_SERVICE_TYPED_ERR_REQUEST_DESERIALIZE',['../nros__generated_8h.html#a26c82b9a3372a5f608726bfcc3b498a2',1,'nros_generated.h']]],
+  ['nros_5fservice_5ftyped_5ferr_5frequest_5fserialize_68',['NROS_SERVICE_TYPED_ERR_REQUEST_SERIALIZE',['../nros__generated_8h.html#a33ff4253dbf136a6f98f793985cdf274',1,'nros_generated.h']]],
+  ['nros_5fservice_5ftyped_5ferr_5fresponse_5fdeserialize_69',['NROS_SERVICE_TYPED_ERR_RESPONSE_DESERIALIZE',['../nros__generated_8h.html#aa50908e4962f7792d717d9f90537793d',1,'nros_generated.h']]],
+  ['nros_5fservice_5ftyped_5ferr_5fresponse_5fserialize_70',['NROS_SERVICE_TYPED_ERR_RESPONSE_SERIALIZE',['../nros__generated_8h.html#a30b4ecaa641b5822661d8f082a0089ae',1,'nros_generated.h']]],
+  ['nros_5fservice_5ftyped_5fok_71',['NROS_SERVICE_TYPED_OK',['../nros__generated_8h.html#a42d4d6549e5043af9f16ca939a678a83',1,'nros_generated.h']]],
+  ['nros_5fshutdown_5fcallback_5fhandle_5finvalid_72',['NROS_SHUTDOWN_CALLBACK_HANDLE_INVALID',['../nros__generated_8h.html#aabd94b0686f449b031084ce5a6b6fd46',1,'nros_generated.h']]],
+  ['nros_5fstatic_5fassert_73',['NROS_STATIC_ASSERT',['../serialization__format_8h.html#ae813b72c1ded88765742e7a5b18080f0',1,'serialization_format.h']]],
+  ['nros_5fstatic_5fassert_5fcat_74',['NROS_STATIC_ASSERT_CAT',['../serialization__format_8h.html#aef11f60a2ccbc51cce120ea817554052',1,'serialization_format.h']]],
+  ['nros_5fstatic_5fassert_5fcat_5f_75',['NROS_STATIC_ASSERT_CAT_',['../serialization__format_8h.html#ab7935c180797c150ab8c82595998f44b',1,'serialization_format.h']]],
+  ['nros_5fstatic_5fassert_5ftag_5f_76',['NROS_STATIC_ASSERT_TAG_',['../serialization__format_8h.html#a8e3eabb963e83da74db2615d4d300bdf',1,'serialization_format.h']]],
+  ['nros_5fwarn_5funused_77',['NROS_WARN_UNUSED',['../visibility_8h.html#a55f3fee016bd58e00f2ec8bfe593dbd7',1,'visibility.h']]]
 ];

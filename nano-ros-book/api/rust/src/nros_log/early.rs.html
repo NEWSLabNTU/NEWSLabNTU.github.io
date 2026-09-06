@@ -179,29 +179,42 @@
 <a href=#179 id=179 data-nosnippet>179</a>/// among the replayed records themselves is preserved, which is the property
 <a href=#180 id=180 data-nosnippet>180</a>/// worth having.
 <a href=#181 id=181 data-nosnippet>181</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>drain(sinks: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>[<span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw">dyn </span>LogSink]) {
-<a href=#182 id=182 data-nosnippet>182</a>    <span class="kw">let </span>claimed = CLAIMED.load(Ordering::Acquire);
-<a href=#183 id=183 data-nosnippet>183</a>    <span class="kw">let </span>held = <span class="kw">if </span>claimed &gt; DEPTH { DEPTH } <span class="kw">else </span>{ claimed };
-<a href=#184 id=184 data-nosnippet>184</a>    <span class="kw">for </span>slot <span class="kw">in </span>SLOTS.iter().take(held) {
-<a href=#185 id=185 data-nosnippet>185</a>        <span class="kw">if </span>slot.ready.swap(<span class="number">0</span>, Ordering::AcqRel) == <span class="number">0 </span>{
-<a href=#186 id=186 data-nosnippet>186</a>            <span class="comment">// Either already drained by a concurrent `init`, or its writer has
-<a href=#187 id=187 data-nosnippet>187</a>            // not published yet. Neither is worth spinning at boot for.
-<a href=#188 id=188 data-nosnippet>188</a>            </span><span class="kw">continue</span>;
-<a href=#189 id=189 data-nosnippet>189</a>        }
-<a href=#190 id=190 data-nosnippet>190</a>        <span class="comment">// SAFETY: the `Acquire` half of the swap above pairs with the writer's
-<a href=#191 id=191 data-nosnippet>191</a>        // `Release` store, and the swap makes this the only reader.
-<a href=#192 id=192 data-nosnippet>192</a>        </span><span class="kw">let </span>pending = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>slot.cell.get() };
-<a href=#193 id=193 data-nosnippet>193</a>        <span class="kw">let </span>record = Record {
-<a href=#194 id=194 data-nosnippet>194</a>            severity: pending.severity,
-<a href=#195 id=195 data-nosnippet>195</a>            logger_name: pending.logger_name.as_str(),
-<a href=#196 id=196 data-nosnippet>196</a>            message: pending.message.as_str(),
-<a href=#197 id=197 data-nosnippet>197</a>            file: pending.file,
-<a href=#198 id=198 data-nosnippet>198</a>            line: pending.line,
-<a href=#199 id=199 data-nosnippet>199</a>            timestamp_ns: pending.timestamp_ns,
-<a href=#200 id=200 data-nosnippet>200</a>        };
-<a href=#201 id=201 data-nosnippet>201</a>        <span class="kw">for </span>sink <span class="kw">in </span>sinks {
-<a href=#202 id=202 data-nosnippet>202</a>            sink.log(<span class="kw-2">&amp;</span>record);
-<a href=#203 id=203 data-nosnippet>203</a>        }
-<a href=#204 id=204 data-nosnippet>204</a>    }
-<a href=#205 id=205 data-nosnippet>205</a>    CLAIMED.store(<span class="number">0</span>, Ordering::Release);
-<a href=#206 id=206 data-nosnippet>206</a>}
+<a href=#182 id=182 data-nosnippet>182</a>    drain_with(<span class="kw-2">&amp;mut </span>|record| {
+<a href=#183 id=183 data-nosnippet>183</a>        <span class="kw">for </span>sink <span class="kw">in </span>sinks {
+<a href=#184 id=184 data-nosnippet>184</a>            sink.log(record);
+<a href=#185 id=185 data-nosnippet>185</a>        }
+<a href=#186 id=186 data-nosnippet>186</a>    });
+<a href=#187 id=187 data-nosnippet>187</a>}
+<a href=#188 id=188 data-nosnippet>188</a>
+<a href=#189 id=189 data-nosnippet>189</a><span class="doccomment">/// The half of [`drain`] that does not name a sink LIST.
+<a href=#190 id=190 data-nosnippet>190</a>///
+<a href=#191 id=191 data-nosnippet>191</a>/// phase-417 W4.d added [`crate::add_sink`], so "where a held record goes" is
+<a href=#192 id=192 data-nosnippet>192</a>/// no longer answered by one `&amp;'static [&amp;dyn LogSink]`. The replay walk stayed
+<a href=#193 id=193 data-nosnippet>193</a>/// one function and grew a callback rather than being copied next to the new
+<a href=#194 id=194 data-nosnippet>194</a>/// registry — a second copy is a second answer to "in what order, and what
+<a href=#195 id=195 data-nosnippet>195</a>/// happens to a slot whose writer has not published yet".
+<a href=#196 id=196 data-nosnippet>196</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>drain_with(deliver: <span class="kw-2">&amp;mut </span><span class="kw">dyn </span>FnMut(<span class="kw-2">&amp;</span>Record&lt;<span class="lifetime">'_</span>&gt;)) {
+<a href=#197 id=197 data-nosnippet>197</a>    <span class="kw">let </span>claimed = CLAIMED.load(Ordering::Acquire);
+<a href=#198 id=198 data-nosnippet>198</a>    <span class="kw">let </span>held = <span class="kw">if </span>claimed &gt; DEPTH { DEPTH } <span class="kw">else </span>{ claimed };
+<a href=#199 id=199 data-nosnippet>199</a>    <span class="kw">for </span>slot <span class="kw">in </span>SLOTS.iter().take(held) {
+<a href=#200 id=200 data-nosnippet>200</a>        <span class="kw">if </span>slot.ready.swap(<span class="number">0</span>, Ordering::AcqRel) == <span class="number">0 </span>{
+<a href=#201 id=201 data-nosnippet>201</a>            <span class="comment">// Either already drained by a concurrent `init`, or its writer has
+<a href=#202 id=202 data-nosnippet>202</a>            // not published yet. Neither is worth spinning at boot for.
+<a href=#203 id=203 data-nosnippet>203</a>            </span><span class="kw">continue</span>;
+<a href=#204 id=204 data-nosnippet>204</a>        }
+<a href=#205 id=205 data-nosnippet>205</a>        <span class="comment">// SAFETY: the `Acquire` half of the swap above pairs with the writer's
+<a href=#206 id=206 data-nosnippet>206</a>        // `Release` store, and the swap makes this the only reader.
+<a href=#207 id=207 data-nosnippet>207</a>        </span><span class="kw">let </span>pending = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>slot.cell.get() };
+<a href=#208 id=208 data-nosnippet>208</a>        <span class="kw">let </span>record = Record {
+<a href=#209 id=209 data-nosnippet>209</a>            severity: pending.severity,
+<a href=#210 id=210 data-nosnippet>210</a>            logger_name: pending.logger_name.as_str(),
+<a href=#211 id=211 data-nosnippet>211</a>            message: pending.message.as_str(),
+<a href=#212 id=212 data-nosnippet>212</a>            file: pending.file,
+<a href=#213 id=213 data-nosnippet>213</a>            line: pending.line,
+<a href=#214 id=214 data-nosnippet>214</a>            timestamp_ns: pending.timestamp_ns,
+<a href=#215 id=215 data-nosnippet>215</a>        };
+<a href=#216 id=216 data-nosnippet>216</a>        deliver(<span class="kw-2">&amp;</span>record);
+<a href=#217 id=217 data-nosnippet>217</a>    }
+<a href=#218 id=218 data-nosnippet>218</a>    CLAIMED.store(<span class="number">0</span>, Ordering::Release);
+<a href=#219 id=219 data-nosnippet>219</a>}
 </code></pre></div></section></main></body></html>

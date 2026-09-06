@@ -13,7 +13,7 @@ var searchData=
   ['project_10',['1. Create a CMake Project',['../getting_started.html#autotoc_md7',1,'']]],
   ['ptr_11',['ptr',['../structnros_1_1Span.html#a6d936b9e33d8196a429f3314e9431396',1,'nros::Span::ptr'],['../structnros_1_1StringView.html#a3b1b06c40b6c389c2e1809b17f7c0d58',1,'nros::StringView::ptr']]],
   ['publish_12',['publish',['../classnros_1_1Publisher.html#a7c50e37dba7b08ec1f3d8cfb14c38bda',1,'nros::Publisher']]],
-  ['publish_5ffeedback_13',['publish_feedback',['../classnros_1_1ActionServer.html#a728c859ce7a40e13a76786326bfe28ad',1,'nros::ActionServer']]],
+  ['publish_5ffeedback_13',['publish_feedback',['../classnros_1_1ActionServer.html#a728c859ce7a40e13a76786326bfe28ad',1,'nros::ActionServer::publish_feedback(const uint8_t goal_id[16], const FeedbackType &amp;feedback)'],['../classnros_1_1ActionServer.html#a5d43d11008c8d3a9821ac55ed02ac3ee',1,'nros::ActionServer::publish_feedback(const GoalUUID &amp;goal_id, const FeedbackType &amp;feedback)']]],
   ['publish_5fraw_14',['publish_raw',['../classnros_1_1Publisher.html#a2cf19bd7595be2d911e373a4ec681a48',1,'nros::Publisher']]],
   ['publish_5fstreamed_15',['publish_streamed',['../classnros_1_1Publisher.html#a1866168bea98ef0fbf7fc3546b3f9e4f',1,'nros::Publisher']]],
   ['publisher_16',['publisher',['../classnros_1_1Publisher.html#a1fa7bb0524188ee99b5dc7c0246f4f94',1,'nros::Publisher::Publisher()'],['../classnros_1_1Publisher.html#a7a9995c78c2b7a088700794118c30b3a',1,'nros::Publisher::Publisher(Publisher &amp;&amp;other)'],['../classnros_1_1Publisher.html',1,'nros::Publisher&lt; M &gt;']]],

@@ -1,16 +1,10 @@
 var searchData=
 [
-  ['image_20must_20not_20use_20these_20macros_0',['Scope — a bridge image must not use these macros',['../serialization__format_8h.html#autotoc_md236',1,'']]],
-  ['in_5fdispatch_1',['in_dispatch',['../structnros__executor__t.html#a8e22322e0ab55f45e9e3c6907491f49e',1,'nros_executor_t']]],
-  ['init_2',['init',['../group__grp__init.html',1,'']]],
-  ['init_2eh_3',['init.h',['../init_8h.html',1,'']]],
-  ['initialized_4',['initialized',['../structnros__lifecycle__state__machine__t.html#a657923e473a94adc3dd93f37fff66ed8',1,'nros_lifecycle_state_machine_t']]],
-  ['install_5',['System Install',['../getting_started.html#autotoc_md248',1,'']]],
-  ['integer_5fvalue_6',['integer_value',['../unionnros__parameter__value__t.html#aeed8b17f44fb1838a491e8141e80598b',1,'nros_parameter_value_t']]],
-  ['integration_7',['Zephyr Integration',['../getting_started.html#autotoc_md249',1,'']]],
-  ['interoperability_8',['ROS 2 Interoperability',['../ros2_interop.html',1,'index']]],
-  ['invocation_5ftime_5fns_9',['invocation_time_ns',['../structnros__executor__t.html#ae5c70e89e30680ea22dc768f9400c1db',1,'nros_executor_t']]],
-  ['is_5fpublisher_10',['is_publisher',['../structnros__endpoint__info__t.html#ad7e174714d4520485a26777ab6f8f0a7',1,'nros_endpoint_info_t']]],
-  ['issues_11',['issues',['../troubleshooting.html#autotoc_md261',1,'Build Issues'],['../ros2_interop.html#autotoc_md258',1,'Common Issues']]],
-  ['it_20takes_20two_20strings_20rather_20than_20a_20handle_12',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md101',1,'']]]
+  ['handle_0',['handle',['../structActionServerInternal.html#aa2562be2e2b8e961dd523ed952847240',1,'ActionServerInternal::handle'],['../nros__generated_8h.html#autotoc_md109',1,'Why this exists, and why it takes two strings rather than a handle']]],
+  ['handle_5fcount_1',['handle_count',['../structnros__executor__t.html#ac5634b67d36fe29c81bfb3e84b9243b1',1,'nros_executor_t']]],
+  ['handle_5fid_2',['handle_id',['../structnros__subscription__t.html#a7b50297528f5bf4da349b895b2646a96',1,'nros_subscription_t::handle_id'],['../structnros__timer__t.html#a8d962659955538cb417abf2c1bf1becd',1,'nros_timer_t::handle_id'],['../structnros__guard__condition__t.html#a72b519941eaea5a45a20a6b8fe2e43de',1,'nros_guard_condition_t::handle_id']]],
+  ['handling_20errors_3',['Pattern: Handling Errors',['../error_codes.html#autotoc_md288',1,'']]],
+  ['header_20organisation_4',['Header Organisation',['../index.html#autotoc_md259',1,'']]],
+  ['history_5',['history',['../structnros__qos__t.html#a4b571faeca83055f695035b26ba4d840',1,'nros_qos_t']]],
+  ['how_20this_20differs_20from_20rcl_6',['Overflow, and how this differs from rcl',['../timer_8h.html#autotoc_md255',1,'']]]
 ];
