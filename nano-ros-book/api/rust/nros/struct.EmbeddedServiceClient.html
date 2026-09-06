@@ -26,7 +26,7 @@ and you want to abandon the pending reply. The next
 <a href="struct.EmbeddedServiceClient.html#method.call" title="method nros::EmbeddedServiceClient::call"><code>call</code></a> will proceed but may still observe the stale
 reply if one is in the transport’s queue — callers that need strict
 correctness should drain / ignore one extra <code>take</code> first.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.wait_for_service" class="method"><a class="src rightside" href="../src/nros_node/executor/handles.rs.html#2181-2185">Source</a><h4 class="code-header">pub fn <a href="#method.wait_for_service" class="fn">wait_for_service</a>(
+</div></details><details class="toggle method-toggle" open><summary><section id="method.wait_for_service" class="method"><a class="src rightside" href="../src/nros_node/executor/handles.rs.html#2187-2191">Source</a><h4 class="code-header">pub fn <a href="#method.wait_for_service" class="fn">wait_for_service</a>(
     &amp;mut self,
     executor: &amp;mut <a class="struct" href="struct.Executor.html" title="struct nros::Executor">Executor</a>&lt;'_&gt;,
     timeout: <a class="struct" href="https://doc.rust-lang.org/1.98.1/core/time/struct.Duration.html" title="struct core::time::Duration">Duration</a>,
@@ -36,13 +36,17 @@ the network, or <code>timeout</code> elapses.</p>
 budget; <code>Ok(false)</code> on timeout (no server visible). Mirrors
 <code>rclcpp::ClientBase::wait_for_service</code> and
 <code>rclpy.client.Client.wait_for_service</code>.</p>
-<p>On the Zenoh backend this issues a <code>z_liveliness_get</code> against the
-matching server’s wildcarded liveliness keyexpr; the executor is
-spun cooperatively while the query is in flight so other
-subscribers / timers continue to make progress. Backends without
-liveliness discovery answer <code>Ok(true)</code> immediately (default trait
-impl in <code>nros-rmw</code>), so the call is a no-op cost when discovery
-isn’t supported.</p>
+<p>A spin on <a href="struct.EmbeddedServiceClient.html#method.service_is_ready" title="method nros::EmbeddedServiceClient::service_is_ready"><code>service_is_ready</code></a>: the executor
+is spun cooperatively between checks so other subscribers / timers
+continue to make progress, and the check itself is a synchronous read
+of the discovery state the backend maintains (on zenoh, the
+matched-server set fed by liveliness PUT/DELETE — phase-428 W13). No
+query is issued at call time, which is also how upstream answers.</p>
+<p>issue 1087 — a backend that cannot answer (<code>Err</code>, e.g. XRCE) is
+“cannot say”, NOT “yes”. It used to be yes, so this returned
+immediately on cyclone, XRCE and uORB without probing anything. Such a
+backend now waits out the budget and reports <code>Ok(false)</code>: slower, and
+the direction that does not send a request into the void.</p>
 <p>Recommended usage — gate the first <code>call()</code> on this:</p>
 
 <div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">let </span><span class="kw-2">mut </span>client = node.create_client::&lt;AddTwoInts&gt;(<span class="string">"/add_two_ints"</span>)<span class="question-mark">?</span>;
@@ -50,11 +54,12 @@ isn’t supported.</p>
     <span class="kw">return </span><span class="prelude-val">Err</span>(NodeError::Timeout);
 }
 <span class="kw">let </span><span class="kw-2">mut </span>promise = client.call(<span class="kw-2">&amp;</span>request)<span class="question-mark">?</span>;</code></pre></div>
-<p>Once the server is observed, the result is latched: subsequent
-<code>service_is_ready</code> checks return <code>true</code> without another round
-trip. This matches <code>rclcpp</code>’s snapshot semantic — discovery isn’t
-re-proven on every call.</p>
-</div></details><details class="toggle method-toggle" open><summary><section id="method.service_is_ready" class="method"><a class="src rightside" href="../src/nros_node/executor/handles.rs.html#2253">Source</a><h4 class="code-header">pub fn <a href="#method.service_is_ready" class="fn">service_is_ready</a>(&amp;self) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a>, <a class="enum" href="enum.NodeError.html" title="enum nros::NodeError">NodeError</a>&gt;</h4></section></summary><div class="docblock"><p>Phase 124.C.3 — graph-aware server-availability probe.</p>
+<p>Nothing is latched. <code>service_is_ready</code> reads the CURRENT state, so a
+server that goes away after this returned <code>true</code> reads unavailable
+again — which is what <code>rclcpp</code> does too (<code>ClientBase::service_is_ready</code>
+calls <code>rcl_service_server_is_available</code> on every invocation; there is
+no snapshot semantic, whatever an earlier comment here claimed).</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.service_is_ready" class="method"><a class="src rightside" href="../src/nros_node/executor/handles.rs.html#2234">Source</a><h4 class="code-header">pub fn <a href="#method.service_is_ready" class="fn">service_is_ready</a>(&amp;self) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.98.1/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.bool.html">bool</a>, <a class="enum" href="enum.NodeError.html" title="enum nros::NodeError">NodeError</a>&gt;</h4></section></summary><div class="docblock"><p>Phase 124.C.3 — graph-aware server-availability probe.</p>
 <p>Returns <code>Ok(true)</code> / <code>Ok(false)</code> when the backend can answer
 (zenoh queryable interest, DDS built-in topic reader), or
 <code>Err(NodeError::Transport(Unsupported))</code> when it can’t (XRCE
