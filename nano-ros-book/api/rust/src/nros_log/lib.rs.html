@@ -60,7 +60,7 @@
 <a href=#60 id=60 data-nosnippet>60</a><span class="kw">pub use </span>pool::{
 <a href=#61 id=61 data-nosnippet>61</a>    MAX_LOGGER_NAME_LEN, dynamic_logger_capacity, dynamic_logger_name_arena, dynamic_loggers_in_use,
 <a href=#62 id=62 data-nosnippet>62</a>};
-<a href=#63 id=63 data-nosnippet>63</a><span class="kw">pub use </span>throttle::{ThrottleState, interval_ms_to_ns, throttle_admits};
+<a href=#63 id=63 data-nosnippet>63</a><span class="kw">pub use </span>throttle::{ThrottleState, interval_ms_to_ns, throttle_decide};
 <a href=#64 id=64 data-nosnippet>64</a>
 <a href=#65 id=65 data-nosnippet>65</a><span class="doccomment">/// REP-2012 severity levels, mirroring `rcutils_log_severity_t`.
 <a href=#66 id=66 data-nosnippet>66</a>///
@@ -625,207 +625,209 @@
 <a href=#625 id=625 data-nosnippet>625</a><span class="doccomment">/// Whether [`__timestamp_ns`] can answer with a real clock.
 <a href=#626 id=626 data-nosnippet>626</a>///
 <a href=#627 id=627 data-nosnippet>627</a>/// `false` means every `Record::timestamp_ns` is `0` and anything DERIVED from
-<a href=#628 id=628 data-nosnippet>628</a>/// the timestamp — the throttle windows above all of them — has no time base.
-<a href=#629 id=629 data-nosnippet>629</a>/// Exposed so a wrapper can say so out loud instead of degrading quietly:
-<a href=#630 id=630 data-nosnippet>630</a>/// without this, a throttled C call site looks identical whether it is
-<a href=#631 id=631 data-nosnippet>631</a>/// rate-limiting or not.
-<a href=#632 id=632 data-nosnippet>632</a></span><span class="attr">#[must_use]
-<a href=#633 id=633 data-nosnippet>633</a></span><span class="kw">pub const fn </span>timestamp_available() -&gt; bool {
-<a href=#634 id=634 data-nosnippet>634</a>    <span class="macro">cfg!</span>(feature = <span class="string">"platform-clock"</span>)
-<a href=#635 id=635 data-nosnippet>635</a>}
-<a href=#636 id=636 data-nosnippet>636</a>
-<a href=#637 id=637 data-nosnippet>637</a><span class="doccomment">/// Current monotonic time for `Record::timestamp_ns` (issue #503).
-<a href=#638 id=638 data-nosnippet>638</a>///
-<a href=#639 id=639 data-nosnippet>639</a>/// With the `platform-clock` feature this reads
-<a href=#640 id=640 data-nosnippet>640</a>/// `nros_platform_clock_ns` — the universal per-platform export the
-<a href=#641 id=641 data-nosnippet>641</a>/// executor's timer accounting already links — scaled to nanoseconds.
-<a href=#642 id=642 data-nosnippet>642</a>/// Without the feature it returns `0` ("unavailable"), the historical
-<a href=#643 id=643 data-nosnippet>643</a>/// behavior, and imposes no link-time requirement.
-<a href=#644 id=644 data-nosnippet>644</a>///
-<a href=#645 id=645 data-nosnippet>645</a>/// Public because the emission macros expand it in user crates; not
-<a href=#646 id=646 data-nosnippet>646</a>/// part of the supported API surface.
-<a href=#647 id=647 data-nosnippet>647</a></span><span class="attr">#[doc(hidden)]
-<a href=#648 id=648 data-nosnippet>648</a>#[must_use]
-<a href=#649 id=649 data-nosnippet>649</a></span><span class="kw">pub fn </span>__timestamp_ns() -&gt; u64 {
-<a href=#650 id=650 data-nosnippet>650</a>    <span class="attr">#[cfg(feature = <span class="string">"platform-clock"</span>)]
-<a href=#651 id=651 data-nosnippet>651</a>    </span>{
-<a href=#652 id=652 data-nosnippet>652</a>        <span class="kw">unsafe extern </span><span class="string">"C" </span>{
-<a href=#653 id=653 data-nosnippet>653</a>            <span class="kw">fn </span>nros_platform_clock_ns() -&gt; u64;
-<a href=#654 id=654 data-nosnippet>654</a>        }
-<a href=#655 id=655 data-nosnippet>655</a>        <span class="comment">// SAFETY: bare query of the platform's monotonic us counter;
-<a href=#656 id=656 data-nosnippet>656</a>        // the symbol comes from whichever `nros-platform-&lt;rtos&gt;` port
-<a href=#657 id=657 data-nosnippet>657</a>        // linked the binary (the contract `PlatformSink -&gt;
-<a href=#658 id=658 data-nosnippet>658</a>        // nros_platform_log_write` already relies on).
-<a href=#659 id=659 data-nosnippet>659</a>        </span><span class="kw">unsafe </span>{ nros_platform_clock_ns() }
-<a href=#660 id=660 data-nosnippet>660</a>    }
-<a href=#661 id=661 data-nosnippet>661</a>    <span class="attr">#[cfg(not(feature = <span class="string">"platform-clock"</span>))]
-<a href=#662 id=662 data-nosnippet>662</a>    </span>{
-<a href=#663 id=663 data-nosnippet>663</a>        <span class="number">0
-<a href=#664 id=664 data-nosnippet>664</a>    </span>}
-<a href=#665 id=665 data-nosnippet>665</a>}
-<a href=#666 id=666 data-nosnippet>666</a>
-<a href=#667 id=667 data-nosnippet>667</a><span class="kw">fn </span>dispatch_to_sinks(record: <span class="kw-2">&amp;</span>Record&lt;<span class="lifetime">'_</span>&gt;) {
-<a href=#668 id=668 data-nosnippet>668</a>    <span class="kw">if </span>recursion_guard_check_and_set() {
-<a href=#669 id=669 data-nosnippet>669</a>        <span class="kw">return</span>;
-<a href=#670 id=670 data-nosnippet>670</a>    }
-<a href=#671 id=671 data-nosnippet>671</a>    <span class="comment">// phase-417 W4.d — the appendable list is walked whether or not `init`
-<a href=#672 id=672 data-nosnippet>672</a>    // ran, and a record with at least one destination is NOT held.
-<a href=#673 id=673 data-nosnippet>673</a>    </span><span class="kw">let </span>added = deliver_to_added(record);
-<a href=#674 id=674 data-nosnippet>674</a>    <span class="kw">let </span>ptr = SINKS_PTR.load(Ordering::Acquire);
-<a href=#675 id=675 data-nosnippet>675</a>    <span class="kw">if </span>ptr.is_null() {
-<a href=#676 id=676 data-nosnippet>676</a>        <span class="kw">if </span>added &gt; <span class="number">0 </span>{
-<a href=#677 id=677 data-nosnippet>677</a>            recursion_guard_clear();
-<a href=#678 id=678 data-nosnippet>678</a>            <span class="kw">return</span>;
-<a href=#679 id=679 data-nosnippet>679</a>        }
-<a href=#680 id=680 data-nosnippet>680</a>        <span class="comment">// Nothing installed yet — HOLD the record; `init` replays it into
-<a href=#681 id=681 data-nosnippet>681</a>        // whatever sinks the board chooses. See `early` for why this crate
-<a href=#682 id=682 data-nosnippet>682</a>        // does not reach for the platform sink itself: doing that (issue 0710)
-<a href=#683 id=683 data-nosnippet>683</a>        // put `nros_platform_log_write` on a path every binary executes, which
-<a href=#684 id=684 data-nosnippet>684</a>        // turned a pluggable delivery into a link-time requirement that no
-<a href=#685 id=685 data-nosnippet>685</a>        // Cargo feature can undo under workspace feature unification.
-<a href=#686 id=686 data-nosnippet>686</a>        //
-<a href=#687 id=687 data-nosnippet>687</a>        // It is also a better answer to issue 0708 than installing a default
-<a href=#688 id=688 data-nosnippet>688</a>        // was: the early records land in the sink the board picked, not in the
-<a href=#689 id=689 data-nosnippet>689</a>        // one dispatch guessed before the board had spoken.
-<a href=#690 id=690 data-nosnippet>690</a>        </span>early::hold(record);
-<a href=#691 id=691 data-nosnippet>691</a>        recursion_guard_clear();
-<a href=#692 id=692 data-nosnippet>692</a>        <span class="kw">return</span>;
-<a href=#693 id=693 data-nosnippet>693</a>    }
-<a href=#694 id=694 data-nosnippet>694</a>    {
-<a href=#695 id=695 data-nosnippet>695</a>        <span class="comment">// SAFETY: `init` published a valid `'static` slice reference.
-<a href=#696 id=696 data-nosnippet>696</a>        </span><span class="kw">let </span>sinks: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>[<span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw">dyn </span>LogSink] = <span class="kw">unsafe </span>{ <span class="kw-2">*</span>ptr };
-<a href=#697 id=697 data-nosnippet>697</a>        <span class="kw">for </span>sink <span class="kw">in </span>sinks {
-<a href=#698 id=698 data-nosnippet>698</a>            sink.log(record);
-<a href=#699 id=699 data-nosnippet>699</a>        }
-<a href=#700 id=700 data-nosnippet>700</a>    }
-<a href=#701 id=701 data-nosnippet>701</a>    recursion_guard_clear();
-<a href=#702 id=702 data-nosnippet>702</a>}
-<a href=#703 id=703 data-nosnippet>703</a>
-<a href=#704 id=704 data-nosnippet>704</a><span class="doccomment">/// Flush every registered sink, appended ones included.
-<a href=#705 id=705 data-nosnippet>705</a></span><span class="kw">pub fn </span>flush() {
-<a href=#706 id=706 data-nosnippet>706</a>    <span class="kw">let </span>len = ADDED.len.load(Ordering::Acquire);
-<a href=#707 id=707 data-nosnippet>707</a>    <span class="kw">let </span>base = ADDED.slots.get().cast::&lt;<span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw">dyn </span>LogSink&gt;&gt;();
-<a href=#708 id=708 data-nosnippet>708</a>    <span class="kw">for </span>idx <span class="kw">in </span><span class="number">0</span>..len {
-<a href=#709 id=709 data-nosnippet>709</a>        <span class="comment">// SAFETY: same publication invariant as `deliver_to_added`.
-<a href=#710 id=710 data-nosnippet>710</a>        </span><span class="kw">if let </span><span class="prelude-val">Some</span>(sink) = <span class="kw">unsafe </span>{ base.add(idx).read() } {
-<a href=#711 id=711 data-nosnippet>711</a>            sink.flush();
-<a href=#712 id=712 data-nosnippet>712</a>        }
-<a href=#713 id=713 data-nosnippet>713</a>    }
-<a href=#714 id=714 data-nosnippet>714</a>    <span class="kw">let </span>ptr = SINKS_PTR.load(Ordering::Acquire);
-<a href=#715 id=715 data-nosnippet>715</a>    <span class="kw">if </span>ptr.is_null() {
-<a href=#716 id=716 data-nosnippet>716</a>        <span class="kw">return</span>;
-<a href=#717 id=717 data-nosnippet>717</a>    }
-<a href=#718 id=718 data-nosnippet>718</a>    <span class="comment">// SAFETY: same invariant as `dispatch_to_sinks`.
-<a href=#719 id=719 data-nosnippet>719</a>    </span><span class="kw">let </span>sinks: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>[<span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw">dyn </span>LogSink] = <span class="kw">unsafe </span>{ <span class="kw-2">*</span>ptr };
-<a href=#720 id=720 data-nosnippet>720</a>    <span class="kw">for </span>sink <span class="kw">in </span>sinks {
-<a href=#721 id=721 data-nosnippet>721</a>        sink.flush();
-<a href=#722 id=722 data-nosnippet>722</a>    }
-<a href=#723 id=723 data-nosnippet>723</a>}
-<a href=#724 id=724 data-nosnippet>724</a>
-<a href=#725 id=725 data-nosnippet>725</a><span class="comment">// -----------------------------------------------------------------------------
-<a href=#726 id=726 data-nosnippet>726</a>// Recursion guard — process-global single AtomicBool.
-<a href=#727 id=727 data-nosnippet>727</a>//
-<a href=#728 id=728 data-nosnippet>728</a>// Granularity is intentionally coarse (process-wide, not per-thread).
-<a href=#729 id=729 data-nosnippet>729</a>// The guard exists to break a sink that triggers log() during write
-<a href=#730 id=730 data-nosnippet>730</a>// — not to serialize concurrent loggers across threads. A thread
-<a href=#731 id=731 data-nosnippet>731</a>// re-entering through its own sink loses its other in-flight
-<a href=#732 id=732 data-nosnippet>732</a>// sinks for that call; a different thread logging concurrently is
-<a href=#733 id=733 data-nosnippet>733</a>// also short-circuited momentarily. This is acceptable: the alt is
-<a href=#734 id=734 data-nosnippet>734</a>// per-thread storage which doesn't exist uniformly across our
-<a href=#735 id=735 data-nosnippet>735</a>// `no_std` targets (`thread_local!` requires `std`).
-<a href=#736 id=736 data-nosnippet>736</a>// -----------------------------------------------------------------------------
-<a href=#737 id=737 data-nosnippet>737</a>
-<a href=#738 id=738 data-nosnippet>738</a></span><span class="kw">use </span>portable_atomic::AtomicBool;
-<a href=#739 id=739 data-nosnippet>739</a><span class="kw">static </span>RECURSION_GUARD: AtomicBool = AtomicBool::new(<span class="bool-val">false</span>);
-<a href=#740 id=740 data-nosnippet>740</a>
-<a href=#741 id=741 data-nosnippet>741</a><span class="kw">fn </span>recursion_guard_check_and_set() -&gt; bool {
-<a href=#742 id=742 data-nosnippet>742</a>    RECURSION_GUARD
-<a href=#743 id=743 data-nosnippet>743</a>        .compare_exchange(<span class="bool-val">false</span>, <span class="bool-val">true</span>, Ordering::Acquire, Ordering::Acquire)
-<a href=#744 id=744 data-nosnippet>744</a>        .is_err()
-<a href=#745 id=745 data-nosnippet>745</a>}
-<a href=#746 id=746 data-nosnippet>746</a>
-<a href=#747 id=747 data-nosnippet>747</a><span class="kw">fn </span>recursion_guard_clear() {
-<a href=#748 id=748 data-nosnippet>748</a>    RECURSION_GUARD.store(<span class="bool-val">false</span>, Ordering::Release);
-<a href=#749 id=749 data-nosnippet>749</a>}
-<a href=#750 id=750 data-nosnippet>750</a>
-<a href=#751 id=751 data-nosnippet>751</a><span class="comment">// -----------------------------------------------------------------------------
-<a href=#752 id=752 data-nosnippet>752</a>// Tests (host-only).
-<a href=#753 id=753 data-nosnippet>753</a>// -----------------------------------------------------------------------------
-<a href=#754 id=754 data-nosnippet>754</a>
-<a href=#755 id=755 data-nosnippet>755</a></span><span class="attr">#[cfg(test)]
-<a href=#756 id=756 data-nosnippet>756</a></span><span class="kw">mod </span>tests {
-<a href=#757 id=757 data-nosnippet>757</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#758 id=758 data-nosnippet>758</a>
-<a href=#759 id=759 data-nosnippet>759</a>    <span class="attr">#[test]
-<a href=#760 id=760 data-nosnippet>760</a>    </span><span class="kw">fn </span>severity_round_trips_through_u8() {
-<a href=#761 id=761 data-nosnippet>761</a>        <span class="kw">for </span>s <span class="kw">in </span>[
-<a href=#762 id=762 data-nosnippet>762</a>            Severity::Trace,
-<a href=#763 id=763 data-nosnippet>763</a>            Severity::Debug,
-<a href=#764 id=764 data-nosnippet>764</a>            Severity::Info,
-<a href=#765 id=765 data-nosnippet>765</a>            Severity::Warn,
-<a href=#766 id=766 data-nosnippet>766</a>            Severity::Error,
-<a href=#767 id=767 data-nosnippet>767</a>            Severity::Fatal,
-<a href=#768 id=768 data-nosnippet>768</a>        ] {
-<a href=#769 id=769 data-nosnippet>769</a>            <span class="macro">assert_eq!</span>(severity_from_u8(s.as_u8()), <span class="prelude-val">Some</span>(s));
-<a href=#770 id=770 data-nosnippet>770</a>        }
-<a href=#771 id=771 data-nosnippet>771</a>        <span class="macro">assert_eq!</span>(severity_from_u8(<span class="number">99</span>), <span class="prelude-val">None</span>);
-<a href=#772 id=772 data-nosnippet>772</a>    }
-<a href=#773 id=773 data-nosnippet>773</a>
-<a href=#774 id=774 data-nosnippet>774</a>    <span class="attr">#[test]
-<a href=#775 id=775 data-nosnippet>775</a>    </span><span class="kw">fn </span>logger_runtime_threshold_filters_below() {
-<a href=#776 id=776 data-nosnippet>776</a>        <span class="kw">let </span>logger = Logger::with_level(<span class="string">"test_thresh"</span>, Severity::Warn);
-<a href=#777 id=777 data-nosnippet>777</a>        <span class="macro">assert!</span>(!logger.is_enabled(Severity::Info));
-<a href=#778 id=778 data-nosnippet>778</a>        <span class="macro">assert!</span>(logger.is_enabled(Severity::Warn));
-<a href=#779 id=779 data-nosnippet>779</a>        <span class="macro">assert!</span>(logger.is_enabled(Severity::Error));
-<a href=#780 id=780 data-nosnippet>780</a>        logger.set_level(Severity::Debug);
-<a href=#781 id=781 data-nosnippet>781</a>        <span class="macro">assert!</span>(logger.is_enabled(Severity::Info));
-<a href=#782 id=782 data-nosnippet>782</a>    }
-<a href=#783 id=783 data-nosnippet>783</a>
-<a href=#784 id=784 data-nosnippet>784</a>    <span class="attr">#[test]
-<a href=#785 id=785 data-nosnippet>785</a>    </span><span class="kw">fn </span>unregistered_get_logger_returns_default() {
-<a href=#786 id=786 data-nosnippet>786</a>        <span class="kw">let </span>l = get_logger(<span class="string">"definitely-not-registered-99"</span>);
-<a href=#787 id=787 data-nosnippet>787</a>        <span class="macro">assert_eq!</span>(l.name(), DEFAULT_LOGGER.name());
-<a href=#788 id=788 data-nosnippet>788</a>    }
-<a href=#789 id=789 data-nosnippet>789</a>
-<a href=#790 id=790 data-nosnippet>790</a>    <span class="attr">#[test]
-<a href=#791 id=791 data-nosnippet>791</a>    </span><span class="kw">fn </span>registered_logger_round_trips_through_intern_table() {
-<a href=#792 id=792 data-nosnippet>792</a>        <span class="kw">static </span>LOGGER: Logger = Logger::new(<span class="string">"test_intern_round_trip"</span>);
-<a href=#793 id=793 data-nosnippet>793</a>        <span class="kw">let </span>published = register_logger(<span class="kw-2">&amp;</span>LOGGER);
-<a href=#794 id=794 data-nosnippet>794</a>        <span class="macro">assert_eq!</span>(published.name(), LOGGER.name());
-<a href=#795 id=795 data-nosnippet>795</a>        <span class="kw">let </span>looked_up = get_logger(<span class="string">"test_intern_round_trip"</span>);
-<a href=#796 id=796 data-nosnippet>796</a>        <span class="macro">assert!</span>(core::ptr::eq(published, looked_up));
-<a href=#797 id=797 data-nosnippet>797</a>    }
-<a href=#798 id=798 data-nosnippet>798</a>
-<a href=#799 id=799 data-nosnippet>799</a>    <span class="attr">#[test]
-<a href=#800 id=800 data-nosnippet>800</a>    </span><span class="kw">fn </span>compile_time_ceiling_matches_enabled_feature() {
-<a href=#801 id=801 data-nosnippet>801</a>        <span class="kw">let </span>expected = <span class="kw">if </span><span class="macro">cfg!</span>(feature = <span class="string">"max-level-off"</span>) {
-<a href=#802 id=802 data-nosnippet>802</a>            <span class="prelude-val">None
-<a href=#803 id=803 data-nosnippet>803</a>        </span>} <span class="kw">else if </span><span class="macro">cfg!</span>(feature = <span class="string">"max-level-trace"</span>) {
-<a href=#804 id=804 data-nosnippet>804</a>            <span class="prelude-val">Some</span>(Severity::Trace)
-<a href=#805 id=805 data-nosnippet>805</a>        } <span class="kw">else if </span><span class="macro">cfg!</span>(feature = <span class="string">"max-level-debug"</span>) {
-<a href=#806 id=806 data-nosnippet>806</a>            <span class="prelude-val">Some</span>(Severity::Debug)
-<a href=#807 id=807 data-nosnippet>807</a>        } <span class="kw">else if </span><span class="macro">cfg!</span>(feature = <span class="string">"max-level-info"</span>) {
-<a href=#808 id=808 data-nosnippet>808</a>            <span class="prelude-val">Some</span>(Severity::Info)
-<a href=#809 id=809 data-nosnippet>809</a>        } <span class="kw">else if </span><span class="macro">cfg!</span>(feature = <span class="string">"max-level-warn"</span>) {
-<a href=#810 id=810 data-nosnippet>810</a>            <span class="prelude-val">Some</span>(Severity::Warn)
-<a href=#811 id=811 data-nosnippet>811</a>        } <span class="kw">else if </span><span class="macro">cfg!</span>(feature = <span class="string">"max-level-error"</span>) {
-<a href=#812 id=812 data-nosnippet>812</a>            <span class="prelude-val">Some</span>(Severity::Error)
-<a href=#813 id=813 data-nosnippet>813</a>        } <span class="kw">else </span>{
-<a href=#814 id=814 data-nosnippet>814</a>            <span class="comment">// No ceiling feature = treat as `max-level-trace`.
-<a href=#815 id=815 data-nosnippet>815</a>            </span><span class="prelude-val">Some</span>(Severity::Trace)
-<a href=#816 id=816 data-nosnippet>816</a>        };
-<a href=#817 id=817 data-nosnippet>817</a>
-<a href=#818 id=818 data-nosnippet>818</a>        <span class="kw">for </span>severity <span class="kw">in </span>[
-<a href=#819 id=819 data-nosnippet>819</a>            Severity::Trace,
-<a href=#820 id=820 data-nosnippet>820</a>            Severity::Debug,
-<a href=#821 id=821 data-nosnippet>821</a>            Severity::Info,
-<a href=#822 id=822 data-nosnippet>822</a>            Severity::Warn,
-<a href=#823 id=823 data-nosnippet>823</a>            Severity::Error,
-<a href=#824 id=824 data-nosnippet>824</a>            Severity::Fatal,
-<a href=#825 id=825 data-nosnippet>825</a>        ] {
-<a href=#826 id=826 data-nosnippet>826</a>            <span class="kw">let </span>enabled = expected.is_some_and(|ceiling| severity &gt;= ceiling);
-<a href=#827 id=827 data-nosnippet>827</a>            <span class="macro">assert_eq!</span>(severity_enabled_at_compile_time(severity), enabled);
-<a href=#828 id=828 data-nosnippet>828</a>        }
-<a href=#829 id=829 data-nosnippet>829</a>    }
-<a href=#830 id=830 data-nosnippet>830</a>}
+<a href=#628 id=628 data-nosnippet>628</a>/// the timestamp — the throttle windows above all of them — has no time base:
+<a href=#629 id=629 data-nosnippet>629</a>/// a throttled site then emits its FIRST record and nothing after it (a clock
+<a href=#630 id=630 data-nosnippet>630</a>/// that never moves is a window that never elapses — issue 1152). Exposed so a
+<a href=#631 id=631 data-nosnippet>631</a>/// wrapper can say so out loud instead of degrading quietly: without this, a
+<a href=#632 id=632 data-nosnippet>632</a>/// throttled C call site looks identical whether it is rate-limiting or
+<a href=#633 id=633 data-nosnippet>633</a>/// permanently shut.
+<a href=#634 id=634 data-nosnippet>634</a></span><span class="attr">#[must_use]
+<a href=#635 id=635 data-nosnippet>635</a></span><span class="kw">pub const fn </span>timestamp_available() -&gt; bool {
+<a href=#636 id=636 data-nosnippet>636</a>    <span class="macro">cfg!</span>(feature = <span class="string">"platform-clock"</span>)
+<a href=#637 id=637 data-nosnippet>637</a>}
+<a href=#638 id=638 data-nosnippet>638</a>
+<a href=#639 id=639 data-nosnippet>639</a><span class="doccomment">/// Current monotonic time for `Record::timestamp_ns` (issue #503).
+<a href=#640 id=640 data-nosnippet>640</a>///
+<a href=#641 id=641 data-nosnippet>641</a>/// With the `platform-clock` feature this reads
+<a href=#642 id=642 data-nosnippet>642</a>/// `nros_platform_clock_ns` — the universal per-platform export the
+<a href=#643 id=643 data-nosnippet>643</a>/// executor's timer accounting already links — scaled to nanoseconds.
+<a href=#644 id=644 data-nosnippet>644</a>/// Without the feature it returns `0` ("unavailable"), the historical
+<a href=#645 id=645 data-nosnippet>645</a>/// behavior, and imposes no link-time requirement.
+<a href=#646 id=646 data-nosnippet>646</a>///
+<a href=#647 id=647 data-nosnippet>647</a>/// Public because the emission macros expand it in user crates; not
+<a href=#648 id=648 data-nosnippet>648</a>/// part of the supported API surface.
+<a href=#649 id=649 data-nosnippet>649</a></span><span class="attr">#[doc(hidden)]
+<a href=#650 id=650 data-nosnippet>650</a>#[must_use]
+<a href=#651 id=651 data-nosnippet>651</a></span><span class="kw">pub fn </span>__timestamp_ns() -&gt; u64 {
+<a href=#652 id=652 data-nosnippet>652</a>    <span class="attr">#[cfg(feature = <span class="string">"platform-clock"</span>)]
+<a href=#653 id=653 data-nosnippet>653</a>    </span>{
+<a href=#654 id=654 data-nosnippet>654</a>        <span class="kw">unsafe extern </span><span class="string">"C" </span>{
+<a href=#655 id=655 data-nosnippet>655</a>            <span class="kw">fn </span>nros_platform_clock_ns() -&gt; u64;
+<a href=#656 id=656 data-nosnippet>656</a>        }
+<a href=#657 id=657 data-nosnippet>657</a>        <span class="comment">// SAFETY: bare query of the platform's monotonic us counter;
+<a href=#658 id=658 data-nosnippet>658</a>        // the symbol comes from whichever `nros-platform-&lt;rtos&gt;` port
+<a href=#659 id=659 data-nosnippet>659</a>        // linked the binary (the contract `PlatformSink -&gt;
+<a href=#660 id=660 data-nosnippet>660</a>        // nros_platform_log_write` already relies on).
+<a href=#661 id=661 data-nosnippet>661</a>        </span><span class="kw">unsafe </span>{ nros_platform_clock_ns() }
+<a href=#662 id=662 data-nosnippet>662</a>    }
+<a href=#663 id=663 data-nosnippet>663</a>    <span class="attr">#[cfg(not(feature = <span class="string">"platform-clock"</span>))]
+<a href=#664 id=664 data-nosnippet>664</a>    </span>{
+<a href=#665 id=665 data-nosnippet>665</a>        <span class="number">0
+<a href=#666 id=666 data-nosnippet>666</a>    </span>}
+<a href=#667 id=667 data-nosnippet>667</a>}
+<a href=#668 id=668 data-nosnippet>668</a>
+<a href=#669 id=669 data-nosnippet>669</a><span class="kw">fn </span>dispatch_to_sinks(record: <span class="kw-2">&amp;</span>Record&lt;<span class="lifetime">'_</span>&gt;) {
+<a href=#670 id=670 data-nosnippet>670</a>    <span class="kw">if </span>recursion_guard_check_and_set() {
+<a href=#671 id=671 data-nosnippet>671</a>        <span class="kw">return</span>;
+<a href=#672 id=672 data-nosnippet>672</a>    }
+<a href=#673 id=673 data-nosnippet>673</a>    <span class="comment">// phase-417 W4.d — the appendable list is walked whether or not `init`
+<a href=#674 id=674 data-nosnippet>674</a>    // ran, and a record with at least one destination is NOT held.
+<a href=#675 id=675 data-nosnippet>675</a>    </span><span class="kw">let </span>added = deliver_to_added(record);
+<a href=#676 id=676 data-nosnippet>676</a>    <span class="kw">let </span>ptr = SINKS_PTR.load(Ordering::Acquire);
+<a href=#677 id=677 data-nosnippet>677</a>    <span class="kw">if </span>ptr.is_null() {
+<a href=#678 id=678 data-nosnippet>678</a>        <span class="kw">if </span>added &gt; <span class="number">0 </span>{
+<a href=#679 id=679 data-nosnippet>679</a>            recursion_guard_clear();
+<a href=#680 id=680 data-nosnippet>680</a>            <span class="kw">return</span>;
+<a href=#681 id=681 data-nosnippet>681</a>        }
+<a href=#682 id=682 data-nosnippet>682</a>        <span class="comment">// Nothing installed yet — HOLD the record; `init` replays it into
+<a href=#683 id=683 data-nosnippet>683</a>        // whatever sinks the board chooses. See `early` for why this crate
+<a href=#684 id=684 data-nosnippet>684</a>        // does not reach for the platform sink itself: doing that (issue 0710)
+<a href=#685 id=685 data-nosnippet>685</a>        // put `nros_platform_log_write` on a path every binary executes, which
+<a href=#686 id=686 data-nosnippet>686</a>        // turned a pluggable delivery into a link-time requirement that no
+<a href=#687 id=687 data-nosnippet>687</a>        // Cargo feature can undo under workspace feature unification.
+<a href=#688 id=688 data-nosnippet>688</a>        //
+<a href=#689 id=689 data-nosnippet>689</a>        // It is also a better answer to issue 0708 than installing a default
+<a href=#690 id=690 data-nosnippet>690</a>        // was: the early records land in the sink the board picked, not in the
+<a href=#691 id=691 data-nosnippet>691</a>        // one dispatch guessed before the board had spoken.
+<a href=#692 id=692 data-nosnippet>692</a>        </span>early::hold(record);
+<a href=#693 id=693 data-nosnippet>693</a>        recursion_guard_clear();
+<a href=#694 id=694 data-nosnippet>694</a>        <span class="kw">return</span>;
+<a href=#695 id=695 data-nosnippet>695</a>    }
+<a href=#696 id=696 data-nosnippet>696</a>    {
+<a href=#697 id=697 data-nosnippet>697</a>        <span class="comment">// SAFETY: `init` published a valid `'static` slice reference.
+<a href=#698 id=698 data-nosnippet>698</a>        </span><span class="kw">let </span>sinks: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>[<span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw">dyn </span>LogSink] = <span class="kw">unsafe </span>{ <span class="kw-2">*</span>ptr };
+<a href=#699 id=699 data-nosnippet>699</a>        <span class="kw">for </span>sink <span class="kw">in </span>sinks {
+<a href=#700 id=700 data-nosnippet>700</a>            sink.log(record);
+<a href=#701 id=701 data-nosnippet>701</a>        }
+<a href=#702 id=702 data-nosnippet>702</a>    }
+<a href=#703 id=703 data-nosnippet>703</a>    recursion_guard_clear();
+<a href=#704 id=704 data-nosnippet>704</a>}
+<a href=#705 id=705 data-nosnippet>705</a>
+<a href=#706 id=706 data-nosnippet>706</a><span class="doccomment">/// Flush every registered sink, appended ones included.
+<a href=#707 id=707 data-nosnippet>707</a></span><span class="kw">pub fn </span>flush() {
+<a href=#708 id=708 data-nosnippet>708</a>    <span class="kw">let </span>len = ADDED.len.load(Ordering::Acquire);
+<a href=#709 id=709 data-nosnippet>709</a>    <span class="kw">let </span>base = ADDED.slots.get().cast::&lt;<span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw">dyn </span>LogSink&gt;&gt;();
+<a href=#710 id=710 data-nosnippet>710</a>    <span class="kw">for </span>idx <span class="kw">in </span><span class="number">0</span>..len {
+<a href=#711 id=711 data-nosnippet>711</a>        <span class="comment">// SAFETY: same publication invariant as `deliver_to_added`.
+<a href=#712 id=712 data-nosnippet>712</a>        </span><span class="kw">if let </span><span class="prelude-val">Some</span>(sink) = <span class="kw">unsafe </span>{ base.add(idx).read() } {
+<a href=#713 id=713 data-nosnippet>713</a>            sink.flush();
+<a href=#714 id=714 data-nosnippet>714</a>        }
+<a href=#715 id=715 data-nosnippet>715</a>    }
+<a href=#716 id=716 data-nosnippet>716</a>    <span class="kw">let </span>ptr = SINKS_PTR.load(Ordering::Acquire);
+<a href=#717 id=717 data-nosnippet>717</a>    <span class="kw">if </span>ptr.is_null() {
+<a href=#718 id=718 data-nosnippet>718</a>        <span class="kw">return</span>;
+<a href=#719 id=719 data-nosnippet>719</a>    }
+<a href=#720 id=720 data-nosnippet>720</a>    <span class="comment">// SAFETY: same invariant as `dispatch_to_sinks`.
+<a href=#721 id=721 data-nosnippet>721</a>    </span><span class="kw">let </span>sinks: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>[<span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw">dyn </span>LogSink] = <span class="kw">unsafe </span>{ <span class="kw-2">*</span>ptr };
+<a href=#722 id=722 data-nosnippet>722</a>    <span class="kw">for </span>sink <span class="kw">in </span>sinks {
+<a href=#723 id=723 data-nosnippet>723</a>        sink.flush();
+<a href=#724 id=724 data-nosnippet>724</a>    }
+<a href=#725 id=725 data-nosnippet>725</a>}
+<a href=#726 id=726 data-nosnippet>726</a>
+<a href=#727 id=727 data-nosnippet>727</a><span class="comment">// -----------------------------------------------------------------------------
+<a href=#728 id=728 data-nosnippet>728</a>// Recursion guard — process-global single AtomicBool.
+<a href=#729 id=729 data-nosnippet>729</a>//
+<a href=#730 id=730 data-nosnippet>730</a>// Granularity is intentionally coarse (process-wide, not per-thread).
+<a href=#731 id=731 data-nosnippet>731</a>// The guard exists to break a sink that triggers log() during write
+<a href=#732 id=732 data-nosnippet>732</a>// — not to serialize concurrent loggers across threads. A thread
+<a href=#733 id=733 data-nosnippet>733</a>// re-entering through its own sink loses its other in-flight
+<a href=#734 id=734 data-nosnippet>734</a>// sinks for that call; a different thread logging concurrently is
+<a href=#735 id=735 data-nosnippet>735</a>// also short-circuited momentarily. This is acceptable: the alt is
+<a href=#736 id=736 data-nosnippet>736</a>// per-thread storage which doesn't exist uniformly across our
+<a href=#737 id=737 data-nosnippet>737</a>// `no_std` targets (`thread_local!` requires `std`).
+<a href=#738 id=738 data-nosnippet>738</a>// -----------------------------------------------------------------------------
+<a href=#739 id=739 data-nosnippet>739</a>
+<a href=#740 id=740 data-nosnippet>740</a></span><span class="kw">use </span>portable_atomic::AtomicBool;
+<a href=#741 id=741 data-nosnippet>741</a><span class="kw">static </span>RECURSION_GUARD: AtomicBool = AtomicBool::new(<span class="bool-val">false</span>);
+<a href=#742 id=742 data-nosnippet>742</a>
+<a href=#743 id=743 data-nosnippet>743</a><span class="kw">fn </span>recursion_guard_check_and_set() -&gt; bool {
+<a href=#744 id=744 data-nosnippet>744</a>    RECURSION_GUARD
+<a href=#745 id=745 data-nosnippet>745</a>        .compare_exchange(<span class="bool-val">false</span>, <span class="bool-val">true</span>, Ordering::Acquire, Ordering::Acquire)
+<a href=#746 id=746 data-nosnippet>746</a>        .is_err()
+<a href=#747 id=747 data-nosnippet>747</a>}
+<a href=#748 id=748 data-nosnippet>748</a>
+<a href=#749 id=749 data-nosnippet>749</a><span class="kw">fn </span>recursion_guard_clear() {
+<a href=#750 id=750 data-nosnippet>750</a>    RECURSION_GUARD.store(<span class="bool-val">false</span>, Ordering::Release);
+<a href=#751 id=751 data-nosnippet>751</a>}
+<a href=#752 id=752 data-nosnippet>752</a>
+<a href=#753 id=753 data-nosnippet>753</a><span class="comment">// -----------------------------------------------------------------------------
+<a href=#754 id=754 data-nosnippet>754</a>// Tests (host-only).
+<a href=#755 id=755 data-nosnippet>755</a>// -----------------------------------------------------------------------------
+<a href=#756 id=756 data-nosnippet>756</a>
+<a href=#757 id=757 data-nosnippet>757</a></span><span class="attr">#[cfg(test)]
+<a href=#758 id=758 data-nosnippet>758</a></span><span class="kw">mod </span>tests {
+<a href=#759 id=759 data-nosnippet>759</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#760 id=760 data-nosnippet>760</a>
+<a href=#761 id=761 data-nosnippet>761</a>    <span class="attr">#[test]
+<a href=#762 id=762 data-nosnippet>762</a>    </span><span class="kw">fn </span>severity_round_trips_through_u8() {
+<a href=#763 id=763 data-nosnippet>763</a>        <span class="kw">for </span>s <span class="kw">in </span>[
+<a href=#764 id=764 data-nosnippet>764</a>            Severity::Trace,
+<a href=#765 id=765 data-nosnippet>765</a>            Severity::Debug,
+<a href=#766 id=766 data-nosnippet>766</a>            Severity::Info,
+<a href=#767 id=767 data-nosnippet>767</a>            Severity::Warn,
+<a href=#768 id=768 data-nosnippet>768</a>            Severity::Error,
+<a href=#769 id=769 data-nosnippet>769</a>            Severity::Fatal,
+<a href=#770 id=770 data-nosnippet>770</a>        ] {
+<a href=#771 id=771 data-nosnippet>771</a>            <span class="macro">assert_eq!</span>(severity_from_u8(s.as_u8()), <span class="prelude-val">Some</span>(s));
+<a href=#772 id=772 data-nosnippet>772</a>        }
+<a href=#773 id=773 data-nosnippet>773</a>        <span class="macro">assert_eq!</span>(severity_from_u8(<span class="number">99</span>), <span class="prelude-val">None</span>);
+<a href=#774 id=774 data-nosnippet>774</a>    }
+<a href=#775 id=775 data-nosnippet>775</a>
+<a href=#776 id=776 data-nosnippet>776</a>    <span class="attr">#[test]
+<a href=#777 id=777 data-nosnippet>777</a>    </span><span class="kw">fn </span>logger_runtime_threshold_filters_below() {
+<a href=#778 id=778 data-nosnippet>778</a>        <span class="kw">let </span>logger = Logger::with_level(<span class="string">"test_thresh"</span>, Severity::Warn);
+<a href=#779 id=779 data-nosnippet>779</a>        <span class="macro">assert!</span>(!logger.is_enabled(Severity::Info));
+<a href=#780 id=780 data-nosnippet>780</a>        <span class="macro">assert!</span>(logger.is_enabled(Severity::Warn));
+<a href=#781 id=781 data-nosnippet>781</a>        <span class="macro">assert!</span>(logger.is_enabled(Severity::Error));
+<a href=#782 id=782 data-nosnippet>782</a>        logger.set_level(Severity::Debug);
+<a href=#783 id=783 data-nosnippet>783</a>        <span class="macro">assert!</span>(logger.is_enabled(Severity::Info));
+<a href=#784 id=784 data-nosnippet>784</a>    }
+<a href=#785 id=785 data-nosnippet>785</a>
+<a href=#786 id=786 data-nosnippet>786</a>    <span class="attr">#[test]
+<a href=#787 id=787 data-nosnippet>787</a>    </span><span class="kw">fn </span>unregistered_get_logger_returns_default() {
+<a href=#788 id=788 data-nosnippet>788</a>        <span class="kw">let </span>l = get_logger(<span class="string">"definitely-not-registered-99"</span>);
+<a href=#789 id=789 data-nosnippet>789</a>        <span class="macro">assert_eq!</span>(l.name(), DEFAULT_LOGGER.name());
+<a href=#790 id=790 data-nosnippet>790</a>    }
+<a href=#791 id=791 data-nosnippet>791</a>
+<a href=#792 id=792 data-nosnippet>792</a>    <span class="attr">#[test]
+<a href=#793 id=793 data-nosnippet>793</a>    </span><span class="kw">fn </span>registered_logger_round_trips_through_intern_table() {
+<a href=#794 id=794 data-nosnippet>794</a>        <span class="kw">static </span>LOGGER: Logger = Logger::new(<span class="string">"test_intern_round_trip"</span>);
+<a href=#795 id=795 data-nosnippet>795</a>        <span class="kw">let </span>published = register_logger(<span class="kw-2">&amp;</span>LOGGER);
+<a href=#796 id=796 data-nosnippet>796</a>        <span class="macro">assert_eq!</span>(published.name(), LOGGER.name());
+<a href=#797 id=797 data-nosnippet>797</a>        <span class="kw">let </span>looked_up = get_logger(<span class="string">"test_intern_round_trip"</span>);
+<a href=#798 id=798 data-nosnippet>798</a>        <span class="macro">assert!</span>(core::ptr::eq(published, looked_up));
+<a href=#799 id=799 data-nosnippet>799</a>    }
+<a href=#800 id=800 data-nosnippet>800</a>
+<a href=#801 id=801 data-nosnippet>801</a>    <span class="attr">#[test]
+<a href=#802 id=802 data-nosnippet>802</a>    </span><span class="kw">fn </span>compile_time_ceiling_matches_enabled_feature() {
+<a href=#803 id=803 data-nosnippet>803</a>        <span class="kw">let </span>expected = <span class="kw">if </span><span class="macro">cfg!</span>(feature = <span class="string">"max-level-off"</span>) {
+<a href=#804 id=804 data-nosnippet>804</a>            <span class="prelude-val">None
+<a href=#805 id=805 data-nosnippet>805</a>        </span>} <span class="kw">else if </span><span class="macro">cfg!</span>(feature = <span class="string">"max-level-trace"</span>) {
+<a href=#806 id=806 data-nosnippet>806</a>            <span class="prelude-val">Some</span>(Severity::Trace)
+<a href=#807 id=807 data-nosnippet>807</a>        } <span class="kw">else if </span><span class="macro">cfg!</span>(feature = <span class="string">"max-level-debug"</span>) {
+<a href=#808 id=808 data-nosnippet>808</a>            <span class="prelude-val">Some</span>(Severity::Debug)
+<a href=#809 id=809 data-nosnippet>809</a>        } <span class="kw">else if </span><span class="macro">cfg!</span>(feature = <span class="string">"max-level-info"</span>) {
+<a href=#810 id=810 data-nosnippet>810</a>            <span class="prelude-val">Some</span>(Severity::Info)
+<a href=#811 id=811 data-nosnippet>811</a>        } <span class="kw">else if </span><span class="macro">cfg!</span>(feature = <span class="string">"max-level-warn"</span>) {
+<a href=#812 id=812 data-nosnippet>812</a>            <span class="prelude-val">Some</span>(Severity::Warn)
+<a href=#813 id=813 data-nosnippet>813</a>        } <span class="kw">else if </span><span class="macro">cfg!</span>(feature = <span class="string">"max-level-error"</span>) {
+<a href=#814 id=814 data-nosnippet>814</a>            <span class="prelude-val">Some</span>(Severity::Error)
+<a href=#815 id=815 data-nosnippet>815</a>        } <span class="kw">else </span>{
+<a href=#816 id=816 data-nosnippet>816</a>            <span class="comment">// No ceiling feature = treat as `max-level-trace`.
+<a href=#817 id=817 data-nosnippet>817</a>            </span><span class="prelude-val">Some</span>(Severity::Trace)
+<a href=#818 id=818 data-nosnippet>818</a>        };
+<a href=#819 id=819 data-nosnippet>819</a>
+<a href=#820 id=820 data-nosnippet>820</a>        <span class="kw">for </span>severity <span class="kw">in </span>[
+<a href=#821 id=821 data-nosnippet>821</a>            Severity::Trace,
+<a href=#822 id=822 data-nosnippet>822</a>            Severity::Debug,
+<a href=#823 id=823 data-nosnippet>823</a>            Severity::Info,
+<a href=#824 id=824 data-nosnippet>824</a>            Severity::Warn,
+<a href=#825 id=825 data-nosnippet>825</a>            Severity::Error,
+<a href=#826 id=826 data-nosnippet>826</a>            Severity::Fatal,
+<a href=#827 id=827 data-nosnippet>827</a>        ] {
+<a href=#828 id=828 data-nosnippet>828</a>            <span class="kw">let </span>enabled = expected.is_some_and(|ceiling| severity &gt;= ceiling);
+<a href=#829 id=829 data-nosnippet>829</a>            <span class="macro">assert_eq!</span>(severity_enabled_at_compile_time(severity), enabled);
+<a href=#830 id=830 data-nosnippet>830</a>        }
+<a href=#831 id=831 data-nosnippet>831</a>    }
+<a href=#832 id=832 data-nosnippet>832</a>}
 </code></pre></div></section></main></body></html>

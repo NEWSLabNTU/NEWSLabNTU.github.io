@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["interval_ms_to_ns","throttle_admits"],"struct":["ThrottleState"]};
+window.SIDEBAR_ITEMS = {"fn":["interval_ms_to_ns","throttle_decide"],"struct":["ThrottleState"]};
