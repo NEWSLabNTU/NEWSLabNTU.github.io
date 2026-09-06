@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_RESOLVED_NAME_LEN"],"fn":["expand_name","resolve_name"],"type":["ResolvedName"]};
+window.SIDEBAR_ITEMS = {"constant":["MAX_RESOLVED_NAME_LEN"],"fn":["expand_name","fully_qualified_name","resolve_name"],"type":["ResolvedName"]};
