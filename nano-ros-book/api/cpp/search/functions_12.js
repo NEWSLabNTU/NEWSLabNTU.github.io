@@ -11,7 +11,7 @@ var searchData=
   ['timer_8',['timer',['../classnros_1_1Timer.html#a07730874f54c0e463a8131b82e381ca4',1,'nros::Timer::Timer(Timer &amp;&amp;other)'],['../classnros_1_1Timer.html#a94a74e330a8ff96bce34e18b39880929',1,'nros::Timer::Timer()']]],
   ['transient_5flocal_9',['transient_local',['../classnros_1_1QoS.html#ae149132d6a4d2ba4a7e349e19781825f',1,'nros::QoS']]],
   ['trigger_10',['trigger',['../classnros_1_1GuardCondition.html#a449bf8e9877eaa1cfe28937576983276',1,'nros::GuardCondition']]],
-  ['try_5fborrow_11',['try_borrow',['../classnros_1_1Subscription.html#a47c3d6c919dc57325a12c02ee8419f88',1,'nros::Subscription']]],
+  ['try_5fborrow_11',['try_borrow',['../classnros_1_1Subscription.html#ae291e416256509e2053dd858ea4e1737',1,'nros::Subscription']]],
   ['try_5fnext_12',['try_next',['../classnros_1_1Stream.html#af57d0d36e94aac8318329d33b4be85a2',1,'nros::Stream']]],
   ['try_5fnext_5fsized_13',['try_next_sized',['../classnros_1_1Stream.html#aa82f8f9a6b61c2f08e9562b15df85d5c',1,'nros::Stream']]],
   ['try_5frecv_14',['try_recv',['../classnros_1_1Subscription.html#a73bde6ea94ffc6d3b8b89337840598c3',1,'nros::Subscription']]],

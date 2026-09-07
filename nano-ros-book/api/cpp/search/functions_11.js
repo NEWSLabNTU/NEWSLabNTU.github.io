@@ -14,7 +14,7 @@ var searchData=
   ['serialization_5fformat_11',['serialization_format',['../classnros_1_1Node.html#aa9fd3f17a1233ea06f17e7b0ef9ccebb',1,'nros::Node']]],
   ['server_5favailable_12',['server_available',['../classnros_1_1Client.html#a61dfa69fd0c76ebbeddbbcd78ddbbf4b',1,'nros::Client']]],
   ['service_13',['service',['../classnros_1_1Service.html#ae778843783f5156d9e00687b537775bf',1,'nros::Service::Service()'],['../classnros_1_1Service.html#a62ad51ac69c3bbda167bf53fe860e3ed',1,'nros::Service::Service(Service &amp;&amp;other)']]],
-  ['service_5fis_5fready_14',['service_is_ready',['../classnros_1_1Client.html#ab4f0090940e428e13e8dfbcae0d0d8a6',1,'nros::Client']]],
+  ['service_5fis_5fready_14',['service_is_ready',['../classnros_1_1Client.html#ae5b3cd87cf1567d3ea2e41decf8e6f10',1,'nros::Client']]],
   ['services_15',['services',['../classnros_1_1QoS.html#a375d0fe0333454e58ef8e037d0e75df6',1,'nros::QoS']]],
   ['set_5faccepted_5fcallback_16',['set_accepted_callback',['../classnros_1_1ActionServer.html#ab7506f08031bab288f607ce72281a288',1,'nros::ActionServer']]],
   ['set_5faccepted_5fcallback_5fwith_5fctx_17',['set_accepted_callback_with_ctx',['../classnros_1_1ActionServer.html#adafb92c4b46385d3e215fb4759c220b2',1,'nros::ActionServer']]],
@@ -33,5 +33,5 @@ var searchData=
   ['stream_30',['stream',['../classnros_1_1Stream.html#a6b3ff13e41e3688053ce6453fe57b983',1,'nros::Stream::Stream()'],['../classnros_1_1Stream.html#a58dec41d8ab90b0527b9e50ed16b8d34',1,'nros::Stream::Stream(Stream &amp;&amp;other) noexcept'],['../classnros_1_1Subscription.html#a557985e6b0aae567ff4224ba15a05745',1,'nros::Subscription::stream() const'],['../classnros_1_1Subscription.html#a581129bc58db878f55db7f6a396c6d76',1,'nros::Subscription::stream()']]],
   ['subscription_31',['subscription',['../classnros_1_1Subscription.html#a31d8bd6292f1f9a6f2a703d659a7e9f1',1,'nros::Subscription::Subscription(Subscription &amp;&amp;other)'],['../classnros_1_1Subscription.html#a39d45500299d2dad592c0b623efbde47',1,'nros::Subscription::Subscription()']]],
   ['succeed_32',['succeed',['../classnros_1_1ActionServer.html#a7495a70cf10df70b582005789dbfc0fd',1,'nros::ActionServer::succeed(const uint8_t goal_id[16], const ResultType &amp;result)'],['../classnros_1_1ActionServer.html#a75ee1991ec7611b22d239a4fad52a894',1,'nros::ActionServer::succeed(const GoalUUID &amp;goal_id, const ResultType &amp;result)']]],
-  ['success_33',['success',['../classnros_1_1Result.html#a456be91f168710c927ee138efd6f1590',1,'nros::Result']]]
+  ['success_33',['success',['../classnros_1_1ResultOf_3_01void_01_4.html#aac8056651127b4109b6006e3fbd8e41a',1,'nros::ResultOf&lt; void &gt;']]]
 ];

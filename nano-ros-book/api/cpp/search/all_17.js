@@ -19,7 +19,7 @@ var searchData=
   ['server_5favailable_16',['server_available',['../classnros_1_1Client.html#a61dfa69fd0c76ebbeddbbcd78ddbbf4b',1,'nros::Client']]],
   ['service_17',['service',['../classnros_1_1Service.html#a62ad51ac69c3bbda167bf53fe860e3ed',1,'nros::Service::Service(Service &amp;&amp;other)'],['../classnros_1_1Service.html#ae778843783f5156d9e00687b537775bf',1,'nros::Service::Service()'],['../group__grp__service.html',1,'service'],['../classnros_1_1Service.html',1,'nros::Service&lt; S &gt;']]],
   ['service_2ehpp_18',['service.hpp',['../service_8hpp.html',1,'']]],
-  ['service_5fis_5fready_19',['service_is_ready',['../classnros_1_1Client.html#ab4f0090940e428e13e8dfbcae0d0d8a6',1,'nros::Client']]],
+  ['service_5fis_5fready_19',['service_is_ready',['../classnros_1_1Client.html#ae5b3cd87cf1567d3ea2e41decf8e6f10',1,'nros::Client']]],
   ['servicefailed_20',['ServiceFailed',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19ea81c60df0c0f22ae1438f9f087d53aa09',1,'nros']]],
   ['services_21',['services',['../classnros_1_1QoS.html#a375d0fe0333454e58ef8e037d0e75df6',1,'nros::QoS']]],
   ['set_5faccepted_5fcallback_22',['set_accepted_callback',['../classnros_1_1ActionServer.html#ab7506f08031bab288f607ce72281a288',1,'nros::ActionServer']]],
@@ -59,6 +59,6 @@ var searchData=
   ['subscriptionfailed_56',['SubscriptionFailed',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19ead404077907bc65d1ba2cf7cccceb5978',1,'nros']]],
   ['succeed_57',['succeed',['../classnros_1_1ActionServer.html#a7495a70cf10df70b582005789dbfc0fd',1,'nros::ActionServer::succeed(const uint8_t goal_id[16], const ResultType &amp;result)'],['../classnros_1_1ActionServer.html#a75ee1991ec7611b22d239a4fad52a894',1,'nros::ActionServer::succeed(const GoalUUID &amp;goal_id, const ResultType &amp;result)']]],
   ['succeeded_58',['Succeeded',['../namespacenros.html#a824c95a7f291e516552584a26eb63c04a66d02c2f8a582446f8dd8752366002b5',1,'nros']]],
-  ['success_59',['success',['../classnros_1_1Result.html#a456be91f168710c927ee138efd6f1590',1,'nros::Result::success()'],['../namespacerclcpp.html#a7b4ff5f1e516740d7e11ea97fe6f5532ad0749aaba8b833466dfcbb0428e4f89c',1,'rclcpp::SUCCESS']]],
+  ['success_59',['success',['../classnros_1_1ResultOf_3_01void_01_4.html#aac8056651127b4109b6006e3fbd8e41a',1,'nros::ResultOf&lt; void &gt;::success()'],['../namespacerclcpp.html#a7b4ff5f1e516740d7e11ea97fe6f5532ad0749aaba8b833466dfcbb0428e4f89c',1,'rclcpp::SUCCESS']]],
   ['support_60',['support',['../group__grp__support.html',1,'']]]
 ];

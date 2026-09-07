@@ -23,7 +23,7 @@ var searchData=
   ['client_2ehpp_20',['client.hpp',['../client_8hpp.html',1,'']]],
   ['clock_21',['clock',['../group__grp__clock.html',1,'']]],
   ['cmake_20project_22',['1. Create a CMake Project',['../getting_started.html#autotoc_md7',1,'']]],
-  ['code_23',['code',['../classnros_1_1Result.html#a60e3ba9ab6ee345c1d2ba6558509b6ee',1,'nros::Result']]],
+  ['code_23',['code',['../classnros_1_1ResultOf_3_01void_01_4.html#a49731ba4db4ed372cfbae3304d165dda',1,'nros::ResultOf&lt; void &gt;']]],
   ['code_20generation_24',['3. Code Generation',['../getting_started.html#autotoc_md8',1,'']]],
   ['codes_25',['codes',['../troubleshooting.html#autotoc_md31',1,'Common Result Codes'],['../error_codes.html',1,'Error Codes']]],
   ['commit_26',['commit',['../classnros_1_1Publisher_1_1Loan.html#a356a602ba2be0924a6037b39b9d246a9',1,'nros::Publisher::Loan']]],
