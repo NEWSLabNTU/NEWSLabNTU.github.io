@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["TimerMode"],"struct":["TimerDuration","TimerHandle","TimerState"],"type":["TimerCallbackFn"]};
+window.SIDEBAR_ITEMS = {"enum":["TimerClockSource","TimerMode"],"struct":["TimerDuration","TimerHandle","TimerState"],"type":["TimerCallbackFn"]};
