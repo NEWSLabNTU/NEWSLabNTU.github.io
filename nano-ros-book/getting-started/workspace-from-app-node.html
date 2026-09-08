@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-82f26666.js";
+            window.path_to_searchindex_js = "../searchindex-2e3a2205.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-9e89164b.js"></script>
+        <script src="../toc-0216bff9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -206,23 +206,25 @@ differ.</p>
 </li>
 <li>
 <p><strong>Mixed implementation languages.</strong> You want to keep a C driver or
-legacy C node, but host the composed system in a C++ or Rust Entry
-pkg. The Node-pkg register ABI is language-neutral, so a C Node pkg
-can link into the same Entry binary as C++ or Rust Node pkgs.</p>
+legacy C node alongside C++ or Rust ones. The Node-pkg register ABI
+is language-neutral, so a C Node pkg links into the same binary as
+C++ or Rust Node pkgs.</p>
 </li>
 </ol>
 <p>That’s when you split your project into a multi-node workspace.</p>
 <h2 id="canonical-layout"><a class="header" href="#canonical-layout">Canonical layout</a></h2>
 <p>Start with the whole project before diving into the parts:</p>
 <pre><code class="language-text">my_robot_ws/
-├── Cargo.toml                  # Rust workspace root, or CMakeLists.txt for C/C++
+├── .colcon_workspace           # the tracked marker: this directory IS a workspace root
 └── src/
     ├── talker_pkg/             # Node pkg: reusable node logic, no main()
     ├── listener_pkg/           # Node pkg: another reusable node
-    ├── robot_bringup/          # Bringup pkg: launch XML + system.toml
-    └── native_entry/           # Entry pkg: one runnable binary for one board
+    └── robot_bringup/          # Bringup pkg: launch XML + system.toml + [image.*]
 </code></pre>
-<p>The roles are deliberately separated:</p>
+<p>Two kinds of package, and that is the whole tracked tree. There is no root
+<code>Cargo.toml</code> or <code>CMakeLists.txt</code> to write and no binary package to write:
+<code>nros build</code> generates both from the packages it discovers plus the
+<code>[image.*]</code> table in the Bringup pkg (RFC-0065 D3/D4).</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -230,24 +232,24 @@ can link into the same Entry binary as C++ or Rust Node pkgs.</p>
 </thead>
 <tbody>
 <tr><td><strong>Node pkg</strong></td><td>Publishers, subscriptions, timers, services, actions, callback bodies</td><td>Board choice, launch topology, <code>main()</code></td></tr>
-<tr><td><strong>Bringup pkg</strong></td><td>Which nodes run, names, remaps, parameters, per-target topology</td><td>Compiled code</td></tr>
-<tr><td><strong>Entry pkg</strong></td><td>Board/runtime selection and the runnable binary</td><td>Node behavior</td></tr>
+<tr><td><strong>Bringup pkg</strong></td><td>Which nodes run, names, remaps, parameters — and the <code>[image.*]</code> rows saying which programs get built out of them</td><td>Compiled code</td></tr>
 </tbody>
 </table>
 </div>
-<p>A typical product has many Node pkgs, one Bringup pkg per logical system,
-and one Entry pkg per board or deploy target. The same <code>talker_pkg</code> and
-<code>listener_pkg</code> can be linked into a native host Entry pkg for integration
-testing and a Cortex-M Entry pkg for hardware.</p>
+<p>A typical product has many Node pkgs, one Bringup pkg per logical system, and
+one <code>[image.*]</code> row per board or deploy target. The same <code>talker_pkg</code> and
+<code>listener_pkg</code> are linked into a native host image for integration testing and
+a Cortex-M image for hardware, with nothing duplicated between them.</p>
 <h2 id="reading-order"><a class="header" href="#reading-order">Reading order</a></h2>
 <p>This group starts broad and then drills into each part:</p>
 <ol>
 <li><strong>Project layout</strong> — this page: when to split and how the roles fit.</li>
 <li><strong>Node packages</strong> — reusable node libraries with <code>nros::node!</code>.</li>
 <li><strong>Bringup packages</strong> — launch XML, <code>system.toml</code>, remaps, parameters.</li>
-<li><strong>Entry packages</strong> — the board-specific binary that boots the topology.</li>
+<li><strong>Images</strong> — the <code>[image.*]</code> row that becomes a program, and the one
+platform that still needs a package of its own.</li>
 <li><strong>C / C++ multi-node workspaces</strong> — the same structure through CMake.</li>
-<li><strong>Mixed-language workspaces</strong> — C Node pkgs hosted by C/C++ Entry pkgs.</li>
+<li><strong>Mixed-language workspaces</strong> — C Node pkgs beside C++ and Rust ones.</li>
 <li><strong>Role reference</strong> — metadata fields and macro forms in reference style.</li>
 </ol>
 <h2 id="prereqs"><a class="header" href="#prereqs">Prereqs</a></h2>
@@ -275,27 +277,26 @@ source ./activate.fish        # fish
 <p><strong>Node pkg</strong> — a <code>lib</code> crate that contains one node’s logic. It
 declares <code>nros::node!(T)</code> and carries
 <code>[package.metadata.nros.node]</code> in its <code>Cargo.toml</code>. It has no
-<code>fn main()</code> — that lives in the Entry pkg. One Node pkg per node.
+<code>fn main()</code> — no package you write has one. One Node pkg per node.
 Think of it as a composable building block: the same <code>talker_pkg</code> lib
 can be assembled into a native binary <em>and</em> an embedded binary without
 any source change.</p>
 <p><strong>Bringup pkg</strong> — a purely declarative directory that owns the launch
-topology. It contains a <code>package.xml</code>, a <code>system.toml</code> (listing which
-nodes run, how they’re wired, per-target deploy config), and a
-<code>launch/</code> directory with ROS 2 launch XML. <strong>No <code>Cargo.toml</code>, no
-compiled code.</strong> Naming convention <code>&lt;system&gt;_bringup</code>, matching nav2 /
-Autoware / turtlebot3. This role is <em>optional</em> — a workspace with a
-single deploy target can fold the launch files and <code>system.toml</code>
-directly into the Entry pkg.</p>
-<p><strong>Entry pkg</strong> — a <code>bin</code> crate that boots a topology on one specific
-board. It carries <code>[package.metadata.nros.entry]</code> with <code>deploy = "&lt;board&gt;"</code> and a <code>src/main.rs</code> that is just <code>nros::main!(...)</code>. One
-Entry pkg per deploy target. The Entry pkg links in all Node pkg libs,
-links in the board crate, and hands control to the nano-ros runtime.</p>
-<p>The app-node shape you already know (<code>examples/native/rust/talker/</code>) is
-effectively a <em>fused</em> Entry + Node pkg: a single package that is both
-the logic and the boot point. That fusion is fine — and encouraged —
-for single-node work. Only split when you actually need the
-flexibility.</p>
+topology and the images built from it. It contains a <code>package.xml</code>, a
+<code>system.toml</code> (which nodes run, how they’re wired, and an <code>[image.&lt;id&gt;]</code>
+row per program), and a <code>launch/</code> directory with ROS 2 launch XML. <strong>No
+<code>Cargo.toml</code>, no compiled code.</strong> Naming convention <code>&lt;system&gt;_bringup</code>,
+matching nav2 / Autoware / turtlebot3.</p>
+<p><strong>Image</strong> — not a package. <code>[image.native] board = "native"</code> is a row in
+that <code>system.toml</code>, and <code>nros build native</code> turns it into a program:
+<code>nros build</code> generates the root build file <em>and</em> the entry that links the
+Node pkgs and the board crate and hands control to the nano-ros runtime.
+A second board is a second row, not a second directory.</p>
+<p>The app-node shape you already know (<code>examples/native/rust/talker/</code>) is a
+single package that is both the logic and the boot point — no bringup, no
+images, <code>nros::main!()</code> reading its own <code>Cargo.toml</code>. That fusion is fine —
+and encouraged — for single-node work. Only split when you actually need
+the flexibility.</p>
 <h2 id="ros-2--nano-ros-command-map"><a class="header" href="#ros-2--nano-ros-command-map">ROS 2 ↔ nano-ros command map</a></h2>
 <p>If you’re coming from ROS 2, here’s the mapping of the commands you
 already know:</p>
@@ -305,21 +306,21 @@ already know:</p>
 <tr><th>ROS 2</th><th>nano-ros</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>ros2 pkg create</code></td><td><code>nros new &lt;name&gt; --platform &lt;plat&gt; [--lang &lt;lang&gt;]</code></td><td>scaffolds a Node pkg</td></tr>
-<tr><td><code>colcon build</code></td><td><code>cargo build</code> (Rust) / <code>cmake --build build</code> (C++)</td><td>use the underlying tool directly</td></tr>
-<tr><td><code>ros2 launch &lt;pkg&gt; &lt;file&gt;</code></td><td><code>cargo run -p &lt;entry_pkg&gt;</code></td><td>composed Entry pkg IS the launch product (Phase 212.N + 222.D); the old launch wrapper was removed in nros 0.5.0</td></tr>
+<tr><td><code>ros2 pkg create</code></td><td><code>nros new node &lt;name&gt;</code></td><td>scaffolds a Node pkg and adds its <code>[[component]]</code> row</td></tr>
+<tr><td><code>colcon build</code></td><td><code>nros build &lt;image&gt;</code></td><td>resolves the image, generates the root, hands off to cargo / cmake / west / idf.py</td></tr>
+<tr><td><code>ros2 launch &lt;pkg&gt; &lt;file&gt;</code></td><td>run the image’s binary</td><td>the image IS the launch product; the old launch wrapper was removed in nros 0.5.0</td></tr>
 <tr><td>(plan/validate)</td><td><code>nros plan</code> → <code>nros check</code></td><td>resolve + statically check the topology</td></tr>
-<tr><td><code>ros2 run &lt;pkg&gt; &lt;exe&gt;</code></td><td>run the Entry pkg binary (<code>cargo run</code>)</td><td>one Entry pkg per board</td></tr>
+<tr><td><code>ros2 run &lt;pkg&gt; &lt;exe&gt;</code></td><td>run the image’s binary</td><td>one <code>[image.*]</code> row per board</td></tr>
 </tbody>
 </table>
 </div>
-<p>Build verbs (<code>cargo</code> for Rust, <code>cmake</code> for C/C++, <code>west</code> for Zephyr,
-<code>idf.py</code> for ESP-IDF) are used directly — there is no CLI build
-indirection. The composed Entry pkg binary IS the launch product:
-one Entry pkg = one binary = one process. Multi-process orchestration
-(equivalent to multiple <code>ros2 launch</code> nodes in separate processes) is
-a separate Entry pkg per deploy + a shell script / tmux session, not
-a CLI verb.</p>
+<p><code>nros build</code> hands off rather than taking over: it generates what the build
+system needs and then runs your platform’s own tool (<code>cargo</code>, <code>cmake</code>, <code>west</code>,
+<code>idf.py</code>), so compiler errors stay the compiler’s, unchanged. Running the tool
+yourself keeps working. One image = one binary = one process; multi-process
+orchestration (the equivalent of several <code>ros2 launch</code> nodes in separate
+processes) is several images plus a shell script or tmux session, not a CLI
+verb.</p>
 <h2 id="the-app-node-shape-stays-valid"><a class="header" href="#the-app-node-shape-stays-valid">The app-node shape stays valid</a></h2>
 <p>There is no obligation to restructure. If your project is one node on
 one board, the app-node shape (<code>src/main.rs</code> + one package = both
@@ -333,12 +334,12 @@ requirement.</p>
 implement Node pkgs with <code>nros::node!</code>.</li>
 <li><a href="./workspace-bringup.html">Bringup packages</a> — declare
 your topology in a Bringup pkg.</li>
-<li><a href="./workspace-entry-pkg.html">Entry packages</a> — write
-the Entry pkg that boots everything together.</li>
+<li><a href="./workspace-entry-pkg.html">Images</a> — declare the
+<code>[image.*]</code> row that becomes a runnable program.</li>
 <li><a href="./workspace-cpp.html">C / C++ multi-node workspaces</a> — use the same
 project shape with CMake.</li>
 </ol>
-<p>For C Node pkgs hosted by a C++ Entry pkg, see
+<p>For C Node pkgs alongside C++ and Rust ones, see
 <a href="./workspace-mixed-language.html">Mixed-language workspace</a>.</p>
 <p>For the full API reference covering all three roles, see
 <a href="../user-guide/component-and-entry-pkg.html">Role reference</a>.</p>

@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-82f26666.js";
+            window.path_to_searchindex_js = "../searchindex-2e3a2205.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-9e89164b.js"></script>
+        <script src="../toc-0216bff9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -186,7 +186,7 @@ Next: <a href="./workspace-bringup.html">Bringup packages</a></p>
 <p>A <strong>Node pkg</strong> is the unit of reusable behaviour in a multi-node workspace.
 It is a Rust library — a <code>[lib]</code> crate — that implements one node and
 registers it with <code>nros::node!(T)</code>.
-The Entry pkg is what boots the binary; the Node pkg is what runs inside it.</p>
+An image is what boots the binary; the Node pkg is what runs inside it.</p>
 <hr>
 <h2 id="prereqs"><a class="header" href="#prereqs">Prereqs</a></h2>
 <p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
@@ -212,16 +212,15 @@ source ./activate.fish        # fish
 <hr>
 <h2 id="scaffolding-a-node-pkg"><a class="header" href="#scaffolding-a-node-pkg">Scaffolding a Node pkg</a></h2>
 <p>Use <code>nros new</code> to create a skeleton:</p>
-<pre><code class="language-bash">nros new talker --platform native --lang rust
+<pre><code class="language-bash">nros new node talker_pkg
 </code></pre>
-<p><code>nros new</code> creates a project skeleton.
-For a workspace, move (or create) the result under <code>src/talker_pkg/</code> so the
-workspace root’s <code>Cargo.toml</code> can include it as a member:</p>
-<pre><code class="language-toml"># workspace Cargo.toml
-[workspace]
-resolver = "2"
-members = ["src/talker_pkg", "src/listener_pkg", "src/native_entry"]
-</code></pre>
+<p><code>nros new node</code> writes the package under <code>src/</code> and adds its <code>[[component]]</code>
+row to the bringup. There is no member list to maintain: <code>nros build</code>
+discovers the packages under <code>src/</code> and writes the workspace root’s
+<code>Cargo.toml</code> (or <code>CMakeLists.txt</code>) itself, which is why neither is tracked.</p>
+<p>(<code>nros new &lt;name&gt; --platform native --lang rust</code> is the other verb, and a
+different output — a standalone <em>runnable project</em> with its own root, which
+pins a board crate. Use it for a copy-out example, not for a workspace member.)</p>
 <hr>
 <h2 id="node-pkg-anatomy"><a class="header" href="#node-pkg-anatomy">Node pkg anatomy</a></h2>
 <p>A Node pkg has three files:</p>
@@ -230,9 +229,9 @@ members = ["src/talker_pkg", "src/listener_pkg", "src/native_entry"]
 ├── Cargo.toml           # [lib] + [package.metadata.nros.node] metadata
 └── src/lib.rs           # impl Node + ExecutableNode; ends with nros::node!(Talker);
 </code></pre>
-<p>No <code>fn main()</code> here — a Node pkg is a library linked into an Entry pkg.
-The Entry pkg’s macro-generated runtime owns <code>nros::init</code>, executor open,
-RMW registration, and the spin/yield loop.</p>
+<p>No <code>fn main()</code> here — a Node pkg is a library linked into the entry that
+<code>nros build</code> generates for an image. That entry’s macro-generated runtime owns
+<code>nros::init</code>, executor open, RMW registration, and the spin/yield loop.</p>
 <hr>
 <h2 id="cargotoml--the-packagemetadatanrosnode-block"><a class="header" href="#cargotoml--the-packagemetadatanrosnode-block"><code>Cargo.toml</code> — the <code>[package.metadata.nros.node]</code> block</a></h2>
 <p>The metadata block is what the <code>nros</code> CLI reads to discover, name, and
@@ -265,14 +264,15 @@ nros = { path = "../../../../../packages/api/nros", default-features = false,
 </div>
 <p>A Node pkg names <strong>no</strong> platform and <strong>no</strong> RMW. <code>alloc</code> is the universal
 baseline and <code>rmw-cffi</code> is the vtable seam; the concrete backend and the
-platform both flow in from the board crate that the sibling Entry pkg depends
-on, via cargo feature unification. That is what lets one <code>talker_pkg</code> deploy to
-a Linux host and a Cortex-M board without a fork.</p>
+platform both flow in from the board crate the generated entry depends on, via
+cargo feature unification. That is what lets one <code>talker_pkg</code> deploy to a Linux
+host and a Cortex-M board without a fork — the difference between them is an
+<code>[image.*]</code> row, not a second copy of anything.</p>
 <hr>
 <h2 id="srclibrs--the-node-implementation"><a class="header" href="#srclibrs--the-node-implementation"><code>src/lib.rs</code> — the node implementation</a></h2>
 <p>A Node pkg implements two traits: <code>Node</code> (declarative registration) and
 <code>ExecutableNode</code> (per-callback body), then calls <code>nros::node!</code> to export the
-trampolines the Entry macro expects.</p>
+trampolines the entry macro expects.</p>
 <p>Here is the essential shape, drawn from
 <a href="../../../examples/workspaces/rust/src/talker_pkg/src/lib.rs"><code>examples/workspaces/rust/src/talker_pkg/src/lib.rs</code></a>
 (see that file for the full worked version):</p>
@@ -318,10 +318,10 @@ nros::node!(Talker);   // &lt;-- exports the trampolines; this is the last line
 <li><code>Node::register</code> is <strong>declarative</strong> — it runs once at startup to declare
 publishers, subscriptions, timers, and callback edges. No message bytes
 flow here.</li>
-<li><code>ExecutableNode::on_callback</code> is the <strong>body</strong> — called by the Entry pkg’s
+<li><code>ExecutableNode::on_callback</code> is the <strong>body</strong> — called by the image’s
 executor each time a callback fires. <code>state</code> is your per-node mutable storage.</li>
 <li><code>nros::node!(Talker)</code> <strong>must be the last public API call</strong> in the file.
-It generates the <code>extern "C"</code> trampolines the Entry macro imports.</li>
+It generates the <code>extern "C"</code> trampolines the entry macro imports.</li>
 <li>There is <strong>no <code>fn main()</code></strong> in a Node pkg.</li>
 <li><code>ENTITY_BOUNDS</code> is <strong>static RAM you either pay or do not</strong> (issue 0857).
 <code>nros::node!</code> emits a <code>static</code> sized from it, and a publisher slot carries a
@@ -408,29 +408,29 @@ way to drive a client from a declarative node. See
 <code>examples/workspaces/rust/.../service_client_pkg</code> for the reference.</p>
 <hr>
 <h2 id="building"><a class="header" href="#building">Building</a></h2>
-<p>From the workspace root, sync generated interfaces first, then let Cargo
-compile the Node pkgs and Entry pkg:</p>
+<p>You never build a Node pkg on its own — you build an image, and it links the
+Node pkgs its launch file names:</p>
 <pre><code class="language-bash"># From examples/workspaces/rust/ (or your workspace root):
-nros sync
-nros codegen-system --bringup demo_bringup
-cargo build -p native_entry
+nros build native
 </code></pre>
-<p>No per-Node-pkg invocation is needed — the workspace resolver handles
-dependency ordering.</p>
-<p>To cross-compile for an embedded target, pass <code>--target</code> and ensure
-<code>.cargo/config.toml</code> in the workspace root sets the right linker and target:</p>
-<pre><code class="language-bash">cargo build --target thumbv7em-none-eabihf
+<p>No per-Node-pkg invocation is needed, and no cross-compile flags either: the
+image’s <code>board</code> carries the rustc triple, so building for an embedded target is
+another row rather than another command line.</p>
+<pre><code class="language-toml">[image.freertos]
+board = "mps2-an385-freertos"
+</code></pre>
+<pre><code class="language-bash">nros build freertos
 </code></pre>
 <hr>
 <h2 id="next-steps"><a class="header" href="#next-steps">Next steps</a></h2>
 <ul>
 <li><strong><a href="./workspace-bringup.html">Bringup packages</a></strong> — wire the Node
 pkgs together into a topology.</li>
-<li><strong><a href="./workspace-entry-pkg.html">Entry packages</a></strong> — build the
-binary that boots the topology on real hardware or a host process.</li>
+<li><strong><a href="./workspace-entry-pkg.html">Images</a></strong> — the <code>[image.*]</code> row
+that becomes a binary, on real hardware or a host process.</li>
 <li><strong><a href="../user-guide/component-and-entry-pkg.html">Role reference</a></strong> —
-the full reference for all three roles, metadata fields, and the
-<code>nros::main!()</code> four forms.</li>
+the full reference for the package roles, metadata fields, and the
+<code>nros::main!()</code> forms.</li>
 </ul>
 
                     </main>

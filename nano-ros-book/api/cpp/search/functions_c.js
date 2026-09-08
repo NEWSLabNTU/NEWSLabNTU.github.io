@@ -1,7 +1,7 @@
 var searchData=
 [
   ['namespace_5f_0',['namespace_',['../classnros_1_1NodeBuilder.html#aab06675a666c80ff2c88b878dc2f6319',1,'nros::NodeBuilder']]],
-  ['node_1',['node',['../classnros_1_1Node.html#ab1b7390d3b3283c71668ca38e467434d',1,'nros::Node::Node()'],['../classnros_1_1Node.html#a76613bab26d76f128c4a053c5b020402',1,'nros::Node::Node(Node &amp;&amp;other)']]],
+  ['node_1',['node',['../classnros_1_1Node.html#ab1b7390d3b3283c71668ca38e467434d',1,'nros::Node::Node()'],['../classnros_1_1Node.html#ad39ad4a21a3feb10d201a5ed99c7d946',1,'nros::Node::Node(const char *name, const char *ns=nullptr)'],['../classnros_1_1Node.html#a76613bab26d76f128c4a053c5b020402',1,'nros::Node::Node(Node &amp;&amp;other)']]],
   ['node_5fbuilder_2',['node_builder',['../classnros_1_1Executor.html#a168a207f53470633694ba492e694cec3',1,'nros::Executor']]],
   ['nodebuilder_3',['NodeBuilder',['../classnros_1_1NodeBuilder.html#a3addc54027ca56283e5b70db6670cf9b',1,'nros::NodeBuilder']]],
   ['now_4',['now',['../classnros_1_1Node.html#a0e979d1f9296c8add2b30db1e4dffb97',1,'nros::Node']]],

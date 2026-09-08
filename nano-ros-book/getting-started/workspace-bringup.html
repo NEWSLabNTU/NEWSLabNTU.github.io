@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-82f26666.js";
+            window.path_to_searchindex_js = "../searchindex-2e3a2205.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-9e89164b.js"></script>
+        <script src="../toc-0216bff9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -179,12 +179,13 @@
                     <main>
                         <h1 id="bringup-packages"><a class="header" href="#bringup-packages">Bringup packages</a></h1>
 <p>A <strong>Bringup pkg</strong> is the declarative glue that ties your Node packages together
-into a runnable topology. It owns the launch file, the wiring between nodes, and
-the per-target deploy config — all without any compiled code of its own.</p>
+into runnable programs. It owns the launch file, the wiring between nodes, and
+the <code>[image.*]</code> table saying which programs get built out of them — all without
+any compiled code of its own.</p>
 <blockquote>
 <p><strong>Pre-requisite:</strong> You’ve scaffolded your Node packages following the
 <a href="./workspace-node-pkgs.html">Node packages</a> guide. This page adds the
-<code>demo_bringup</code> layer between them and the Entry package that boots everything.</p>
+<code>demo_bringup</code> layer that turns them into something you can build and run.</p>
 </blockquote>
 <hr>
 <h2 id="prereqs"><a class="header" href="#prereqs">Prereqs</a></h2>
@@ -214,9 +215,11 @@ source ./activate.fish        # fish
 no <code>src/</code>. Its job is to describe <em>which</em> nodes run, how they’re wired, and
 where they deploy. Naming convention: <code>&lt;system&gt;_bringup</code> (aliased <code>&lt;system&gt;_launch</code>),
 matching nav2 / Autoware / turtlebot3.</p>
-<p>It is <strong>optional</strong>: required only when two or more Entry packages share one
-topology. A single-Entry workspace can fold <code>launch/</code> + <code>system.toml</code> directly
-into the Entry pkg.</p>
+<p>A multi-node workspace needs exactly one per logical system. It is where
+<code>[image.*]</code> lives, so it is the package a buildable workspace cannot do
+without — <code>nros build</code> reads that table to decide what programs exist. (The
+single-package copy-out shape under <code>examples/&lt;platform&gt;/&lt;lang&gt;/</code> has no
+bringup and no images; it boots itself with a bare <code>nros::main!()</code>.)</p>
 <hr>
 <h2 id="anatomy"><a class="header" href="#anatomy">Anatomy</a></h2>
 <pre><code>src/demo_bringup/
@@ -380,18 +383,23 @@ above is the native authoring format.</p>
 <p>No <code>&lt;build_depend&gt;</code> entries — there is nothing to compile.</p>
 <hr>
 <h2 id="workflow-check--run"><a class="header" href="#workflow-check--run">Workflow: check → run</a></h2>
-<p>Once your Bringup pkg is written, use <code>nros check</code> to validate and
-<code>cargo run</code> to execute the topology:</p>
+<p>Once your Bringup pkg is written, <code>nros check</code> validates it and <code>nros build</code>
+turns one of its images into a program:</p>
 <pre><code class="language-bash"># 1. Lint the bringup pkg (pure-declarative check — no Cargo.toml, stray files, etc.)
 nros check --bringup src/demo_bringup
 
 # 2. Lint the whole workspace (pkg/class rows, duplicate system.toml, etc.)
 nros check --workspace .
 
-# 3. Run the composed Entry binary (boots all nodes in a single process)
-ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd &amp;   # router — in another shell
-cargo run -p native_entry
+# 3. Build an image. With no name, `nros build` lists what this workspace declares.
+nros build native
+
+# 4. Run it. Zenoh needs a router first, in another shell:
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 </code></pre>
+<p>The binary boots every node the launch file names, composed into one process.
+It lands beside the build <code>nros build</code> drove — under <code>target/</code> on the cargo
+driver, <code>build/&lt;coordinate&gt;/cmake/</code> on the cmake one.</p>
 <p>Both <code>nros check</code> forms pass for the canonical template at
 <code>examples/workspaces/rust/</code>.</p>
 <blockquote>
@@ -412,22 +420,27 @@ truth for the current CLI state.</p>
 </blockquote>
 <hr>
 <h2 id="runnable-copy-out"><a class="header" href="#runnable-copy-out">Runnable copy-out</a></h2>
-<p><code>examples/workspaces/rust/</code> is the canonical Rust 3-role workspace that pairs
-with this guide. Copy the whole directory out and rename the packages.
-<code>nros sync</code> materializes generated message crates, <code>nros codegen-system</code>
-bakes the Bringup package, and <code>cargo build -p native_entry</code> builds the Entry
-pkg.</p>
+<p><code>examples/workspaces/rust/</code> is the canonical Rust workspace that pairs with
+this guide. Copy the whole directory out and rename the packages, then:</p>
+<pre><code class="language-bash">nros setup native
+nros build native
+</code></pre>
+<p><code>nros build</code> walks the packages, resolves the image, checks the toolchain,
+generates the root manifest and the entry, and hands off to cargo. The older
+<code>nros sync</code> / <code>nros codegen-system</code> / <code>nros check</code> sequence still works; it is
+just no longer something you have to type.</p>
 <p>The workspace README at <code>examples/workspaces/rust/README.md</code>
 documents the exact CLI commands that are verified green today.</p>
 <hr>
-<h2 id="when-you-dont-need-a-bringup-pkg"><a class="header" href="#when-you-dont-need-a-bringup-pkg">When you don’t need a Bringup pkg</a></h2>
-<p>If you have a single Entry pkg and don’t plan to share the topology across
-multiple boards, fold <code>launch/</code> + <code>config/</code> directly into the Entry pkg.
-The <code>nros::main!</code> macro’s <code>launch =</code> argument names the bringup package and,
-optionally, a launch file within it — the SAME inputs you author. The build
-resolves them to a SystemModel under <code>&lt;workspace&gt;/build/nros/models/</code> (run
-<code>nros sync</code>, or let the build system drive it); you never reference the
-model file, though you can inspect it there:</p>
+<h2 id="naming-a-launch-file-from-an-entry"><a class="header" href="#naming-a-launch-file-from-an-entry">Naming a launch file from an entry</a></h2>
+<p>The <code>nros::main!</code> macro’s <code>launch =</code> argument names the bringup package and,
+optionally, a launch file within it — the SAME inputs you author, and the same
+pair an <code>[image.*]</code> row names. You will read this in a generated entry, and
+write it yourself only in a single-package project or a materialized one. The
+build resolves the pair to a SystemModel under
+<code>&lt;workspace&gt;/build/nros/models/</code> (run <code>nros sync</code>, or let the build system
+drive it); you never reference the model file, though you can inspect it
+there:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// Multi-node: the bringup's default launch (system.launch.xml)
@@ -439,13 +452,13 @@ nros::main!(launch = "demo_bringup:sim.launch.xml");
 // A launch-argument binding, declared as [[model]] in system.toml
 nros::main!(launch = "demo_bringup:multihost.launch.xml", args = [("host", "robot1")]);
 <span class="boring">}</span></code></pre>
-<p>If the launch files live inside the Entry pkg itself, point at it by name. The
-Entry package page covers this in full.</p>
+<p>The <a href="./workspace-entry-pkg.html">Images</a> page covers the macro forms and the
+generated entry in full.</p>
 <hr>
 <h2 id="where-to-go-next"><a class="header" href="#where-to-go-next">Where to go next</a></h2>
 <ul>
-<li><a href="./workspace-entry-pkg.html">Entry packages</a> — the <code>nros::main!</code> macro and <code>native_entry</code></li>
-<li><a href="../user-guide/component-and-entry-pkg.html">Role reference</a> — full reference for all three roles</li>
+<li><a href="./workspace-entry-pkg.html">Images</a> — the <code>[image.*]</code> row that becomes a program</li>
+<li><a href="../user-guide/component-and-entry-pkg.html">Role reference</a> — full reference for the package roles and the image table</li>
 <li><a href="./workspace-from-app-node.html">Project layout</a> — start here if you haven’t read it yet</li>
 </ul>
 

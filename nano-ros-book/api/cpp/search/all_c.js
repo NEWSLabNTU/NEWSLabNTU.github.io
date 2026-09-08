@@ -4,7 +4,7 @@ var searchData=
   ['get_5fclient_5fnames_5fand_5ftypes_5fby_5fnode_1',['get_client_names_and_types_by_node',['../classnros_1_1Node.html#a821881b9454bc81dbd5b358bba4abbe6',1,'nros::Node::get_client_names_and_types_by_node()'],['../classnros_1_1Executor.html#a0665b5d19aafb3f13cacbdadb38864e7',1,'nros::Executor::get_client_names_and_types_by_node()']]],
   ['get_5fclock_2',['get_clock',['../classnros_1_1Node.html#a7db8296219ea4b15888821d277167686',1,'nros::Node::get_clock() const'],['../classnros_1_1Node.html#a7517a72ee4f8137d502dc7841ef7d18f',1,'nros::Node::get_clock()']]],
   ['get_5ffully_5fqualified_5fname_3',['get_fully_qualified_name',['../classnros_1_1Node.html#a852a3d8cbeecc8fcfd7b5c4f21e51795',1,'nros::Node']]],
-  ['get_5flogger_4',['get_logger',['../classnros_1_1Node.html#a38eff09d314965d400cc7a650f007754',1,'nros::Node']]],
+  ['get_5flogger_4',['get_logger',['../classnros_1_1Node.html#ae3bb7d1f957dd3fe1c71be348293be16',1,'nros::Node']]],
   ['get_5fname_5',['get_name',['../classnros_1_1Node.html#afb50006e48f2e7f7fa9a87ee878d65cf',1,'nros::Node']]],
   ['get_5fnamespace_6',['get_namespace',['../classnros_1_1Node.html#a420af3d2db96a7d79b6f2d49b1562a9d',1,'nros::Node']]],
   ['get_5fnode_5fnames_7',['get_node_names',['../classnros_1_1Node.html#ab228d98f232bf533745266308a388cdc',1,'nros::Node::get_node_names()'],['../classnros_1_1Executor.html#a2c6175a2526b9b18bfed619ab3a74838',1,'nros::Executor::get_node_names()']]],

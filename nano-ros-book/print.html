@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-82f26666.js";
+            window.path_to_searchindex_js = "searchindex-2e3a2205.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-9e89164b.js"></script>
+        <script src="toc-0216bff9.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -1095,7 +1095,7 @@ callbacks:</p>
 ├── CMakeLists.txt          # nano_ros component library
 ├── package.xml             # ROS package manifest — deps live here
 ├── include/talker_pkg/Talker.hpp
-└── src/Talker.cpp          # bind_timer → publish on /chatter
+└── src/Talker.cpp          # create_wall_timer&lt;C,&amp;C::m&gt; → publish on /chatter
 </code></pre>
 <p><code>package.xml</code> is standard ROS: message dependencies (<code>std_msgs</code>) are
 declared there and code-generated during the build. You never hand-write
@@ -1129,8 +1129,8 @@ even carries a per-topic QoS override to show the plumbing:</p>
 &lt;/node&gt;
 </code></pre>
 <p>When you later target hardware, you add an <code>[image.&lt;id&gt;]</code> block per
-board — the code and topology stay put. That is the growth rule:
-<strong>configuration is a new block, never a restructure.</strong></p>
+board — the code and topology stay put, and no new directory appears. That is
+the growth rule: <strong>configuration is a new block, never a restructure.</strong></p>
 <h2 id="the-entry-package--the-deliverable"><a class="header" href="#the-entry-package--the-deliverable">The entry package — the deliverable</a></h2>
 <p><code>src/robot_entry/</code> is the binary. Its CMakeLists calls
 <code>nano_ros_entry(... BRINGUP ... LAUNCH default)</code>, which at configure
@@ -1139,8 +1139,13 @@ constructs each declared component, applies launch parameters and QoS
 overrides, and runs them on one executor — the launch product <em>is</em> the
 binary. There is no separate <code>ros2 launch</code> step; running the entry is
 launching the system.</p>
-<p>One entry per deployable image. A robot with a perception image and a
-control image is one workspace, two entry packages, one bringup.</p>
+<p>One binary per deployable image — but <em>image</em> is a row, not a directory. A
+robot with a perception image and a control image is one workspace, one
+bringup, and two <code>[image.*]</code> blocks in its <code>system.toml</code>; <code>nros build</code> derives
+each entry from <code>(launch, args, board)</code> and generates it under <code>build/</code>. The
+scaffold ships this one as a package so you can read it; deleting the directory
+is what makes the next build generate it instead. See
+<a href="#images">Images</a>.</p>
 <h2 id="what-was-generated-vs-what-is-yours"><a class="header" href="#what-was-generated-vs-what-is-yours">What was generated vs. what is yours</a></h2>
 <p>Everything under <code>src/</code> is yours to edit. The build tree (<code>build/</code>)
 holds everything derived: generated message code, the resolved system
@@ -1160,7 +1165,7 @@ package</a></li>
 <li>Add a second talker or your own node: <a href="#node-packages">Node packages</a></li>
 <li>Point it at real hardware: <a href="#how-integration-works">How Integration Works</a></li>
 <li>The full role reference: <a href="#bringup-packages">Bringup packages</a> ·
-<a href="#entry-packages">Entry packages</a></li>
+<a href="#images">Images</a></li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="your-own-message-package"><a class="header" href="#your-own-message-package">Your own message package</a></h1>
@@ -2770,23 +2775,25 @@ differ.</p>
 </li>
 <li>
 <p><strong>Mixed implementation languages.</strong> You want to keep a C driver or
-legacy C node, but host the composed system in a C++ or Rust Entry
-pkg. The Node-pkg register ABI is language-neutral, so a C Node pkg
-can link into the same Entry binary as C++ or Rust Node pkgs.</p>
+legacy C node alongside C++ or Rust ones. The Node-pkg register ABI
+is language-neutral, so a C Node pkg links into the same binary as
+C++ or Rust Node pkgs.</p>
 </li>
 </ol>
 <p>That’s when you split your project into a multi-node workspace.</p>
 <h2 id="canonical-layout"><a class="header" href="#canonical-layout">Canonical layout</a></h2>
 <p>Start with the whole project before diving into the parts:</p>
 <pre><code class="language-text">my_robot_ws/
-├── Cargo.toml                  # Rust workspace root, or CMakeLists.txt for C/C++
+├── .colcon_workspace           # the tracked marker: this directory IS a workspace root
 └── src/
     ├── talker_pkg/             # Node pkg: reusable node logic, no main()
     ├── listener_pkg/           # Node pkg: another reusable node
-    ├── robot_bringup/          # Bringup pkg: launch XML + system.toml
-    └── native_entry/           # Entry pkg: one runnable binary for one board
+    └── robot_bringup/          # Bringup pkg: launch XML + system.toml + [image.*]
 </code></pre>
-<p>The roles are deliberately separated:</p>
+<p>Two kinds of package, and that is the whole tracked tree. There is no root
+<code>Cargo.toml</code> or <code>CMakeLists.txt</code> to write and no binary package to write:
+<code>nros build</code> generates both from the packages it discovers plus the
+<code>[image.*]</code> table in the Bringup pkg (RFC-0065 D3/D4).</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -2794,24 +2801,24 @@ can link into the same Entry binary as C++ or Rust Node pkgs.</p>
 </thead>
 <tbody>
 <tr><td><strong>Node pkg</strong></td><td>Publishers, subscriptions, timers, services, actions, callback bodies</td><td>Board choice, launch topology, <code>main()</code></td></tr>
-<tr><td><strong>Bringup pkg</strong></td><td>Which nodes run, names, remaps, parameters, per-target topology</td><td>Compiled code</td></tr>
-<tr><td><strong>Entry pkg</strong></td><td>Board/runtime selection and the runnable binary</td><td>Node behavior</td></tr>
+<tr><td><strong>Bringup pkg</strong></td><td>Which nodes run, names, remaps, parameters — and the <code>[image.*]</code> rows saying which programs get built out of them</td><td>Compiled code</td></tr>
 </tbody>
 </table>
 </div>
-<p>A typical product has many Node pkgs, one Bringup pkg per logical system,
-and one Entry pkg per board or deploy target. The same <code>talker_pkg</code> and
-<code>listener_pkg</code> can be linked into a native host Entry pkg for integration
-testing and a Cortex-M Entry pkg for hardware.</p>
+<p>A typical product has many Node pkgs, one Bringup pkg per logical system, and
+one <code>[image.*]</code> row per board or deploy target. The same <code>talker_pkg</code> and
+<code>listener_pkg</code> are linked into a native host image for integration testing and
+a Cortex-M image for hardware, with nothing duplicated between them.</p>
 <h2 id="reading-order"><a class="header" href="#reading-order">Reading order</a></h2>
 <p>This group starts broad and then drills into each part:</p>
 <ol>
 <li><strong>Project layout</strong> — this page: when to split and how the roles fit.</li>
 <li><strong>Node packages</strong> — reusable node libraries with <code>nros::node!</code>.</li>
 <li><strong>Bringup packages</strong> — launch XML, <code>system.toml</code>, remaps, parameters.</li>
-<li><strong>Entry packages</strong> — the board-specific binary that boots the topology.</li>
+<li><strong>Images</strong> — the <code>[image.*]</code> row that becomes a program, and the one
+platform that still needs a package of its own.</li>
 <li><strong>C / C++ multi-node workspaces</strong> — the same structure through CMake.</li>
-<li><strong>Mixed-language workspaces</strong> — C Node pkgs hosted by C/C++ Entry pkgs.</li>
+<li><strong>Mixed-language workspaces</strong> — C Node pkgs beside C++ and Rust ones.</li>
 <li><strong>Role reference</strong> — metadata fields and macro forms in reference style.</li>
 </ol>
 <h2 id="prereqs-3"><a class="header" href="#prereqs-3">Prereqs</a></h2>
@@ -2839,27 +2846,26 @@ source ./activate.fish        # fish
 <p><strong>Node pkg</strong> — a <code>lib</code> crate that contains one node’s logic. It
 declares <code>nros::node!(T)</code> and carries
 <code>[package.metadata.nros.node]</code> in its <code>Cargo.toml</code>. It has no
-<code>fn main()</code> — that lives in the Entry pkg. One Node pkg per node.
+<code>fn main()</code> — no package you write has one. One Node pkg per node.
 Think of it as a composable building block: the same <code>talker_pkg</code> lib
 can be assembled into a native binary <em>and</em> an embedded binary without
 any source change.</p>
 <p><strong>Bringup pkg</strong> — a purely declarative directory that owns the launch
-topology. It contains a <code>package.xml</code>, a <code>system.toml</code> (listing which
-nodes run, how they’re wired, per-target deploy config), and a
-<code>launch/</code> directory with ROS 2 launch XML. <strong>No <code>Cargo.toml</code>, no
-compiled code.</strong> Naming convention <code>&lt;system&gt;_bringup</code>, matching nav2 /
-Autoware / turtlebot3. This role is <em>optional</em> — a workspace with a
-single deploy target can fold the launch files and <code>system.toml</code>
-directly into the Entry pkg.</p>
-<p><strong>Entry pkg</strong> — a <code>bin</code> crate that boots a topology on one specific
-board. It carries <code>[package.metadata.nros.entry]</code> with <code>deploy = "&lt;board&gt;"</code> and a <code>src/main.rs</code> that is just <code>nros::main!(...)</code>. One
-Entry pkg per deploy target. The Entry pkg links in all Node pkg libs,
-links in the board crate, and hands control to the nano-ros runtime.</p>
-<p>The app-node shape you already know (<code>examples/native/rust/talker/</code>) is
-effectively a <em>fused</em> Entry + Node pkg: a single package that is both
-the logic and the boot point. That fusion is fine — and encouraged —
-for single-node work. Only split when you actually need the
-flexibility.</p>
+topology and the images built from it. It contains a <code>package.xml</code>, a
+<code>system.toml</code> (which nodes run, how they’re wired, and an <code>[image.&lt;id&gt;]</code>
+row per program), and a <code>launch/</code> directory with ROS 2 launch XML. <strong>No
+<code>Cargo.toml</code>, no compiled code.</strong> Naming convention <code>&lt;system&gt;_bringup</code>,
+matching nav2 / Autoware / turtlebot3.</p>
+<p><strong>Image</strong> — not a package. <code>[image.native] board = "native"</code> is a row in
+that <code>system.toml</code>, and <code>nros build native</code> turns it into a program:
+<code>nros build</code> generates the root build file <em>and</em> the entry that links the
+Node pkgs and the board crate and hands control to the nano-ros runtime.
+A second board is a second row, not a second directory.</p>
+<p>The app-node shape you already know (<code>examples/native/rust/talker/</code>) is a
+single package that is both the logic and the boot point — no bringup, no
+images, <code>nros::main!()</code> reading its own <code>Cargo.toml</code>. That fusion is fine —
+and encouraged — for single-node work. Only split when you actually need
+the flexibility.</p>
 <h2 id="ros-2--nano-ros-command-map"><a class="header" href="#ros-2--nano-ros-command-map">ROS 2 ↔ nano-ros command map</a></h2>
 <p>If you’re coming from ROS 2, here’s the mapping of the commands you
 already know:</p>
@@ -2869,21 +2875,21 @@ already know:</p>
 <tr><th>ROS 2</th><th>nano-ros</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>ros2 pkg create</code></td><td><code>nros new &lt;name&gt; --platform &lt;plat&gt; [--lang &lt;lang&gt;]</code></td><td>scaffolds a Node pkg</td></tr>
-<tr><td><code>colcon build</code></td><td><code>cargo build</code> (Rust) / <code>cmake --build build</code> (C++)</td><td>use the underlying tool directly</td></tr>
-<tr><td><code>ros2 launch &lt;pkg&gt; &lt;file&gt;</code></td><td><code>cargo run -p &lt;entry_pkg&gt;</code></td><td>composed Entry pkg IS the launch product (Phase 212.N + 222.D); the old launch wrapper was removed in nros 0.5.0</td></tr>
+<tr><td><code>ros2 pkg create</code></td><td><code>nros new node &lt;name&gt;</code></td><td>scaffolds a Node pkg and adds its <code>[[component]]</code> row</td></tr>
+<tr><td><code>colcon build</code></td><td><code>nros build &lt;image&gt;</code></td><td>resolves the image, generates the root, hands off to cargo / cmake / west / idf.py</td></tr>
+<tr><td><code>ros2 launch &lt;pkg&gt; &lt;file&gt;</code></td><td>run the image’s binary</td><td>the image IS the launch product; the old launch wrapper was removed in nros 0.5.0</td></tr>
 <tr><td>(plan/validate)</td><td><code>nros plan</code> → <code>nros check</code></td><td>resolve + statically check the topology</td></tr>
-<tr><td><code>ros2 run &lt;pkg&gt; &lt;exe&gt;</code></td><td>run the Entry pkg binary (<code>cargo run</code>)</td><td>one Entry pkg per board</td></tr>
+<tr><td><code>ros2 run &lt;pkg&gt; &lt;exe&gt;</code></td><td>run the image’s binary</td><td>one <code>[image.*]</code> row per board</td></tr>
 </tbody>
 </table>
 </div>
-<p>Build verbs (<code>cargo</code> for Rust, <code>cmake</code> for C/C++, <code>west</code> for Zephyr,
-<code>idf.py</code> for ESP-IDF) are used directly — there is no CLI build
-indirection. The composed Entry pkg binary IS the launch product:
-one Entry pkg = one binary = one process. Multi-process orchestration
-(equivalent to multiple <code>ros2 launch</code> nodes in separate processes) is
-a separate Entry pkg per deploy + a shell script / tmux session, not
-a CLI verb.</p>
+<p><code>nros build</code> hands off rather than taking over: it generates what the build
+system needs and then runs your platform’s own tool (<code>cargo</code>, <code>cmake</code>, <code>west</code>,
+<code>idf.py</code>), so compiler errors stay the compiler’s, unchanged. Running the tool
+yourself keeps working. One image = one binary = one process; multi-process
+orchestration (the equivalent of several <code>ros2 launch</code> nodes in separate
+processes) is several images plus a shell script or tmux session, not a CLI
+verb.</p>
 <h2 id="the-app-node-shape-stays-valid"><a class="header" href="#the-app-node-shape-stays-valid">The app-node shape stays valid</a></h2>
 <p>There is no obligation to restructure. If your project is one node on
 one board, the app-node shape (<code>src/main.rs</code> + one package = both
@@ -2897,15 +2903,15 @@ requirement.</p>
 implement Node pkgs with <code>nros::node!</code>.</li>
 <li><a href="#bringup-packages">Bringup packages</a> — declare
 your topology in a Bringup pkg.</li>
-<li><a href="#entry-packages">Entry packages</a> — write
-the Entry pkg that boots everything together.</li>
+<li><a href="#images">Images</a> — declare the
+<code>[image.*]</code> row that becomes a runnable program.</li>
 <li><a href="#c--c-multi-node-workspaces">C / C++ multi-node workspaces</a> — use the same
 project shape with CMake.</li>
 </ol>
-<p>For C Node pkgs hosted by a C++ Entry pkg, see
+<p>For C Node pkgs alongside C++ and Rust ones, see
 <a href="#mixed-language-workspace">Mixed-language workspace</a>.</p>
 <p>For the full API reference covering all three roles, see
-<a href="#role-reference-node-bringup-and-entry-packages">Role reference</a>.</p>
+<a href="#role-reference-node-pkgs-bringup-pkgs-and-images">Role reference</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="node-packages"><a class="header" href="#node-packages">Node packages</a></h1>
 <blockquote>
@@ -2916,7 +2922,7 @@ Next: <a href="#bringup-packages">Bringup packages</a></p>
 <p>A <strong>Node pkg</strong> is the unit of reusable behaviour in a multi-node workspace.
 It is a Rust library — a <code>[lib]</code> crate — that implements one node and
 registers it with <code>nros::node!(T)</code>.
-The Entry pkg is what boots the binary; the Node pkg is what runs inside it.</p>
+An image is what boots the binary; the Node pkg is what runs inside it.</p>
 <hr>
 <h2 id="prereqs-4"><a class="header" href="#prereqs-4">Prereqs</a></h2>
 <p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
@@ -2942,16 +2948,15 @@ source ./activate.fish        # fish
 <hr>
 <h2 id="scaffolding-a-node-pkg"><a class="header" href="#scaffolding-a-node-pkg">Scaffolding a Node pkg</a></h2>
 <p>Use <code>nros new</code> to create a skeleton:</p>
-<pre><code class="language-bash">nros new talker --platform native --lang rust
+<pre><code class="language-bash">nros new node talker_pkg
 </code></pre>
-<p><code>nros new</code> creates a project skeleton.
-For a workspace, move (or create) the result under <code>src/talker_pkg/</code> so the
-workspace root’s <code>Cargo.toml</code> can include it as a member:</p>
-<pre><code class="language-toml"># workspace Cargo.toml
-[workspace]
-resolver = "2"
-members = ["src/talker_pkg", "src/listener_pkg", "src/native_entry"]
-</code></pre>
+<p><code>nros new node</code> writes the package under <code>src/</code> and adds its <code>[[component]]</code>
+row to the bringup. There is no member list to maintain: <code>nros build</code>
+discovers the packages under <code>src/</code> and writes the workspace root’s
+<code>Cargo.toml</code> (or <code>CMakeLists.txt</code>) itself, which is why neither is tracked.</p>
+<p>(<code>nros new &lt;name&gt; --platform native --lang rust</code> is the other verb, and a
+different output — a standalone <em>runnable project</em> with its own root, which
+pins a board crate. Use it for a copy-out example, not for a workspace member.)</p>
 <hr>
 <h2 id="node-pkg-anatomy"><a class="header" href="#node-pkg-anatomy">Node pkg anatomy</a></h2>
 <p>A Node pkg has three files:</p>
@@ -2960,9 +2965,9 @@ members = ["src/talker_pkg", "src/listener_pkg", "src/native_entry"]
 ├── Cargo.toml           # [lib] + [package.metadata.nros.node] metadata
 └── src/lib.rs           # impl Node + ExecutableNode; ends with nros::node!(Talker);
 </code></pre>
-<p>No <code>fn main()</code> here — a Node pkg is a library linked into an Entry pkg.
-The Entry pkg’s macro-generated runtime owns <code>nros::init</code>, executor open,
-RMW registration, and the spin/yield loop.</p>
+<p>No <code>fn main()</code> here — a Node pkg is a library linked into the entry that
+<code>nros build</code> generates for an image. That entry’s macro-generated runtime owns
+<code>nros::init</code>, executor open, RMW registration, and the spin/yield loop.</p>
 <hr>
 <h2 id="cargotoml--the-packagemetadatanrosnode-block"><a class="header" href="#cargotoml--the-packagemetadatanrosnode-block"><code>Cargo.toml</code> — the <code>[package.metadata.nros.node]</code> block</a></h2>
 <p>The metadata block is what the <code>nros</code> CLI reads to discover, name, and
@@ -2995,14 +3000,15 @@ nros = { path = "../../../../../packages/api/nros", default-features = false,
 </div>
 <p>A Node pkg names <strong>no</strong> platform and <strong>no</strong> RMW. <code>alloc</code> is the universal
 baseline and <code>rmw-cffi</code> is the vtable seam; the concrete backend and the
-platform both flow in from the board crate that the sibling Entry pkg depends
-on, via cargo feature unification. That is what lets one <code>talker_pkg</code> deploy to
-a Linux host and a Cortex-M board without a fork.</p>
+platform both flow in from the board crate the generated entry depends on, via
+cargo feature unification. That is what lets one <code>talker_pkg</code> deploy to a Linux
+host and a Cortex-M board without a fork — the difference between them is an
+<code>[image.*]</code> row, not a second copy of anything.</p>
 <hr>
 <h2 id="srclibrs--the-node-implementation"><a class="header" href="#srclibrs--the-node-implementation"><code>src/lib.rs</code> — the node implementation</a></h2>
 <p>A Node pkg implements two traits: <code>Node</code> (declarative registration) and
 <code>ExecutableNode</code> (per-callback body), then calls <code>nros::node!</code> to export the
-trampolines the Entry macro expects.</p>
+trampolines the entry macro expects.</p>
 <p>Here is the essential shape, drawn from
 <a href="../../examples/workspaces/rust/src/talker_pkg/src/lib.rs"><code>examples/workspaces/rust/src/talker_pkg/src/lib.rs</code></a>
 (see that file for the full worked version):</p>
@@ -3048,10 +3054,10 @@ nros::node!(Talker);   // &lt;-- exports the trampolines; this is the last line
 <li><code>Node::register</code> is <strong>declarative</strong> — it runs once at startup to declare
 publishers, subscriptions, timers, and callback edges. No message bytes
 flow here.</li>
-<li><code>ExecutableNode::on_callback</code> is the <strong>body</strong> — called by the Entry pkg’s
+<li><code>ExecutableNode::on_callback</code> is the <strong>body</strong> — called by the image’s
 executor each time a callback fires. <code>state</code> is your per-node mutable storage.</li>
 <li><code>nros::node!(Talker)</code> <strong>must be the last public API call</strong> in the file.
-It generates the <code>extern "C"</code> trampolines the Entry macro imports.</li>
+It generates the <code>extern "C"</code> trampolines the entry macro imports.</li>
 <li>There is <strong>no <code>fn main()</code></strong> in a Node pkg.</li>
 <li><code>ENTITY_BOUNDS</code> is <strong>static RAM you either pay or do not</strong> (issue 0857).
 <code>nros::node!</code> emits a <code>static</code> sized from it, and a publisher slot carries a
@@ -3138,39 +3144,40 @@ way to drive a client from a declarative node. See
 <code>examples/workspaces/rust/.../service_client_pkg</code> for the reference.</p>
 <hr>
 <h2 id="building"><a class="header" href="#building">Building</a></h2>
-<p>From the workspace root, sync generated interfaces first, then let Cargo
-compile the Node pkgs and Entry pkg:</p>
+<p>You never build a Node pkg on its own — you build an image, and it links the
+Node pkgs its launch file names:</p>
 <pre><code class="language-bash"># From examples/workspaces/rust/ (or your workspace root):
-nros sync
-nros codegen-system --bringup demo_bringup
-cargo build -p native_entry
+nros build native
 </code></pre>
-<p>No per-Node-pkg invocation is needed — the workspace resolver handles
-dependency ordering.</p>
-<p>To cross-compile for an embedded target, pass <code>--target</code> and ensure
-<code>.cargo/config.toml</code> in the workspace root sets the right linker and target:</p>
-<pre><code class="language-bash">cargo build --target thumbv7em-none-eabihf
+<p>No per-Node-pkg invocation is needed, and no cross-compile flags either: the
+image’s <code>board</code> carries the rustc triple, so building for an embedded target is
+another row rather than another command line.</p>
+<pre><code class="language-toml">[image.freertos]
+board = "mps2-an385-freertos"
+</code></pre>
+<pre><code class="language-bash">nros build freertos
 </code></pre>
 <hr>
 <h2 id="next-steps-1"><a class="header" href="#next-steps-1">Next steps</a></h2>
 <ul>
 <li><strong><a href="#bringup-packages">Bringup packages</a></strong> — wire the Node
 pkgs together into a topology.</li>
-<li><strong><a href="#entry-packages">Entry packages</a></strong> — build the
-binary that boots the topology on real hardware or a host process.</li>
-<li><strong><a href="#role-reference-node-bringup-and-entry-packages">Role reference</a></strong> —
-the full reference for all three roles, metadata fields, and the
-<code>nros::main!()</code> four forms.</li>
+<li><strong><a href="#images">Images</a></strong> — the <code>[image.*]</code> row
+that becomes a binary, on real hardware or a host process.</li>
+<li><strong><a href="#role-reference-node-pkgs-bringup-pkgs-and-images">Role reference</a></strong> —
+the full reference for the package roles, metadata fields, and the
+<code>nros::main!()</code> forms.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="bringup-packages"><a class="header" href="#bringup-packages">Bringup packages</a></h1>
 <p>A <strong>Bringup pkg</strong> is the declarative glue that ties your Node packages together
-into a runnable topology. It owns the launch file, the wiring between nodes, and
-the per-target deploy config — all without any compiled code of its own.</p>
+into runnable programs. It owns the launch file, the wiring between nodes, and
+the <code>[image.*]</code> table saying which programs get built out of them — all without
+any compiled code of its own.</p>
 <blockquote>
 <p><strong>Pre-requisite:</strong> You’ve scaffolded your Node packages following the
 <a href="#node-packages">Node packages</a> guide. This page adds the
-<code>demo_bringup</code> layer between them and the Entry package that boots everything.</p>
+<code>demo_bringup</code> layer that turns them into something you can build and run.</p>
 </blockquote>
 <hr>
 <h2 id="prereqs-5"><a class="header" href="#prereqs-5">Prereqs</a></h2>
@@ -3200,9 +3207,11 @@ source ./activate.fish        # fish
 no <code>src/</code>. Its job is to describe <em>which</em> nodes run, how they’re wired, and
 where they deploy. Naming convention: <code>&lt;system&gt;_bringup</code> (aliased <code>&lt;system&gt;_launch</code>),
 matching nav2 / Autoware / turtlebot3.</p>
-<p>It is <strong>optional</strong>: required only when two or more Entry packages share one
-topology. A single-Entry workspace can fold <code>launch/</code> + <code>system.toml</code> directly
-into the Entry pkg.</p>
+<p>A multi-node workspace needs exactly one per logical system. It is where
+<code>[image.*]</code> lives, so it is the package a buildable workspace cannot do
+without — <code>nros build</code> reads that table to decide what programs exist. (The
+single-package copy-out shape under <code>examples/&lt;platform&gt;/&lt;lang&gt;/</code> has no
+bringup and no images; it boots itself with a bare <code>nros::main!()</code>.)</p>
 <hr>
 <h2 id="anatomy"><a class="header" href="#anatomy">Anatomy</a></h2>
 <pre><code>src/demo_bringup/
@@ -3366,18 +3375,23 @@ above is the native authoring format.</p>
 <p>No <code>&lt;build_depend&gt;</code> entries — there is nothing to compile.</p>
 <hr>
 <h2 id="workflow-check--run"><a class="header" href="#workflow-check--run">Workflow: check → run</a></h2>
-<p>Once your Bringup pkg is written, use <code>nros check</code> to validate and
-<code>cargo run</code> to execute the topology:</p>
+<p>Once your Bringup pkg is written, <code>nros check</code> validates it and <code>nros build</code>
+turns one of its images into a program:</p>
 <pre><code class="language-bash"># 1. Lint the bringup pkg (pure-declarative check — no Cargo.toml, stray files, etc.)
 nros check --bringup src/demo_bringup
 
 # 2. Lint the whole workspace (pkg/class rows, duplicate system.toml, etc.)
 nros check --workspace .
 
-# 3. Run the composed Entry binary (boots all nodes in a single process)
-ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd &amp;   # router — in another shell
-cargo run -p native_entry
+# 3. Build an image. With no name, `nros build` lists what this workspace declares.
+nros build native
+
+# 4. Run it. Zenoh needs a router first, in another shell:
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 </code></pre>
+<p>The binary boots every node the launch file names, composed into one process.
+It lands beside the build <code>nros build</code> drove — under <code>target/</code> on the cargo
+driver, <code>build/&lt;coordinate&gt;/cmake/</code> on the cmake one.</p>
 <p>Both <code>nros check</code> forms pass for the canonical template at
 <code>examples/workspaces/rust/</code>.</p>
 <blockquote>
@@ -3398,22 +3412,27 @@ truth for the current CLI state.</p>
 </blockquote>
 <hr>
 <h2 id="runnable-copy-out"><a class="header" href="#runnable-copy-out">Runnable copy-out</a></h2>
-<p><code>examples/workspaces/rust/</code> is the canonical Rust 3-role workspace that pairs
-with this guide. Copy the whole directory out and rename the packages.
-<code>nros sync</code> materializes generated message crates, <code>nros codegen-system</code>
-bakes the Bringup package, and <code>cargo build -p native_entry</code> builds the Entry
-pkg.</p>
+<p><code>examples/workspaces/rust/</code> is the canonical Rust workspace that pairs with
+this guide. Copy the whole directory out and rename the packages, then:</p>
+<pre><code class="language-bash">nros setup native
+nros build native
+</code></pre>
+<p><code>nros build</code> walks the packages, resolves the image, checks the toolchain,
+generates the root manifest and the entry, and hands off to cargo. The older
+<code>nros sync</code> / <code>nros codegen-system</code> / <code>nros check</code> sequence still works; it is
+just no longer something you have to type.</p>
 <p>The workspace README at <code>examples/workspaces/rust/README.md</code>
 documents the exact CLI commands that are verified green today.</p>
 <hr>
-<h2 id="when-you-dont-need-a-bringup-pkg"><a class="header" href="#when-you-dont-need-a-bringup-pkg">When you don’t need a Bringup pkg</a></h2>
-<p>If you have a single Entry pkg and don’t plan to share the topology across
-multiple boards, fold <code>launch/</code> + <code>config/</code> directly into the Entry pkg.
-The <code>nros::main!</code> macro’s <code>launch =</code> argument names the bringup package and,
-optionally, a launch file within it — the SAME inputs you author. The build
-resolves them to a SystemModel under <code>&lt;workspace&gt;/build/nros/models/</code> (run
-<code>nros sync</code>, or let the build system drive it); you never reference the
-model file, though you can inspect it there:</p>
+<h2 id="naming-a-launch-file-from-an-entry"><a class="header" href="#naming-a-launch-file-from-an-entry">Naming a launch file from an entry</a></h2>
+<p>The <code>nros::main!</code> macro’s <code>launch =</code> argument names the bringup package and,
+optionally, a launch file within it — the SAME inputs you author, and the same
+pair an <code>[image.*]</code> row names. You will read this in a generated entry, and
+write it yourself only in a single-package project or a materialized one. The
+build resolves the pair to a SystemModel under
+<code>&lt;workspace&gt;/build/nros/models/</code> (run <code>nros sync</code>, or let the build system
+drive it); you never reference the model file, though you can inspect it
+there:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// Multi-node: the bringup's default launch (system.launch.xml)
@@ -3425,28 +3444,34 @@ nros::main!(launch = "demo_bringup:sim.launch.xml");
 // A launch-argument binding, declared as [[model]] in system.toml
 nros::main!(launch = "demo_bringup:multihost.launch.xml", args = [("host", "robot1")]);
 <span class="boring">}</span></code></pre>
-<p>If the launch files live inside the Entry pkg itself, point at it by name. The
-Entry package page covers this in full.</p>
+<p>The <a href="#images">Images</a> page covers the macro forms and the
+generated entry in full.</p>
 <hr>
 <h2 id="where-to-go-next-2"><a class="header" href="#where-to-go-next-2">Where to go next</a></h2>
 <ul>
-<li><a href="#entry-packages">Entry packages</a> — the <code>nros::main!</code> macro and <code>native_entry</code></li>
-<li><a href="#role-reference-node-bringup-and-entry-packages">Role reference</a> — full reference for all three roles</li>
+<li><a href="#images">Images</a> — the <code>[image.*]</code> row that becomes a program</li>
+<li><a href="#role-reference-node-pkgs-bringup-pkgs-and-images">Role reference</a> — full reference for the package roles and the image table</li>
 <li><a href="#multi-node-project-layout">Project layout</a> — start here if you haven’t read it yet</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="entry-packages"><a class="header" href="#entry-packages">Entry packages</a></h1>
-<p>An <strong>Entry pkg</strong> is the binary that boots a topology on a specific board.
-Where a Node pkg is a library (no <code>fn main</code>) and a Bringup pkg is purely
-declarative, the Entry pkg is the one thing that actually runs: it names a
-board, wires the runtime, and — for multi-node setups — points at a Bringup
-pkg that describes which nodes should be launched.</p>
-<p>You have one Entry pkg per deploy target. A workspace targeting both a native
-workstation and a bare-metal Cortex-M board has two Entry pkgs that reference
-the same Node pkgs; only the board and (optionally) the launch target differ.</p>
+<h1 id="images"><a class="header" href="#images">Images</a></h1>
+<p>An <strong>image</strong> is one buildable program: a topology, a board, and a backend.
+You declare it as a row in your Bringup pkg’s <code>system.toml</code> —</p>
+<pre><code class="language-toml">[image.native]
+board = "native"
+</code></pre>
+<p>— and build it by name:</p>
+<pre><code class="language-sh">nros build native
+</code></pre>
+<p>There is no package to write. <code>nros build</code> discovers your Node pkgs, reads the
+<code>[image.*]</code> table, and <strong>generates</strong> both the root build file and the entry
+package that boots the topology. An image is a row, not a directory.</p>
+<p>That is the whole model. The rest of this page is what goes in the row, where
+the generated pieces land, and the one case that still needs a package of its
+own.</p>
 <h2 id="prereqs-6"><a class="header" href="#prereqs-6">Prereqs</a></h2>
-<p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
-<p><strong>A. Front door</strong> (bare machine OK — no Rust, no <code>just</code>):</p>
+<p>Pick one path from a fresh checkout:</p>
+<p><strong>A. Front door</strong> (bare machine OK — no Rust):</p>
 <pre><code class="language-sh">./scripts/bootstrap.sh
 </code></pre>
 <p>Installs rustup if needed and builds the in-tree <code>nros</code> CLI from
@@ -3462,61 +3487,274 @@ export PATH="$PWD/packages/cli/target/release:$PATH"
 source ./activate.sh          # bash / zsh
 source ./activate.fish        # fish
 </code></pre>
-<p>Then provision the native host (the canonical first Entry pkg target;
-for Zephyr / FreeRTOS / ESP32 swap in the matching <code>nros setup</code> board):</p>
+<p>Then provision the native host (the canonical first image target; for Zephyr /
+FreeRTOS / ESP32 swap in the matching <code>nros setup</code> board):</p>
 <pre><code class="language-sh">nros setup native --rmw zenoh
+nros sync                     # generated message bindings, once per workspace
 </code></pre>
-<h2 id="package-layout"><a class="header" href="#package-layout">Package layout</a></h2>
-<pre><code>src/native_entry/
-├── package.xml
-├── Cargo.toml           # [[bin]] + deps on node pkgs + board crate
-│                        # + [package.metadata.nros.entry]
-└── src/main.rs          # nros::main!(launch = "demo_bringup");
+<h2 id="what-a-workspace-looks-like"><a class="header" href="#what-a-workspace-looks-like">What a workspace looks like</a></h2>
+<p>The four reference workspaces in <code>examples/workspaces/</code> all have the same
+shape. Node pkgs, one Bringup pkg, and nothing else:</p>
+<pre><code class="language-text">examples/workspaces/c/
+├── .colcon_workspace         # the tracked marker: this directory IS a workspace root
+├── .gitignore
+├── README.md
+└── src/
+    ├── talker_pkg/           # Node pkg
+    ├── listener_pkg/         # Node pkg
+    ├── service_server_pkg/   # Node pkg
+    ├── … three more …
+    ├── demo_bringup/         # Bringup pkg: package.xml + system.toml + launch/
+    └── zephyr_entry/         # the one exception — see below
 </code></pre>
-<p>No library code lives here. The Entry pkg links the Node pkg rlibs and hands
-them to the runtime that <code>nros::main!()</code> generates.</p>
-<h2 id="cargotoml-metadata"><a class="header" href="#cargotoml-metadata"><code>Cargo.toml</code> metadata</a></h2>
-<p>The <code>[package.metadata.nros.entry]</code> table tells the CLI which deploy target
-this binary is built for. The embedded example
-<code>examples/qemu-arm-baremetal/rust/talker-rtic/</code> uses:</p>
-<pre><code class="language-toml">[package.metadata.nros.entry]
-deploy = "rtic-mps2-an385"
+<p>No <code>CMakeLists.txt</code>, no <code>Cargo.toml</code> at the root. That workspace’s own
+<code>.gitignore</code> says why:</p>
+<pre><code class="language-gitignore"># phase-383 W10.a — the root manifest and root CMakeLists are GENERATED by
+# `nros build` from the discovered packages plus the `[image.*]` table. They
+# are build output like `build/` and `Cargo.lock`, and committing either would
+# put a generated member list under review (RFC-0065 D3). The tracked marker
+# that this directory IS a workspace root is `.colcon_workspace`.
+/Cargo.toml
+/CMakeLists.txt
 </code></pre>
-<p>A native Entry pkg that references a Bringup pkg looks like:</p>
-<pre><code class="language-toml">[package.metadata.nros.entry]
-deploy = "native"
+<p>And no entry packages, except the Zephyr one. Fourteen images ship out of that
+directory. <code>nros build</code> with no argument lists them:</p>
+<pre><code class="language-console">$ cd examples/workspaces/c
+$ nros build
+Error: this workspace declares 14 images and no default.
 
-[package.metadata.nros.deploy.native]
-board     = "posix"
-rmw       = "zenoh"
-domain_id = 0
+  demo_bringup:freertos
+  demo_bringup:freertos_posix
+  demo_bringup:native
+  demo_bringup:native_action_client
+  demo_bringup:native_action_server
+  demo_bringup:native_cyclonedds
+  demo_bringup:native_robot1
+  demo_bringup:native_robot2
+  demo_bringup:native_service_client
+  demo_bringup:native_service_server
+  demo_bringup:native_xrce
+  demo_bringup:nuttx
+  demo_bringup:threadx
+  demo_bringup:zephyr
+
+  build one:   nros build freertos
+  build all:   nros build --all
+  or declare:  [system] default_images = ["freertos"]
 </code></pre>
-<p><code>deploy</code> is the key that <code>nros check</code> and the Entry macro use to
-find the board crate and verify the topology. Keep it short and descriptive —
-it becomes the identifier in <code>nros plan</code> output and in <code>system.toml</code>’s
-<code>[image.&lt;id&gt;]</code> table when you later add a Bringup pkg.</p>
-<h2 id="nrosmain--the-forms"><a class="header" href="#nrosmain--the-forms"><code>nros::main!()</code> — the forms</a></h2>
+<p>Fourteen programs, one launch tree, six node packages, <strong>one</strong> entry
+directory. Under the old shape that was fourteen directories.</p>
+<h2 id="declaring-an-image"><a class="header" href="#declaring-an-image">Declaring an image</a></h2>
+<p>Images live in the Bringup pkg beside the topology they boot —
+<code>examples/workspaces/c/src/demo_bringup/system.toml</code>:</p>
+<pre><code class="language-toml">[image_defaults]
+rmw = "zenoh"
+
+[image.native]
+board = "native"
+
+[image.freertos]
+board = "mps2-an385-freertos"
+
+[image.freertos_posix]
+board = "freertos-posix"
+# NOT the `[image_defaults]` zenoh. zenoh-pico's FreeRTOS backend is lwIP-only
+# and this board has no lwIP.
+rmw = "cyclonedds"
+
+[image.native_service_server]
+board = "native"
+launch = "service_server.launch.xml"
+
+[image.native_robot1]
+board = "native"
+launch = "multihost.launch.xml"
+args = { host = "robot1" }
+
+[image.zephyr]
+board = "native_sim/native/64"
+conf = ["prj-zenoh.conf"]
+</code></pre>
+<p>Read it as a table of variants over one topology. <code>native</code> and
+<code>native_cyclonedds</code> differ in a backend; <code>native</code> and <code>native_service_server</code>
+differ in a launch file; <code>native_robot1</code> and <code>native_robot2</code> differ in one
+launch argument. Nothing is duplicated to express any of that.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>board</code></td><td>The nano-ros board id — resolved through <code>packages/boards/board-support.toml</code>, which supplies the rustc triple, the platform, and the framework’s own board string</td></tr>
+<tr><td><code>launch</code></td><td>The launch file this image bakes, relative to the Bringup pkg. Absent ⇒ <code>[system] default_launch</code></td></tr>
+<tr><td><code>args</code></td><td>Launch arguments bound at resolve time (<code>{ host = "robot1" }</code>) — how an image selects one machine out of a multi-host launch tree</td></tr>
+<tr><td><code>rmw</code></td><td>Backend for this image. Absent ⇒ <code>[system] rmw</code></td></tr>
+<tr><td><code>panic</code></td><td>RFC-0077 panic policy (<code>platform</code> | <code>halt</code> | <code>own</code>), forwarded to the generated entry</td></tr>
+<tr><td><code>profile</code></td><td>A cargo / CMake build profile name</td></tr>
+<tr><td><code>conf</code></td><td>Extra framework config fragments, in order (Zephyr <code>prj-*.conf</code>)</td></tr>
+<tr><td><code>features</code></td><td>Capability axes for this image, over <code>[system]</code>’s list</td></tr>
+<tr><td><code>entry</code></td><td>The application package — <strong>normally omitted</strong>; see <a href="#the-exception-when-a-framework-owns-the-application">the exception</a></td></tr>
+</tbody>
+</table>
+</div>
+<p><code>[image_defaults]</code> is the base every block folds over (RFC-0065 D5.1): scalars
+are replaced by the specific block, <code>args</code> merges, <code>conf</code> and <code>features</code>
+concatenate. Without it an eight-image workspace repeats its RMW eight times,
+and eight copies of one fact is how they start disagreeing.</p>
+<p><code>[system] default_images = ["native"]</code> is what a bare <code>nros build</code> then builds.</p>
+<h2 id="what-nros-build-generates"><a class="header" href="#what-nros-build-generates">What <code>nros build</code> generates</a></h2>
+<p>For a cargo or CMake image, stage 4 writes the root build file and the entry —
+both build output, both gitignored, neither yours to edit:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>driver</th><th>the root it writes</th><th>how the entry arrives</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>cargo</strong></td><td><code>&lt;ws&gt;/Cargo.toml</code> — at the workspace root, because cargo resolves a package’s workspace by walking <em>up</em> and refuses a member above its root</td><td>a real package at <code>&lt;ws&gt;/build/&lt;coordinate&gt;/&lt;image_id&gt;_entry/</code>, built with <code>cargo build -p &lt;image_id&gt;_entry</code></td></tr>
+<tr><td><strong>cmake</strong></td><td><code>&lt;ws&gt;/build/&lt;coordinate&gt;/CMakeLists.txt</code></td><td>a <code>nano_ros_add_executable(…)</code> call in that root, one per image sharing the coordinate; the binary lands in <code>&lt;ws&gt;/build/&lt;coordinate&gt;/cmake/</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The coordinate is the platform and the RMW, plus — for cmake, which pins one
+compiler per configure — the board. So <code>[image.native]</code> in
+<code>examples/workspaces/c</code> configures <code>build/posix-zenoh-native/</code> into
+<code>build/posix-zenoh-native/cmake/</code> and leaves its binary at
+<code>build/posix-zenoh-native/cmake/native_entry</code>. On the cargo driver <code>nros build</code>
+names the entry package it wrote as it goes:</p>
+<pre><code class="language-text">nros build:   entry → …/build/posix/native_entry
+</code></pre>
+<p>Both roots list <strong>every</strong> image on that coordinate, not just the one being
+built: the member list is a property of the workspace, and making it depend on
+which image you asked for would rewrite <code>Cargo.lock</code> on every switch.</p>
+<p>The generated entry is the same few lines you would have written. RFC-0065 D4
+measured them before deciding to derive them: every Rust entry in the tree was
+<strong>≤ 6 non-comment lines</strong>, every embedded C/C++ entry had <strong>zero</strong> source
+files. Three parts, all derivable —</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>part</th><th>derived from</th></tr>
+</thead>
+<tbody>
+<tr><td>the <code>no_std</code> / <code>no_main</code> shell</td><td>the board’s <code>entry_kind</code></td></tr>
+<tr><td>board boilerplate (<code>use panic_semihosting as _;</code>, <code>esp_app_desc!()</code>)</td><td>the board descriptor’s <code>entry.crate_root_extra</code></td></tr>
+<tr><td><code>nros::main!(launch = …, args = …)</code></td><td>the image</td></tr>
+</tbody>
+</table>
+</div>
+<p>— which is why adding a board adds a descriptor rather than a branch in the
+emitter, and why the generated entry calls <code>nros::main!</code> rather than its own
+expansion: the macro reads the launch XML at <em>expansion</em> time, so adding a node
+to the launch file is picked up by the next compile with nothing regenerated.</p>
+<h2 id="the-exception-when-a-framework-owns-the-application"><a class="header" href="#the-exception-when-a-framework-owns-the-application">The exception: when a framework owns the application</a></h2>
+<p>An entry package survives in exactly one situation — <strong>an external build system
+that demands a real application directory.</strong> That is Zephyr.</p>
+<p>A Zephyr app <em>is</em> the <code>app</code> target that <code>find_package(Zephyr)</code> creates, and it
+carries authored Kconfig that nothing can derive: <code>prj.conf</code>, the per-RMW
+<code>prj-&lt;rmw&gt;.conf</code> fragments, <code>boards/*.overlay</code>. RFC-0065 D5 draws the line
+there — <em>“west and ESP-IDF apps keep their own files because those are Kconfig
+overlays — user intent, not derivable.”</em> So <code>nros build</code> generates no root for
+a Zephyr image; it resolves your application, applies the image’s overlays, and
+runs <code>west build</code>.</p>
+<p><code>examples/workspaces/c/src/zephyr_entry/</code> is the whole package — four files, no
+sources:</p>
+<pre><code class="language-text">src/zephyr_entry/
+├── CMakeLists.txt      # find_package(Zephyr) + nano_ros_add_executable(... DEPLOY zephyr)
+├── package.xml
+├── prj.conf
+└── prj-zenoh.conf
+</code></pre>
+<p>and its <code>CMakeLists.txt</code> states the reason in its own words:</p>
+<pre><code class="language-cmake"># Unlike the FreeRTOS/NuttX/ThreadX entries (cmake-lane, add_executable +
+# nros_platform_link_app), a Zephyr app IS the `app` target that find_package(Zephyr)
+# creates — so this entry CMakeLists is itself a Zephyr application, built by west
+</code></pre>
+<p>For a Rust workspace you do not have to write it by hand:</p>
+<pre><code class="language-sh">nros new entry zephyr_entry --platform zephyr
+</code></pre>
+<p>That writes <code>Cargo.toml</code>, <code>CMakeLists.txt</code> and <code>prj.conf</code>, <strong>and</strong> the
+<code>[image.*]</code> row — the two halves are one declaration, and every Zephyr build
+failure worth having is the two disagreeing. (The C and C++ Zephyr entries in
+<code>examples/workspaces/{c,cpp}</code> are authored; the shape above is all of it.)
+Zephyr is the only platform the verb accepts, which is the rule stated by the
+tool itself:</p>
+<pre><code class="language-text">`nros new entry` currently scaffolds Zephyr entries only (got --platform native).
+Every other platform builds through cargo or cmake, where the entry is
+GENERATED from the image and needs no package of its own (RFC-0065 D3).
+</code></pre>
+<h3 id="running-on-zephyr"><a class="header" href="#running-on-zephyr">Running on Zephyr</a></h3>
+<p>The Zephyr image names its application and its RMW overlay; nothing else in
+the row is Zephyr-specific:</p>
+<pre><code class="language-toml">[image.zephyr]
+board = "native_sim/native/64"
+conf  = ["prj-zenoh.conf"]
+</code></pre>
+<pre><code class="language-sh">nros sync                              # generated message bindings, once
+nros build demo_bringup:zephyr         # resolves the app + overlays, runs west build
+nros build demo_bringup:zephyr -- -t run
+</code></pre>
+<p>Plain <code>west</code> keeps working and stays the primary flow — <code>nros build</code> is the
+convenience that applies an image’s overlays for you, never a required layer
+between you and west:</p>
+<pre><code class="language-sh">west build -b native_sim/native/64 src/zephyr_entry \
+    -- -DCONF_FILE="prj.conf;prj-zenoh.conf"
+west build -t run                      # native_sim; `west flash` for hardware
+</code></pre>
+<p><strong>One Zephyr entry package covers every Zephyr board.</strong> Zephyr owns its board
+abstraction, so the board is chosen by the image’s <code>board</code> key (which becomes
+<code>west build -b</code>), not baked into the package. Swap
+<code>native_sim/native/64</code> for <code>nrf52840dk/nrf52840</code> and <code>prj-zenoh.conf</code> for
+<code>prj-xrce.conf</code>, and nothing in <code>src/</code> changes.</p>
+<p>The <code>entry</code> key exists for the case where <em>several</em> packages claim one board.
+<code>examples/workspaces/realtime-cpp</code> has <code>zephyr_entry</code> and <code>fvp_entry</code>, both
+<code>DEPLOY zephyr</code>, both on the same board, for two images that differ in payload
+— deriving there is a coin flip between two right-looking answers, so <code>nros build</code> refuses and names the candidates instead of picking one. Everywhere
+else, leave <code>entry</code> out: a package declares the board it serves
+(<code>[package.metadata.nros.entry] deploy</code> in <code>Cargo.toml</code>,
+<code>nano_ros_add_executable(... DEPLOY zephyr)</code> in <code>CMakeLists.txt</code>), and one
+package usually claims a given board.</p>
+<p>The full Zephyr path — west workspaces, freestanding applications, <code>west nros</code>,
+sysbuild — is <a href="#zephyr-west-module">Zephyr (west module)</a>.</p>
+<h2 id="if-you-already-have-entry-packages"><a class="header" href="#if-you-already-have-entry-packages">If you already have entry packages</a></h2>
+<p><code>nros build</code> keeps a hand-written entry: if <code>src/&lt;image_id&gt;_entry/</code> carries a
+<code>Cargo.toml</code> or a <code>CMakeLists.txt</code>, it is used as-is and nothing is generated
+over it. Migration is therefore a <strong>deletion</strong>, one image at a time — remove
+the directory, and the next build generates its replacement.</p>
+<p>Move these out first, since deleting the package deletes them too:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>in the old entry</th><th>goes to</th></tr>
+</thead>
+<tbody>
+<tr><td>board, launch file, launch args, RMW, panic policy, profile</td><td>the <code>[image.*]</code> row</td></tr>
+<tr><td>RTOS config overlays — <code>prj.conf</code>, <code>boards/*.overlay</code>, <code>sdkconfig.defaults</code></td><td>the Bringup pkg, under <code>boards/&lt;board&gt;/</code></td></tr>
+<tr><td>genuinely hand-written startup you cannot express as a declaration</td><td><code>nros materialize</code>, which writes the package back out for you to keep</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="nrosmain--what-the-generated-entry-contains"><a class="header" href="#nrosmain--what-the-generated-entry-contains"><code>nros::main!()</code> — what the generated entry contains</a></h2>
+<p>You will read this in a generated entry, and write it by hand only in a
+single-package project or a materialized entry.</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// 1. Single-node self-bringup: reads [package.metadata.nros.entry] deploy
 //    from Cargo.toml and boots the Node pkg that is the only member of
-//    this workspace (or the one marked default).
+//    this package.
 nros::main!();
 
 // 2. Single-node, explicit board type.
 nros::main!(board = LinuxBoard);
 
-// 3. Multi-node (CANONICAL): name your INPUT — the Bringup pkg (and
-//    optionally a launch file inside it; default is its default launch).
-//    `nros sync` resolves it into a SystemModel build artifact that the
-//    macro bakes from.
+// 3. Multi-node (CANONICAL): name your INPUT — the Bringup pkg, and
+//    optionally a launch file inside it; the default is its default launch.
 nros::main!(launch = "demo_bringup");
 nros::main!(launch = "demo_bringup:variant_b.launch.xml");
 
-// 4. Multi-host slice: point at a PER-HOST model. The launch file gates
-//    nodes on a `host` launch argument (`if=` conditions), and the model
-//    is resolved with `host:=robot1`, so it already contains only this
-//    host's nodes — no extra macro key needed.
+// 4. Multi-host slice: the launch file gates nodes on a `host` launch
+//    argument (`if=` conditions), and the model is resolved with
+//    `host:=robot1`, so it already contains only this host's nodes.
 nros::main!(launch = "demo_bringup:multihost.launch.xml", args = [("host", "robot1")]);
 
 // 5. DEPRECATED (expert override): name the resolved model ARTIFACT
@@ -3524,30 +3762,25 @@ nros::main!(launch = "demo_bringup:multihost.launch.xml", args = [("host", "robo
 //    warns at bake time (phase-330 W7).
 nros::main!(model = "demo_bringup");
 <span class="boring">}</span></code></pre>
-<p><code>launch</code> and <code>model</code> are mutually exclusive. <code>launch</code> is the <strong>canonical</strong>
-spelling (phase-330 W7): it names your <em>input</em> — the bringup package and
-launch file — and the entry consumes the SystemModel that <code>nros sync</code>
-resolves from it. The same resolved artifact drives the Linux runtime
-(play_launch) and every embedded image, so contract budgets, tiers, and
-QoS never drift between runtimes. <code>model</code> names the resolved artifact
-directly — a deprecated expert override. Produce/refresh the model with:</p>
+<p><code>launch</code> and <code>model</code> are mutually exclusive. <code>launch</code> is the canonical
+spelling: it names your <em>input</em> — the bringup package and launch file — and the
+entry consumes the SystemModel that <code>nros sync</code> resolves from it. The same
+resolved artifact drives the Linux runtime (play_launch) and every embedded
+image, so contract budgets, tiers, and QoS never drift between runtimes.</p>
 <pre><code class="language-console">$ nros sync    # resolves models into &lt;ws&gt;/build/nros/models/&lt;bringup&gt;/
 </code></pre>
-<p><code>nros sync</code> (the pre-build step every workflow already runs) re-resolves
-the model whenever a bringup’s launch XML or <code>system.toml</code> is newer than
-it. <strong>SystemModels are build artifacts — never commit one</strong> (the
-<code>check-no-tracked-models</code> gate enforces this).</p>
-<p><code>nros sync</code> is the only verb you need. Under the hood it runs the pinned
-<code>nros-launch-resolve</code> helper (RFC-0060 layer 2; <strong>contributors</strong> build it
-in-tree via <code>just setup-launch-resolve</code>) and invokes it by <strong>absolute path</strong> — never by a
-bare name on <code>$PATH</code>, because an unrelated ROS 2 <code>play_launch</code> on <code>PATH</code> used to
-win that race and break every platform’s fixture build (issue 0285). The macro reads <code>[package.metadata.nros.entry]</code> at compile
-time to select the right board and executor backend; the same model resolves
-its tier table for whichever RTOS that board targets. On Embassy / RTIC targets it emits the
-framework-specific <code>#[embassy_executor::main]</code> or <code>#[rtic::app]</code> body so your
-<code>src/main.rs</code> stays a single line.</p>
-<p>The real <code>examples/qemu-arm-baremetal/rust/talker-rtic/src/main.rs</code> collapses
-to exactly this:</p>
+<p><code>nros sync</code> re-resolves a model whenever a bringup’s launch XML or <code>system.toml</code>
+is newer than it, and <code>nros build</code> runs it for you. <strong>SystemModels are build
+artifacts — never commit one</strong> (the <code>check-no-tracked-models</code> gate enforces
+this). Under the hood <code>nros sync</code> runs the pinned <code>nros-launch-resolve</code> helper
+(RFC-0060 layer 2) by absolute path, never by a bare name on <code>$PATH</code>, because
+an unrelated ROS 2 <code>play_launch</code> on <code>PATH</code> used to win that race.</p>
+<p>The macro reads the board’s deploy token at compile time to select the board
+crate and executor backend, and the same model resolves its tier table for
+whichever RTOS that board targets. On Embassy / RTIC targets it emits the
+framework-specific <code>#[embassy_executor::main]</code> or <code>#[rtic::app]</code> body, so the
+crate root stays a single line — as in
+<code>examples/qemu-arm-baremetal/rust/talker-rtic/src/main.rs</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span>#![no_std]
 #![no_main]
@@ -3559,8 +3792,20 @@ nros::main!();
 <span class="boring">}</span></code></pre>
 <h2 id="escape-hatch"><a class="header" href="#escape-hatch">Escape hatch</a></h2>
 <p>If you need more control than the macro provides — custom startup ordering,
-hardware init before the runtime, or a fully manual executor loop — you can
-bypass <code>nros::main!()</code>:</p>
+hardware init before the runtime, or a fully manual executor loop — take
+ownership of the generated entry:</p>
+<pre><code class="language-console">$ nros build native          # generate it first — materialize copies, it does not re-emit
+$ nros materialize native
+wrote …/src/native_entry
+
+This entry is YOURS now — `nros build` will not regenerate it.
+</code></pre>
+<p>It lands at <code>src/&lt;image_id&gt;_entry/</code>, carries a stamp recording the shape it was
+cut for, and <code>nros build</code> warns if that shape later moves. Its derivation stays
+live — <code>nros::main!</code> still reads the launch file at compile time, so adding a
+node needs no change here; what is frozen is the <em>shell</em>: the panic policy, the
+board boilerplate, the crate type. Inside it you can bypass <code>nros::main!()</code>
+entirely:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// Option A: delegate init to the board crate, supply your own closure.
@@ -3576,100 +3821,45 @@ let executor = nros::Executor::open(&amp;ExecutorConfig::default())?;
 <span class="boring">}</span></code></pre>
 <p>Option A is the right choice when you need to run something before the first
 spin (e.g. DMA setup, flash unlock). Option B is there for board-bringup
-authors adding a new platform.</p>
-<h2 id="running-a-native-entry-pkg"><a class="header" href="#running-a-native-entry-pkg">Running a native Entry pkg</a></h2>
-<p>The verified path for the canonical Rust workspace is <code>cargo run -p native_entry</code>.
-Start a Zenoh router first, then boot the Entry binary from the workspace root:</p>
-<pre><code class="language-bash"># in another shell:
+authors adding a new platform. Reach for either only after the declarative
+escapes — an <code>[image.*]</code> key, a <code>conf</code> fragment, a support package — have
+actually run out.</p>
+<h2 id="running-a-native-image"><a class="header" href="#running-a-native-image">Running a native image</a></h2>
+<p>Build it, start a router if your backend needs one, run the binary:</p>
+<pre><code class="language-bash">cd examples/workspaces/c
+nros build native
+
+# in another shell, for the zenoh backend:
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
-cargo run -p native_entry
+./build/posix-zenoh-native/cmake/native_entry
 </code></pre>
-<p><code>native_entry</code> opens the executor against the router, registers <code>talker</code> +
-<code>listener</code> (composed into a single process), and runs the topology.</p>
-<p>The canonical Rust workspace is at <code>examples/workspaces/rust/</code>.
-For Zephyr, QEMU, ESP-IDF, and other non-native targets, use the platform’s
-native build/run tool.</p>
-<h2 id="running-on-zephyr"><a class="header" href="#running-on-zephyr">Running on Zephyr</a></h2>
-<p>On Zephyr the RTOS framework <em>is</em> the workflow: <code>west build</code> is the build
-verb, Kconfig selects the RMW, and the Entry is an ordinary Zephyr
-application. There is no <code>nros build</code> / <code>nros launch</code> build path here, and you
-do not type the RMW as a Cargo <code>--features</code> flag or bake the board into the
-package.</p>
-<pre><code class="language-sh">source ./activate.sh
-
-# Provision message bindings once. This is platform-agnostic workspace
-# provisioning (sibling to `west update` / `rosdep`), NOT a compile step —
-# the same `nros sync` output feeds every board and every RMW.
-nros sync
-
-# west is the build verb. Choose the board with `-b`, and select the RMW with
-# the matching Kconfig overlay via -DCONF_FILE. The Entry source never changes.
-west build -b native_sim/native/64 src/zephyr_entry \
-    -- -DCONF_FILE="prj.conf;prj-zenoh.conf"
-
-west build -t run            # native_sim; `west flash` for hardware
-</code></pre>
-<p>Swap <code>-b native_sim/native/64</code> for any other Zephyr board (<code>-b nrf52840dk/nrf52840</code>,
-<code>-b stm32f4_disco</code>, …) and <code>prj-zenoh.conf</code> for <code>prj-xrce.conf</code> /
-<code>prj-cyclonedds.conf</code> to pick a different RMW — nothing else changes. <strong>One
-Zephyr Entry pkg (<code>src/zephyr_entry/</code>) covers every Zephyr board</strong>: unlike the
-board-specific FreeRTOS / ThreadX Entries, Zephyr owns its board abstraction,
-so the board is chosen at <code>west build -b</code> time rather than baked into the
-package (see <a href="#one-entry-pkg-per-board">One Entry pkg per board</a>).</p>
-<p>The Entry source is identical to the native, FreeRTOS, and ThreadX Entries —
-the same one-line macro, with the committed SystemModel as the single source
-of truth for the node set:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// examples/workspaces/rust/src/zephyr_entry/src/lib.rs
-nros::main!(launch = "demo_bringup");
-<span class="boring">}</span></code></pre>
-<h2 id="one-entry-pkg-per-board"><a class="header" href="#one-entry-pkg-per-board">One Entry pkg per board</a></h2>
-<p>Each deploy target gets its own Entry pkg. A workspace that runs on both
-<code>native</code> and <code>rtic-mps2-an385</code> would have two Entry pkgs that share the same
-Node pkg library:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Entry pkg</th><th><code>deploy</code> key</th><th>Board crate</th></tr>
-</thead>
-<tbody>
-<tr><td><code>native_entry</code></td><td><code>"native"</code></td><td><code>nros-board-linux</code></td></tr>
-<tr><td><code>mps2_entry</code></td><td><code>"rtic-mps2-an385"</code></td><td><code>nros-board-mps2-an385</code> (<code>rtic</code> feature)</td></tr>
-</tbody>
-</table>
-</div>
-<p>Both reference the same <code>talker_pkg</code> and <code>listener_pkg</code> Node pkg rlibs. The
-board crate provides the <code>BoardEntry</code> impl and any hardware-specific
-initialisation; the Node pkgs are board-agnostic.</p>
-<p><strong>Zephyr is the exception — one Entry per <em>RTOS</em>, not per board.</strong> Zephyr
-already owns its board abstraction, so a single <code>zephyr_entry</code> covers
-<code>native_sim</code>, <code>nrf52</code>, <code>stm32</code>, <code>aemv8r</code>, … with the board chosen at
-<code>west build -b &lt;board&gt;</code> time. Contrast FreeRTOS / ThreadX, whose board crates
-are board-specific, so each of those Entries bakes one board. See
-<a href="#running-on-zephyr">Running on Zephyr</a>.</p>
-<p>The <code>examples/qemu-arm-baremetal/rust/talker-rtic/</code> example demonstrates the
-embedded shape: <code>deploy = "rtic-mps2-an385"</code> + <code>nros::main!();</code> on a
-<code>no_std / no_main</code> binary that delegates everything to the <code>RticMps2An385</code>
-board crate.</p>
-<h2 id="c--c-entry-packages"><a class="header" href="#c--c-entry-packages">C / C++ Entry packages</a></h2>
-<p>C and C++ Entry packages use the same role split through CMake. See
+<p>The binary opens the executor, registers <code>talker</code> + <code>listener</code> composed into a
+single process, and runs the topology. The launch product <em>is</em> the binary —
+there is no separate launch step.</p>
+<p><code>examples/workspaces/{c,cpp,rust,mixed}/</code> are the four canonical workspaces and
+each carries a README with the commands verified green today.</p>
+<h2 id="c--c-images"><a class="header" href="#c--c-images">C / C++ images</a></h2>
+<p>Nothing above is Rust-specific: the driver is chosen by the <strong>board</strong>, not by
+the language mix, and cmake wins whenever the package graph crosses languages
+(corrosion makes cargo consumable from cmake; nothing makes cmake consumable
+from cargo). <code>examples/workspaces/c</code> and <code>examples/workspaces/cpp</code> declare
+their images exactly as shown here. See
 <a href="#c--c-multi-node-workspaces">C / C++ multi-node workspaces</a>.</p>
 <h2 id="where-to-go-next-3"><a class="header" href="#where-to-go-next-3">Where to go next</a></h2>
 <ul>
-<li><a href="#role-reference-node-bringup-and-entry-packages">Role reference</a> — full reference for all three roles.</li>
-<li><a href="#bringup-packages">Bringup packages</a> — the <code>system.toml</code> + launch XML that an Entry pkg points at.</li>
-<li><a href="#node-packages">Node packages</a> — the Node pkgs your Entry pkg links.</li>
-<li><a href="#multi-node-project-layout">Project layout</a> — the full 3-role picture and when to use it.</li>
+<li><a href="#bringup-packages">Bringup packages</a> — the <code>system.toml</code> and launch XML an image is declared in.</li>
+<li><a href="#node-packages">Node packages</a> — the Node pkgs an image links.</li>
+<li><a href="#zephyr-west-module">Zephyr (west module)</a> — the exception, in full.</li>
+<li><a href="#role-reference-node-pkgs-bringup-pkgs-and-images">Role reference</a> — reference for the package roles and the macro forms.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="c--c-multi-node-workspaces"><a class="header" href="#c--c-multi-node-workspaces">C / C++ multi-node workspaces</a></h1>
 <p>The four previous chapters
 (<a href="#multi-node-project-layout">project layout</a>,
 <a href="#node-packages">node packages</a>, <a href="#bringup-packages">bringup packages</a>,
-<a href="#entry-packages">entry packages</a>) describe the canonical three-role
-node + bringup + entry shape against the Rust path
+<a href="#images">images</a>) describe the canonical
+node pkgs + bringup pkg + <code>[image.*]</code> shape against the Rust path
 (<code>nros::node!(…)</code> + <code>nros::main!(launch = …)</code>). This chapter shows the
 <strong>C and C++ path</strong> through the same shape, role-for-role.</p>
 <p>The parity gap is closed. Same launch.xml, same <code>package.xml</code>,
@@ -3684,10 +3874,11 @@ changes language-side is the cmake-fn / macro surface.</p>
 <tbody>
 <tr><td><strong>Node pkg</strong></td><td><code>lib.rs</code> with <code>nros::node!(MyNode)</code> + <code>[package.metadata.nros.node]</code> in <code>Cargo.toml</code></td><td><code>Talker.{hpp,cpp}</code> with a <code>configure(::nros::Node&amp;)</code> component method (C++) / <code>NROS_C_COMPONENT</code> (C); <code>CMakeLists.txt</code> calling <code>nano_ros_auto_add_library</code> + <code>nros_components_register_node</code> (RFC-0057)</td></tr>
 <tr><td><strong>Bringup pkg</strong></td><td><code>package.xml</code> + <code>system.toml</code> + <code>launch/*.launch.xml</code> (no <code>Cargo.toml</code>)</td><td>identical (language-agnostic)</td></tr>
-<tr><td><strong>Entry pkg</strong></td><td><code>src/main.rs</code> with <code>nros::main!(launch = "demo_bringup")</code></td><td><code>src/main.cpp</code> with <code>NROS_MAIN(nros::board::LinuxBoard, "demo_bringup:system.launch.xml")</code>; <code>CMakeLists.txt</code> calling <code>nano_ros_entry(NAME … BRINGUP "…/demo_bringup" LAUNCH default DEPLOY native)</code></td></tr>
-<tr><td><strong>Workspace root</strong></td><td><code>Cargo.toml [workspace] members = […]</code></td><td><code>CMakeLists.txt</code> calling <code>nano_ros_workspace(BACKEND zenoh PLATFORM posix SUBDIRS src/talker_pkg src/listener_pkg src/native_entry)</code></td></tr>
-<tr><td><strong>Build</strong></td><td><code>nros sync</code> + <code>cargo build -p native_entry</code></td><td><code>nros sync</code> + <code>cmake -S . -B build</code> + <code>cmake --build build</code></td></tr>
-<tr><td><strong>Boot</strong></td><td><code>cargo run -p native_entry</code></td><td><code>./build/.../native_entry</code></td></tr>
+<tr><td><strong>Image</strong></td><td><code>[image.native] board = "native"</code> in the bringup’s <code>system.toml</code></td><td>identical (language-agnostic)</td></tr>
+<tr><td><strong>The entry</strong></td><td>GENERATED into <code>build/&lt;coord&gt;/native_entry/</code> — a <code>Cargo.toml</code> and a <code>nros::main!(launch = "demo_bringup")</code></td><td>GENERATED into <code>build/&lt;coord&gt;/CMakeLists.txt</code> — a <code>nano_ros_add_executable(native_entry BOARD … BRINGUP … LAUNCH … LANG cpp TYPED DEPLOY native)</code> call, plus the <code>main</code> TU the verb emits</td></tr>
+<tr><td><strong>Workspace root</strong></td><td>GENERATED <code>Cargo.toml [workspace] members = […]</code></td><td>GENERATED <code>CMakeLists.txt</code> calling <code>nano_ros_workspace(WORKSPACE_ROOT … BACKEND zenoh PLATFORM posix SYSTEM demo_bringup SUBDIRS …)</code></td></tr>
+<tr><td><strong>Build</strong></td><td><code>nros build native</code></td><td><code>nros build native</code></td></tr>
+<tr><td><strong>Boot</strong></td><td>the binary under <code>target/</code></td><td><code>./build/posix-zenoh-native/cmake/native_entry</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -3696,9 +3887,9 @@ changes language-side is the cmake-fn / macro surface.</p>
 Copy the whole directory, rename the packages.</p>
 <h2 id="workspace-layout"><a class="header" href="#workspace-layout">Workspace layout</a></h2>
 <p>Identical structure to the Rust template, swapping <code>Cargo.toml</code> →
-<code>CMakeLists.txt</code>:</p>
+<code>CMakeLists.txt</code> inside each Node pkg — and, at the root, nothing at all:</p>
 <pre><code class="language-text">my_ws/
-├── CMakeLists.txt                # nano_ros_workspace(SUBDIRS …)
+├── .colcon_workspace             # tracked marker; the root CMakeLists.txt is GENERATED
 └── src/
     ├── talker_pkg/               # Node pkg (C++)
     │   ├── package.xml
@@ -3708,29 +3899,32 @@ Copy the whole directory, rename the packages.</p>
     │   ├── package.xml
     │   ├── CMakeLists.txt
     │   └── src/{Listener.hpp,Listener.cpp}
-    ├── demo_bringup/             # Bringup pkg (language-agnostic — copy/paste
-    │   ├── package.xml           #          works between Rust and C++ workspaces)
-    │   ├── system.toml
-    │   └── launch/system.launch.xml
-    └── native_entry/             # Entry pkg (C++)
-        ├── package.xml
-        ├── CMakeLists.txt        # nano_ros_entry(BRINGUP … LAUNCH …)
-        └── src/main.cpp          # NROS_MAIN(…) one-liner
+    └── demo_bringup/             # Bringup pkg (language-agnostic — copy/paste
+        ├── package.xml           #          works between Rust and C++ workspaces)
+        ├── system.toml           #          [system] + [[component]] + [image.*]
+        └── launch/system.launch.xml
 </code></pre>
-<h2 id="workspace-root"><a class="header" href="#workspace-root">Workspace root</a></h2>
-<p>Four declarations:</p>
+<p>No entry package. <code>nros build &lt;image&gt;</code> writes the root <code>CMakeLists.txt</code> and the
+entry’s <code>nano_ros_add_executable(…)</code> call into <code>build/&lt;coordinate&gt;/</code>, configures
+that into <code>build/&lt;coordinate&gt;/cmake/</code>, and builds — see
+<a href="#images">Images</a>. The exception is a Zephyr application,
+which keeps a package because west needs a real application directory.</p>
+<h2 id="the-generated-workspace-root"><a class="header" href="#the-generated-workspace-root">The generated workspace root</a></h2>
+<p>You do not write this; <code>nros build</code> does, from the packages it discovered and
+the image it resolved. It is worth reading once, because everything below
+happens inside it:</p>
 <pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
 project(my_ws LANGUAGES C CXX)
-include(&lt;nano-ros&gt;/cmake/NanoRosWorkspace.cmake)
+find_package(nano_ros REQUIRED COMPONENTS workspace)
 
 nano_ros_workspace(
-    BACKEND        zenoh                # zenoh | xrce | cyclonedds
-    PLATFORM       posix                # posix | … (default posix)
-    NANO_ROS_ROOT  &lt;path-to-nano-ros&gt;   # also: -D cache var, $NANO_ROS_ROOT,
-                                        # or auto-walk for nros-sdk-index.toml
-    SUBDIRS        src/talker_pkg
-                   src/listener_pkg
-                   src/native_entry
+    WORKSPACE_ROOT "../.."               # this file lives in build/&lt;coord&gt;/
+    BACKEND        zenoh                 # zenoh | xrce | cyclonedds
+    PLATFORM       "posix"
+    SYSTEM         demo_bringup
+    ORDER_FROM_DEPENDS
+    SUBDIRS        "../../src/talker_pkg"
+                   "../../src/listener_pkg"
 )
 </code></pre>
 <p><code>nano_ros_workspace()</code> does the heavy lifting in one call:</p>
@@ -3752,8 +3946,8 @@ workspace; the per-pkg CMakeLists doesn’t change between modes.</p>
 <p>A <strong>typed component</strong> (RFC-0043) — no <code>main()</code>. The pkg ships a class with a
 <code>configure(::nros::Node&amp;)</code> method that creates real entities (a <code>Publisher</code>, a
 <code>Timer</code>) and binds member callbacks <strong>by identity</strong> (member-fn-pointer template
-param, no string callback name, no interpreter). The Entry pkg constructs the
-object and calls <code>configure(node)</code>; the executor dispatches the callbacks.</p>
+param, no string callback name, no interpreter). The generated entry constructs
+the object and calls <code>configure(node)</code>; the executor dispatches the callbacks.</p>
 <pre><code class="language-cmake"># src/talker_pkg/CMakeLists.txt
 cmake_minimum_required(VERSION 3.22)
 project(talker_pkg LANGUAGES C CXX)
@@ -3861,13 +4055,13 @@ void Talker::on_tick() {
     ::nros::Result r = node.create_publisher(pub_, "/chatter");
     if (!r.ok()) return r;
     // Member-fn-pointer-as-template-param → no-alloc trampoline; `this` is ctx.
-    return ::nros::bind_timer&lt;Talker, &amp;Talker::on_tick&gt;(node, timer_, 1000, this);
+    return node.create_wall_timer&lt;Talker, &amp;Talker::on_tick&gt;(timer_, 1000, this);
 }
 
 }  // namespace talker_pkg
 </code></pre>
-<p>The Entry pkg constructs <code>Talker</code> in static storage and calls <code>configure(node)</code>
-on the real executor — the same component model the Rust <code>nros::node!(Talker)</code> +
+<p>The generated entry constructs <code>Talker</code> in static storage and calls
+<code>configure(node)</code> on the real executor — the same component model the Rust <code>nros::node!(Talker)</code> +
 the C <code>NROS_C_COMPONENT</code> paths use, so C++, C, and Rust Node pkgs interoperate in
 one launch graph.</p>
 <p>Scaffold a C++ Node pkg with:</p>
@@ -3889,22 +4083,24 @@ turtlebot3 pastes in modulo unsupported tags.</p>
   &lt;node pkg="listener_pkg" exec="listener" name="listener"/&gt;
 &lt;/launch&gt;
 </code></pre>
-<h2 id="entry-pkg"><a class="header" href="#entry-pkg">Entry pkg</a></h2>
-<p>The C++ Entry pkg’s <code>CMakeLists.txt</code> calls
-<code>nano_ros_entry(BRINGUP … LAUNCH …)</code> — you name the input, and the entry
-bakes from the SystemModel that <code>nros sync</code> resolved from it (<code>MODEL</code> is
-the deprecated artifact-naming override):</p>
-<pre><code class="language-cmake"># src/native_entry/CMakeLists.txt
-cmake_minimum_required(VERSION 3.22)
-project(native_entry LANGUAGES C CXX)
-nano_ros_workspace_pkg_guard()
+<h2 id="the-image-and-the-entry-it-generates"><a class="header" href="#the-image-and-the-entry-it-generates">The image, and the entry it generates</a></h2>
+<p>Declare the program you want in the bringup’s <code>system.toml</code> —</p>
+<pre><code class="language-toml">[image_defaults]
+rmw = "zenoh"
 
-nano_ros_entry(
-    NAME    native_entry
-    SOURCES src/main.cpp                              # user-authored
+[image.native]
+board = "native"
+</code></pre>
+<p>— and <code>nros build native</code> emits this into the generated root. <code>BOARD</code> and
+<code>DEPLOY</code> come from the resolved image, so a generated entry cannot disagree
+with the board it was generated for; there is no <code>SOURCES</code>, because the verb
+generates the translation unit carrying <code>main</code>:</p>
+<pre><code class="language-cmake">nano_ros_add_executable(native_entry
     BOARD   native
-    BRINGUP "${CMAKE_CURRENT_SOURCE_DIR}/../demo_bringup"
+    BRINGUP "${CMAKE_CURRENT_SOURCE_DIR}/../../src/demo_bringup"
     LAUNCH  default
+    LANG    cpp
+    TYPED
     DEPLOY  native)
 </code></pre>
 <p>At configure time the cmake fn shells <code>nros codegen entry --lang cpp --typed</code>,
@@ -3913,49 +4109,49 @@ emits <code>${CMAKE_BINARY_DIR}/native_entry_nros_main_generated.cpp</code> (the
 <code>configure(node)</code> on the real executor via <code>LinuxBoard::run_components</code>),
 appends it to the target’s sources, and auto-links every
 <code>&lt;pkg&gt;_&lt;exec&gt;_component</code> static lib the launch XML named.</p>
-<h3 id="bringup--launch--name-your-input-canonical"><a class="header" href="#bringup--launch--name-your-input-canonical"><code>BRINGUP</code> + <code>LAUNCH</code> — name your input (canonical)</a></h3>
-<p>The canonical spelling names your <em>input</em>: the Bringup package and a
-launch selector. <code>nros sync</code> resolves that into a SystemModel build
-artifact (under <code>&lt;ws&gt;/build/nros/models/&lt;bringup&gt;/</code> — never committed;
-gate <code>check-no-tracked-models</code>), and the entry bakes from it, so the
-same artifact drives the Linux runtime and every embedded image
-(contracts, tiers, QoS never drift). <code>MODEL</code> — naming the resolved
-artifact file directly — is a deprecated expert override; the two are
-mutually exclusive. This is the shape the shipped workspace uses:</p>
-<pre><code class="language-cmake">nano_ros_add_executable(native_entry
-    SOURCES src/main.cpp
-    BOARD   native
-    BRINGUP "${CMAKE_CURRENT_SOURCE_DIR}/../demo_bringup"
-    LAUNCH  default
-    TYPED
-    DEPLOY  native)
-</code></pre>
-<p><code>nros sync</code> resolves/refreshes the model whenever the bringup’s launch
-XML or <code>system.toml</code> is newer than it. The user’s <code>main.cpp</code> is a single
-declarative line:</p>
+<h3 id="bringup--launch--name-your-input-never-the-artifact"><a class="header" href="#bringup--launch--name-your-input-never-the-artifact"><code>BRINGUP</code> + <code>LAUNCH</code> — name your input, never the artifact</a></h3>
+<p><code>BRINGUP</code> + <code>LAUNCH</code> name your <em>input</em>: the Bringup package and a launch
+selector. <code>nros sync</code> resolves that into a SystemModel build artifact (under
+<code>&lt;ws&gt;/build/nros/models/&lt;bringup&gt;/</code> — never committed; gate
+<code>check-no-tracked-models</code>), and the entry bakes from it, so the same artifact
+drives the Linux runtime and every embedded image (contracts, tiers, QoS never
+drift). <code>MODEL</code> — naming the resolved artifact file directly — is a deprecated
+expert override; the two are mutually exclusive, and a <em>committed</em> model is
+banned outright.</p>
+<p><code>nros sync</code> resolves/refreshes the model whenever the bringup’s launch XML or
+<code>system.toml</code> is newer than it, and <code>nros build</code> runs it for you.</p>
+<h3 id="writing-the-entry-yourself"><a class="header" href="#writing-the-entry-yourself">Writing the entry yourself</a></h3>
+<p>Two cases need a hand-written one, and both use <code>nano_ros_entry(NAME … )</code> in a
+package’s own <code>CMakeLists.txt</code>:</p>
+<ul>
+<li><strong>A Zephyr application</strong>, which west requires as a real directory — scaffold
+it with <code>nros new entry &lt;name&gt; --platform zephyr</code>.</li>
+<li><strong>Startup the declarations cannot express</strong> — <code>nros materialize &lt;image&gt;</code>
+writes the generated entry out to <code>src/&lt;image&gt;_entry/</code> and <code>nros build</code>
+then leaves it alone.</li>
+</ul>
+<p>There the user’s <code>main.cpp</code> is a single declarative line:</p>
 <pre><code class="language-cpp">// src/native_entry/src/main.cpp
 #include &lt;nros/main.hpp&gt;
 NROS_MAIN(nros::board::LinuxBoard, "demo_bringup:system.launch.xml")
 </code></pre>
 <p><code>NROS_MAIN(...)</code> is a sentinel macro — the cmake fn owns the generated
 body, the user’s TU is documentation + IDE hint.</p>
-<p><code>nros new</code> scaffolds an Entry pkg:</p>
-<pre><code class="language-bash">$ nros new my-entry --lang cpp --platform native
-</code></pre>
 <h2 id="build--boot"><a class="header" href="#build--boot">Build + boot</a></h2>
-<pre><code class="language-bash"># `nros sync` resolves the SystemModel (via the pinned nros-launch-resolve
-# helper) whenever the launch XML or system.toml is newer than the model.
-nros sync
-cmake -S . -B build -DNANO_ROS_ROOT=&lt;path-to-nano-ros&gt;
-cmake --build build
-./build/src/native_entry/native_entry
+<pre><code class="language-bash">nros build native
+./build/posix-zenoh-native/cmake/native_entry
 </code></pre>
+<p><code>nros build</code> runs <code>nros sync</code> for you (it resolves the SystemModel via the
+pinned <code>nros-launch-resolve</code> helper whenever the launch XML or <code>system.toml</code>
+is newer), writes the root, configures, and builds. The coordinate directory
+names what it contains: platform, RMW, board. Driving <code>cmake</code> yourself against
+the generated root still works.</p>
 <p>The build produces:</p>
 <ul>
 <li><code>src/talker_pkg/libtalker_pkg_talker_component.a</code> — the Node pkg static lib
 (<code>_component</code> is the compatibility target suffix).</li>
 <li><code>src/listener_pkg/liblistener_pkg_listener_component.a</code> — ditto.</li>
-<li><code>src/native_entry/native_entry</code> — the Entry exe, with the generated
+<li><code>native_entry</code> — the image’s executable, with the generated
 <code>int main()</code> + register-call sequence + Board boot stub linked in.</li>
 </ul>
 <p><code>cmake configure</code> is incremental — pinned <code>CMAKE_CONFIGURE_DEPENDS</code> on
@@ -3970,13 +4166,13 @@ launch.xml / <code>package.xml</code> / Node pkg edit re-runs codegen.</p>
 <tbody>
 <tr><td>Node entities + real callbacks</td><td>Node pkg <code>configure(::nros::Node&amp;)</code></td></tr>
 <tr><td>Topology + launch args + per-target deploy</td><td>Bringup pkg <code>system.toml</code> + <code>launch/*.launch.xml</code></td></tr>
-<tr><td><code>int main()</code> + executor init + spin</td><td>Generated TU emitted by the Entry pkg’s cmake fn</td></tr>
-<tr><td>Board + RMW selection</td><td>Entry pkg’s <code>nano_ros_entry(BOARD …)</code> arg</td></tr>
+<tr><td><code>int main()</code> + executor init + spin</td><td>Generated TU emitted by the entry’s cmake fn</td></tr>
+<tr><td>Board + RMW selection</td><td>The image’s <code>board</code> and <code>rmw</code>, which become the generated <code>BOARD</code> / <code>DEPLOY</code> args</td></tr>
 </tbody>
 </table>
 </div>
 <p>Same partition as the Rust track — the only thing that changes is the
-syntax the user types into the three pkgs.</p>
+syntax the user types into the two package roles.</p>
 <h2 id="c--c-scaffolding-via-nros-new"><a class="header" href="#c--c-scaffolding-via-nros-new">C / C++ scaffolding via <code>nros new</code></a></h2>
 <div class="table-wrapper">
 <table>
@@ -3984,10 +4180,10 @@ syntax the user types into the three pkgs.</p>
 <tr><th>Command</th><th>Output</th></tr>
 </thead>
 <tbody>
-<tr><td><code>nros new &lt;name&gt; --lang cpp --platform native</code></td><td>C++ Entry pkg (single-Node self-bringup; swap in a multi-Node <code>LAUNCH</code> arg post-219.D)</td></tr>
-<tr><td><code>nros new &lt;name&gt; --lang c --platform native</code></td><td>C Entry pkg (same shape)</td></tr>
 <tr><td><code>nros new --component &lt;name&gt; --lang cpp --use-case talker</code></td><td>C++ Node pkg; <code>--component</code> is the compatibility scaffold flag</td></tr>
 <tr><td><code>nros new system &lt;name&gt;_bringup --components a,b</code></td><td>Bringup pkg (language-agnostic — works for both Rust and C++ workspaces)</td></tr>
+<tr><td><code>nros new &lt;name&gt; --lang cpp --platform native</code></td><td>A standalone single-package <em>project</em> with its own root — the copy-out shape, not a workspace member</td></tr>
+<tr><td><code>nros new entry &lt;name&gt; --platform zephyr</code></td><td>A Zephyr application package + its <code>[image.*]</code> row. The verb accepts no other platform: everywhere else the entry is generated</td></tr>
 </tbody>
 </table>
 </div>
@@ -3998,7 +4194,7 @@ live under <code>examples/workspaces/</code>.</p>
 <ul>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/cpp"><code>examples/workspaces/cpp/</code></a>
 — the canonical reference workspace (talker + listener Node pkgs +
-Bringup pkg + Entry pkg, all C++).</li>
+Bringup pkg + a table of images, all C++).</li>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/archived/phase-219-cpp-entry-pkg.md">C++ Entry-pkg roadmap doc</a>
 — full landing order + acceptance bar.</li>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0024-multi-node-workspace-layout.md">Multi-node workspace layout design</a>
@@ -4006,38 +4202,39 @@ Bringup pkg + Entry pkg, all C++).</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="mixed-language-workspace"><a class="header" href="#mixed-language-workspace">Mixed-language workspace</a></h1>
-<p>nano-ros Node pkgs are linked through a C ABI register trampoline, so
-one Entry pkg can host Node pkgs written in different languages. The
-native reference shape is:</p>
+<p>nano-ros Node pkgs are linked through a C ABI register trampoline, so one
+image can compose Node pkgs written in different languages. The native
+reference shape is:</p>
 <ul>
-<li>C Node pkg for C code you want to keep in C.</li>
-<li>C++ Entry pkg for the boot harness and generated launch wiring.</li>
-<li>Optional C++ Node pkgs in the same workspace.</li>
-<li>One Bringup pkg with the normal ROS 2 launch XML.</li>
+<li>C Node pkgs for C code you want to keep in C.</li>
+<li>C++ and Rust Node pkgs beside them, in the same workspace.</li>
+<li>One Bringup pkg with the normal ROS 2 launch XML and the <code>[image.*]</code> rows.</li>
 </ul>
 <p>The mixed workspace is in
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/mixed"><code>examples/workspaces/mixed/</code></a>.
-For a pure-C Entry host, use
+For a pure-C workspace, use
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/c"><code>examples/workspaces/c/</code></a>.</p>
 <h2 id="layout"><a class="header" href="#layout">Layout</a></h2>
 <pre><code class="language-text">my_ws/
-├── CMakeLists.txt
+├── .colcon_workspace             # tracked marker; the root CMakeLists.txt is GENERATED
 └── src/
     ├── c_talker_pkg/             # C Node pkg
     ├── cpp_listener_pkg/         # C++ Node pkg
-    ├── demo_bringup/             # launch XML + system.toml
-    └── native_entry/             # C++ Entry pkg
+    ├── rust_heartbeat_pkg/       # Rust Node pkg
+    └── demo_bringup/             # launch XML + system.toml (+ [image.*])
 </code></pre>
-<p>The root uses the same CMake workspace helper as the C++ track:</p>
-<pre><code class="language-cmake">include(&lt;nano-ros&gt;/cmake/NanoRosWorkspace.cmake)
-
-nano_ros_workspace(
-    BACKEND  zenoh
-    PLATFORM posix
-    SUBDIRS  src/c_talker_pkg
-             src/cpp_listener_pkg
-             src/native_entry)
+<p>Mixed is not a special case. The driver is chosen by the <strong>board</strong>, and cmake
+wins whenever the package graph crosses languages — corrosion makes cargo
+consumable from cmake, and nothing makes cmake consumable from cargo (RFC-0024
+§6.3). So a mixed workspace builds exactly like the C++ one:</p>
+<pre><code class="language-console">$ cd examples/workspaces/mixed
+$ nros build native
 </code></pre>
+<p><code>nros build</code> writes the root <code>CMakeLists.txt</code> — a <code>nano_ros_workspace(…)</code> call
+listing the discovered packages, plus one <code>nano_ros_add_executable(…)</code> per
+image on that coordinate — into <code>build/&lt;coordinate&gt;/</code>, configures it into
+<code>build/&lt;coordinate&gt;/cmake/</code>, and builds. Neither the root nor the entry is
+yours to write.</p>
 <h2 id="c-node-pkg"><a class="header" href="#c-node-pkg">C Node pkg</a></h2>
 <p>A C Node pkg is a <strong>typed component</strong> (RFC-0043): no <code>main()</code>. It defines a
 state struct + a <code>configure(node, executor, self)</code> function and exports the
@@ -4086,37 +4283,42 @@ NROS_C_COMPONENT(c_talker_pkg_t, talker_configure)
 <code>NROS_C_COMPONENT</code> exports the <code>__nros_c_component_&lt;pkg&gt;_{create,configure}</code>
 seam the typed Entry calls — interoperable with C++ <code>configure(Node&amp;)</code> and Rust
 <code>nros::node!</code> components in one launch graph.</p>
-<h2 id="entry-pkg-1"><a class="header" href="#entry-pkg-1">Entry pkg</a></h2>
-<p>Use a C++ or Rust Entry pkg as the usual host for migration work. In the
-C++ template:</p>
-<pre><code class="language-cmake">nano_ros_entry(
-    NAME    native_entry
-    SOURCES src/main.cpp
-    BOARD   native
-    MODEL   "${CMAKE_CURRENT_SOURCE_DIR}/../demo_bringup/config/system_model.yaml"
-    DEPLOY  native)
+<h2 id="the-image"><a class="header" href="#the-image">The image</a></h2>
+<p>Nothing about the language mix reaches the image declaration. One row per
+program, in <code>src/demo_bringup/system.toml</code>:</p>
+<pre><code class="language-toml">[image_defaults]
+rmw = "zenoh"
+
+[image.native]
+board = "native"
 </code></pre>
-<p>The launch file names both Node pkgs:</p>
+<p>The launch file names the Node pkgs, whatever they are written in:</p>
 <pre><code class="language-xml">&lt;launch&gt;
   &lt;node pkg="c_talker_pkg" exec="talker" name="talker"/&gt;
   &lt;node pkg="cpp_listener_pkg" exec="listener" name="listener"/&gt;
 &lt;/launch&gt;
 </code></pre>
-<p>The generated Entry translation unit calls each package’s
-<code>__nros_component_&lt;pkg&gt;_register</code> symbol and the CMake sidecar links
-the matching static libraries. The symbol keeps the legacy
-<code>component</code> spelling for ABI compatibility; the user-facing package
-role is still Node pkg.</p>
-<p>For a pure-C workspace, the Entry pkg uses the same launch-driven shape
-with <code>LANG c</code>:</p>
-<pre><code class="language-cmake">nano_ros_entry(
-    NAME    native_entry
-    SOURCES src/main.c
+<p>From that pair, <code>nros build</code> emits this into the generated root. <code>LANG</code> follows
+the workspace’s own sources; <code>BOARD</code> and <code>DEPLOY</code> come from the resolved image,
+so a generated entry cannot disagree with the board it was generated for. There
+is no <code>SOURCES</code>, because the verb generates the translation unit carrying
+<code>main</code>:</p>
+<pre><code class="language-cmake">nano_ros_add_executable(native_entry
     BOARD   native
-    MODEL   "${CMAKE_CURRENT_SOURCE_DIR}/../demo_bringup/config/system_model.yaml"
-    LANG    c
+    BRINGUP "${CMAKE_CURRENT_SOURCE_DIR}/../../src/demo_bringup"
+    LAUNCH  default
+    LANG    cpp
+    TYPED
     DEPLOY  native)
 </code></pre>
+<p>The generated entry translation unit calls each package’s
+<code>__nros_component_&lt;pkg&gt;_register</code> symbol and the CMake sidecar links the
+matching static libraries. The symbol keeps the legacy <code>component</code> spelling for
+ABI compatibility; the user-facing package role is still Node pkg.</p>
+<p>Note there is no <code>MODEL</code> here. The SystemModel is a build artifact resolved
+from the launch file by <code>nros sync</code>; naming it in a build file is the
+deprecated expert override, and a <em>committed</em> one is banned outright (gate
+<code>check-no-tracked-models</code>).</p>
 <h2 id="scaffolding"><a class="header" href="#scaffolding">Scaffolding</a></h2>
 <pre><code class="language-sh"># Current compatibility scaffold for Node pkgs:
 nros new --component c_talker_pkg --lang c --use-case talker
@@ -4184,16 +4386,24 @@ Rust heartbeat under one C++ entry:</p>
 <li><a href="#node-packages">Node packages</a></li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="role-reference-node-bringup-and-entry-packages"><a class="header" href="#role-reference-node-bringup-and-entry-packages">Role Reference: Node, Bringup, and Entry Packages</a></h1>
-<p>nano-ros multi-node workspaces split into <strong>three kinds of package</strong>:</p>
+<h1 id="role-reference-node-pkgs-bringup-pkgs-and-images"><a class="header" href="#role-reference-node-pkgs-bringup-pkgs-and-images">Role Reference: Node pkgs, Bringup pkgs, and Images</a></h1>
+<p>A nano-ros workspace has <strong>two kinds of package you write</strong>, and a third thing
+that is not a package at all:</p>
 <ul>
 <li><strong>Node pkg</strong> — a reusable, board-agnostic node library. Defines what a node <em>does</em> (publishers, subscribers, timers, services, actions) and registers itself with the <code>nros::node!(T)</code> macro. No <code>main()</code>, no board pick, no deploy config. (Previously called a <em>component package</em>; renamed to <em>Node pkg</em> to match ROS 2 composable-node naming.)</li>
-<li><strong>Bringup pkg</strong> — pure declarative: owns the launch topology and per-target deploy config. Contains a <code>package.xml</code>, <code>system.toml</code>, <code>launch/*.launch.xml</code>, and optional <code>config/</code>. <strong>No</strong> <code>Cargo.toml</code>, no compiled code. Named <code>&lt;system&gt;_bringup</code>. <strong>Optional</strong> — only required when ≥2 Entry pkgs share one topology; a single-Entry workspace folds <code>launch/</code> + <code>system.toml</code> into the Entry pkg directly.</li>
-<li><strong>Entry pkg</strong> — a per-board binary that <em>composes</em> one or more Node pkgs into a runnable system. Owns the board choice (via the <code>Board</code> trait family), the launch file reference, and the deploy/domain/bridge config. Typically ~30 LoC of <code>main.rs</code>.</li>
+<li><strong>Bringup pkg</strong> — pure declarative: owns the launch topology and the images built from it. Contains a <code>package.xml</code>, <code>system.toml</code>, <code>launch/*.launch.xml</code>, and optional <code>config/</code> + <code>boards/</code>. <strong>No</strong> <code>Cargo.toml</code>, no compiled code. Named <code>&lt;system&gt;_bringup</code>.</li>
+<li><strong>Image</strong> — a row, not a directory. <code>[image.&lt;id&gt;]</code> in that <code>system.toml</code> names a board, a launch file, and a backend; <code>nros build &lt;id&gt;</code> generates the root build file and the entry package from it and hands off to cargo / cmake / west / idf.py.</li>
 </ul>
-<p>The split exists because a node’s logic is portable across boards, but boot + transport + deploy config is not. One Node pkg can be reused across native POSIX, FreeRTOS, and Zephyr targets by writing one Entry pkg per target.</p>
+<p>The split exists because a node’s logic is portable across boards, but boot +
+transport + deploy config is not. One Node pkg is reused across native POSIX,
+FreeRTOS, and Zephyr by adding an <code>[image.*]</code> row per target — never a package
+per target.</p>
 <blockquote>
-<p><strong>single-Node convenience:</strong> for a single-Node workspace on native hosts, a Node pkg can declare <code>[package.metadata.nros.entry] deploy = "&lt;board&gt;"</code> in its own <code>Cargo.toml</code> and skip the Entry pkg directory entirely — see <a href="#single-node-pkg-convenience-cargo-run-just-works">Single-Node-pkg convenience</a> below. Embedded boards still need a hand-written Entry pkg.</p>
+<p><strong>Single-package projects</strong> (the copy-out examples under
+<code>examples/&lt;platform&gt;/&lt;lang&gt;/</code>) skip both roles: one package carries the node
+<em>and</em> <code>nros::main!()</code>, reading <code>[package.metadata.nros.entry] deploy</code> from its
+own <code>Cargo.toml</code>. See <a href="#single-package-convenience">Single-package convenience</a>
+below.</p>
 </blockquote>
 <h2 id="node-pkg-1"><a class="header" href="#node-pkg-1">Node pkg</a></h2>
 <p>A Node pkg is a normal Rust library (or C++ static library) with a few nano-ros-specific knobs:</p>
@@ -4215,26 +4425,27 @@ Codegen owns the spin loop — your code only describes what the node
 <em>has</em> and what its callbacks <em>do</em>.</p>
 <p>Key rules:</p>
 <ul>
-<li><strong>No <code>fn main()</code>.</strong> A Node pkg builds as <code>rlib + staticlib</code> and is <em>linked into</em> an Entry pkg’s binary. Codegen synthesises the spin driver; you never hand-write one.</li>
+<li><strong>No <code>fn main()</code>.</strong> A Node pkg builds as <code>rlib + staticlib</code> and is <em>linked into</em> the entry the build generates. Codegen synthesises the spin driver; you never hand-write one.</li>
 <li><strong><code>class</code> must be a namespace-qualified C++ name.</strong> The old 212.L.4 prefix rule (<code>class</code> starting with the pkg dir name) is retired by RFC-0057 — <code>pkg</code> on the <code>[[component]]</code> row is the identity authority, so upstream namespaces (<code>autoware::x::Node</code>) port verbatim. <code>nros check</code> still rejects an unqualified <code>class</code>.</li>
 <li><strong>C++ / C analogue:</strong> <code>nano_ros_auto_add_library(&lt;lib&gt; STATIC &lt;srcs&gt;)</code> + <code>nros_components_register_node(&lt;lib&gt; PLUGIN … EXECUTABLE …)</code> (RFC-0057, rclcpp_components keyword parity) + a typed component in the source — C++ a <code>configure(::nros::Node&amp;)</code> method, C a <code>NROS_C_COMPONENT(StateT, configure_fn)</code> seam (RFC-0043). Same conceptual shape, no Cargo.toml.</li>
 <li><strong><code>package.xml</code> is mandatory.</strong> Even pure-Rust Node pkgs ship one — <code>&lt;exec_depend&gt;</code> lines drive ROS 2 launch discovery when the system runs through <code>ros2 launch</code> outside the nano-ros toolchain.</li>
 </ul>
-<h2 id="bringup-pkg-optional"><a class="header" href="#bringup-pkg-optional">Bringup pkg (optional)</a></h2>
-<p>A Bringup pkg is <strong>pure declarative</strong> — it owns the launch topology and
-per-target deploy config, and contains no compiled code:</p>
+<h2 id="bringup-pkg-1"><a class="header" href="#bringup-pkg-1">Bringup pkg</a></h2>
+<p>A Bringup pkg is <strong>pure declarative</strong> — it owns the launch topology and the
+image table, and contains no compiled code:</p>
 <pre><code>src/demo_bringup/
 ├── package.xml          # &lt;name&gt;demo_bringup&lt;/name&gt;, &lt;exec_depend&gt; per node
 ├── system.toml          # [system] + [[component]] + [image.&lt;id&gt;] + [host.&lt;name&gt;] (+ [[domain]]/[[bridge]])
 ├── launch/
 │   └── system.launch.xml   # ROS 2 launch schema, verbatim
+├── boards/                 # optional — per-board RTOS overlays (prj.conf, *.overlay, sdkconfig.defaults)
 └── config/                 # optional — params.yaml, etc.
 </code></pre>
 <p>No <code>Cargo.toml</code>, no <code>CMakeLists.txt</code>, no <code>src/</code>. Naming convention
 <code>&lt;system&gt;_bringup</code> (alias <code>&lt;system&gt;_launch</code>), matching nav2 / Autoware /
-turtlebot3. It is <strong>optional</strong>: required only when two or more Entry pkgs
-share one topology. A single-Entry workspace folds <code>launch/</code> + <code>system.toml</code>
-into the Entry pkg directly.</p>
+turtlebot3. A multi-node workspace needs one: <code>[image.*]</code> lives here, so it is
+the package a buildable workspace cannot do without. (A single-package project
+has neither — see <a href="#single-package-convenience">below</a>.)</p>
 <p><code>launch/*.launch.xml</code> is the ROS 2 launch schema verbatim — <code>&lt;launch&gt;</code>,
 <code>&lt;arg&gt;</code>, <code>&lt;node&gt;</code>, <code>&lt;param&gt;</code>, <code>&lt;remap&gt;</code>, <code>&lt;group&gt;</code>, <code>&lt;include&gt;</code>, with
 <code>$(find &lt;pkg&gt;)</code> / <code>$(var)</code> / <code>$(env)</code> substitutions. Stock nav2/Autoware
@@ -4242,33 +4453,85 @@ XML pastes in and Just Works; Python <code>.launch.py</code> files are resolved 
 <code>nros sync</code> too (the RFC-0060 resolver executes them — see the bringup
 tutorial).
 See <a href="#bringup-packages">the workspace bringup tutorial</a>.</p>
-<h2 id="entry-pkg-2"><a class="header" href="#entry-pkg-2">Entry pkg</a></h2>
-<p>An Entry pkg is a binary crate that combines one or more Node pkgs with a board choice, a launch file, and per-board deploy config:</p>
-<pre><code>src/robot_entry/
-├── Cargo.toml          # [[bin]] name = "robot_entry"
-│                       # [dependencies]
-│                       #     talker_pkg   = { path = "../talker_pkg" }
-│                       #     listener_pkg = { path = "../listener_pkg" }
-│                       #     nros-board-linux = { … }            # or another family
-│                       # [package.metadata.nros.entry]
-│                       #     deploy = "native"
-│                       # [package.metadata.nros.deploy.native]
-│                       #     board     = "posix"
-│                       #     rmw       = "zenoh"
-│                       #     domain_id = 0
-│                       #     locator   = "tcp/127.0.0.1:7447"
-├── package.xml         # &lt;exec_depend&gt;talker_pkg&lt;/exec_depend&gt;, listener_pkg, …
-└── src/
-    └── main.rs         # one line: `nros::main!(launch = "demo_bringup");`
+<h2 id="image"><a class="header" href="#image">Image</a></h2>
+<p>An image is one buildable program: a topology, a board, and a backend. It is a
+table row in the Bringup pkg’s <code>system.toml</code>:</p>
+<pre><code class="language-toml">[image_defaults]           # base every block folds over (RFC-0065 D5.1)
+rmw = "zenoh"
+
+[image.native]
+board = "native"
+
+[image.freertos]
+board = "mps2-an385-freertos"
+panic = "own"
+
+[image.native_robot1]
+board  = "native"
+launch = "multihost.launch.xml"
+args   = { host = "robot1" }
 </code></pre>
-<p>The <code>nros::main!()</code> proc-macro reads the launch file
-at compile time, walks the workspace pkg-index for each <code>&lt;node pkg=…&gt;</code>
-entry, and expands to a <code>fn main()</code> that delegates to
-<code>&lt;Board as BoardEntry&gt;::run(...)</code>, dispatching one
-<code>&lt;pkg&gt;::register(runtime)?</code> call per launch row. The macro has four
-forms; pick whichever matches your composition shape:</p>
-<pre><code class="language-rust ignore">nros::main!();                                          // single-node self-bringup (reads [..nros.entry] deploy)
-nros::main!(board = LinuxBoard);                       // single-node, explicit board
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>board</code></td><td>nano-ros board id, resolved through <code>packages/boards/board-support.toml</code> (which supplies the rustc triple, the platform, and the framework’s own board string)</td></tr>
+<tr><td><code>launch</code></td><td>Launch file relative to the Bringup pkg. Absent ⇒ <code>[system] default_launch</code></td></tr>
+<tr><td><code>args</code></td><td>Launch arguments bound at resolve time — how an image selects one machine out of a multi-host launch tree</td></tr>
+<tr><td><code>rmw</code></td><td>Backend for this image. Absent ⇒ <code>[system] rmw</code></td></tr>
+<tr><td><code>panic</code></td><td>RFC-0077 panic policy: <code>platform</code> | <code>halt</code> | <code>own</code></td></tr>
+<tr><td><code>profile</code></td><td>cargo / CMake build profile name</td></tr>
+<tr><td><code>conf</code></td><td>Extra framework config fragments, in order (Zephyr <code>prj-*.conf</code>)</td></tr>
+<tr><td><code>variant</code></td><td>Framework build-variant name (Zephyr <code>prj_&lt;buildtype&gt;.conf</code>)</td></tr>
+<tr><td><code>features</code></td><td>Capability axes for this image, over <code>[system]</code>’s list</td></tr>
+<tr><td><code>serdes</code>, <code>ros_edition</code></td><td>Serialization provider and ROS edition. Absent ⇒ the <code>[system]</code> value</td></tr>
+<tr><td><code>entry</code></td><td>The application package — <strong>only</strong> for the framework-owned case below</td></tr>
+</tbody>
+</table>
+</div>
+<p>Folding is per-key: scalars are replaced by the specific block, <code>args</code> merges,
+<code>conf</code> and <code>features</code> concatenate base-then-specific. <code>[system] default_images = ["native"]</code> is what a bare <code>nros build</code> builds; without it, <code>nros build</code>
+lists the declared images and stops.</p>
+<p>Build one, all, or ask what would run:</p>
+<pre><code class="language-console">$ nros build native
+$ nros build --all
+$ nros build native --dry-run     # print the handoff, run nothing
+</code></pre>
+<p><code>[image.&lt;id&gt;]</code> is a nano-ros table and is <strong>not</strong> <code>[deploy.&lt;id&gt;]</code>, which is
+upstream <code>ros-launch-manifest</code>’s and keeps meaning placement — which machine a
+node runs on. An image needs no deploy block and a deploy block needs no image
+(RFC-0065 D6).</p>
+<h2 id="the-generated-entry"><a class="header" href="#the-generated-entry">The generated entry</a></h2>
+<p>The entry package is derived from <code>(launch, args, board)</code> and generated —
+RFC-0065 D4, <em>“A workspace contains no entry packages.”</em> On the cargo driver it
+lands at <code>&lt;ws&gt;/build/&lt;coordinate&gt;/&lt;image_id&gt;_entry/</code>; on the cmake driver the
+generated root emits a <code>nano_ros_add_executable(…)</code> call per image on that
+coordinate.
+Both are build output and both are gitignored, along with the root build file
+itself — the tracked marker that a directory is a workspace root is
+<code>.colcon_workspace</code>.</p>
+<p>Three parts, all derivable, which is why adding a board adds a descriptor
+rather than a branch in the emitter:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>part</th><th>derived from</th></tr>
+</thead>
+<tbody>
+<tr><td>the <code>no_std</code> / <code>no_main</code> shell</td><td>the board’s <code>entry_kind</code></td></tr>
+<tr><td>board boilerplate (<code>use panic_semihosting as _;</code>, <code>esp_app_desc!()</code>)</td><td>the board descriptor’s <code>entry.crate_root_extra</code></td></tr>
+<tr><td><code>nros::main!(launch = …, args = …)</code></td><td>the image</td></tr>
+</tbody>
+</table>
+</div>
+<p>The generated entry calls <code>nros::main!</code> rather than an expanded form on
+purpose: the macro reads the launch XML at <em>expansion</em> time, so adding a node
+to the launch file is picked up by the next compile with nothing regenerated.</p>
+<h3 id="nrosmain-forms"><a class="header" href="#nrosmain-forms"><code>nros::main!()</code> forms</a></h3>
+<pre><code class="language-rust ignore">nros::main!();                                          // single-package: reads [..nros.entry] deploy
+nros::main!(board = LinuxBoard);                        // single-package, explicit board
 nros::main!(launch = "demo_bringup");                   // multi-node (CANONICAL): the bringup's default launch
 nros::main!(launch = "demo_bringup:sim.launch.xml");    // multi-node, a named launch file
 nros::main!(                                            // multi-host: per-host slice via launch args
@@ -4278,57 +4541,93 @@ nros::main!(                                            // multi-host: per-host 
 // DEPRECATED (expert override): name the resolved model ARTIFACT directly
 // instead of the input — skips the sync-freshness contract; bake-time warning.
 nros::main!(model = "demo_bringup");</code></pre>
-<p>Form-1 (no args) reads
-<code>[package.metadata.nros.entry] deploy = "&lt;board&gt;"</code> from this Entry
-pkg’s own <code>Cargo.toml</code> and maps the board key
-(<code>"native"</code>/<code>"freertos"</code>/<code>"zephyr"</code>/…) to the right board crate
-via a small lookup table. The <code>launch</code> forms take <code>&lt;bringup&gt;[:&lt;file&gt;]</code>
-against <code>launch/&lt;file&gt;.launch.xml</code> + <code>system.toml [system] default_launch</code>; <code>nros sync</code> resolves that input into a SystemModel
-under <code>&lt;ws&gt;/build/nros/models/&lt;bringup&gt;/</code> (a build artifact — never
-committed; gate <code>check-no-tracked-models</code>), and the macro bakes from it.
-The <code>nros::main!()</code> expansion replaces the older
-<code>build.rs + include!(env!("OUT_DIR")/run_plan.rs)</code> shape end-to-end;
-new Entry pkgs no longer need a <code>build.rs</code> or a <code>nros-build</code>
-build-dep — just <code>nros</code> + the target board crate.</p>
-<p><strong>Escape hatch:</strong> skip the macro entirely and call
-<code>&lt;LinuxBoard as BoardEntry&gt;::run(|runtime| { ... })</code>, or go fully manual
-with <code>nros::Executor::open(&amp;ExecutorConfig::default())</code>.</p>
-<p>Key rules:</p>
-<ul>
-<li><strong>One Entry pkg per board target.</strong> Want to run the same nodes on native POSIX, on a QEMU-MPS2-AN385 FreeRTOS target, and on a real ThreadX board? Three Entry pkgs (<code>robot_entry_native</code>, <code>robot_entry_qemu_freertos</code>, <code>robot_entry_acme_threadx</code>) sharing the same Node pkgs and (usually) the same <code>launch/system.launch.xml</code> via symlink or <code>&lt;include&gt;</code>.</li>
-<li><strong><code>launch/system.launch.xml</code> is the canonical name.</strong> <code>nros plan</code> resolution order: <code>--file &lt;path&gt;</code> → <code>&lt;dir&gt;/launch/&lt;pkg&gt;.launch.xml</code> → <code>&lt;dir&gt;/launch/system.launch.xml</code> → the single <code>&lt;dir&gt;/launch/*.launch.xml</code> → synth (only for non-Entry, single-Node pkgs).</li>
-<li><strong>Deploy config lives in <code>Cargo.toml</code>.</strong> <code>[package.metadata.nros.deploy.&lt;target&gt;]</code> holds board / RMW / domain / locator per target; <code>[[package.metadata.nros.domain]]</code> and <code>[[package.metadata.nros.bridge]]</code> carry multi-domain topology.</li>
-<li><strong>C++ analogue:</strong> cmake fn <code>nano_ros_entry(NAME &lt;name&gt; LANG CXX BRINGUP … LAUNCH …)</code> plus <code>NROS_MAIN(...)</code> (<code>MODEL</code> is the deprecated artifact-naming override, mirroring the macro). Metadata flows through <code>${BUILD}/nros-metadata.json</code> rather than a sidecar TOML.</li>
-</ul>
+<p>The proc-macro reads the launch file at compile time, walks the workspace
+pkg-index for each <code>&lt;node pkg=…&gt;</code> entry, and expands to a <code>fn main()</code> that
+delegates to <code>&lt;Board as BoardEntry&gt;::run(...)</code>, dispatching one
+<code>&lt;pkg&gt;::register(runtime)?</code> call per launch row.</p>
+<p>The <code>launch</code> forms take <code>&lt;bringup&gt;[:&lt;file&gt;]</code> against
+<code>launch/&lt;file&gt;.launch.xml</code> + <code>system.toml [system] default_launch</code>; <code>nros sync</code>
+resolves that input into a SystemModel under <code>&lt;ws&gt;/build/nros/models/&lt;bringup&gt;/</code>
+(a build artifact — never committed; gate <code>check-no-tracked-models</code>), and the
+macro bakes from it. <code>launch</code> and <code>model</code> are mutually exclusive.</p>
+<p><strong>Escape hatch:</strong> <code>nros materialize &lt;image&gt;</code> copies the generated entry to
+<code>src/&lt;image_id&gt;_entry/</code> and stamps it; <code>nros build</code> then leaves it alone and
+warns if the shape it was cut for moves. Inside it you can skip the macro and
+call <code>&lt;LinuxBoard as BoardEntry&gt;::run(|runtime| { ... })</code>, or go fully manual
+with <code>nros::Executor::open(&amp;ExecutorConfig::default())</code>. Reach for it only
+after the declarative escapes — an <code>[image.*]</code> key, a <code>conf</code> fragment, a
+support package — have run out.</p>
+<p><strong>C++ / C analogue:</strong> the generated cmake root emits one
+<code>nano_ros_add_executable(&lt;name&gt; BOARD … BRINGUP … LAUNCH … LANG … TYPED DEPLOY …)</code>
+per image — no <code>SOURCES</code>, because the verb generates the translation unit that
+carries <code>main</code>. <code>nano_ros_entry(NAME … LANG … BRINGUP … LAUNCH …)</code> is the
+hand-written spelling, and you write it yourself only in a Zephyr application
+(below). <code>MODEL</code> on either is the deprecated artifact-naming override,
+mirroring the macro. Metadata flows through <code>${BUILD}/nros-metadata.json</code>
+rather than a sidecar TOML.</p>
+<h2 id="the-one-entry-package-that-survives"><a class="header" href="#the-one-entry-package-that-survives">The one entry package that survives</a></h2>
+<p>An entry package is still <strong>required</strong> where an external build system demands a
+real application <em>directory</em>. That is Zephyr: a Zephyr app <em>is</em> the <code>app</code>
+target <code>find_package(Zephyr)</code> creates, and it carries authored Kconfig
+(<code>prj.conf</code>, <code>prj-&lt;rmw&gt;.conf</code>, <code>boards/*.overlay</code>) that nothing derives —
+RFC-0065 D5, <em>“west and ESP-IDF apps keep their own files because those are
+Kconfig overlays — user intent, not derivable.”</em></p>
+<pre><code>src/zephyr_entry/
+├── CMakeLists.txt      # find_package(Zephyr) + nano_ros_add_executable(… DEPLOY zephyr)
+├── package.xml
+├── prj.conf
+└── prj-zenoh.conf      # no src/ — the entry TU is generated into `app`
+</code></pre>
+<p>Scaffold it with <code>nros new entry &lt;name&gt; --platform zephyr</code>, which writes the
+package <em>and</em> its <code>[image.*]</code> row together. The verb accepts no other platform,
+and says why:</p>
+<pre><code class="language-text">`nros new entry` currently scaffolds Zephyr entries only (got --platform native).
+Every other platform builds through cargo or cmake, where the entry is
+GENERATED from the image and needs no package of its own (RFC-0065 D3).
+</code></pre>
+<p>One Zephyr entry covers every Zephyr board — Zephyr owns its board
+abstraction, so the board comes from the image’s <code>board</code> key (which becomes
+<code>west build -b</code>). Set the image’s <code>entry</code> key only when <em>several</em> packages
+claim one board: <code>examples/workspaces/realtime-cpp</code> has <code>zephyr_entry</code> and
+<code>fvp_entry</code>, both <code>DEPLOY zephyr</code>, on the same board, for two images that
+differ in payload. Deriving there is a coin flip, so <code>nros build</code> refuses and
+names the candidates.</p>
+<p><strong>Migrating off a hand-written entry is a deletion.</strong> <code>nros build</code> keeps
+<code>src/&lt;image_id&gt;_entry/</code> when it carries a <code>Cargo.toml</code> or <code>CMakeLists.txt</code>;
+remove the directory and the next build generates its replacement. Move the
+board / launch / RMW / panic facts to the <code>[image.*]</code> row and the RTOS overlays
+to the Bringup pkg’s <code>boards/&lt;board&gt;/</code> first.</p>
 <h2 id="workspace-shape"><a class="header" href="#workspace-shape">Workspace shape</a></h2>
-<p>A typical multi-Node workspace, with one Entry pkg per supported board:</p>
 <pre><code>my_ws/
-├── Cargo.toml          # [workspace] members = ["src/talker_pkg", "src/listener_pkg", "src/robot_entry"]
-│                       # [workspace.metadata.nros] default_system = "demo_bringup"
+├── .colcon_workspace   # tracked marker; the root Cargo.toml / CMakeLists.txt are GENERATED
 └── src/
     ├── talker_pkg/         # Node pkg (lib, nros::node!)
     ├── listener_pkg/       # Node pkg
-    ├── demo_bringup/       # Bringup pkg (declarative; no Cargo.toml)
-    └── robot_entry/        # Entry pkg (bin, nros::main!(launch = "demo_bringup"))
+    └── demo_bringup/       # Bringup pkg (declarative; system.toml carries [image.*])
 </code></pre>
-<p><code>cargo build</code> at the workspace root builds everything via cargo’s native scheduler. <code>nros plan</code> reads <code>[workspace.metadata.nros] default_system</code> to pick the Entry pkg (or you pass <code>nros plan robot_entry</code> explicitly).</p>
-<p>For C++-majority or mixed workspaces, CMake is the top-level driver instead — see <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0024-multi-node-workspace-layout.md">the multi-node workspace design doc</a>.</p>
-<h2 id="single-node-pkg-convenience-cargo-run-just-works"><a class="header" href="#single-node-pkg-convenience-cargo-run-just-works">Single-Node-pkg convenience (<code>cargo run</code> Just Works)</a></h2>
-<p>For tiny fixtures and host-side dev loops, a Node pkg can declare itself as its own Entry pkg by adding <code>[package.metadata.nros.entry] deploy = "&lt;board&gt;"</code> to its <code>Cargo.toml</code>, alongside the usual <code>[package.metadata.nros.node]</code> and <code>[package.metadata.nros.deploy.&lt;target&gt;]</code> tables. <code>src/main.rs</code> collapses to one line:</p>
+<p><code>nros build &lt;image&gt;</code> writes the root, generates the entry, and runs the
+platform’s own tool. <code>nros plan</code> reads <code>[workspace.metadata.nros] default_system</code> to pick the system (or you name it: <code>nros plan demo_bringup</code>).</p>
+<p><code>examples/workspaces/{c,cpp,rust,mixed}/</code> are the four canonical workspaces —
+each is exactly this shape, plus one <code>zephyr_entry</code> for the Zephyr images.</p>
+<h2 id="single-package-convenience"><a class="header" href="#single-package-convenience">Single-package convenience</a></h2>
+<p>For tiny fixtures, host-side dev loops, and the copy-out examples under
+<code>examples/&lt;platform&gt;/&lt;lang&gt;/</code>, one package is both the node and the boot point.
+It declares <code>[package.metadata.nros.entry] deploy = "&lt;board&gt;"</code> in its own
+<code>Cargo.toml</code> alongside <code>[package.metadata.nros.node]</code> and
+<code>[package.metadata.nros.deploy.&lt;target&gt;]</code>, and <code>src/main.rs</code> collapses to one
+line:</p>
 <pre><code class="language-rust ignore">// src/main.rs
 nros::main!();</code></pre>
-<p>The macro reads <code>deploy = "&lt;board&gt;"</code> from this pkg’s own <code>Cargo.toml</code>,
-maps it to the right board crate, and emits
-<code>fn main()</code> + <code>&lt;this_pkg&gt;::register(runtime)?;</code> — the latter resolves
-through the companion <code>src/lib.rs</code> cargo auto-wires alongside the
-binary target. No <code>build.rs</code>, no launch file (one is synthesised
-in-memory), no hand-written boot glue. This is the L.7 self-entry
-planner path.</p>
-<p><strong>Limits of the convenience:</strong></p>
-<ul>
-<li><strong>Native only.</strong> Embedded boards (FreeRTOS, ThreadX, Zephyr, bare-metal) still require a hand-written Entry pkg — board init is non-trivial enough that hiding it behind a one-liner does more harm than good.</li>
-<li><strong>One Node.</strong> Two or more Node pkgs in the same workspace = author an Entry pkg. The point of the convenience is to skip ceremony for tiny single-node fixtures, not to grow into a multi-node composition root.</li>
-</ul>
+<p>The macro reads <code>deploy = "&lt;board&gt;"</code> from this pkg’s own <code>Cargo.toml</code>, maps it
+to the right board crate, and emits <code>fn main()</code> + <code>&lt;this_pkg&gt;::register(runtime)?;</code>
+— the latter resolves through the companion <code>src/lib.rs</code> cargo auto-wires
+alongside the binary target. No <code>build.rs</code>, no launch file (one is synthesised
+in-memory), no hand-written boot glue.</p>
+<p>This is a <em>project shape</em>, not a workspace shortcut. It has no bringup package
+and no images, so <code>nros build</code> has nothing to resolve — build it with plain
+<code>cargo</code> / <code>cmake</code>, which is exactly what makes a copy-out example copy out
+(RFC-0026). Two or more nodes, or two or more targets, means a workspace with a
+Bringup pkg and <code>[image.*]</code> rows.</p>
 <h2 id="quick-reference"><a class="header" href="#quick-reference">Quick reference</a></h2>
 <div class="table-wrapper">
 <table>
@@ -4337,10 +4636,12 @@ planner path.</p>
 </thead>
 <tbody>
 <tr><td>Reusable node logic, board-independent</td><td>Node pkg (<code>nros::node!()</code>)</td></tr>
-<tr><td>Per-board binary that runs N nodes</td><td>Entry pkg (<code>main.rs</code> calls <code>BoardEntry::run</code>)</td></tr>
-<tr><td><code>cargo run</code> on host for a single-node fixture</td><td>Node pkg with <code>[package.metadata.nros.entry] deploy = "native"</code></td></tr>
-<tr><td>Same nodes on multiple boards</td><td>One Node pkg set + one Entry pkg per board</td></tr>
-<tr><td>Launch topology + per-target deploy config</td><td>Bringup pkg (declarative; optional, folds into Entry pkg when single-target)</td></tr>
+<tr><td>A runnable program: N nodes on one board</td><td>An <code>[image.&lt;id&gt;]</code> row + <code>nros build &lt;id&gt;</code></td></tr>
+<tr><td><code>cargo run</code> on a single-node fixture with no workspace</td><td>One package with <code>[package.metadata.nros.entry] deploy = "native"</code></td></tr>
+<tr><td>Same nodes on multiple boards</td><td>One Node pkg set + one <code>[image.*]</code> row per board</td></tr>
+<tr><td>Launch topology + the image table</td><td>Bringup pkg (declarative — the one package a workspace must have)</td></tr>
+<tr><td>A Zephyr application directory</td><td><code>nros new entry &lt;name&gt; --platform zephyr</code></td></tr>
+<tr><td>Startup the declarations cannot express</td><td><code>nros materialize &lt;image&gt;</code>, then edit <code>src/&lt;image&gt;_entry/</code></td></tr>
 <tr><td>Board hardware bringup</td><td><code>Board</code> trait family (see <a href="#the-board-trait-family">porting chapter</a>)</td></tr>
 </tbody>
 </table>
@@ -7268,7 +7569,7 @@ board.</p>
 <code>src/</code>:</p>
 <pre><code class="language-bash">colcon build &amp;&amp; source install/setup.bash
 </code></pre>
-<h2 id="package-layout-1"><a class="header" href="#package-layout-1">Package Layout</a></h2>
+<h2 id="package-layout"><a class="header" href="#package-layout">Package Layout</a></h2>
 <p>For a host application package:</p>
 <pre><code class="language-text">my_native_node/
 ├── package.xml
@@ -10142,7 +10443,7 @@ Node-pkg / Entry-pkg split overhead.</li>
 <p>Both paths stay supported. The escape hatch is the “I want full
 control” path; <code>nros::main!()</code> is the ergonomic path on top.</p>
 <h2 id="the-three-pkg-roles"><a class="header" href="#the-three-pkg-roles">The three pkg roles</a></h2>
-<p>A nano-ros RTIC workspace is three packages (the <a href="#role-reference-node-bringup-and-entry-packages">3-pkg-role
+<p>A nano-ros RTIC workspace is three packages (the <a href="#role-reference-node-pkgs-bringup-pkgs-and-images">3-pkg-role
 taxonomy</a>, per
 <code>docs/design/0024-multi-node-workspace-layout.md</code> §11):</p>
 <pre><code class="language-text">my_rtic_robot/
@@ -10451,7 +10752,7 @@ the implementation is deferred.</p>
 the trichotomy and the per-Node-vs-per-callback rationale.</li>
 <li><a href="#embassy-integration">Embassy Integration</a> — the async sibling
 of this chapter.</li>
-<li><a href="#role-reference-node-bringup-and-entry-packages">Role reference</a> —
+<li><a href="#role-reference-node-pkgs-bringup-pkgs-and-images">Role reference</a> —
 the 3-pkg-role taxonomy in full.</li>
 <li><a href="#rtic-arm-cortex-m">Scheduling Models</a> —
 the RTIC scheduling model in real-time-systems terms.</li>
@@ -10547,7 +10848,7 @@ spawn-from-sync pattern below.</p>
 design slot — see <a href="#when-to-wait-for-asyncnode">When to wait for
 <code>AsyncNode</code></a> at the end of this chapter.</p>
 <h2 id="the-three-pkg-roles-1"><a class="header" href="#the-three-pkg-roles-1">The three pkg roles</a></h2>
-<p>The workspace shape is identical to RTIC (the <a href="#role-reference-node-bringup-and-entry-packages">3-pkg-role
+<p>The workspace shape is identical to RTIC (the <a href="#role-reference-node-pkgs-bringup-pkgs-and-images">3-pkg-role
 taxonomy</a>, per
 <code>docs/design/0024-multi-node-workspace-layout.md</code> §11):</p>
 <pre><code class="language-text">my_embassy_robot/
@@ -10565,7 +10866,7 @@ taxonomy</a>, per
 <p>The Node pkg stays board-agnostic — <code>listener_pkg/</code> from the RTIC
 chapter could be deployed under Embassy by swapping the Entry pkg.
 That’s the point of the split.</p>
-<h3 id="entry-pkg-3"><a class="header" href="#entry-pkg-3">Entry pkg</a></h3>
+<h3 id="entry-pkg"><a class="header" href="#entry-pkg">Entry pkg</a></h3>
 <pre><code class="language-toml"># File: src/listener_entry/Cargo.toml
 [package]
 name    = "listener_entry"
@@ -10770,7 +11071,7 @@ fully no-alloc.</p>
 the trichotomy and the per-Node-vs-per-callback rationale.</li>
 <li><a href="#rtic-integration">RTIC Integration</a> — the interrupt-driven
 sibling of this chapter.</li>
-<li><a href="#role-reference-node-bringup-and-entry-packages">Role reference</a> —
+<li><a href="#role-reference-node-pkgs-bringup-pkgs-and-images">Role reference</a> —
 the 3-pkg-role taxonomy in full.</li>
 <li><a href="#scheduling-models">Scheduling Models</a> — the Embassy
 cooperative model alongside RTIC, RTOS, and POSIX.</li>
@@ -11322,11 +11623,12 @@ discovery. Existing in-tree examples will migrate as part of Phase
 <tr><th>rclcpp surface</th><th>nano-ros mapping</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>class MyNode : public rclcpp::Node</code></td><td><code>rclcpp::Node</code> shim → <code>nros::Executor</code> + <code>nros::Node</code></td><td>Ctor takes <code>(name)</code>.</td></tr>
-<tr><td><code>std::make_shared&lt;MyNode&gt;()</code></td><td>inherits <code>enable_shared_from_this</code></td><td><code>shared_from_this()</code> works.</td></tr>
+<tr><td><code>class MyNode : public rclcpp::Node</code></td><td><code>rclcpp::Node</code> IS <code>nros::Node</code> — one type, both spellings</td><td>Ctor takes <code>(name)</code>, <code>(name, options)</code> or <code>(name, ns, options)</code>.</td></tr>
+<tr><td><code>std::make_shared&lt;MyNode&gt;()</code></td><td>works</td><td><code>shared_from_this()</code> works too, with one caveat — see “Two things the compiler will not tell you” below.</td></tr>
 <tr><td><code>create_publisher&lt;M&gt;(topic, qos)</code></td><td>shared_ptr-returning wrapper</td><td><code>qos</code> can be <code>rclcpp::QoS(10)</code> or an int.</td></tr>
-<tr><td><code>create_subscription&lt;M&gt;(topic, qos, callback)</code></td><td>polling pump dispatched from <code>spin*</code></td><td><strong>Capturing lambdas + <code>std::function</code> all work</strong>.</td></tr>
-<tr><td><code>create_wall_timer(period, callback)</code></td><td>wall-timer dispatched from <code>spin*</code></td><td><code>std::chrono::duration</code> arg, capturing-lambda callback.</td></tr>
+<tr><td><code>create_subscription&lt;M&gt;(topic, qos, callback)</code></td><td>registered on the executor arena; dispatched by <strong>any</strong> spin verb</td><td><strong>Capturing lambdas + <code>std::function</code> all work</strong>.</td></tr>
+<tr><td><code>create_wall_timer(period, callback)</code></td><td>registered on the executor arena; dispatched by <strong>any</strong> spin verb</td><td><code>std::chrono::duration</code> arg, capturing-lambda callback. Returns <code>rclcpp::TimerBase::SharedPtr</code>, which is <code>rclcpp::Timer::SharedPtr</code> — one flat type, two names. See below.</td></tr>
+<tr><td><code>rclcpp::create_timer(node, clock, period, cb)</code></td><td>the clock-taking verb; a <code>NROS_CLOCK_ROS_TIME</code> clock follows <code>/clock</code></td><td>Humble’s only form. <code>create_wall_timer</code> stays on the steady clock.</td></tr>
 <tr><td><code>rclcpp::init(argc, argv) / shutdown() / ok() / spin(n) / spin_some(n)</code></td><td>wraps <code>nros::init/shutdown/ok/spin_once</code></td><td>argc/argv ignored.</td></tr>
 <tr><td><code>RCLCPP_INFO / WARN / ERROR / DEBUG / FATAL</code></td><td>dispatched through <code>NROS_*</code> macros</td><td><code>_THROTTLE</code> variants degrade to plain log.</td></tr>
 <tr><td><code>rclcpp::QoS / KeepLast(n) / SystemDefaultsQoS()</code></td><td>subclass of <code>nros::QoS</code> with the <code>(depth)</code> ctor</td><td>Chainable setters inherited.</td></tr>
@@ -11337,6 +11639,61 @@ discovery. Existing in-tree examples will migrate as part of Phase
 </tbody>
 </table>
 </div>
+<h2 id="two-things-the-compiler-will-not-tell-you"><a class="header" href="#two-things-the-compiler-will-not-tell-you">Two things the compiler will not tell you</a></h2>
+<p>Everything else on this page either works or fails to compile. These two
+compile and behave slightly differently, so they are written down rather than
+left for a debugging session.</p>
+<h3 id="nodeok--nano-ros-cannot-throw-so-you-have-to-ask"><a class="header" href="#nodeok--nano-ros-cannot-throw-so-you-have-to-ask"><code>Node::ok()</code> — nano-ros cannot throw, so YOU have to ask</a></h3>
+<p>Upstream’s <code>rclcpp::Node</code> constructor THROWS when the node cannot be created.
+nano-ros is built <code>-fno-exceptions</code> (RFC-0018), so the constructor cannot: it
+records the failure and the node answers <code>false</code> to <code>ok()</code>.</p>
+<pre><code class="language-cpp">rclcpp::Node node("talker");
+if (!node.ok()) return 1;        // &lt;- this line replaces upstream's try/catch
+</code></pre>
+<p>A <strong>generated entry already does this</strong> and halts naming the node, so a
+workspace component needs nothing. A <strong>hand-written <code>main</code> does not</strong>, and a
+node that failed to create will otherwise go on to create publishers that
+quietly do nothing. There is no diagnostic for it — the object exists either
+way, which is the whole point of not throwing — so checking <code>ok()</code> after
+constructing a node by hand is on you.</p>
+<p>The same shape applies to <code>init()</code>, the two-phase form:</p>
+<pre><code class="language-cpp">rclcpp::Node node;
+if (!node.init("talker").ok()) return 1;
+</code></pre>
+<p><code>Result</code> carries <code>[[nodiscard]]</code> on C++17 and later, so <em>that</em> one the compiler
+does warn about.</p>
+<h3 id="shared_from_this-does-not-extend-the-nodes-lifetime"><a class="header" href="#shared_from_this-does-not-extend-the-nodes-lifetime"><code>shared_from_this()</code> does not extend the node’s lifetime</a></h3>
+<p>Upstream gets it from <code>std::enable_shared_from_this&lt;Node&gt;</code> and the returned
+pointer is a co-OWNER. nano-ros cannot derive from that base — it carries a
+<code>std::weak_ptr</code> member that exists only where <code>&lt;memory&gt;</code> does, which would make
+<code>sizeof(rclcpp::Node)</code> depend on a capability probe and let two translation
+units of one firmware image disagree about the object’s layout.</p>
+<p>So <code>shared_from_this()</code> here returns a pointer that ALIASES the node with an
+empty owner: it is safe to pass to anything that holds it for less than the
+node’s lifetime (<code>diagnostic_updater::Updater(shared_from_this(), 1.0)</code> is the
+common case and is fine), and it is NOT safe to store somewhere that outlives
+the node. It also never throws where upstream would raise <code>bad_weak_ptr</code>.</p>
+<h3 id="rclcpptimerbase-is-a-name-here-not-a-hierarchy"><a class="header" href="#rclcpptimerbase-is-a-name-here-not-a-hierarchy"><code>rclcpp::TimerBase</code> is a NAME here, not a hierarchy</a></h3>
+<p><code>rclcpp::TimerBase::SharedPtr timer_;</code> compiles unchanged, and you should keep
+writing it — it is the only spelling that works against real ROS 2 as well as
+against nano-ros, since upstream has no <code>rclcpp::Timer</code>.</p>
+<p>What differs is behind the name. nano-ros has no timer hierarchy: <code>TimerBase</code>
+is an ALIAS for the one flat <code>rclcpp::Timer</code>, so <code>is_same&lt;TimerBase, Timer&gt;::value</code> is true and neither spelling carries a vtable. The executor
+dispatches through a raw function pointer, so a polymorphic base would be cost
+with no caller.</p>
+<p>Two consequences worth knowing:</p>
+<ul>
+<li><code>rclcpp::WallTimer&lt;...&gt;</code> and <code>rclcpp::GenericTimer&lt;...&gt;</code> do not exist. The
+clock axis is the second verb <code>rclcpp::create_timer(node, clock, period, cb)</code>
+plus a runtime field, not a type parameter.</li>
+<li>DERIVING from <code>rclcpp::TimerBase</code> gets you a concrete handle with a
+non-virtual destructor. Upstream code almost never does this; if yours does,
+it needs rework. There is no timer hierarchy here: the executor dispatches through a
+raw function pointer, so a polymorphic base would be a vtable nothing calls, and
+<code>TimerBase</code> is a name that promises <code>WallTimer</code> and <code>GenericTimer</code> siblings we
+deliberately do not have. The clock axis is a runtime field plus the second verb
+<code>rclcpp::create_timer</code>, not a type parameter.</li>
+</ul>
 <h2 id="whats-documented-as-needs-adapt-codegen-side-not-surface-side"><a class="header" href="#whats-documented-as-needs-adapt-codegen-side-not-surface-side">What’s documented as “needs adapt” (codegen-side, not surface-side)</a></h2>
 <p>These are cosmetic codegen differences nano-ros’s per-package codegen
 and the upstream <code>rosidl_default_runtime</code> codegen don’t share; both are
@@ -11953,11 +12310,11 @@ existing <code>rclcpp</code>, <code>rclc</code>, or <code>rclrs</code> node towa
 <tr><th>You have (ROS 2)</th><th>You get (nano-ros)</th><th>Where</th></tr>
 </thead>
 <tbody>
-<tr><td>colcon workspace (<code>src/*</code>)</td><td>nano-ros workspace: Node pkgs + one declarative Bringup pkg + one Entry pkg per deploy target</td><td><a href="#multi-node-project-layout">Project layout</a></td></tr>
+<tr><td>colcon workspace (<code>src/*</code>)</td><td>nano-ros workspace: Node pkgs + one declarative Bringup pkg, whose <code>system.toml</code> carries one <code>[image.&lt;id&gt;]</code> row per deploy target. The binary is generated, not written</td><td><a href="#multi-node-project-layout">Project layout</a></td></tr>
 <tr><td><code>package.xml</code></td><td>kept, verbatim — plus a <code>&lt;nano_ros deploy=…/&gt;</code> export for embedded targets</td><td><a href="#anatomy-of-what-you-just-built">Anatomy</a></td></tr>
-<tr><td><code>.launch.xml</code> / <code>.launch.py</code></td><td>kept — <code>nros sync</code> resolves them (RFC-0060) into a SystemModel the Entry binary bakes in</td><td><a href="#bringup-packages">Bringup packages</a></td></tr>
-<tr><td><code>ros2 launch pkg file</code></td><td>run the Entry binary (<code>cargo run -p &lt;entry&gt;</code> / <code>./build/src/&lt;entry&gt;/&lt;entry&gt;</code>) — the launch product is compiled in</td><td><a href="#entry-packages">Entry packages</a></td></tr>
-<tr><td><code>colcon build</code></td><td><code>cmake</code> / <code>cargo</code> per workspace root; <code>colcon build</code> still works for POSIX C++ workspaces</td><td><a href="#c--c-multi-node-workspaces">C/C++ workspaces</a></td></tr>
+<tr><td><code>.launch.xml</code> / <code>.launch.py</code></td><td>kept — <code>nros sync</code> resolves them (RFC-0060) into a SystemModel the image bakes in</td><td><a href="#bringup-packages">Bringup packages</a></td></tr>
+<tr><td><code>ros2 launch pkg file</code></td><td><code>nros build &lt;image&gt;</code>, then run its binary — the launch product is compiled in</td><td><a href="#images">Images</a></td></tr>
+<tr><td><code>colcon build</code></td><td><code>nros build &lt;image&gt;</code> — it generates the root and hands off to <code>cmake</code> / <code>cargo</code> / <code>west</code> / <code>idf.py</code>. Running those yourself still works, and so does <code>colcon build</code> for POSIX C++ workspaces</td><td><a href="#c--c-multi-node-workspaces">C/C++ workspaces</a></td></tr>
 <tr><td><code>rosdep install</code></td><td><code>nros setup &lt;board&gt; --rmw &lt;rmw&gt;</code></td><td><a href="#installation">Install</a></td></tr>
 <tr><td><code>RMW_IMPLEMENTATION=…</code> at runtime</td><td>compile-time backend: <code>-DNROS_RMW=…</code> / cargo feature</td><td><a href="#switching-rmw-backends">Switching RMW</a></td></tr>
 <tr><td>generated msg packages (ament index)</td><td><code>nros sync</code> writes <code>generated/</code> crates + the cargo patch table</td><td><a href="#message-binding-generation">Message Generation</a></td></tr>
@@ -13202,7 +13559,7 @@ fn main() {
         run_plan(runtime)
     });
 }</code></pre>
-<p>See the <a href="#role-reference-node-bringup-and-entry-packages">Role reference</a> for the Entry-pkg surface.</p>
+<p>See the <a href="#role-reference-node-pkgs-bringup-pkgs-and-images">Role reference</a> for the Entry-pkg surface.</p>
 <h2 id="family-driver-crates"><a class="header" href="#family-driver-crates">Family driver crates</a></h2>
 <p>The family crate is where the <code>BoardEntry::run</code> <em>body</em> actually lives. The kernel families with a driver crate:</p>
 <ul>
@@ -13223,7 +13580,7 @@ deleted it. <code>nros-board-mps2-an385</code> is the worked reference.</li>
 </blockquote>
 <h2 id="cross-references-1"><a class="header" href="#cross-references-1">Cross-references</a></h2>
 <ul>
-<li><strong>Workspace shape + how an Entry pkg consumes a board</strong> → <a href="#role-reference-node-bringup-and-entry-packages">Role reference</a>.</li>
+<li><strong>Workspace shape + how an Entry pkg consumes a board</strong> → <a href="#role-reference-node-pkgs-bringup-pkgs-and-images">Role reference</a>.</li>
 <li><strong>Multi-node composition root</strong> → <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0024-multi-node-workspace-layout.md"><code>docs/design/0024-multi-node-workspace-layout.md</code></a>.</li>
 <li><strong>Why the C ABI looks the way it does</strong> → <a href="#canonical-platform-c-abi">Canonical Platform C ABI</a>.</li>
 <li><strong>Platform trait set vs Board trait set</strong> — these are <em>different</em> traits with different roles. <code>Platform*</code> (clock / alloc / sockets / threading) sits below the RMW; <code>Board*</code> sits above the platform and owns the boot lifecycle. A bare-metal board crate typically depends on both: a <code>nros-platform-*</code> impl for the platform traits and a <code>nros-board-*</code> impl for the board traits.</li>
@@ -25159,6 +25516,7 @@ its byte cost yet. Absence of a figure is not a claim that it is free.</p>
 <tr><td><code>NROS_EXECUTOR_MAX_SHUTDOWN_CBS</code></td><td style="text-align: right">2</td><td><code>packages/core/nros-node</code></td></tr>
 <tr><td><code>NROS_FREERTOS_APP_STACK_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:910</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>NROS_FREERTOS_HEAP_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:909</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>NROS_GRAPH_MAX_ENTITIES</code></td><td style="text-align: right">0</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
 <tr><td><code>NROS_KEYEXPR_STRING_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1078</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>NROS_LET_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-build-helpers/src/c.rs:119</code></td><td><code>packages/tooling/nros-build-helpers</code></td></tr>
 <tr><td><code>NROS_MAX_ARRAY_LEN</code></td><td style="text-align: right">32</td><td><code>packages/core/nros-params</code></td></tr>
@@ -25197,7 +25555,7 @@ its byte cost yet. Absence of a figure is not a claim that it is free.</p>
 <tr><td><code>ZPICO_FRAG_MAX_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1099</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>ZPICO_GET_POLL_INTERVAL_MS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1101</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>ZPICO_GET_REPLY_BUF_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1100</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>ZPICO_GRAPH_CACHE_SIZE</code></td><td style="text-align: right">65536</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
+<tr><td><code>ZPICO_GRAPH_CACHE_SIZE</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:887</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
 <tr><td><code>ZPICO_LEASE_TASK_PRIORITY</code></td><td style="text-align: right">16</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
 <tr><td><code>ZPICO_MAX_LIVELINESS</code></td><td style="text-align: right">16</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
 <tr><td><code>ZPICO_MAX_PENDING_GETS</code></td><td style="text-align: right">4</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
@@ -25232,7 +25590,7 @@ hand bypasses the question Kconfig asked.</p>
 <p>The <code>evidence</code> column is where each value is consumed, so a symbol with no
 reader stands out: a prompt asking a question whose answer is discarded is
 worse than no prompt.</p>
-<p>82 Kconfig symbols — <strong>81 settable</strong>, 1 provided for application code, 0 derived, 0 dead.</p>
+<p>83 Kconfig symbols — <strong>82 settable</strong>, 1 provided for application code, 0 derived, 0 dead.</p>
 <h2 id="facts-with-more-than-one-spelling"><a class="header" href="#facts-with-more-than-one-spelling">Facts with more than one spelling</a></h2>
 <p>Where a decision has an authority OUTSIDE Kconfig, that authority is the
 place to set it and these symbols carry it.</p>
@@ -25323,6 +25681,7 @@ place to set it and these symbols carry it.</p>
 <tr><td><code>CONFIG_NROS_GET_POLL_INTERVAL_MS</code></td><td><code>10</code></td><td>forwarded-to-cargo, cmake, rust-source</td></tr>
 <tr><td><code>CONFIG_NROS_GET_REPLY_BUF_SIZE</code></td><td><code>4096</code></td><td>forwarded-to-cargo, cmake, rust-source</td></tr>
 <tr><td><code>CONFIG_NROS_GRAPH_CACHE_SIZE</code></td><td><code>65536</code></td><td>cmake, rust-source</td></tr>
+<tr><td><code>CONFIG_NROS_GRAPH_MAX_ENTITIES</code></td><td><code>0</code></td><td>rust-source</td></tr>
 <tr><td><code>CONFIG_NROS_MAX_LARGE_SUBSCRIBERS</code></td><td><code>-1</code></td><td>forwarded-to-cargo, cmake</td></tr>
 <tr><td><code>CONFIG_NROS_MAX_LIVELINESS</code></td><td><code>16</code></td><td>forwarded-to-cargo, cmake, rust-source</td></tr>
 <tr><td><code>CONFIG_NROS_MAX_PENDING_GETS</code></td><td><code>4</code></td><td>forwarded-to-cargo, cmake, rust-source</td></tr>
