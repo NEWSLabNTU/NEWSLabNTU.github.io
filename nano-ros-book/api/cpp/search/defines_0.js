@@ -4,8 +4,7 @@ var searchData=
   ['nros_5fcpp_5fassert_5fmessage_5fformat_1',['NROS_CPP_ASSERT_MESSAGE_FORMAT',['../serialization__format_8hpp.html#abc35312bce9f9a3a6875242dba5aa429',1,'serialization_format.hpp']]],
   ['nros_5fcpp_5fdeprecated_5fmsg_2',['NROS_CPP_DEPRECATED_MSG',['../result_8hpp.html#a0dda4481f673deaeff438a4d28aeb591',1,'result.hpp']]],
   ['nros_5fnodiscard_3',['NROS_NODISCARD',['../result_8hpp.html#a62112967a4dd6f971c07acf9ded20a9a',1,'result.hpp']]],
-  ['nros_5frclcpp_5fmax_5fparams_4',['NROS_RCLCPP_MAX_PARAMS',['../node_8hpp.html#a3a7569fcc0c5e27a1401284d17e55542',1,'node.hpp']]],
-  ['nros_5ftry_5',['NROS_TRY',['../result_8hpp.html#adcb636653aecb567d949ea777fbbe54b',1,'result.hpp']]],
-  ['nros_5ftry_5flog_6',['NROS_TRY_LOG',['../result_8hpp.html#ac84e296f3331eb978f148a9cf22c126f',1,'result.hpp']]],
-  ['nros_5ftry_5fret_7',['NROS_TRY_RET',['../result_8hpp.html#a886119e49639e4228c7e93730618526a',1,'result.hpp']]]
+  ['nros_5ftry_4',['NROS_TRY',['../result_8hpp.html#adcb636653aecb567d949ea777fbbe54b',1,'result.hpp']]],
+  ['nros_5ftry_5flog_5',['NROS_TRY_LOG',['../result_8hpp.html#ac84e296f3331eb978f148a9cf22c126f',1,'result.hpp']]],
+  ['nros_5ftry_5fret_6',['NROS_TRY_RET',['../result_8hpp.html#a886119e49639e4228c7e93730618526a',1,'result.hpp']]]
 ];
