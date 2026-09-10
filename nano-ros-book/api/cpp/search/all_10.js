@@ -1,26 +1,8 @@
 var searchData=
 [
-  ['large_20truncated_0',['Message Too Large / Truncated',['../troubleshooting.html#autotoc_md25',1,'']]],
-  ['len_1',['len',['../structnros_1_1Span.html#aefc55f0af4d0a57a17231dd7f27f8314',1,'nros::Span::len'],['../structnros_1_1StringView.html#a8c90b29f3b23a9fff69f07843b0972d6',1,'nros::StringView::len']]],
-  ['length_2',['length',['../structnros_1_1FixedString.html#ae78d1e531f9e0ea35c57ad50303f1484',1,'nros::FixedString::length()'],['../structnros_1_1FixedSequence.html#a4a08d3a3c95a5910f6a4e89d027d8afe',1,'nros::FixedSequence::length()']]],
-  ['lespan_3',['LeSpan',['../structnros_1_1LeSpan.html',1,'nros']]],
-  ['lifespan_4',['lifespan',['../classnros_1_1QoS.html#afbc0567c0b0507ad6c536496359e4913',1,'nros::QoS::lifespan(const Duration &amp;d)'],['../classnros_1_1QoS.html#a1e0588a894cf5ecee625a79b2e9fda4f',1,'nros::QoS::lifespan() const']]],
-  ['lifespan_5fms_5',['lifespan_ms',['../structnros__cpp__qos__t.html#a29db633ac0596441675b753643aca318',1,'nros_cpp_qos_t::lifespan_ms'],['../classnros_1_1QoS.html#a9bb4de5a1fd07a0118cee7291f957a62',1,'nros::QoS::lifespan_ms(uint32_t ms)'],['../classnros_1_1QoS.html#a214fe9834a6b64209313589d8960948a',1,'nros::QoS::lifespan_ms() const']]],
-  ['lifetime_6',['Move and Lifetime',['../troubleshooting.html#autotoc_md28',1,'']]],
-  ['linked_5fformat_7',['linked_format',['../namespacenros.html#ac3bebea45413ffc49155c3ff679d5793',1,'nros']]],
-  ['linked_5fformat_5fname_8',['linked_format_name',['../namespacenros.html#aff3b1af10314344680f9cac481e6e79e',1,'nros']]],
-  ['list_9',['Deprecated List',['../deprecated.html',1,'']]],
-  ['listener_10',['6. Listener',['../getting_started.html#autotoc_md11',1,'']]],
-  ['liveliness_11',['liveliness',['../classnros_1_1QoS.html#a40760af5ba787420b819d10e6fa23719',1,'nros::QoS::Liveliness'],['../classnros_1_1QoS.html#a9a16774fbade38f535dca1359c71d079',1,'nros::QoS::liveliness() const'],['../classnros_1_1QoS.html#ab8c1dce823fca77dfe5c3b52053c8532',1,'nros::QoS::liveliness(LivelinessPolicy kind)']]],
-  ['liveliness_5fkind_12',['liveliness_kind',['../structnros__cpp__qos__t.html#a6a8fcd5426353cf7e455ba58ff2b2884',1,'nros_cpp_qos_t']]],
-  ['liveliness_5flease_5fduration_13',['liveliness_lease_duration',['../classnros_1_1QoS.html#a2646f37989fc1be0cf37c92c0b130ce0',1,'nros::QoS::liveliness_lease_duration(const Duration &amp;d)'],['../classnros_1_1QoS.html#a613fa54bff81a2b2af9eace37f0dd12b',1,'nros::QoS::liveliness_lease_duration() const']]],
-  ['liveliness_5flease_5fms_14',['liveliness_lease_ms',['../structnros__cpp__qos__t.html#a25e7b4cf526c3c400dc81f2693e5bce4',1,'nros_cpp_qos_t::liveliness_lease_ms'],['../classnros_1_1QoS.html#af41d376daf59c2b2e2cd2d0301aa9269',1,'nros::QoS::liveliness_lease_ms(uint32_t ms)'],['../classnros_1_1QoS.html#ab8d0118c330899610a94b9e73d9ad51a',1,'nros::QoS::liveliness_lease_ms() const']]],
-  ['liveliness_5fraw_15',['liveliness_raw',['../classnros_1_1QoS.html#a9fce802290b08a39f056c5a41157c786',1,'nros::QoS']]],
-  ['livelinessautomatic_16',['livelinessautomatic',['../namespacenros.html#a52708fa4dbb3f51a208ae4d4df4638f4a63ad7842ab9e73ac32b2a797d4176cb5',1,'nros::LivelinessAutomatic'],['../classnros_1_1QoS.html#a6c6639ddf1eb6a603498ef50ab244d41',1,'nros::QoS::LivelinessAutomatic']]],
-  ['livelinessmanualbynode_17',['livelinessmanualbynode',['../namespacenros.html#a52708fa4dbb3f51a208ae4d4df4638f4a10d20152784a10c2da02b0d3effbd922',1,'nros::LivelinessManualByNode'],['../classnros_1_1QoS.html#ad3f16431f08cf496e0510c401e977ef6',1,'nros::QoS::LivelinessManualByNode']]],
-  ['livelinessmanualbytopic_18',['livelinessmanualbytopic',['../namespacenros.html#a52708fa4dbb3f51a208ae4d4df4638f4a9812a781b69fb2110df7a830f845d544',1,'nros::LivelinessManualByTopic'],['../classnros_1_1QoS.html#adb9bb58f38144952ab97568b0d3fbc5d',1,'nros::QoS::LivelinessManualByTopic']]],
-  ['livelinessnone_19',['livelinessnone',['../namespacenros.html#a52708fa4dbb3f51a208ae4d4df4638f4a1ef2b546d305e1aa19334c358b122b3c',1,'nros::LivelinessNone'],['../classnros_1_1QoS.html#ad49d1ad97ab93ee63595cab5bd031bb0',1,'nros::QoS::LivelinessNone']]],
-  ['livelinesspolicy_20',['LivelinessPolicy',['../namespacenros.html#a52708fa4dbb3f51a208ae4d4df4638f4',1,'nros']]],
-  ['loan_21',['loan',['../classnros_1_1Publisher_1_1Loan.html#ad92b56f503959400a7b6b63bdc34b3f9',1,'nros::Publisher::Loan::Loan(const Loan &amp;)=delete'],['../classnros_1_1Publisher_1_1Loan.html#a471b4ed220ffb07aeb498a4cc4f25535',1,'nros::Publisher::Loan::Loan(void *pub, uint8_t *buf, size_t cap, void *token)'],['../classnros_1_1Publisher_1_1Loan.html#a36cc4439f124412f56ebffddd501e798',1,'nros::Publisher::Loan::Loan(Loan &amp;&amp;o)'],['../classnros_1_1Publisher_1_1Loan.html#a727a2bc1fc278431740e7d556b598bfc',1,'nros::Publisher::Loan::Loan()'],['../classnros_1_1Publisher.html#ae12c6e4a5346c74b1fa832772e8992d4',1,'nros::Publisher::loan(size_t requested_len)'],['../classnros_1_1Publisher_1_1Loan.html',1,'nros::Publisher&lt; M &gt;::Loan']]],
-  ['locator_22',['locator',['../classnros_1_1NodeBuilder.html#a84a3ccc6e2aad067bc3b66efa06ab117',1,'nros::NodeBuilder']]]
+  ['kdomainidexplicitzero_0',['kDomainIdExplicitZero',['../namespacenros.html#aade15aa4cbce7b30e108e0f1837fbdc5',1,'nros']]],
+  ['keep_5fall_1',['keep_all',['../classnros_1_1QoS.html#ac9ed1b1fd9ee81d422a789c2114c9e90',1,'nros::QoS']]],
+  ['keep_5flast_2',['keep_last',['../classnros_1_1QoS.html#aaf6b683f890f5c7be653b0db10f15710',1,'nros::QoS']]],
+  ['keepall_3',['keepall',['../namespacenros.html#a6e3a83466949477b1d68de3c97150b4dac3afb79794cd632c72d5b9c6d6f63794',1,'nros::KeepAll'],['../namespacerclcpp.html#a555c8acd7d5abe04be5d90a8b0070fa7',1,'rclcpp::KeepAll()']]],
+  ['keeplast_4',['keeplast',['../namespacenros.html#a6e3a83466949477b1d68de3c97150b4da651235c0520367700c488d2203576f0e',1,'nros::KeepLast'],['../namespacerclcpp.html#a3295c1a01051a0b862e37953de9c65b7',1,'rclcpp::KeepLast()']]]
 ];

@@ -1,9 +1,10 @@
 var searchData=
 [
-  ['wait_0',['wait',['../classnros_1_1Future.html#a1aefa9870d83e03a81362ad3fc6f3487',1,'nros::Future']]],
-  ['wait_5ffor_5faction_5fserver_1',['wait_for_action_server',['../classnros_1_1ActionClient.html#a28a7c0101ba83ee8c24411605cd18e12',1,'nros::ActionClient']]],
-  ['wait_5ffor_5fservice_2',['wait_for_service',['../classnros_1_1Client.html#aee7f985217e08c9e5ec7119d40fcaf5f',1,'nros::Client']]],
-  ['wait_5fnext_3',['wait_next',['../classnros_1_1Stream.html#a0febe2a16316421f06431a87f904bb56',1,'nros::Stream']]],
-  ['wait_5fnext_5fsized_4',['wait_next_sized',['../classnros_1_1Stream.html#af0ae3d414d415976e6374d3bbb6af8b0',1,'nros::Stream']]],
-  ['write_20a_20talker_5',['4. Write a Talker',['../getting_started.html#autotoc_md9',1,'']]]
+  ['valid_0',['valid',['../classnros_1_1ShutdownCallbackHandle.html#a93823f3aa2f9d265c24528e18df91459',1,'nros::ShutdownCallbackHandle']]],
+  ['value_1',['value',['../classrclcpp_1_1detail_1_1is__qos__arg.html#a7eeab13863a0054c08ffd93bb0adae2f',1,'rclcpp::detail::is_qos_arg::value'],['../structnros_1_1format__of.html#adcce9428c26d65def6b9aff969173848',1,'nros::format_of::value'],['../classnros_1_1ShutdownCallbackHandle.html#ace894f87b48f98c798081f63b9cb28e5',1,'nros::ShutdownCallbackHandle::value()'],['../classnros_1_1ResultOf.html#aed670ee8ef39af69041d3e82ab814809',1,'nros::ResultOf::value() &amp;'],['../classnros_1_1ResultOf.html#a20e3522b4237100302c8e7bab22a7590',1,'nros::ResultOf::value() const &amp;'],['../classnros_1_1ResultOf.html#aecd345ebef3538b8cd855a91b284a57a',1,'nros::ResultOf::value() &amp;&amp;']]],
+  ['variables_2',['Runtime Environment Variables',['../configuration.html#autotoc_md14',1,'']]],
+  ['version_20mismatch_3',['zenoh Version Mismatch',['../troubleshooting.html#autotoc_md26',1,'']]],
+  ['view_4',['view',['../classrclcpp_1_1Subscription_1_1View.html',1,'rclcpp::Subscription&lt; M &gt;::View'],['../classrclcpp_1_1Subscription_1_1View.html#ae3b852823fb72717681e9a097908bf54',1,'rclcpp::Subscription::View::View()'],['../classrclcpp_1_1Subscription_1_1View.html#af296f53201d49fc0db0adc1cd8810569',1,'rclcpp::Subscription::View::View(View &amp;&amp;o)'],['../classrclcpp_1_1Subscription_1_1View.html#a74b8c1f786d1cd3b51772eece8c50ffc',1,'rclcpp::Subscription::View::View(const View &amp;)=delete'],['../classrclcpp_1_1Subscription_1_1View.html#a811ba9bd7d9d1568bfce7f0ec3a0e275',1,'rclcpp::Subscription::View::View(void *sub, const uint8_t *buf, size_t len, void *token)']]],
+  ['volatile_5',['Volatile',['../namespacenros.html#aba43f70da8488c12dd1a04921d57b825ae96e422fe0c2e59afc1b71d1c71a9b53',1,'nros']]],
+  ['vs_20tt_20std_20tt_6',['Freestanding vs &lt;tt&gt;std&lt;/tt&gt;',['../index.html#autotoc_md5',1,'']]]
 ];

@@ -1,8 +1,6 @@
 var searchData=
 [
-  ['qos_0',['qos',['../classnros_1_1QoS.html',1,'nros::QoS'],['../classrclcpp_1_1QoS.html',1,'rclcpp::QoS']]],
-  ['qos_5farg_5fstrip_1',['qos_arg_strip',['../structrclcpp_1_1detail_1_1qos__arg__strip.html',1,'rclcpp::detail']]],
-  ['qos_5farg_5fstrip_3c_20const_20f_20_26_20_3e_2',['qos_arg_strip&lt; const F &amp; &gt;',['../structrclcpp_1_1detail_1_1qos__arg__strip_3_01const_01F_01_6_01_4.html',1,'rclcpp::detail']]],
-  ['qos_5farg_5fstrip_3c_20const_20f_20_3e_3',['qos_arg_strip&lt; const F &gt;',['../structrclcpp_1_1detail_1_1qos__arg__strip_3_01const_01F_01_4.html',1,'rclcpp::detail']]],
-  ['qos_5farg_5fstrip_3c_20f_20_26_20_3e_4',['qos_arg_strip&lt; F &amp; &gt;',['../structrclcpp_1_1detail_1_1qos__arg__strip_3_01F_01_6_01_4.html',1,'rclcpp::detail']]]
+  ['resultof_0',['ResultOf',['../classnros_1_1ResultOf.html',1,'nros']]],
+  ['resultof_3c_20void_20_3e_1',['ResultOf&lt; void &gt;',['../classnros_1_1ResultOf_3_01void_01_4.html',1,'nros']]],
+  ['rosoutqos_2',['RosoutQoS',['../classrclcpp_1_1RosoutQoS.html',1,'rclcpp']]]
 ];
