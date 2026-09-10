@@ -94,12 +94,14 @@ var searchData=
   ['nros_5fplatform_5fudp_5fset_5frecv_5ftimeout_91',['nros_platform_udp_set_recv_timeout',['../platform__net_8h.html#a81fb3f65fab2b793a61c731b82cd1fec',1,'platform_net.h']]],
   ['nros_5fplatform_5fwake_5fdrop_92',['nros_platform_wake_drop',['../platform_8h.html#a622ddec5af60b07eb1906d76e83bba05',1,'platform.h']]],
   ['nros_5fplatform_5fwake_5finit_93',['nros_platform_wake_init',['../platform_8h.html#a1242421f3a4c2da2bd98459106f15d4c',1,'platform.h']]],
-  ['nros_5fplatform_5fwake_5fsignal_94',['nros_platform_wake_signal',['../platform_8h.html#aa78ad983e89987d83d0d706edf6f0ce6',1,'platform.h']]],
-  ['nros_5fplatform_5fwake_5fsignal_5ffrom_5fisr_95',['nros_platform_wake_signal_from_isr',['../platform_8h.html#a380cca3d9b4819697600c8113e4f0b61',1,'platform.h']]],
-  ['nros_5fplatform_5fwake_5fstorage_5falign_96',['nros_platform_wake_storage_align',['../platform_8h.html#a87903fd45b23ccd676040ea6825c630e',1,'platform.h']]],
-  ['nros_5fplatform_5fwake_5fstorage_5fsize_97',['nros_platform_wake_storage_size',['../platform_8h.html#ab90560dd0d2c4088d41748ed36a94970',1,'platform.h']]],
-  ['nros_5fplatform_5fwake_5fwait_5fms_98',['nros_platform_wake_wait_ms',['../platform_8h.html#ac6d7956bb04d876fb51c9c9511dca8c0',1,'platform.h']]],
-  ['nros_5fplatform_5fyield_5fnow_99',['nros_platform_yield_now',['../platform_8h.html#a9a818c6eade6a79076933be731b2e68a',1,'platform.h']]],
-  ['nros_5fplatform_5fzephyr_5fwait_5fnetwork_100',['nros_platform_zephyr_wait_network',['../platform__zephyr_8h.html#a6a5041cb471b914bd415fed09c893533',1,'platform_zephyr.h']]],
-  ['nros_5fruntime_5flocator_5foverride_101',['nros_runtime_locator_override',['../platform_8h.html#a44b6964dd0f28916307e48c210441e30',1,'platform.h']]]
+  ['nros_5fplatform_5fwake_5fpark_5fgranularity_5fus_94',['nros_platform_wake_park_granularity_us',['../platform_8h.html#a1935ac91694009b97890cbaa4f4fa8dc',1,'platform.h']]],
+  ['nros_5fplatform_5fwake_5fpark_5funtil_5fus_95',['nros_platform_wake_park_until_us',['../platform_8h.html#af0b51d61df44a1c582dfc1f77944bc82',1,'platform.h']]],
+  ['nros_5fplatform_5fwake_5fsignal_96',['nros_platform_wake_signal',['../platform_8h.html#aa78ad983e89987d83d0d706edf6f0ce6',1,'platform.h']]],
+  ['nros_5fplatform_5fwake_5fsignal_5ffrom_5fisr_97',['nros_platform_wake_signal_from_isr',['../platform_8h.html#a380cca3d9b4819697600c8113e4f0b61',1,'platform.h']]],
+  ['nros_5fplatform_5fwake_5fstorage_5falign_98',['nros_platform_wake_storage_align',['../platform_8h.html#a87903fd45b23ccd676040ea6825c630e',1,'platform.h']]],
+  ['nros_5fplatform_5fwake_5fstorage_5fsize_99',['nros_platform_wake_storage_size',['../platform_8h.html#ab90560dd0d2c4088d41748ed36a94970',1,'platform.h']]],
+  ['nros_5fplatform_5fwake_5fwait_5fms_100',['nros_platform_wake_wait_ms',['../platform_8h.html#ac6d7956bb04d876fb51c9c9511dca8c0',1,'platform.h']]],
+  ['nros_5fplatform_5fyield_5fnow_101',['nros_platform_yield_now',['../platform_8h.html#a9a818c6eade6a79076933be731b2e68a',1,'platform.h']]],
+  ['nros_5fplatform_5fzephyr_5fwait_5fnetwork_102',['nros_platform_zephyr_wait_network',['../platform__zephyr_8h.html#a6a5041cb471b914bd415fed09c893533',1,'platform_zephyr.h']]],
+  ['nros_5fruntime_5flocator_5foverride_103',['nros_runtime_locator_override',['../platform_8h.html#a44b6964dd0f28916307e48c210441e30',1,'platform.h']]]
 ];
