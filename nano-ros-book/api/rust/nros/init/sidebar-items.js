@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["REFUSE_INIT_ARGS"],"enum":["ContextSource","InitError"],"fn":["args_have_ros_args","init","init_with_args","init_with_launch","init_with_launch_auto"],"struct":["Context"]};
+window.SIDEBAR_ITEMS = {"constant":["REFUSE_INIT_ARGS"],"enum":["ContextSource","InitError"],"fn":["args_have_ros_args","init","init_with_args","init_with_launch","init_with_launch_auto"],"struct":["Context","InitOptions"]};
