@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-25d878fc.js";
+            window.path_to_searchindex_js = "../searchindex-69ed6f6c.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-0216bff9.js"></script>
@@ -200,9 +200,10 @@ public surface a user application needs.</p>
 <li><a href="../api/cpp/classnros_1_1Executor.html"><code>nros::Executor</code></a>, <a href="../api/cpp/classnros_1_1Timer.html"><code>Timer</code></a>, <a href="../api/cpp/classnros_1_1GuardCondition.html"><code>GuardCondition</code></a></li>
 <li><a href="../api/cpp/classnros_1_1ParameterServer.html"><code>nros::ParameterServer&lt;Cap&gt;</code></a> — node-local typed parameter store (<code>bool</code> / <code>int64_t</code> / <code>double</code> / <code>const char*</code>); compose alongside a <code>Node</code>. See <a href="../concepts/ros2-comparison.html#9-parameters-node-local-server-no-descriptors-no-callbacks-yet">Differences from ROS 2 §9</a> for what is intentionally smaller than <code>rclcpp</code>.</li>
 </ul>
-<p>The library is freestanding C++14 — no STL, no exceptions. Define
-<code>NROS_CPP_STD</code> if you want the optional <code>std::string</code> / <code>std::function</code> /
-<code>std::chrono</code> overloads.</p>
+<p>The library is freestanding C++14 — no STL, no exceptions. A second,
+std-flavoured surface exists for porting upstream rclcpp code and is reached by
+defining <code>NROS_CPP_STD</code>; see <a href="#two-surfaces-freestanding-and-nros_cpp_std">Two surfaces</a>
+below for whether you need it.</p>
 <blockquote>
 <p><strong>Two-layer API.</strong> The <code>nros::ActionServer&lt;A&gt;</code> / <code>ActionClient&lt;A&gt;</code>
 templates are L2 callback handles (set callbacks via
@@ -222,6 +223,77 @@ typed <code>set_{goal,cancel,get_result,goal_response, cancel_response,result,fe
 methods. Pair an <code>nros_cpp_wake_state_t</code>
 with each entity / channel to wake on rx instead of polling.</p>
 </blockquote>
+<h2 id="two-surfaces-freestanding-and-nros_cpp_std"><a class="header" href="#two-surfaces-freestanding-and-nros_cpp_std">Two surfaces: freestanding, and <code>NROS_CPP_STD</code></a></h2>
+<p>One set of headers ships two API shapes, and a build picks one.</p>
+<p><strong>The freestanding surface is the default and it is not a fallback.</strong> It is
+plain C++14 with no standard library, no exceptions and no RTTI: <code>nros::Node</code>,
+<code>create_*</code> writing through an out-reference and returning an <code>nros::Result</code>,
+<code>const char*</code> for names, <code>uint64_t period_ms</code> for durations. Every nano-ros
+program in this repository is on it — the native/host examples included.</p>
+<p><strong>The std surface is an opt-in and it is reached only by defining
+<code>NROS_CPP_STD</code>.</strong> Defining it turns on the six <code>NROS_CPP_HAS_*</code> capability
+macros in <code>nros/std_detect.hpp</code>, and with them: the <code>std::string</code> /
+<code>std::function</code> / <code>std::chrono</code> / <code>std::vector</code> convenience overloads in
+<code>nros/std_compat.hpp</code>, the <code>RCLCPP_*_STREAM</code> logging macros, and — the piece
+that actually motivates the flag — <code>rclcpp::Node</code>, whose factories return
+<code>std::shared_ptr</code> and whose name parameters are <code>const std::string&amp;</code>.</p>
+<h3 id="do-i-need-this-flag"><a class="header" href="#do-i-need-this-flag">Do I need this flag?</a></h3>
+<p><strong>The split is <em>ported rclcpp code</em> versus <em>code written for nano-ros</em>. It is
+not host versus embedded.</strong> A native Linux build does not want the flag any more
+than a Cortex-M3 build does; a ported node wants it on both.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>You are…</th><th>Flag</th><th>Why</th></tr>
+</thead>
+<tbody>
+<tr><td>writing a new node against <code>nros::Node</code> / <code>nros::Publisher&lt;M&gt;</code> / <code>nros::Executor</code></td><td><strong>no</strong></td><td>The freestanding surface is the whole API you are using. This is the common case on every platform, native included.</td></tr>
+<tr><td>compiling an upstream ROS 2 <code>.cpp</code> unmodified — it says <code>class MyNode : public rclcpp::Node</code>, <code>std::make_shared&lt;MyNode&gt;()</code>, <code>create_publisher&lt;M&gt;(...)</code> returning a <code>SharedPtr</code></td><td><strong>yes</strong></td><td>Those signatures are <em>spelled in</em> <code>std::shared_ptr</code> and <code>std::string</code>. Without the flag they do not exist and you get a compile error naming a missing overload or an unknown <code>rclcpp::Node</code>.</td></tr>
+<tr><td>passing a <code>std::string</code> topic name or a <code>std::chrono</code> period into an otherwise nano-ros-native file</td><td><strong>yes</strong></td><td>Those are the <code>std_compat.hpp</code> overloads.</td></tr>
+<tr><td>building for Zephyr, FreeRTOS, NuttX, ThreadX, or any <code>-ffreestanding</code> toolchain</td><td><strong>no</strong></td><td>And here it is not merely unnecessary: asking for the std surface asks the headers to <code>#include &lt;string&gt;</code>, which on those toolchains is either absent or a hard <code>#error</code>.</td></tr>
+</tbody>
+</table>
+</div>
+<p>If you are unsure, build without it. The failure direction is loud: a missing
+overload at compile time, never a silent behaviour change.</p>
+<h3 id="turning-it-on"><a class="header" href="#turning-it-on">Turning it on</a></h3>
+<p>Define it on the <strong>target</strong>, not per file:</p>
+<pre><code class="language-cmake">target_compile_definitions(my_ported_node PRIVATE NROS_CPP_STD=1)
+</code></pre>
+<p>Per-target rather than per-<code>#define</code>-before-include, because the macro changes
+the <em>layout</em> of <code>rclcpp::Node</code> (it carries hosted-only members and an
+<code>enable_shared_from_this</code> base), so two translation units of one image
+disagreeing about it is an ODR/layout break rather than a missing function. That
+disagreement is reachable in practice — <code>examples/px4/cpp/bridge/</code> sets the flag
+on one module of a larger image deliberately — so keep the definition at
+target granularity and give every TU of a target the same answer.</p>
+<p><strong>A ported project usually needs none of this.</strong>
+<code>cmake/compat/NrosRclcppCompat.cmake</code> sets <code>NROS_CPP_STD=1</code> on every target it
+touches. Anything reaching <code>&lt;rclcpp/rclcpp.hpp&gt;</code> through the compat shim already
+has the surface it needs; see
+<a href="../getting-started/porting-a-cpp-node.html">Porting a ROS 2 C++ node</a>.</p>
+<h3 id="why-it-is-not-detected-for-you"><a class="header" href="#why-it-is-not-detected-for-you">Why it is not detected for you</a></h3>
+<p>It used to be. Until phase-438 the capability macros were <em>discovered</em> from the
+include path with <code>__has_include</code>, so a hosted compiler handed you the
+std-flavoured API whether you asked for it or not. That was removed because no
+probe answers the question correctly on both embedded lanes:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th></th><th><code>__STDC_HOSTED__</code></th><th><code>__has_include(&lt;string&gt;)</code></th><th><code>#include &lt;string&gt;</code></th></tr>
+</thead>
+<tbody>
+<tr><td>arm-none-eabi 13.2, <code>-ffreestanding</code> (FreeRTOS lane)</td><td>0</td><td>TRUE</td><td>hard <code>#error</code></td></tr>
+<tr><td>Zephyr <code>-nostdinc++</code>, minimal libcpp</td><td>1</td><td>FALSE</td><td>absent</td></tr>
+<tr><td>hosted g++ 12.3</td><td>1</td><td>TRUE</td><td>works</td></tr>
+</tbody>
+</table>
+</div>
+<p>Each probe is right on exactly one embedded lane and wrong on the other:
+libstdc++ 13 added <code>bits/requires_hosted.h</code>, so header <em>presence</em> stopped
+implying <em>usability</em>. Only the request is right on both, because it is not a
+probe — it is you saying which surface you want. The full measurement lives in
+<code>packages/api/nros-cpp/include/nros/std_detect.hpp</code>.</p>
 <h2 id="generating-locally"><a class="header" href="#generating-locally">Generating locally</a></h2>
 <pre><code class="language-bash">doxygen packages/api/nros-cpp/Doxyfile
 xdg-open target/doc/cpp-api/html/index.html
