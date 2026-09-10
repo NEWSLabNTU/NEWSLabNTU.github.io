@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['reliability_0',['reliability',['../structnros__cpp__qos__t.html#aaf391f1228ad2cd77afa0d9220e0df79',1,'nros_cpp_qos_t']]],
-  ['result_1',['result',['../structrclcpp__action_1_1Client_1_1SendGoalOptions.html#a50249ea2e7aa6d57d114b8cf01150b05',1,'rclcpp_action::Client::SendGoalOptions']]]
+  ['ptr_0',['ptr',['../structnros_1_1Span.html#a6d936b9e33d8196a429f3314e9431396',1,'nros::Span::ptr'],['../structnros_1_1StringView.html#a3b1b06c40b6c389c2e1809b17f7c0d58',1,'nros::StringView::ptr']]],
+  ['publisher_5ftopic_5fname_5fmax_1',['PUBLISHER_TOPIC_NAME_MAX',['../namespacenros.html#a402f430635d567ed8d545d570f4d8306',1,'nros']]]
 ];

@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['kdomainidexplicitzero_0',['kDomainIdExplicitZero',['../namespacenros.html#aade15aa4cbce7b30e108e0f1837fbdc5',1,'nros']]]
+  ['history_0',['history',['../structnros__cpp__qos__t.html#a5e12bb897ccd47cbe31660f056363209',1,'nros_cpp_qos_t']]]
 ];

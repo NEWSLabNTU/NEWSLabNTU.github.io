@@ -1,4 +1,5 @@
 var searchData=
 [
-  ['history_0',['history',['../structnros__cpp__qos__t.html#a5e12bb897ccd47cbe31660f056363209',1,'nros_cpp_qos_t']]]
+  ['goal_5fid_0',['goal_id',['../structrclcpp__action_1_1Client_1_1GoalAccept.html#aa6dc3a51c3b07d5a3a8ebe21cb5ce64a',1,'rclcpp_action::Client::GoalAccept']]],
+  ['goal_5fresponse_1',['goal_response',['../structrclcpp__action_1_1Client_1_1SendGoalOptions.html#a9671eab2df4252a88e447be790cf62d2',1,'rclcpp_action::Client::SendGoalOptions']]]
 ];
