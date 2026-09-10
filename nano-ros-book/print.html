@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-b78c47c0.js";
+            window.path_to_searchindex_js = "searchindex-896afc15.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-0216bff9.js"></script>
+        <script src="toc-3de5b2d7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -3479,12 +3479,21 @@ truth for the current CLI state.</p>
 <p><code>examples/workspaces/rust/</code> is the canonical Rust workspace that pairs with
 this guide. Copy the whole directory out and rename the packages, then:</p>
 <pre><code class="language-bash">nros setup native
+nros sync            # once per workspace — the generated message bindings
 nros build native
 </code></pre>
 <p><code>nros build</code> walks the packages, resolves the image, checks the toolchain,
 generates the root manifest and the entry, and hands off to cargo. The older
-<code>nros sync</code> / <code>nros codegen-system</code> / <code>nros check</code> sequence still works; it is
-just no longer something you have to type.</p>
+<code>nros codegen-system</code> / <code>nros check</code> steps still work; they are just no longer
+something you have to type.</p>
+<p><code>nros sync</code> is the one that is still yours to run. A workspace that has never
+been synced has no generated message crates, so <code>nros build</code> refuses at
+preflight and names it:</p>
+<pre><code class="language-text">Error: missing prerequisites for this build:
+  - generated message bindings (this workspace has never been synced)
+      run: nros sync
+</code></pre>
+<p>Once per workspace is enough; after that, re-run it when you edit a <code>.msg</code>.</p>
 <p>The workspace README at <code>examples/workspaces/rust/README.md</code>
 documents the exact CLI commands that are verified green today.</p>
 <hr>
@@ -4206,9 +4215,12 @@ body, the user’s TU is documentation + IDE hint.</p>
 <pre><code class="language-bash">nros build native
 ./build/posix-zenoh-native/cmake/native_entry
 </code></pre>
-<p><code>nros build</code> runs <code>nros sync</code> for you (it resolves the SystemModel via the
-pinned <code>nros-launch-resolve</code> helper whenever the launch XML or <code>system.toml</code>
-is newer), writes the root, configures, and builds. The coordinate directory
+<p><code>nros build</code> resolves the SystemModel for you (via the pinned
+<code>nros-launch-resolve</code> helper, whenever the launch XML or <code>system.toml</code> is
+newer), writes the root, configures, and builds. It does <strong>not</strong> run <code>nros sync</code>: a workspace that has never been synced has no generated message
+bindings, and <code>nros build</code> refuses at preflight naming <code>nros sync</code> as the
+remedy. Sync once per workspace; after that only a <code>.msg</code> edit needs it
+again. The coordinate directory
 names what it contains: platform, RMW, board. Driving <code>cmake</code> yourself against
 the generated root still works.</p>
 <p>The build produces:</p>
@@ -6799,7 +6811,7 @@ locator   = "tcp/10.0.2.2:9800"
 <h2 id="build-8"><a class="header" href="#build-8">Build</a></h2>
 <blockquote>
 <p><strong>Contributors:</strong> the in-tree fixture/test lanes for this platform are in
-<a href="#esp32-1">Per-Platform Contributor Lanes</a>.</p>
+<a href="#esp32-2">Per-Platform Contributor Lanes</a>.</p>
 </blockquote>
 <p>Copy the example out, generate bindings, build with the pinned nightly,
 and pack the flash image:</p>
@@ -6844,7 +6856,7 @@ qemu-system-riscv32 -M esp32c3 -icount 3 -nographic \
 </code></pre>
 <blockquote>
 <p><strong>Contributors:</strong> the in-tree run lane that boots the talker in QEMU is in
-<a href="#esp32-1">Per-Platform Contributor Lanes</a>.</p>
+<a href="#esp32-2">Per-Platform Contributor Lanes</a>.</p>
 </blockquote>
 <pre><code class="language-bash"># Verify from stock ROS 2 on the same network:
 source /opt/ros/humble/setup.bash
@@ -9368,6 +9380,141 @@ FreeRTOS QEMU images (the emulated Cortex-M3 misses zenoh-pico’s handshake
 window at low optimization).</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="what-nros-build-produces"><a class="header" href="#what-nros-build-produces">What <code>nros build</code> Produces</a></h1>
+<p><code>nros build</code> ends at an <strong>artifact</strong> and stops. It discovers your packages,
+resolves the image, checks the toolchain, generates the root build file and the
+entry, and then hands off to the native tool — <code>cargo</code>, <code>cmake</code>, <code>west</code> or
+<code>idf.py</code>. The last stage is an <code>exec</code>, so the artifact is exactly the one that
+tool would have produced had you run it yourself.</p>
+<p>This page answers the question the build does not: <strong>what are you holding, and
+where is it?</strong></p>
+<h2 id="there-is-no-nros-run-and-no-nros-flash"><a class="header" href="#there-is-no-nros-run-and-no-nros-flash">There is no <code>nros run</code> and no <code>nros flash</code></a></h2>
+<p>That is a decision, not a gap. How an image is flashed or started is a property
+of the board and of your bench — a probe, a bootloader, a QEMU command line, a
+CI fixture — and nano-ros cannot know it without inventing a device inventory
+nobody asked for. So nano-ros delivers binaries, and the board’s own tooling
+takes them from there.</p>
+<p>The commands quoted below are <strong>that tooling’s</strong>, reproduced here as a
+reference. They are not nano-ros wrappers and nano-ros does not run them for
+you.</p>
+<p>There is also no install step: <code>nros build</code> never runs <code>cmake --install</code>, writes
+no <code>install/</code> prefix and stages nothing. Whatever the native tool wrote in its
+own build tree is the deliverable.</p>
+<h2 id="where-it-lands"><a class="header" href="#where-it-lands">Where it lands</a></h2>
+<p>Which tool builds an image is decided by its platform and by whether the
+workspace crosses languages:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>platform / shape</th><th>driver</th><th>the artifact</th></tr>
+</thead>
+<tbody>
+<tr><td>Rust-only, any non-Zephyr non-ESP32 board</td><td><code>cargo</code></td><td><code>&lt;ws&gt;/target/[&lt;triple&gt;/]&lt;profile&gt;/&lt;image&gt;_entry</code></td></tr>
+<tr><td>any workspace containing C or C++</td><td><code>cmake</code></td><td><code>&lt;ws&gt;/build/&lt;coordinate&gt;/cmake/&lt;image&gt;_entry</code></td></tr>
+<tr><td>a <code>zephyr</code> board</td><td><code>west</code></td><td><code>&lt;ws&gt;/build/zephyr/zephyr.{elf,bin,exe}</code></td></tr>
+<tr><td>an <code>esp32</code> board</td><td><code>idf.py</code></td><td>ESP-IDF’s own <code>build/</code> in the project directory</td></tr>
+</tbody>
+</table>
+</div>
+<p>The <strong>coordinate</strong> is the platform and the RMW — <code>posix-zenoh</code>,
+<code>freertos-cyclonedds</code> — plus, for CMake, the board, because CMake pins one
+compiler per configure and two boards on one platform would otherwise share a
+cache: <code>posix-zenoh-native</code>, <code>freertos-zenoh-mps2-an385-freertos</code>.</p>
+<p>One path the build <em>does</em> print is easy to mistake for the binary:</p>
+<pre><code class="language-text">nros build:   entry → …/build/posix-zenoh/native_entry
+</code></pre>
+<p>That is the generated <strong>entry package</strong> — source that nano-ros wrote for you,
+under <code>build/</code> because it is build output. The compiled program is elsewhere;
+see below.</p>
+<h2 id="native-host-cargo"><a class="header" href="#native-host-cargo">Native host (cargo)</a></h2>
+<p><code>nros build</code> runs <code>cargo build -p &lt;image&gt;_entry</code> from the workspace root and
+passes no <code>--target-dir</code>, so cargo’s own default applies:</p>
+<pre><code class="language-text">&lt;ws&gt;/target/&lt;profile-dir&gt;/&lt;image&gt;_entry
+</code></pre>
+<p><code>&lt;profile-dir&gt;</code> is <code>debug</code> unless the image declares
+<code>[image.&lt;id&gt;] profile = …</code>, in which case it is that profile’s directory
+(<code>nros profile dir &lt;name&gt;</code> prints it). A board that pins a cross triple adds a
+level — <code>target/&lt;triple&gt;/&lt;profile-dir&gt;/&lt;image&gt;_entry</code> — because <code>nros build</code>
+passes <code>--target</code> for it.</p>
+<p><strong>Next step:</strong> run it. It is an ordinary host executable.</p>
+<pre><code class="language-bash">./target/debug/native_entry
+</code></pre>
+<p>A multi-process zenoh example also needs a router; that is ROS’s <code>rmw_zenohd</code>,
+not something nano-ros ships — see
+<a href="#deployment-workflow">Deployment Workflow</a> and
+<a href="#do-i-need-ros-2-installed">Install</a>.</p>
+<h2 id="c-c-and-mixed-workspaces-cmake"><a class="header" href="#c-c-and-mixed-workspaces-cmake">C, C++ and mixed workspaces (cmake)</a></h2>
+<p>CMake is chosen whenever the package graph contains anything that is not Rust,
+on the host and when cross-compiling alike. The generated root is <code>&lt;ws&gt;/build/&lt;coordinate&gt;/CMakeLists.txt</code>,
+it is configured into <code>&lt;ws&gt;/build/&lt;coordinate&gt;/cmake/</code>, and each image’s
+executable lands at the top of that directory:</p>
+<pre><code class="language-text">&lt;ws&gt;/build/&lt;coordinate&gt;/cmake/&lt;image&gt;_entry
+</code></pre>
+<p>For example, <code>examples/workspaces/c</code> builds <code>[image.native]</code> to
+<code>build/posix-zenoh-native/cmake/native_entry</code> and its FreeRTOS image to
+<code>build/freertos-zenoh-mps2-an385-freertos/cmake/freertos_entry</code>. (Node packages
+also build their own executables, under <code>cmake/pkg/&lt;pkg&gt;/&lt;pkg&gt;</code>; the <em>image</em> is
+the one at the top level.)</p>
+<p>The file has no extension in either case. On the host it is a host executable;
+for a cross board it is a statically linked ELF for that architecture — the
+FreeRTOS one above is <code>ELF 32-bit LSB executable, ARM, EABI5, statically linked</code>.</p>
+<p><strong>Next step:</strong></p>
+<ul>
+<li><strong>host</strong> — run it directly.</li>
+<li><strong>QEMU</strong> — the ELF is what <code>-kernel</code> takes, with the machine and CPU your
+board’s guide names.</li>
+<li><strong>hardware</strong> — hand the ELF to your flasher (<code>probe-rs</code>, OpenOCD, a
+vendor tool). nano-ros has no opinion about which.</li>
+</ul>
+<h2 id="zephyr-west"><a class="header" href="#zephyr-west">Zephyr (west)</a></h2>
+<p><code>nros build</code> resolves your application and its overlays and runs <code>west build</code>
+from the workspace root, passing no <code>-d</code>, so west’s default build directory
+applies. Zephyr writes its image under <code>zephyr/</code> inside it:</p>
+<pre><code class="language-text">&lt;ws&gt;/build/zephyr/zephyr.elf      # always
+&lt;ws&gt;/build/zephyr/zephyr.exe      # native_sim — a host executable
+&lt;ws&gt;/build/zephyr/zephyr.bin      # cross targets — the raw image
+&lt;ws&gt;/build/zephyr/zephyr.map      # the link map
+</code></pre>
+<p>Which of <code>.exe</code> and <code>.bin</code> appears is Zephyr’s choice, not nano-ros’s: a
+<code>native_sim</code> build produces <code>zephyr.exe</code>, a Cortex-M build produces
+<code>zephyr.bin</code>.</p>
+<p><strong>Next step — Zephyr’s own verbs:</strong></p>
+<pre><code class="language-bash">./build/zephyr/zephyr.exe     # native_sim: just run it
+west build -t run             # emulated boards: Zephyr's runner
+west flash                    # hardware: the runner declared by the board
+</code></pre>
+<p><code>west flash</code> picks its runner from the board’s own <code>board.cmake</code>; nano-ros adds
+nothing to it. Note that these are run against the west build directory, so
+they work from wherever you would normally run <code>west</code>.</p>
+<h2 id="esp32"><a class="header" href="#esp32">ESP32</a></h2>
+<p>Two different shapes, because there are two ways to build for an ESP32:</p>
+<p><strong>ESP-IDF component</strong> (<code>idf.py</code> driver) — <code>nros build</code> runs <code>idf.py build</code> in
+the project directory, and the artifact is whatever ESP-IDF writes under that
+project’s <code>build/</code>. The next step is Espressif’s:</p>
+<pre><code class="language-bash">idf.py -p /dev/ttyUSB0 flash monitor
+</code></pre>
+<p>See <a href="#esp32-esp-idf-component">ESP32 (ESP-IDF component)</a>.</p>
+<p><strong>Rust bare-metal (esp-hal)</strong> — these are standalone cargo leaves rather than
+<code>nros build</code> images, so the artifact is an ordinary cargo one: the ELF at
+<code>target/&lt;triple&gt;/&lt;profile-dir&gt;/&lt;name&gt;</code>. <code>espflash</code> turns it into a flash image
+or writes it to a board:</p>
+<pre><code class="language-bash">espflash flash --monitor target/riscv32imc-unknown-none-elf/release/talker
+espflash save-image --chip esp32c3 --flash-size 4mb --merge \
+    target/riscv32imc-unknown-none-elf/release/talker talker.bin
+</code></pre>
+<p>See <a href="#esp32-esp-hal-bare-metal-rust">ESP32 (esp-hal)</a>.</p>
+<h2 id="finding-it-yourself"><a class="header" href="#finding-it-yourself">Finding it yourself</a></h2>
+<p>When in doubt, ask the build what it is about to do. <code>--dry-run</code> prints the
+stages and the exact command, and performs no I/O:</p>
+<pre><code class="language-bash">nros build &lt;image&gt; --dry-run
+</code></pre>
+<p>The tool named in that command owns the output location, and its own
+documentation is the authority — which is the whole point of handing off rather
+than wrapping.</p>
+<p>For the generation side of this — which root file is written, why the entry is
+derived rather than hand-written, and what the coordinate directory holds — see
+<a href="#what-nros-build-generates">Images</a>.</p>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="profiling-your-build"><a class="header" href="#profiling-your-build">Profiling Your Build</a></h1>
 <p>When a build feels slow, <code>nros-build-profile</code> tells you <strong>where the time went</strong> —
 codegen vs compile vs link vs flash, which unit dominated, and whether a shared
@@ -9493,10 +9640,16 @@ cmake -B build &amp;&amp; cmake --build build   # C / C++ leaves
 </blockquote>
 <p>For real hardware, deployment step becomes flash/load/monitor. For QEMU,
 deployment is launching simulator with correct network setup.</p>
-<p>There is no <code>nros deploy</code> / <code>nros build</code> / <code>nros run</code> verb — Phase 222
-removed those wrappers. <code>nros</code> is provisioner + codegen + metadata only;
-deployment runs on the <strong>vendor’s native tools</strong>. The embedded deploy
-contract is a documented three-step sequence (per
+<p>There is no <code>nros run</code>, no <code>nros flash</code> and no <code>nros deploy</code> verb, and none is
+planned: <code>nros build</code> ends at an artifact, and how that artifact is flashed or
+started is a property of the board and of your bench. Deployment runs on the
+<strong>vendor’s native tools</strong>. See
+<a href="#what-nros-build-produces">What <code>nros build</code> Produces</a> for where each target family’s
+artifact lands and which of the vendor’s commands takes it from there.</p>
+<p>(<code>nros build</code> itself <em>does</em> exist — RFC-0065 introduced it after Phase 222 had
+removed an earlier set of wrappers. It generates the root build file and the
+entry and hands off; it does not wrap running or flashing.)</p>
+<p>The embedded deploy contract is a documented three-step sequence (per
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0003-rtos-integration-pattern.md">RFC-0003 §4</a>):</p>
 <ol>
 <li><strong>Bake</strong> — <code>nros codegen-system --bringup &lt;pkg&gt;</code> reads
@@ -9531,11 +9684,11 @@ west build -b native_sim/native/64 nros/examples/zephyr/rust/talker
 <a href="#zephyr-west-module">Zephyr Integration</a> — the
 <code>zephyr-workspace/env.sh</code> line above is specific to the in-tree
 workspace layout.</p>
-<h2 id="esp32"><a class="header" href="#esp32">ESP32</a></h2>
+<h2 id="esp32-1"><a class="header" href="#esp32-1">ESP32</a></h2>
 <p>ESP32 deployment uses the Espressif toolchain and flash tool.</p>
 <blockquote>
 <p><strong>Contributors:</strong> the in-tree ESP32 build/run lanes are in
-<a href="#esp32-1">Per-Platform Contributor Lanes</a>.</p>
+<a href="#esp32-2">Per-Platform Contributor Lanes</a>.</p>
 </blockquote>
 <p>For physical boards: <code>espflash flash --monitor &lt;elf&gt;</code> (the QEMU
 chapter’s <code>espflash save-image</code> packs an emulator image instead —
@@ -11362,8 +11515,14 @@ cargo build
 <p><strong>Symptom</strong>:</p>
 <pre><code>zenoh-pico submodule not found at /path/to/zenoh-pico. Run: git submodule update --init
 </code></pre>
-<p><strong>Solution</strong>:</p>
-<pre><code class="language-bash">git submodule update --init --recursive
+<p><strong>Solution</strong>: init that one submodule, scoped — <strong>not</strong> <code>--recursive</code>. The
+transitive closure is large and mostly irrelevant to any one task, and the
+launch toolchain’s third-level runtime submodules are never built by nano-ros.</p>
+<pre><code class="language-bash">git submodule update --init packages/rmw/zenoh/zpico-sys/zenoh-pico
+</code></pre>
+<p>Better still, let provisioning do it — this is what <code>nros setup</code> is for, and it
+fetches shallow rather than deepening to reach the pin:</p>
+<pre><code class="language-bash">nros setup &lt;board&gt; --rmw zenoh      # or: nros setup --source zenoh-pico
 </code></pre>
 <h3 id="cmake-cache-stale"><a class="header" href="#cmake-cache-stale">CMake Cache Stale</a></h3>
 <p><strong>Symptom</strong>: Changes to CMake defines (like <code>Z_FEATURE_INTEREST</code>) don’t take effect.</p>
@@ -21980,7 +22139,7 @@ launches, <code>just freertos test</code> runs every E2E (pub/sub, service,
 action) against a temporary in-test zenohd.</p>
 <p><code>just freertos build</code> / <code>just freertos test</code> build and exercise the
 in-tree fixtures.</p>
-<h2 id="esp32-1"><a class="header" href="#esp32-1">ESP32</a></h2>
+<h2 id="esp32-2"><a class="header" href="#esp32-2">ESP32</a></h2>
 <p>Lanes for <a href="#esp32-esp-hal-bare-metal-rust">ESP32 (esp-hal, bare-metal Rust)</a>.</p>
 <p>Build:</p>
 <pre><code class="language-bash"># QEMU ESP32 (qemu-system-riscv32). `just esp32 build-qemu` (which
