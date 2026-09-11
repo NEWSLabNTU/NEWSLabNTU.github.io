@@ -304,7 +304,7 @@ var searchData=
   ['nros_5ftime_5fto_5fnanoseconds_301',['nros_time_to_nanoseconds',['../nros__generated_8h.html#a6cdda276b5f076ec896e8412c885a5fb',1,'nros_generated.h']]],
   ['nros_5ftimer_5fget_5fperiod_302',['nros_timer_get_period',['../nros__generated_8h.html#a35f41a576c93a0013fa844011d1da55a',1,'nros_generated.h']]],
   ['nros_5ftimer_5fget_5ftime_5fsince_5flast_5fcall_303',['nros_timer_get_time_since_last_call',['../nros__generated_8h.html#a871d883fffc0d607605d8b6bc24f422f',1,'nros_generated.h']]],
-  ['nros_5ftimer_5fget_5ftime_5funtil_5fnext_5fcall_304',['nros_timer_get_time_until_next_call',['../nros__generated_8h.html#a1f456b39d27369c762e51328a44a18e0',1,'nros_generated.h']]],
+  ['nros_5ftimer_5fget_5ftime_5funtil_5fnext_5fcall_304',['nros_timer_get_time_until_next_call',['../nros__generated_8h.html#af1ac9a2ab30f84198832139732038d2f',1,'nros_generated.h']]],
   ['nros_5ftimer_5finit_305',['nros_timer_init',['../nros__generated_8h.html#af5df12f29461f2f223d4ad21d115af2d',1,'nros_generated.h']]],
   ['nros_5ftimer_5finit_5fon_5fclock_306',['nros_timer_init_on_clock',['../nros__generated_8h.html#aa5c935cd799f44f3af620556cfbb6cad',1,'nros_generated.h']]],
   ['nros_5ftimer_5fis_5fvalid_307',['nros_timer_is_valid',['../nros__generated_8h.html#a1845b0982c12a0c3c76715c963cf6f64',1,'nros_generated.h']]],
