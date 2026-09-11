@@ -5,6 +5,5 @@ var searchData=
   ['declared_5fdepth_5fmismatch_2',['DECLARED_DEPTH_MISMATCH',['../namespacenros_1_1detail.html#acc66698b9857f1cf8f9b05726d61a477',1,'nros::detail']]],
   ['declared_5fparam_5fmismatch_3',['DECLARED_PARAM_MISMATCH',['../namespacenros_1_1detail.html#a2bb111533f6ceedc5fe218ceda9ef8e4',1,'nros::detail']]],
   ['depth_4',['depth',['../structnros__cpp__qos__t.html#acfa3abca89031c99a8461cd9ece9a090',1,'nros_cpp_qos_t']]],
-  ['destroy_5',['destroy',['../structnros_1_1detail_1_1NodeHostedBase.html#a8cf8ebdaa2896bab4df993bc50160825',1,'nros::detail::NodeHostedBase']]],
-  ['durability_6',['durability',['../structnros__cpp__qos__t.html#a221e6bce6b2426d1c6546292cb922f10',1,'nros_cpp_qos_t']]]
+  ['durability_5',['durability',['../structnros__cpp__qos__t.html#a221e6bce6b2426d1c6546292cb922f10',1,'nros_cpp_qos_t']]]
 ];

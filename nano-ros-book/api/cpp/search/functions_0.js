@@ -7,5 +7,6 @@ var searchData=
   ['argv_5fhas_5fros_5fargs_4',['argv_has_ros_args',['../namespacerclcpp_1_1detail.html#afc5cbca583e3734a2470d94cab0c8bd7',1,'rclcpp::detail']]],
   ['assert_5fliveliness_5',['assert_liveliness',['../classrclcpp_1_1Publisher.html#a01baee3f0df00adebf5c3940d86aaf28',1,'rclcpp::Publisher']]],
   ['async_5fsend_5frequest_6',['async_send_request',['../classrclcpp_1_1Client.html#a38f31656846534865a53e095cac3f846',1,'rclcpp::Client']]],
-  ['avoid_5fros_5fnamespace_5fconventions_7',['avoid_ros_namespace_conventions',['../classnros_1_1QoS.html#a42a7610b2a6d3c0485cccc3f5de1a339',1,'nros::QoS::avoid_ros_namespace_conventions(bool on)'],['../classnros_1_1QoS.html#a148a2ee45271a01bb8edc0404526e381',1,'nros::QoS::avoid_ros_namespace_conventions() const']]]
+  ['attach_5fclosure_5fblock_7',['attach_closure_block',['../classnros_1_1Timer.html#a9b4fe01d0183ebbdfd67d400c56be6a3',1,'nros::Timer::attach_closure_block()'],['../classnros_1_1GuardCondition.html#aafeda081f8db6195ad5c54f371d557b2',1,'nros::GuardCondition::attach_closure_block()']]],
+  ['avoid_5fros_5fnamespace_5fconventions_8',['avoid_ros_namespace_conventions',['../classnros_1_1QoS.html#a42a7610b2a6d3c0485cccc3f5de1a339',1,'nros::QoS::avoid_ros_namespace_conventions(bool on)'],['../classnros_1_1QoS.html#a148a2ee45271a01bb8edc0404526e381',1,'nros::QoS::avoid_ros_namespace_conventions() const']]]
 ];

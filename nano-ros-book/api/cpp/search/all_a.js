@@ -10,11 +10,10 @@ var searchData=
   ['default_5fprofile_7',['default_profile',['../classnros_1_1QoS.html#a5918084d2360c6ba4813a29f46da2930',1,'nros::QoS']]],
   ['deprecated_20list_8',['Deprecated List',['../deprecated.html',1,'']]],
   ['depth_9',['depth',['../structnros__cpp__qos__t.html#acfa3abca89031c99a8461cd9ece9a090',1,'nros_cpp_qos_t::depth'],['../classnros_1_1QoS.html#a05a2995ae804ea8045899f12c210d1b6',1,'nros::QoS::depth()']]],
-  ['destroy_10',['destroy',['../structnros_1_1detail_1_1NodeHostedBase.html#a8cf8ebdaa2896bab4df993bc50160825',1,'nros::detail::NodeHostedBase']]],
-  ['discard_11',['discard',['../classrclcpp_1_1Publisher_1_1Loan.html#a757dcc88c8a049f7086c0d6f43cf3a19',1,'rclcpp::Publisher::Loan']]],
-  ['domain_5fid_12',['domain_id',['../classnros_1_1NodeBuilder.html#a23242f7a62a554accb7ae8c74f90c9ee',1,'nros::NodeBuilder']]],
-  ['durability_13',['durability',['../structnros__cpp__qos__t.html#a221e6bce6b2426d1c6546292cb922f10',1,'nros_cpp_qos_t::durability'],['../classnros_1_1QoS.html#a5e1292d8aa9d2cdcbd4e7aa4fc82116c',1,'nros::QoS::durability() const']]],
-  ['durability_5fraw_14',['durability_raw',['../classnros_1_1QoS.html#ac5e6fd734e3be198f85b55114212056e',1,'nros::QoS']]],
-  ['durability_5fvolatile_15',['durability_volatile',['../classnros_1_1QoS.html#ab14332f25c3dd72f0f16790d8f37ff39',1,'nros::QoS']]],
-  ['durabilitypolicy_16',['DurabilityPolicy',['../namespacenros.html#aba43f70da8488c12dd1a04921d57b825',1,'nros']]]
+  ['discard_10',['discard',['../classrclcpp_1_1Publisher_1_1Loan.html#a757dcc88c8a049f7086c0d6f43cf3a19',1,'rclcpp::Publisher::Loan']]],
+  ['domain_5fid_11',['domain_id',['../classnros_1_1NodeBuilder.html#a23242f7a62a554accb7ae8c74f90c9ee',1,'nros::NodeBuilder']]],
+  ['durability_12',['durability',['../structnros__cpp__qos__t.html#a221e6bce6b2426d1c6546292cb922f10',1,'nros_cpp_qos_t::durability'],['../classnros_1_1QoS.html#a5e1292d8aa9d2cdcbd4e7aa4fc82116c',1,'nros::QoS::durability() const']]],
+  ['durability_5fraw_13',['durability_raw',['../classnros_1_1QoS.html#ac5e6fd734e3be198f85b55114212056e',1,'nros::QoS']]],
+  ['durability_5fvolatile_14',['durability_volatile',['../classnros_1_1QoS.html#ab14332f25c3dd72f0f16790d8f37ff39',1,'nros::QoS']]],
+  ['durabilitypolicy_15',['DurabilityPolicy',['../namespacenros.html#aba43f70da8488c12dd1a04921d57b825',1,'nros']]]
 ];
