@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['node_0',['Node',['../classnros_1_1Node.html',1,'nros']]],
+  ['node_0',['Node',['../classrclcpp_1_1Node.html',1,'rclcpp']]],
   ['nodebuilder_1',['NodeBuilder',['../classnros_1_1NodeBuilder.html',1,'nros']]],
   ['nodehandle_2',['NodeHandle',['../structnros_1_1NodeHandle.html',1,'nros']]],
   ['nodehostedbase_3',['NodeHostedBase',['../structnros_1_1detail_1_1NodeHostedBase.html',1,'nros::detail']]],

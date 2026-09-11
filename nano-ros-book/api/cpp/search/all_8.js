@@ -8,7 +8,7 @@ var searchData=
   ['besteffort_5',['BestEffort',['../namespacenros.html#a81b31d75b3c1ba927a20c4efbb3cc36ba07a9fde18b28e5f03f1fb8fcbbdf2092',1,'nros']]],
   ['buffer_20tuning_6',['Transport Buffer Tuning',['../configuration.html#autotoc_md17',1,'']]],
   ['buffer_20tuning_20nros_5f_7',['C++ API Buffer Tuning (NROS_*)',['../configuration.html#autotoc_md15',1,'']]],
-  ['build_8',['build',['../classnros_1_1NodeBuilder.html#ae6b220defabd1ee57ceb5f9a0f541c25',1,'nros::NodeBuilder']]],
+  ['build_8',['build',['../classnros_1_1NodeBuilder.html#ae3ba89399230275bc0a6c486e9a3ae55',1,'nros::NodeBuilder']]],
   ['build_20and_20run_9',['5. Build and Run',['../getting_started.html#autotoc_md10',1,'']]],
   ['build_20issues_10',['Build Issues',['../troubleshooting.html#autotoc_md27',1,'']]],
   ['bytes_11',['bytes',['../structnros_1_1LeSpan.html#ad5d3f948f8135edd80b735a0c1b556d5',1,'nros::LeSpan']]]
