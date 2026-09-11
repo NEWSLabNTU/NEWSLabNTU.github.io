@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -188,15 +188,17 @@ make. What survives is the <strong>seam</strong>, which is the part an integrato
 the <code>EmbassyBoardEntry</code> trait in <code>nros-platform</code> and the <code>nros::main!()</code>
 Embassy emit branch, plus <code>nros ws check</code>’s Deferred-dispatch lint, which
 routes on the board crate’s <code>framework = "embassy"</code> metadata.</p>
-<p>Two consequences for this chapter. <strong>(1)</strong> Every path below names a board YOU
-write — see <a href="../porting/stm32f4-out-of-tree.html">Worked Example — STM32F4 Out of
-Tree</a> for the board-crate shape. <strong>(2)</strong>
-<code>nros::main!()</code> currently picks the framework from a hardcoded deploy-key
-table, so an out-of-tree Embassy board falls through to <code>OwnedSpin</code> rather
-than the Embassy emit; <strong>issue 0415</strong> tracks teaching that table to read the
-same <code>framework</code> metadata <code>nros ws check</code> already reads. Until it closes, use
-Pattern A. (The RTIC twin of this integration is complete and runtime-tested
-on <code>mps2-an385</code> — see <a href="rtic-integration.html">RTIC Integration</a>.)</p>
+<p>One consequence for this chapter: every path below names a board YOU write —
+see <a href="../porting/stm32f4-out-of-tree.html">Worked Example — STM32F4 Out of
+Tree</a> for the board-crate shape. Reaching
+the Embassy emit from out of tree does work (issue 0415, resolved by
+phase-346): the board crate declares
+<code>[package.metadata.nros.board] framework = "embassy"</code>, and a one-line
+<code>build.rs</code> calling <code>nros_build::emit_board_framework()</code> hands that to macro
+expansion. The in-tree board table covers in-tree boards only, and maps none
+of them to Embassy. (The RTIC twin of this integration is complete and
+runtime-tested on <code>mps2-an385</code> — see
+<a href="rtic-integration.html">RTIC Integration</a>.)</p>
 </blockquote>
 <p><a href="https://embassy.dev">Embassy</a> is an async/await framework for embedded
 Rust, built around a cooperative executor that polls futures from a
@@ -231,7 +233,7 @@ lines and each author re-derives the spawn topology. The 216.C.4 board-entry
 path collapses it to:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// File: &lt;your entry pkg&gt;/src/main.rs
+</span>// File: src/main.rs
 #![no_std]
 #![no_main]
 
@@ -240,11 +242,16 @@ use panic_halt as _;
 
 nros::main!();
 <span class="boring">}</span></code></pre>
-<p>The proc-macro reads <code>[package.metadata.nros.entry] deploy = "&lt;your-embassy-board&gt;"</code> from the Entry pkg’s <code>Cargo.toml</code>, sees that the
-board’s metadata declares <code>framework = "embassy"</code>, and expands into a
-full <code>#[embassy_executor::main] async fn main(spawner: Spawner)</code>
-including the spin task spawn, the dispatch task spawn, and the
-<code>run_plan</code> registration call.</p>
+<p>The proc-macro reads the image’s board out of <code>system.toml</code> —
+<code>[image.&lt;id&gt;] board = "&lt;your-embassy-board&gt;"</code> — finds that board declaring
+<code>framework = "embassy"</code>, and expands into a full
+<code>#[embassy_executor::main] async fn main(spawner: Spawner)</code> including the
+spin task spawn, the dispatch task spawn, and the <code>run_plan</code> registration
+call.</p>
+<p>The framework is a property of the <strong>board</strong>, not something you spell in a
+manifest. For a board in the in-tree table the name alone decides it; for
+your own board crate the declaration travels through the <code>build.rs</code> line in
+the banner above.</p>
 <h2 id="why-sync-on_callback-even-on-embassy"><a class="header" href="#why-sync-on_callback-even-on-embassy">Why sync <code>on_callback</code> even on Embassy</a></h2>
 <p>A natural-feeling Embassy API would make <code>ExecutableNode::on_callback</code>
 an <code>async fn</code>. We don’t — for two reasons:</p>
@@ -266,61 +273,53 @@ spawn-from-sync pattern below.</p>
 <p><code>AsyncNode</code> (an async-on-callback trait via RPITIT) is reserved as a
 design slot — see <a href="#when-to-wait-for-asyncnode">When to wait for
 <code>AsyncNode</code></a> at the end of this chapter.</p>
-<h2 id="the-three-pkg-roles"><a class="header" href="#the-three-pkg-roles">The three pkg roles</a></h2>
-<p>The workspace shape is identical to RTIC (the <a href="./component-and-entry-pkg.html">3-pkg-role
+<h2 id="where-the-pieces-live"><a class="header" href="#where-the-pieces-live">Where the pieces live</a></h2>
+<p>The shape is identical to RTIC (the <a href="./component-and-entry-pkg.html">3-pkg-role
 taxonomy</a>, per
-<code>docs/design/0024-multi-node-workspace-layout.md</code> §11):</p>
+<code>docs/design/0024-multi-node-workspace-layout.md</code> §11): node packages plus
+a bringup, no root build file, and <strong>no Entry package to write</strong> — the
+entry is generated per <code>[image.*]</code> under <code>build/</code>.</p>
 <pre><code class="language-text">my_embassy_robot/
-├── Cargo.toml                           # [workspace] members = [...]
+├── .colcon_workspace                    # marks the root; no root build file
 └── src/
     ├── listener_pkg/                    # Node pkg — board-agnostic
     │   ├── package.xml
     │   ├── Cargo.toml
     │   └── src/lib.rs                   # impl Node for Listener + nros::node!(Listener)
-    └── listener_entry/                  # Entry pkg — picks Embassy board
-        ├── package.xml
-        ├── Cargo.toml                   # [package.metadata.nros.entry] deploy = "&lt;your-embassy-board&gt;"
-        └── src/main.rs                  # nros::main!();
+    └── demo_bringup/                    # Bringup pkg — no code
+        ├── system.toml
+        └── launch/
 </code></pre>
 <p>The Node pkg stays board-agnostic — <code>listener_pkg/</code> from the RTIC
-chapter could be deployed under Embassy by swapping the Entry pkg.
-That’s the point of the split.</p>
-<h3 id="entry-pkg"><a class="header" href="#entry-pkg">Entry pkg</a></h3>
-<pre><code class="language-toml"># File: src/listener_entry/Cargo.toml
-[package]
-name    = "listener_entry"
-version = "0.1.0"
-edition = "2024"
-
-[[bin]]
-name = "listener_entry"
-path = "src/main.rs"
-
-[dependencies]
-nros                       = { workspace = true, default-features = false }
-my-embassy-board           = { path = "../../boards/my-embassy-board" }
-listener_pkg               = { path = "../listener_pkg" }
-
-[package.metadata.nros.entry]
-deploy = "my-embassy-board"
-
-[package.metadata.nros.deploy.my-embassy-board]
-board     = "my-embassy-board"
+chapter could be deployed under Embassy by changing one word in
+<code>system.toml</code>. That’s the point of the split.</p>
+<h3 id="the-systemtoml-that-makes-it-embassy"><a class="header" href="#the-systemtoml-that-makes-it-embassy">The <code>system.toml</code> that makes it Embassy</a></h3>
+<pre><code class="language-toml">[system]
+name      = "my_embassy_robot"
 rmw       = "zenoh"
 domain_id = 0
-locator   = "tcp/192.168.1.10:7447"
+
+[[component]]
+pkg      = "listener_pkg"
+class    = "listener_pkg::Listener"
+name     = "listener"
+dispatch = "deferred"
+
+[image.embassy]
+board   = "my-embassy-board"
+locator = "tcp/192.168.1.10:7447"
 </code></pre>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// File: src/listener_entry/src/main.rs
-#![no_std]
-#![no_main]
-
-use defmt_rtt as _;
-use panic_halt as _;
-
-nros::main!();
-<span class="boring">}</span></code></pre>
+<p><code>board</code> is the only line that says Embassy. The RMW, the domain and the
+network identity live beside it, and nothing about any of them appears in a
+<code>Cargo.toml</code>.</p>
+<p>A <strong>single-package</strong> Embassy project — one crate holding <code>system.toml</code>,
+<code>src/lib.rs</code> and <code>src/main.rs</code> — works too; it is the shape every in-tree
+RTIC example takes. Such a package is its own entry, so it does still name
+the board crate in its own <code>[dependencies]</code>, and that dependency is not
+generated yet: change <code>board</code> there and you must change the board crate
+beside it, or the build fails in your own <code>main.rs</code> with
+<code>cannot find &lt;board crate&gt; in the crate root</code>. That is
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1305-single-package-board-crate-dep-not-generated.md">issue 1305</a>.</p>
 <h2 id="dispatchstrategydeferred-is-the-common-case"><a class="header" href="#dispatchstrategydeferred-is-the-common-case"><code>DispatchStrategy::Deferred</code> is the common case</a></h2>
 <p>Every callback-driven Embassy Node should declare
 <code>DispatchStrategy::Deferred</code>:</p>

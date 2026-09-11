@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -216,53 +216,66 @@ source ./activate.fish        # fish
 <pre><code class="language-bash">nros new node talker_pkg
 </code></pre>
 <p><code>nros new node</code> writes the package under <code>src/</code> and adds its <code>[[component]]</code>
-row to the bringup. There is no member list to maintain: <code>nros build</code>
-discovers the packages under <code>src/</code> and writes the workspace root’s
-<code>Cargo.toml</code> (or <code>CMakeLists.txt</code>) itself, which is why neither is tracked.</p>
+row to the bringup. There is no member list to maintain and no workspace root
+to maintain it in: a workspace is a directory of packages (RFC-0098 D9), and
+<code>nros build</code> discovers them under <code>src/</code>, generating the entry that names them
+as path dependencies under <code>build/</code>.</p>
 <p>(<code>nros new &lt;name&gt; --platform native --lang rust</code> is the other verb, and a
-different output — a standalone <em>runnable project</em> with its own root, which
-pins a board crate. Use it for a copy-out example, not for a workspace member.)</p>
+different output — a standalone <em>runnable project</em> that states its own board
+in its own <code>system.toml</code>. Use it for a copy-out example, not for a workspace
+member.)</p>
 <hr>
 <h2 id="node-pkg-anatomy"><a class="header" href="#node-pkg-anatomy">Node pkg anatomy</a></h2>
 <p>A Node pkg has three files:</p>
 <pre><code>src/talker_pkg/
 ├── package.xml          # ROS 2 manifest — &lt;exec_depend&gt; per message package
-├── Cargo.toml           # [lib] + [package.metadata.nros.node] metadata
+├── Cargo.toml           # [lib] + dependencies — Rust-toolchain facts only
 └── src/lib.rs           # impl Node + ExecutableNode; ends with nros::node!(Talker);
 </code></pre>
 <p>No <code>fn main()</code> here — a Node pkg is a library linked into the entry that
 <code>nros build</code> generates for an image. That entry’s macro-generated runtime owns
 <code>nros::init</code>, executor open, RMW registration, and the spin/yield loop.</p>
 <hr>
-<h2 id="cargotoml--the-packagemetadatanrosnode-block"><a class="header" href="#cargotoml--the-packagemetadatanrosnode-block"><code>Cargo.toml</code> — the <code>[package.metadata.nros.node]</code> block</a></h2>
-<p>The metadata block is what the <code>nros</code> CLI reads to discover, name, and
-wire this node into a topology.
-From <a href="../../../examples/workspaces/rust/src/talker_pkg/Cargo.toml"><code>examples/workspaces/rust/src/talker_pkg/Cargo.toml</code></a>:</p>
-<pre><code class="language-toml">[lib]
-path = "src/lib.rs"
-
-[package.metadata.nros.node]
+<h2 id="declaring-the-node--the-component-row"><a class="header" href="#declaring-the-node--the-component-row">Declaring the node — the <code>[[component]]</code> row</a></h2>
+<p>A Node pkg’s <code>Cargo.toml</code> is an ordinary Rust manifest: a <code>[lib]</code> target and
+its dependencies, and nothing that describes a deployment. Who this node <em>is</em>
+— which package provides it, which type implements it, what it is called — is
+one <code>[[component]]</code> row in the Bringup pkg’s <code>system.toml</code>, beside the rows for
+every other node in the system (RFC-0098 D5). From
+<a href="../../../examples/workspaces/rust/src/demo_bringup/system.toml"><code>examples/workspaces/rust/src/demo_bringup/system.toml</code></a>:</p>
+<pre><code class="language-toml">[[component]]
+pkg = "talker_pkg"
 class = "talker_pkg::Talker"
 name = "talker"
-default_namespace = "/"
-
-[dependencies]
-nros = { path = "../../../../../packages/api/nros", default-features = false,
-         features = ["alloc", "rmw-cffi"] }
 </code></pre>
-<p>The three fields in <code>[package.metadata.nros.node]</code>:</p>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Field</th><th>Purpose</th></tr>
 </thead>
 <tbody>
-<tr><td><code>class</code></td><td>Fully-qualified Rust path to the type that <code>impl</code>s <code>Node + ExecutableNode</code></td></tr>
+<tr><td><code>pkg</code></td><td>The package that provides the node (matches <code>&lt;name&gt;</code> in its <code>package.xml</code>)</td></tr>
+<tr><td><code>class</code></td><td>Fully-qualified path to the type that <code>impl</code>s <code>Node + ExecutableNode</code></td></tr>
 <tr><td><code>name</code></td><td>Default ROS 2 node name (remappable at launch)</td></tr>
-<tr><td><code>default_namespace</code></td><td>Default namespace (remappable at launch)</td></tr>
+<tr><td><code>dispatch</code></td><td>Optional — the dispatch shape, when it is not the default</td></tr>
 </tbody>
 </table>
 </div>
+<blockquote>
+<p>The in-tree workspace node packages still carry a
+<code>[package.metadata.nros.node]</code> table in their <code>Cargo.toml</code>. Nothing reads it
+any more — the <code>[[component]]</code> row above is the declaration — and
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1289-workspace-node-tables-still-in-manifests.md">issue 1289</a>
+removes it from the examples.</p>
+</blockquote>
+<p>The manifest beside <code>src/lib.rs</code> is then just this:</p>
+<pre><code class="language-toml">[lib]
+path = "src/lib.rs"
+
+[dependencies]
+nros = { path = "../../../../../packages/api/nros", default-features = false,
+         features = ["alloc", "rmw-cffi"] }
+</code></pre>
 <p>A Node pkg names <strong>no</strong> platform and <strong>no</strong> RMW. <code>alloc</code> is the universal
 baseline and <code>rmw-cffi</code> is the vtable seam; the concrete backend and the
 platform both flow in from the board crate the generated entry depends on, via
@@ -412,8 +425,11 @@ way to drive a client from a declarative node. See
 <p>You never build a Node pkg on its own — you build an image, and it links the
 Node pkgs its launch file names:</p>
 <pre><code class="language-bash"># From examples/workspaces/rust/ (or your workspace root):
+nros sync
 nros build native
 </code></pre>
+<p><code>nros sync</code> writes the generated message crates and the build settings each
+image needs; run it once per workspace, and again after editing a <code>.msg</code>.</p>
 <p>No per-Node-pkg invocation is needed, and no cross-compile flags either: the
 image’s <code>board</code> carries the rustc triple, so building for an embedded target is
 another row rather than another command line.</p>

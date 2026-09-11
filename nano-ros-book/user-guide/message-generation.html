@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -185,7 +185,8 @@
 <li><code>nros</code> standalone binary</li>
 <li>Pure Rust, <code>no_std</code> compatible output using <code>heapless</code> types</li>
 <li>Automatic dependency resolution via ament index or bundled interfaces</li>
-<li><code>.cargo/config.toml</code> generation for crate patches</li>
+<li>the <code>[patch.crates-io]</code> rows that point the nano-ros runtime crates at
+your checkout, written into the image’s generated build settings</li>
 </ul>
 <h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
 <ol>
@@ -242,28 +243,39 @@ nros sync
 <li>Resolve transitive dependencies (ament index + bundled interfaces)</li>
 <li>Filter to interface packages (those with msg/srv/action)</li>
 <li>Generate bindings to <code>generated/</code> directory</li>
-<li>Write the <code>[patch.crates-io]</code> entries into <code>.cargo/config.toml</code></li>
+<li>Resolve the launch files into the system model</li>
+<li>Write this image’s build settings — <code>build/&lt;image-id&gt;/nros-cargo.toml</code>,
+carrying the board’s triple and flags, the resolved pool budgets, and the
+<code>[patch.crates-io]</code> rows for the nano-ros runtime crates</li>
 </ol>
-<p>(<code>nros generate-rust</code> is the codegen-only primitive — same steps 1–4
-with no patch side-effects; add <code>--generate-config</code> to also write the
-patches.)</p>
+<p><code>nros sync</code> is the user’s verb. <code>nros generate-rust</code> is the codegen-only
+primitive underneath it — steps 1–4 and nothing else — and is useful when
+you want bindings without a build.</p>
 <p><strong>Step 3: Add dependencies to Cargo.toml</strong></p>
-<p>Reference the generated crates using crates.io version specifiers:</p>
+<p>A generated message crate is a <strong>path dependency</strong> on its own directory:</p>
 <pre><code class="language-toml">[dependencies]
-std_msgs = { version = "*", default-features = false }
-example_interfaces = { version = "*", default-features = false }
+std_msgs = { path = "generated/std_msgs", default-features = false }
+example_interfaces = { path = "generated/example_interfaces", default-features = false }
 </code></pre>
-<p>The <code>.cargo/config.toml</code> patches redirect these to local paths.</p>
+<p>Never name one by registry version (<code>std_msgs = "*"</code>): those crates are
+generated per host from <em>your</em> ament install, they are not published, and a
+bare name resolves against the public crates.io instead (RFC-0067).</p>
+<p>The nano-ros runtime crates are the other case — <code>nros</code>,
+<code>nros-board-&lt;board&gt;</code>, the backends — and they <em>are</em> registry-named with
+<code>version = "*"</code>, because <code>nros sync</code> writes the <code>[patch.crates-io]</code> rows
+that redirect them into your nano-ros checkout.</p>
 <h3 id="why-msg-crates-are-rmw-agnostic"><a class="header" href="#why-msg-crates-are-rmw-agnostic">Why msg crates are RMW-agnostic</a></h3>
 <p>Generated msg crates carry <strong>only the wire-format data type</strong> — no
 backend-specific code, no per-RMW Cargo feature. A user manifest is
 the plain pair:</p>
 <pre><code class="language-toml">[dependencies]
-std_msgs = { version = "*", default-features = false }
-nros     = { version = "*", features = ["rmw-cyclonedds"] }   # RMW choice lives here
+std_msgs = { path = "generated/std_msgs", default-features = false }
+nros     = { version = "*", features = ["rmw-cyclonedds"] }
 </code></pre>
 <p>Transport choice and message schema are orthogonal concerns and the
-manifest reflects that. This matches upstream rclcpp + rclrs, which
+manifest reflects that. (Which backend you actually get is
+<code>[system] rmw</code> in <code>system.toml</code>, not a feature you pick here — see
+<a href="rmw-switching.html">Switching RMW in Config</a>.) This matches upstream rclcpp + rclrs, which
 both ship msg packages RMW-agnostic and let the RMW pick which
 descriptor representation it wants at runtime.</p>
 <p>For DDS-based backends that need a per-type descriptor on the wire
@@ -276,26 +288,17 @@ code is required.</p>
 <p>Tracking + sizing knob (<code>NROS_CYCLONEDDS_MAX_TYPES</code>): see
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/archived/phase-212-ux-cargo-native-and-file-consolidation.md"><code>docs/roadmap/archived/phase-212-ux-cargo-native-and-file-consolidation.md</code></a>
 section 212.K.7.</p>
-<h2 id="git-dependency-workflow"><a class="header" href="#git-dependency-workflow">Git Dependency Workflow</a></h2>
-<p>For projects that consume nros as a <strong>git dependency</strong> (not from within the nros repo), use <code>--nano-ros-git</code> instead of <code>--nano-ros-path</code>:</p>
-<p><strong>Step 1:</strong> Add git dependency to <code>Cargo.toml</code>:</p>
-<pre><code class="language-toml">[dependencies]
-nros = { git = "https://github.com/NEWSLabNTU/nano-ros", default-features = false, features = ["std"] }
-std_msgs = { version = "*", default-features = false }
+<h2 id="outside-the-nano-ros-checkout"><a class="header" href="#outside-the-nano-ros-checkout">Outside the nano-ros checkout</a></h2>
+<p>A project that lives somewhere else needs to tell <code>nros sync</code> where the
+nano-ros source tree is — that is the only extra step:</p>
+<pre><code class="language-bash">export NROS_REPO_DIR=/path/to/nano-ros
+nros sync
 </code></pre>
-<p><strong>Step 2:</strong> Create <code>package.xml</code> (same as above).</p>
-<p><strong>Step 3:</strong> Generate bindings with git patches:</p>
-<pre><code class="language-bash">source /opt/ros/humble/setup.bash
-nros generate-rust --generate-config --nano-ros-git
-</code></pre>
-<p>This generates <code>.cargo/config.toml</code> with git-based patches:</p>
-<pre><code class="language-toml">[patch.crates-io]
-nros-core = { git = "https://github.com/NEWSLabNTU/nano-ros" }
-nros-serdes = { git = "https://github.com/NEWSLabNTU/nano-ros" }
-std_msgs = { path = "generated/std_msgs" }
-builtin_interfaces = { path = "generated/builtin_interfaces" }
-</code></pre>
-<p><strong>Step 4: Use in code</strong></p>
+<p><code>nros sync</code> then writes the <code>[patch.crates-io]</code> rows into that image’s
+generated settings file, pointing each <code>nros*</code> requirement at a directory
+in your checkout. Nothing about the location is baked into a tracked file,
+so moving the checkout is one re-sync, not an edit.</p>
+<p><strong>Use in code</strong></p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use std_msgs::msg::Int32;
@@ -304,22 +307,29 @@ use example_interfaces::srv::{AddTwoInts, AddTwoIntsRequest, AddTwoIntsResponse}
 let msg = Int32 { data: 42 };
 <span class="boring">}</span></code></pre>
 <h2 id="command-options"><a class="header" href="#command-options">Command Options</a></h2>
+<p><code>nros generate-rust</code> is the codegen primitive — it writes bindings and
+nothing else:</p>
 <pre><code class="language-bash">nros generate-rust [OPTIONS]
 
 Options:
-      --manifest &lt;PATH&gt;       Path to package.xml [default: package.xml]
-  -o, --output &lt;DIR&gt;          Output directory [default: generated]
-      --generate-config       Generate .cargo/config.toml with [patch.crates-io] entries
-                              (alias: --config)
-      --nano-ros-path &lt;PATH&gt;  Path to nros crates (for config patches, local dev)
-      --nano-ros-git          Use nros git repo for config patches (external users)
-      --force                 Overwrite existing bindings
-  -v, --verbose               Enable verbose output
+      --manifest &lt;PATH&gt;         Path to package.xml [default: package.xml]
+  -o, --output &lt;DIR&gt;            Output directory [default: generated]
+      --ros-edition &lt;EDITION&gt;   humble | iron | jazzy [default: humble]
+      --codegen-config &lt;PATH&gt;   Explicit per-field capacity config (nros-codegen.toml)
+      --rename &lt;OLD=NEW&gt;        Rename a generated package
+      --force                   Overwrite existing bindings
+  -v, --verbose                 Enable verbose output
 </code></pre>
+<p>It also still accepts <code>--generate-config</code> / <code>--nano-ros-path</code> /
+<code>--nano-ros-git</code>, which write a leaf <code>.cargo/config.toml</code> by hand. Those are
+the pre-RFC-0098 shape and are not the path to use: <code>nros sync</code> writes the
+patches into the generated settings file instead, where they are regenerated
+rather than committed.</p>
 <h2 id="generated-output-structure"><a class="header" href="#generated-output-structure">Generated Output Structure</a></h2>
 <pre><code>my_project/
 ├── package.xml              # Your dependency declarations
 ├── Cargo.toml               # Your package manifest
+├── system.toml              # Board, RMW, components
 ├── src/
 │   └── main.rs              # Your code using generated types
 ├── generated/               # Generated bindings (do not edit)
@@ -332,8 +342,9 @@ Options:
 │   │           └── int32.rs
 │   └── builtin_interfaces/  # Transitive dependency
 │       └── ...
-└── .cargo/
-    └── config.toml          # [patch.crates-io] entries
+└── build/                   # Build output (do not commit)
+    └── &lt;image-id&gt;/
+        └── nros-cargo.toml  # This image's cargo settings, incl. the patches
 </code></pre>
 <h2 id="generated-code-features"><a class="header" href="#generated-code-features">Generated Code Features</a></h2>
 <p><strong>no_std by default:</strong></p>
@@ -372,9 +383,11 @@ impl RosService for AddTwoInts {
 }
 <span class="boring">}</span></code></pre>
 <h2 id="standalone-package-mode"><a class="header" href="#standalone-package-mode">Standalone Package Mode</a></h2>
-<p>Examples are configured as standalone packages (excluded from workspace) because each has its own <code>.cargo/config.toml</code> patches. Build each example from its own directory:</p>
-<pre><code class="language-bash">cd examples/native/rust/talker &amp;&amp; cargo build --features zenoh
-cd examples/native/rust/service-client &amp;&amp; cargo build --features zenoh
+<p>Examples are standalone copy-out projects: each carries its own
+<code>system.toml</code> and resolves on its own, so you can copy one out of the
+checkout and build it where it lands. Build each from its own directory:</p>
+<pre><code class="language-bash">cd examples/native/rust/talker &amp;&amp; nros sync &amp;&amp; nros build
+cd examples/native/rust/service-client &amp;&amp; nros sync &amp;&amp; nros build
 </code></pre>
 <h2 id="regenerating-bindings"><a class="header" href="#regenerating-bindings">Regenerating Bindings</a></h2>
 <p>To regenerate after ROS package updates or dependency changes:</p>

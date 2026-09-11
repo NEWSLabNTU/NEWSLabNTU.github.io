@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -240,69 +240,134 @@ nros-rmw-zenoh = { version = "*",
 
 [workspace]
 </code></pre>
-<p>nano-ros crates are declared <strong>registry-style</strong> (phase-277 W6): they are
-not on crates.io, so a <code>[patch.crates-io]</code> block has to resolve them into
-the checkout. That block is GENERATED — phase-445 W6 / RFC-0098 D1 — into
-<code>build/&lt;image&gt;/nros-cargo.toml</code>, together with the board’s triple, link
-group and pool budgets. Nothing about the build lives beside the package:
-there is no <code>.cargo/</code> under <code>examples/**</code>, and a tracked one is refused
-(<code>check-example-cargo-dirs</code>). After adding or renaming nros deps or msg
-<code>&lt;depend&gt;</code> rows, re-run <code>NROS_REPO_DIR=&lt;repo root&gt; nros sync</code> in the
-example dir; there is nothing to commit. This is what makes the copy-out
-promise real — a copied example re-runs <code>nros sync</code> at its new location.</p>
-<p><code>nros build</code> from inside the example directory is the canonical
-invocation. A user who drives cargo themselves passes the generated file:</p>
-<pre><code class="language-bash">cargo build --config build/&lt;image&gt;/nros-cargo.toml
+<p>nano-ros crates are declared <strong>registry-style</strong>: they are not on crates.io, so
+something has to resolve them into the checkout. That something is no longer a
+file you write. Since <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0098-generated-leaf-build-config.md">RFC-0098</a> an example carries <strong>no <code>.cargo/</code> directory at
+all</strong>: <code>nros sync</code> writes the <code>[patch.crates-io]</code> rows, the board’s cargo
+settings and the derived <code>[env]</code> into <code>build/&lt;image&gt;/nros-cargo.toml</code>, and cargo
+reads that file through <code>--config</code>. After adding or renaming nros deps or msg
+<code>&lt;depend&gt;</code> rows, re-run <code>nros sync</code> in the example dir — and commit nothing,
+because everything it wrote is build output. This is what makes the copy-out
+promise real: a copied example re-runs <code>nros sync</code> at its new location.</p>
+<p>The canonical invocation from inside the example directory:</p>
+<pre><code class="language-bash">nros sync     # generated/ msg crates + build/&lt;image&gt;/nros-cargo.toml
+nros build    # every declared image; or `nros build &lt;image-id&gt;`
 </code></pre>
-<p>There is no workspace-wide <code>cargo build</code> that picks up examples — they are
+<p>Driving cargo yourself works too — hand it the generated settings file. Since
+phase-445 W6 deleted the leaf’s <code>.cargo/</code>, the working directory no longer
+matters: there is nothing beside the package for cargo to read a second time,
+and a tracked one is refused (<code>check-example-cargo-dirs</code>).</p>
+<pre><code class="language-bash">cargo build --manifest-path &lt;leaf&gt;/Cargo.toml \
+            --config &lt;leaf&gt;/build/&lt;image-id&gt;/nros-cargo.toml
+</code></pre>
+<p>There is still no workspace-wide <code>cargo build</code> that picks up examples — they are
 explicitly out-of-workspace.</p>
-<h3 id="c--c-cmake"><a class="header" href="#c--c-cmake">C / C++ (CMake)</a></h3>
-<p>Each example is a standalone CMake project that pulls nano-ros via
-<code>add_subdirectory(&lt;repo-root&gt;)</code>. The canonical four-line
-preamble:</p>
-<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
-project(my_example LANGUAGES C CXX)
+<h3 id="multi-package-workspace-examples"><a class="header" href="#multi-package-workspace-examples">Multi-package workspace examples</a></h3>
+<p>A workspace example under <code>examples/workspaces/</code> has <strong>no root <code>Cargo.toml</code> and
+no root <code>CMakeLists.txt</code></strong> (RFC-0098 D9) — it is a directory of packages, like a
+colcon workspace, and everything generated lives under <code>build/</code>, <code>dist/</code> and
+<code>log/</code>. There is no entry package to write either: the entry is generated per
+<code>[image.*]</code>, at <code>build/&lt;coord&gt;/&lt;entry&gt;/Cargo.toml</code> (cargo) or
+<code>build/&lt;coord&gt;/CMakeLists.txt</code> (cmake). The bringup package’s <code>system.toml</code>
+carries the images. <code>nros sync</code> then <code>nros build</code> is the flow; a workspace with
+no bringup at all builds every package in dependency order, each into its own
+<code>build/&lt;pkg&gt;/</code>.</p>
+<h3 id="the-board-stated-once--and-the-one-place-it-is-still-stated-twice"><a class="header" href="#the-board-stated-once--and-the-one-place-it-is-still-stated-twice">The board, stated once — and the one place it is still stated twice</a></h3>
+<p>An example names its board in <code>system.toml</code> and nowhere else in its build
+configuration:</p>
+<pre><code class="language-toml">[system]
+name      = "my_talker"
+rmw       = "zenoh"          # zenoh | cyclonedds | xrce
+domain_id = 0
 
-set(NANO_ROS_PLATFORM &lt;plat&gt;)
-set(NANO_ROS_RMW      &lt;rmw&gt;)
-set(NANO_ROS_BOARD    &lt;board&gt;)        # embedded only
-# Phase-277 W6 standard root guard: cache var &gt; NROS_REPO_DIR env &gt; walk-up.
-if(NOT DEFINED NANO_ROS_ROOT)
-    if(DEFINED ENV{NROS_REPO_DIR} AND NOT "$ENV{NROS_REPO_DIR}" STREQUAL "")
-        set(NANO_ROS_ROOT "$ENV{NROS_REPO_DIR}")
-    else()
-        get_filename_component(NANO_ROS_ROOT
-            "${CMAKE_CURRENT_SOURCE_DIR}/&lt;rel-path-to-repo-root&gt;" ABSOLUTE)
-    endif()
-endif()
-add_subdirectory("${NANO_ROS_ROOT}" nano_ros)
+[[component]]
+pkg   = "my_talker"
+class = "my_talker::Talker"
+name  = "talker"
 
-add_executable(my_example src/main.c)
-target_link_libraries(my_example PRIVATE NanoRos::NanoRos)
-nros_platform_link_app(my_example)
-nano_ros_link_rmw(my_example RMW &lt;rmw&gt;)
+[image.mps2]                 # an embedded image also carries its identity
+board   = "qemu-mps2-an385"
+locator = "tcp/10.0.2.2:10500"
+ip      = "10.0.2.10"
+gateway = "10.0.2.2"
+netmask = "255.255.255.0"
 </code></pre>
+<p>The same schema serves a workspace bringup (<code>src/&lt;name&gt;_bringup/system.toml</code>),
+so the resolver has one input shape either way. Retired by it, and refused
+wherever they still appear: <code>[package.metadata.nros.entry]</code> (including
+<code>deploy =</code>), <code>[package.metadata.nros.deploy.&lt;board&gt;]</code>,
+<code>[package.metadata.nros.node]</code>, <code>[package.metadata.nros.component]</code>, and the
+<code>package.xml</code> <code>&lt;nano_ros deploy= board= rmw=/&gt;</code> tuple.</p>
+<p><strong>The exception a contributor will hit.</strong> A single-package leaf <em>is</em> its own
+entry, so it still names its board crate by hand in <code>[dependencies]</code> —
+<code>nros-board-mps2-an385 = { version = "*" }</code> and so on. RFC-0098 D6 generates
+that dependency for a <em>generated workspace entry</em> only. So editing
+<code>[image.*] board</code> alone makes <code>nros sync</code> report success and <code>nros build</code> fail
+inside the leaf’s own crate with <code>cannot find nros_board_&lt;old&gt; in the crate root</code>. Change both until
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1305-single-package-board-crate-dep-not-generated.md">issue 1305</a>
+closes.</p>
+<h3 id="c--c-cmake"><a class="header" href="#c--c-cmake">C / C++ (CMake)</a></h3>
+<p>The canonical shape is an ament package — 152 of the 162 example
+<code>CMakeLists.txt</code> files in the tree, and what a new one should copy. Verbatim
+from <code>examples/native/c/talker/</code>:</p>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
+project(c_talker LANGUAGES C CXX)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
+find_package(nano_ros REQUIRED)
+find_package(std_msgs REQUIRED)
+
+nano_ros_add_executable(c_talker src/main.c)
+ament_target_dependencies(c_talker std_msgs)
+
+install(TARGETS c_talker DESTINATION lib/${PROJECT_NAME})
+ament_package()
+</code></pre>
+<p>No platform, no board, no RMW on the command line or in the file:
+<code>find_package(nano_ros)</code> reads the example’s <code>system.toml</code> through <code>nros ws leaf-system</code> and derives the platform from the board it names.
+<code>-DNANO_ROS_PLATFORM</code>, <code>-DNANO_ROS_BOARD</code> and <code>-DNROS_RMW</code> are retired as the
+way a user chooses. A cross build still passes <code>-DCMAKE_TOOLCHAIN_FILE</code> by hand
+(or uses <code>nros init</code> + <code>cmake --preset &lt;board&gt;</code>), because <code>nros build</code> — the
+verb that maps a board to its toolchain file — does not yet work in a
+single-package C/C++ leaf
+(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1296-nros-build-c-leaf-bringup-name-mismatch.md">issue 1296</a>).</p>
+<p>A single-package C/C++ leaf needs <strong>no <code>nros sync</code></strong>: its message bindings are a
+CMake-time output, so a clean copy outside the checkout configures and builds
+with no sync at all.</p>
+<p>The other shape — a standalone CMake project pulling nano-ros in by path with
+<code>add_subdirectory(&lt;repo-root&gt;)</code>, setting <code>NANO_ROS_PLATFORM</code> / <code>NANO_ROS_RMW</code> /
+<code>NANO_ROS_BOARD</code> itself, linking <code>NanoRos::NanoRos</code> and calling
+<code>nros_platform_link_app()</code> + <code>nano_ros_link_rmw()</code> — is what the ThreadX Rust
+leaves and the <code>examples/templates/</code> recipes use, and is the right shape for an
+out-of-tree consumer that owns its whole <code>CMakeLists.txt</code>. Its cache-variable
+contract is in
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/reference/c-api-cmake.md"><code>docs/reference/c-api-cmake.md</code></a>.</p>
 <p><code>nano_ros_link_rmw</code> emits the strong-stub <code>nros_app_register_backends()</code>
 that calls every linked RMW’s <code>nros_rmw_&lt;x&gt;_register()</code> symbol — the
 auto-registration path for targets where <code>linkme</code>’s distributed-slice
 contribution isn’t picked up by the linker (FreeRTOS, NuttX, Zephyr,
 ESP-IDF).</p>
-<p>There is no <code>find_package(NanoRos)</code> path — it was deleted along
-with <code>just install-local</code>, every <code>install(...)</code> rule, and every
-<code>Config.cmake.in</code> template.</p>
+<p>Note <code>find_package(nano_ros)</code> above is the <strong>ament package</strong>. There is still no
+<code>find_package(NanoRos)</code> CMake-config export — that was deleted along with
+<code>just install-local</code>, every <code>install(...)</code> rule, and every <code>Config.cmake.in</code>
+template.</p>
 <h2 id="per-example-contents"><a class="header" href="#per-example-contents">Per-example contents</a></h2>
 <pre><code>examples/&lt;plat&gt;/&lt;lang&gt;/&lt;example&gt;/
+├── system.toml                    # board, RMW, domain, components, net identity
 ├── package.xml                    # ROS-style manifest for the example
-├── Cargo.toml | CMakeLists.txt    # Rust or C/C++ build entry
-├── system.toml                    # the ONE board choice + node declaration
+├── Cargo.toml | CMakeLists.txt    # language-toolchain facts only
 ├── src/                           # main.rs / main.c / main.cpp
-├── build/&lt;image&gt;/nros-cargo.toml  # GENERATED: triple, link group, [env],
-│                                  #   patches. Never committed.
-├── generated/                     # codegen output for any custom msgs
+├── generated/                     # codegen output — `nros sync`, gitignored
+├── build/                         # `nros sync` / `nros build` output, gitignored
 └── README.md                      # usage instructions
 </code></pre>
-<p>Each example’s <code>Cargo.toml</code> / <code>CMakeLists.txt</code> builds in isolation —
-no workspace reliance, no path heuristics walking up the source tree.</p>
+<p>There is <strong>no <code>.cargo/</code></strong>. <code>Cargo.toml</code> and <code>CMakeLists.txt</code> carry
+language-toolchain facts; every build setting the board implies is generated
+under <code>build/</code>. Each example’s <code>Cargo.toml</code> / <code>CMakeLists.txt</code> builds in
+isolation — no workspace reliance, no path heuristics walking up the source
+tree.</p>
 <h2 id="message-generation"><a class="header" href="#message-generation">Message generation</a></h2>
 <p>Examples with custom <code>.msg</code>, <code>.srv</code>, or <code>.action</code> files generate
 bindings in-tree under <code>generated/</code>. The <code>generated/</code> directory is
@@ -310,16 +375,16 @@ gitignored per-example (only <code>packages/interfaces/rcl-interfaces/</code>
 generated bindings live in git Arduino bundle exception
 aside).</p>
 <pre><code class="language-bash">source /opt/ros/humble/setup.sh        # for rosidl tooling
-nros generate-rust            # or generate-c / generate-cpp / generate-all
+nros sync                              # what you run in an example
 </code></pre>
-<p>For an out-of-tree consumer that maintains its own <code>.cargo/config.toml</code>
-(an example in this repo does not — RFC-0098 D1), pass
-<code>--config --nano-ros-path &lt;relative&gt;</code>:</p>
-<pre><code class="language-bash">nros generate-rust --config --nano-ros-path ../../../packages
-</code></pre>
-<p>The <code>--config</code> flag uses <code>ConfigPatcher</code> to idempotently add
-<code>[patch.crates-io]</code> entries while preserving existing <code>[build]</code> /
-<code>[target.*]</code> sections.</p>
+<p><code>nros generate-rust</code> (and <code>generate-c</code> / <code>generate-cpp</code> / <code>generate-all</code>) is the
+codegen-only <strong>primitive</strong> underneath it: it emits <code>generated/</code> and nothing
+else. <code>nros sync</code> is the verb an example needs, because it also writes the
+image’s <code>build/&lt;image&gt;/nros-cargo.toml</code>.</p>
+<p>Its <code>--generate-config</code> / <code>--config</code> / <code>--nano-ros-path</code> / <code>--nano-ros-git</code>
+flags still parse, and are retired as a way to configure an example: they wrote
+a leaf <code>.cargo/config.toml</code>, which no longer exists. (<code>--nano-ros-path</code> is a
+documented no-op on <code>nros sync</code> itself, kept for back-compat.)</p>
 <p>For CMake consumers:</p>
 <pre><code class="language-cmake">nros_find_interfaces(LANGUAGE C SKIP_INSTALL)
 nano_ros_generate_interfaces(... LANGUAGE C)
@@ -334,38 +399,52 @@ isn’t in the “intentionally empty” list in <code>examples/README.md</code>
 the lowest-risk template (e.g. copy <code>examples/mps2-an385-freertos/c/talker</code>
 to make a new FreeRTOS C/zenoh example).</li>
 <li><strong>Update names + <code>package.xml</code>.</strong> Rename <code>Cargo.toml</code>’s <code>name</code>
-and <code>[[bin]]</code> entries (Rust) or <code>project(...)</code> and <code>add_executable(...)</code>
-targets (CMake).</li>
-<li><strong>Regenerate bindings.</strong> Run <code>nros generate-rust-*</code> against
-the new <code>package.xml</code>. Custom messages need their own <code>package.xml</code>
-in the consuming example.</li>
-<li><strong>Build standalone.</strong> <code>cargo build</code> or
-<code>cmake -B build &amp;&amp; cmake --build build</code> from the example directory.
-No walking-up workspace allowed.</li>
+and <code>[[bin]]</code> entries (Rust) or <code>project(...)</code> and
+<code>nano_ros_add_executable(...)</code> targets (CMake).</li>
+<li><strong>Point <code>system.toml</code> at your board.</strong> <code>[system] name</code>, the <code>[[component]]</code>
+rows (<code>pkg</code>, <code>class</code>, <code>name</code>), and <code>[image.&lt;id&gt;] board</code> plus any network
+identity the board needs (<code>locator</code>, <code>ip</code>, <code>gateway</code>, <code>netmask</code>). A Rust
+leaf also needs its <code>[dependencies]</code> board crate changed to match — see the
+exception above. If the board cannot be host-probed (a foreign <code>[build] target</code>, <code>build-std</code>, or a board crate with no host build), declare the
+component’s <code>entities</code> here too.</li>
+<li><strong>Sync.</strong> <code>nros sync</code> in the example directory — generated message crates
+plus <code>build/&lt;image&gt;/nros-cargo.toml</code>. Custom messages need their own
+<code>package.xml</code> in the consuming example. A single-package C/C++ leaf can skip
+this; everything else cannot, and <code>nros build</code> refuses with one line naming
+it.</li>
+<li><strong>Build standalone.</strong> <code>nros build</code> from the example directory (C/C++
+single-package leaves: <code>cmake -B build &amp;&amp; cmake --build build</code>). No
+walking-up workspace allowed.</li>
 <li><strong>Wire the test fixture (optional).</strong> If the example needs an E2E
-gate, add a builder in <code>packages/testing/nros-tests/src/fixtures/binaries/&lt;plat&gt;.rs</code>
-that runs <code>cargo build</code> / <code>cmake --build</code> and points the test at
-the resulting binary.</li>
+gate, add a row to <code>examples/fixtures.toml</code> and the matching cell in
+<code>matrix::CELLS</code>; the builder lives in
+<code>packages/testing/nros-tests/src/fixtures/binaries/&lt;plat&gt;.rs</code>.</li>
 <li><strong>Update <code>examples/README.md</code></strong> coverage matrix if you filled a
 previously-empty cell.</li>
 </ol>
 <h2 id="per-platform-notes"><a class="header" href="#per-platform-notes">Per-platform notes</a></h2>
+<p>The build command is <code>nros build</code> (Rust and workspaces) or <code>cmake --build</code>
+(single-package C/C++) almost everywhere; the table records what differs.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Platform</th><th>Source file shape</th><th>Build command</th><th>Notes</th></tr>
+<tr><th>Platform</th><th>Source file shape</th><th>Build</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>native</code></td><td><code>src/main.rs</code>, <code>src/main.c</code>, <code>src/main.cpp</code></td><td><code>cargo run</code> / <code>cmake --build</code></td><td>Full <code>std</code>. Pattern A or B.</td></tr>
-<tr><td><code>mps2-an385-baremetal</code></td><td><code>src/main.rs</code> with <code>#[entry]</code></td><td><code>cargo run</code> (<code>runner = qemu-system-arm …</code>)</td><td>No <code>std</code>. Pure Cortex-M3.</td></tr>
-<tr><td><code>mps2-an385-freertos</code></td><td><code>src/main.rs</code> / <code>src/main.cpp</code> / <code>src/main.c</code></td><td><code>cargo run</code> (Rust) or <code>cmake --build</code> (C/C++)</td><td>FreeRTOS kernel + lwIP.</td></tr>
+<tr><td><code>native</code></td><td><code>src/main.rs</code>, <code>src/main.c</code>, <code>src/main.cpp</code></td><td><code>nros build</code> / <code>cmake --build</code></td><td>Full <code>std</code>.</td></tr>
+<tr><td><code>mps2-an385-baremetal</code></td><td><code>src/main.rs</code> with <code>#[entry]</code></td><td><code>nros build</code></td><td>No <code>std</code>. Pure Cortex-M3. The board’s QEMU <code>runner</code> is in the generated settings, so <code>cargo run --config …</code> boots it.</td></tr>
+<tr><td><code>mps2-an385-freertos</code></td><td><code>src/main.rs</code> / <code>src/main.cpp</code> / <code>src/main.c</code></td><td><code>nros build</code> (Rust) or <code>cmake --build</code> (C/C++)</td><td>FreeRTOS kernel + lwIP.</td></tr>
 <tr><td><code>nuttx</code></td><td><code>src/main.rs</code> / <code>src/main.c</code></td><td><code>cmake --build</code> (NuttX export tarball)</td><td>NuttX kernel.</td></tr>
 <tr><td><code>threadx-linux</code> / <code>threadx-riscv64</code></td><td><code>src/main.rs</code></td><td><code>cmake --build</code></td><td>ThreadX + NetX Duo.</td></tr>
-<tr><td><code>esp32</code></td><td><code>src/main.rs</code></td><td><code>cargo run</code> (esp-hal)</td><td>bare-metal <code>esp-hal</code>.</td></tr>
-<tr><td><code>zephyr</code></td><td><code>src/lib.rs</code> (staticlib) or <code>src/main.cpp</code></td><td><code>west build</code></td><td>Kconfig + west module.</td></tr>
+<tr><td><code>esp32</code></td><td><code>src/main.rs</code></td><td><code>nros build</code> + <code>espflash save-image</code></td><td>bare-metal <code>esp-hal</code>; no cargo <code>runner</code>.</td></tr>
+<tr><td><code>zephyr</code></td><td><code>src/lib.rs</code> (staticlib) or <code>src/main.cpp</code></td><td><code>west build</code> (after <code>nros sync</code>)</td><td>Kconfig + west module — the one carve-out where <code>nros build</code> is not the verb.</td></tr>
 </tbody>
 </table>
 </div>
+<p>Artifacts land under <code>&lt;leaf&gt;/build/&lt;image-id&gt;/target/[&lt;triple&gt;/]&lt;profile&gt;/&lt;bin&gt;</code>:
+<code>examples/native/rust/talker</code> gives <code>build/native/target/debug/talker</code>,
+<code>examples/mps2-an385-baremetal/rust/talker</code> gives
+<code>build/mps2-an385-baremetal/target/thumbv7m-none-eabi/debug/qemu-bsp-talker</code>.</p>
 <p>Per-platform deep-dives — toolchain setup, Kconfig variables,
 runner scripts — live in the <a href="../getting-started/">Platform Guides</a>.</p>
 <h2 id="see-also"><a class="header" href="#see-also">See Also</a></h2>

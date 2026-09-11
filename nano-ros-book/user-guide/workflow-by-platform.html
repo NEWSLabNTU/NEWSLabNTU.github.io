@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -186,55 +186,75 @@ page per platform. This page is organized by <em>what you type</em>, because
 the commands vary along a different axis than the pages do: the builder
 follows from your <strong>language</strong>, and the toolchain follows from your
 <strong>platform</strong>. Neither table below is a summary of the other.</p>
+<h2 id="where-the-target-comes-from"><a class="header" href="#where-the-target-comes-from">Where the target comes from</a></h2>
+<p><strong>Every leaf, in every language, states what it deploys to in one file:
+<code>system.toml</code>, beside its <code>Cargo.toml</code> or <code>CMakeLists.txt</code></strong> (RFC-0098).
+<code>[system]</code> carries the RMW and the domain, <code>[[component]]</code> carries what
+runs, and one <code>[image.&lt;id&gt;]</code> per target carries its <code>board</code> and, on an
+embedded image, its network identity:</p>
+<pre><code class="language-toml">[system]
+rmw       = "zenoh"
+domain_id = 0
+
+[image.mps2]
+board   = "qemu-mps2-an385"
+locator = "tcp/10.0.2.2:10500"
+ip      = "10.0.2.10"
+</code></pre>
+<p>Everything that choice implies — the target triple, the linker flags,
+the QEMU runner, the cross compiler for the <code>cc</code> crate, the pool sizes
+derived from the components, the <code>[patch.crates-io]</code> table that resolves
+nano-ros’s registry-style names into your checkout — is <strong>generated</strong>,
+never written by hand. Retargeting is editing the <code>board</code> line: in a
+workspace that is the whole edit, and in a single-package Rust leaf the
+board crate in <code>[dependencies]</code> moves with it, because such a leaf is
+its own entry
+(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1305-single-package-board-crate-dep-not-generated.md">issue 1305</a>).</p>
 <h2 id="the-step-that-is-easy-to-miss"><a class="header" href="#the-step-that-is-easy-to-miss">The step that is easy to miss</a></h2>
 <p><strong>Rust leaves need <code>nros sync</code> before their first build. C and C++
 leaves do not.</strong></p>
-<p>A Rust leaf resolves its nano-ros dependencies through a
-<code>[patch.crates-io]</code> table in its own <code>.cargo/config.toml</code>, and that
-table is generated — <code>.gitignore</code> excludes it, so a fresh clone does not
-have it. Sixty-seven Rust example leaves have such a file on a synced
-checkout; fifty of them are committed shells that <code>include</code> the
-generated central table:</p>
-<pre><code class="language-toml">include = [ "../../../../../nros-patch.toml", "nros-board.toml"]
+<p>That split is a property of the two languages, not an inconsistency.
+CMake generates a C/C++ leaf’s message bindings <em>during configure</em>, so
+there is nothing to prepare first. Cargo has no such stage: the message
+crates a Rust leaf path-depends on, and the settings file that carries
+its board facts, both have to exist before cargo parses the manifest.
+<code>nros sync</code> produces them:</p>
+<pre><code class="language-text">&lt;leaf&gt;/generated/&lt;pkg&gt;/                  # message crates
+&lt;leaf&gt;/build/&lt;image&gt;/nros-cargo.toml     # every cargo setting the board implies
 </code></pre>
-<p><strong>Skipping the sync fails in two different ways, and the quieter one is
-worse.</strong> Where the config is committed, cargo treats the missing
-<code>include</code> as a hard error while <em>parsing the manifest</em> — before it
-builds anything, and before any message about nano-ros could appear:</p>
-<pre><code>error: failed to parse manifest at `&lt;leaf&gt;/Cargo.toml`
-
+<p><strong>Skipping it fails in three ways, and they read very differently.</strong>
+<code>nros build</code> says so in one line and names the remedy:</p>
+<pre><code class="language-text">Error: &lt;leaf&gt; has not been synced — missing the resolved model under
+`build/nros/models/`, the generated message crate `std_msgs`
+(generated/std_msgs).
+  Run `nros sync` in &lt;leaf&gt; (RFC-0098 D2), then build again.
+</code></pre>
+<p>A plain <code>cargo build</code> gets as far as the manifest and stops on the
+missing message crate, without mentioning nano-ros at all:</p>
+<pre><code class="language-text">error: failed to load manifest for dependency `std_msgs`
 Caused by:
-  could not load Cargo configuration
-
-Caused by:
-  failed to load config include `../../../../../nros-patch.toml` from `&lt;leaf&gt;/.cargo/config.toml`
-
-Caused by:
-  failed to read configuration file `&lt;...&gt;/nros-patch.toml`
-
+  failed to read `&lt;leaf&gt;/generated/std_msgs/Cargo.toml`
 Caused by:
   No such file or directory (os error 2)
 </code></pre>
-<p>Nothing in those five frames says <code>nros sync</code>. If you see it, this is
-what it means.</p>
-<p>Where the whole config is generated — the native leaves, for instance —
-there is no file at all in a fresh clone, so there is no error to read.
-The patch table simply is not there, and the nano-ros crates your leaf
-names go looking for themselves on crates.io instead of in your
-checkout. That one does not announce itself.</p>
+<p>And a <code>cargo build --config &lt;leaf&gt;/build/&lt;image&gt;/nros-cargo.toml</code> whose
+settings file does not exist yet produces the one that does not look
+like a missing file at all — cargo falls back to reading the argument as
+an inline setting:</p>
+<pre><code class="language-text">error: failed to parse value from --config argument
+`&lt;leaf&gt;/build/&lt;image&gt;/nros-cargo.toml` as a dotted key expression
+Caused by:
+  TOML parse error at line 1, column 39
+  key with no value, expected `=`
+</code></pre>
+<p>If you see any of the three, run <code>nros sync</code>.</p>
 <p><strong>Contributors (in-tree checkout):</strong> the <code>just</code> recipes —
-<code>just &lt;module&gt; build-fixtures</code> and friends — run
-<code>nros sync</code> for you, so they work from a fresh clone. It is the
-hand-run <code>cd &lt;leaf&gt; &amp;&amp; cargo build</code> that needs you to run it yourself.</p>
-<p>C and C++ leaves have no <code>.cargo/config.toml</code> at all — not committed,
-not generated. Their message bindings are produced inside CMake by
-<code>nros_find_interfaces()</code>, and the cargo builds CMake drives resolve
-against the repo-root config, which carries no <code>include</code>. Running
-<code>nros sync</code> for a C/C++ build is harmless but buys nothing.</p>
+<code>just &lt;module&gt; build-fixtures</code> and friends — run <code>nros sync</code> for you, so
+they work from a fresh clone. It is the hand-run build in a leaf that
+needs you to run it yourself.</p>
 <p>You need it <strong>once per checkout location</strong>, not once per build. Re-run
-it after editing a <code>.msg</code>, <code>.srv</code>, or <code>.action</code> file, and — because the
-central table it writes holds absolute paths — after moving the
-checkout, or after one of the patched crates moves <em>within</em> it.</p>
+it after editing a <code>.msg</code>, <code>.srv</code>, or <code>.action</code> file, after changing
+<code>system.toml</code>, and after moving the checkout.</p>
 <h2 id="which-builder-your-cell-uses"><a class="header" href="#which-builder-your-cell-uses">Which builder your cell uses</a></h2>
 <p>Each cell is the builder that nano-ros’s own CI uses for that pair, read
 from <code>examples/fixtures.toml</code> — the manifest the fixture builds and the
@@ -278,14 +298,24 @@ nros setup &lt;board&gt; --rmw zenoh  # toolchain + SDK for the target
 
 cd &lt;leaf&gt;
 nros sync                       # ← the step above; once per checkout
-cargo build --release
+nros build                      # every [image.*]; or: nros build &lt;image-id&gt;
 </code></pre>
-<p>Some leaves also pin their cross target in that same
-<code>.cargo/config.toml</code> (<code>[build] target = "thumbv7m-none-eabi"</code> on the
-Cortex-M ones), so no <code>--target</code> on the command line. Others get it from
-the platform’s recipe instead — <strong>contributors:</strong> in an in-tree
-checkout, <code>just --list &lt;module&gt;</code> shows which
-recipe builds what, and using the recipe avoids having to know.</p>
+<p>The artifact lands under <code>build/</code>, keyed on the image:
+<code>&lt;leaf&gt;/build/&lt;image-id&gt;/target/[&lt;triple&gt;/]&lt;profile&gt;/&lt;bin&gt;</code>. <strong>No
+<code>--target</code> on the command line, on any platform</strong> — the board’s triple
+is in the generated settings file, which is also where its linker flags
+and its QEMU runner live.</p>
+<p>If you would rather drive cargo yourself — an IDE, a CI step,
+<code>--release</code> — run <code>nros sync</code> and then point cargo at that file. Run it
+from the directory <em>above</em> the package, so the package’s own <code>.cargo/</code>
+is not read a second time; phase-445 W6 deletes that directory, and then
+the working directory stops mattering:</p>
+<pre><code class="language-bash">cd &lt;leaf-parent&gt;
+cargo build --manifest-path &lt;leaf&gt;/Cargo.toml \
+            --config &lt;leaf&gt;/build/&lt;image-id&gt;/nros-cargo.toml
+</code></pre>
+<p><code>cargo run</code> through the same file works for a QEMU board — the runner is
+in it.</p>
 <h3 id="cmake--c-and-c"><a class="header" href="#cmake--c-and-c">cmake — C and C++</a></h3>
 <pre><code class="language-bash">./scripts/bootstrap.sh
 source ./activate.sh
@@ -295,31 +325,37 @@ cd &lt;leaf&gt;
 cmake -B build -DCMAKE_TOOLCHAIN_FILE=&lt;toolchain&gt; -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 </code></pre>
-<p>No <code>nros sync</code>. The toolchain file is per platform — see the starter
-page. <code>-D_NANO_ROS_CODEGEN_TOOL=</code> is not needed when <code>nros</code> is on PATH;
-CMake resolves it.</p>
+<p>No <code>nros sync</code>, and no <code>-DNANO_ROS_BOARD</code> / <code>-DNROS_RMW</code> either:
+<code>find_package(nano_ros)</code> reads the leaf’s <code>system.toml</code> and derives the
+platform from the board it names. The toolchain file is still per
+platform — see the starter page. <code>-D_NANO_ROS_CODEGEN_TOOL=</code> is not
+needed when <code>nros</code> is on PATH; CMake resolves it.</p>
+<p><code>nros build</code> does not yet work in a <em>single-package</em> C or C++ leaf
+(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1296-nros-build-c-leaf-bringup-name-mismatch.md">issue 1296</a>);
+it is the verb for a C/C++ <strong>workspace</strong>, where it drives exactly this
+cmake pair for you.</p>
 <h3 id="west--zephyr-single-node-examples"><a class="header" href="#west--zephyr-single-node-examples">west — Zephyr single-node examples</a></h3>
 <p>Zephyr owns the build. See
 <a href="../getting-started/integration-zephyr.html">Zephyr (west module)</a> for the
 module wiring; the Rust leaves under <code>examples/zephyr/rust/</code> still need
-<code>nros sync</code> first, because west drives cargo and cargo reads the leaf
-config either way.</p>
+<code>nros sync</code> first, because west drives cargo and cargo needs the
+generated message crates either way.</p>
 <h3 id="in-the-checkout-or-copied-out"><a class="header" href="#in-the-checkout-or-copied-out">In the checkout, or copied out?</a></h3>
 <p>The commands above are written as <code>cd &lt;leaf&gt;</code> inside the nano-ros
 checkout, which is the fastest way to see something run. For anything
 beyond that, copy the example directory out — examples are standalone
 copy-out projects with no workspace walk-up, so a copied one builds on
 its own.</p>
-<p>The distinction matters for one reason: a bare <code>cargo build</code> writes
-<code>target/</code> next to the leaf. In <em>your</em> project that is exactly right. In
-the nano-ros checkout it is residue the repo’s own gate rejects
-(<code>check-example-leaf-target-dirs</code>) — in-tree builds are expected to go
-through the contributor recipes (<code>just &lt;module&gt; …</code>), which write into a
-shared build directory
-instead. One in-repo <code>cargo build --release</code> of a Cortex-M example
-leaves 269 MB behind.</p>
-<p>So: exploring in the checkout, prefer the recipe. Building your own
-thing, copy the example out and <code>cargo build</code> normally.</p>
+<p>Either way the build output goes to the same place — <code>build/&lt;image&gt;/</code>,
+under the leaf, because the generated settings file names that
+<code>target-dir</code> — so an in-tree build leaves no <code>target/</code> beside the
+sources for the repo’s own gate to reject
+(<code>check-example-leaf-target-dirs</code>). A copied-out example carries no path
+into the checkout at all: <code>NROS_REPO_DIR</code> is the only thing tying it to
+one, and it is on the command line rather than in a file.</p>
+<p>So: exploring in the checkout, <code>cd &lt;leaf&gt; &amp;&amp; nros sync &amp;&amp; nros build</code>.
+Building your own thing, copy the example out and run the same two
+commands there.</p>
 <h2 id="per-platform"><a class="header" href="#per-platform">Per platform</a></h2>
 <div class="table-wrapper">
 <table>
@@ -354,9 +390,11 @@ just --list zephyr
 </code></pre>
 <h2 id="more-than-one-node"><a class="header" href="#more-than-one-node">More than one node</a></h2>
 <p>The sequence above builds one leaf. A project with several nodes adds a
-Bringup package and an Entry package on top of it, and the build is
-still one of the three shapes above — see
-<a href="../getting-started/workspace-from-app-node.html">Project layout</a>.</p>
+Bringup package carrying the same <code>system.toml</code> — and nothing else: no
+root build file, and no entry package to write, because the entry is
+generated per <code>[image.*]</code>. The commands stay <code>nros sync</code> and
+<code>nros build</code>, which then drive one of the three shapes above for you.
+See <a href="../getting-started/workspace-from-app-node.html">Project layout</a>.</p>
 <h2 id="if-it-does-not-work"><a class="header" href="#if-it-does-not-work">If it does not work</a></h2>
 <ul>
 <li><a href="../getting-started/troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a></li>

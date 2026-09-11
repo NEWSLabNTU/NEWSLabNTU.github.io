@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -178,17 +178,29 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="build-as-a-cmake-subdirectory"><a class="header" href="#build-as-a-cmake-subdirectory">Build as a CMake subdirectory</a></h1>
-<p>This is one of the two ways to integrate nano-ros into a C or C++
-project, and the lower-level one: the repo’s top-level <code>CMakeLists.txt</code>
-exposes everything via <code>add_subdirectory(...)</code>. The higher-level,
-ament-shaped alternative is <code>find_package(nano_ros REQUIRED)</code> —
-<code>nano_rosConfig.cmake</code> at the checkout root, located via
-<code>nano_ros_ROOT</code> (RFC-0048) — which every in-tree example now uses.
-Either way there is NO install step: phase-140 removed the install
-prefix and the old <code>find_package(NanoRos)</code> (capital) config pipeline.
-Vendoring the repo into a company tree (pinning, offline CI, upgrade
-workflow) has its own page:
-<a href="vendored-tree.html">Integrating into a Vendored Tree</a>.</p>
+<p><strong>This is the escape hatch, not the path.</strong> If your project is a
+nano-ros package or workspace, you state the board once in
+<code>system.toml</code> and let <code>nros sync</code> + <code>nros build</code> drive CMake — you
+never set a cache variable by hand, because the build root it generates
+sets them from that one board name (RFC-0098). Start at
+<a href="first-project.html">First Project</a> and
+<a href="workspace-from-app-node.html">Project layout</a> instead.</p>
+<p>This page is for the C or C++ project that is <strong>not</strong> a nano-ros
+workspace: an existing CMake tree with its own layout and its own
+conventions, that wants nano-ros as a subdirectory and nothing else.
+There the cache variables below are how you say what you are building
+for, because there is no <code>system.toml</code> to read it from. The mechanism
+is unchanged by RFC-0098 — <code>nros build</code> sets exactly these variables in
+the root it generates.</p>
+<p>The repo’s top-level <code>CMakeLists.txt</code> exposes everything via
+<code>add_subdirectory(...)</code>. The higher-level, ament-shaped alternative is
+<code>find_package(nano_ros REQUIRED)</code> — <code>nano_rosConfig.cmake</code> at the
+checkout root, located via <code>nano_ros_ROOT</code> (RFC-0048) — which every
+in-tree example reaches through the workspace helpers. Either way there
+is NO install step: phase-140 removed the install prefix and the old
+<code>find_package(NanoRos)</code> (capital) config pipeline. Vendoring the repo
+into a company tree (pinning, offline CI, upgrade workflow) has its own
+page: <a href="vendored-tree.html">Integrating into a Vendored Tree</a>.</p>
 <h2 id="layout"><a class="header" href="#layout">Layout</a></h2>
 <pre><code>my_app/
 ├── CMakeLists.txt
@@ -243,6 +255,13 @@ libraries (<code>pthread</code>, <code>dl</code>, <code>m</code>), and the per-b
 </div>
 <p>Variables MUST be <code>set(...)</code> BEFORE <code>add_subdirectory(...)</code> — the
 sub-project consumes them at include time.</p>
+<p>In a nano-ros package or workspace none of these are yours to set. The
+CMake root <code>nros build</code> generates writes <code>NANO_ROS_PLATFORM</code> and
+<code>NANO_ROS_BOARD</code> itself, both derived from the one <code>[image.&lt;id&gt;] board</code>
+you named in <code>system.toml</code>, and passes the backend from <code>[system] rmw</code>
+through the workspace helper. Setting them by hand there means two
+answers to one question, which is the arrangement RFC-0098 exists to
+end.</p>
 <h2 id="what-about-installing"><a class="header" href="#what-about-installing">What about installing?</a></h2>
 <p>Phase-140 deleted every nano-ros-side <code>install(...)</code> rule. nano-ros is
 consumed in source form — never out of an installed prefix. If you need a
@@ -253,14 +272,35 @@ your binary, not nano-ros itself.</p>
 <code>integrations/&lt;rtos&gt;/</code> — they translate west / esp-idf / NuttX / PX4
 manifests into the same root CMake. Each shell is a
 ~20-line wrapper around <code>add_subdirectory(&lt;repo&gt;)</code>.</p>
-<h2 id="worked-example"><a class="header" href="#worked-example">Worked example</a></h2>
-<p>The <code>examples/native/c/talker/CMakeLists.txt</code> is the canonical
-copy-out template: it resolves the nano-ros checkout root once
-(<code>-DNANO_ROS_ROOT</code> cache var → <code>NROS_REPO_DIR</code> env var → in-repo
-walk-up), includes the workspace helpers, generates the message
-bindings (<code>nros_find_interfaces</code>), and declares the app via
-<code>nano_ros_entry(...)</code> — ~55 lines including codegen + per-app fixup.
-All in-tree C/C++ examples follow the same shape.</p>
+<h2 id="what-the-in-tree-examples-do-instead"><a class="header" href="#what-the-in-tree-examples-do-instead">What the in-tree examples do instead</a></h2>
+<p>Worth reading as the contrast, because it is the shape most projects
+want. <code>examples/native/c/talker/CMakeLists.txt</code> is fourteen lines and
+sets no cache variable at all:</p>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
+project(c_talker LANGUAGES C CXX)
+
+find_package(nano_ros REQUIRED)
+find_package(std_msgs REQUIRED)
+
+nano_ros_add_executable(c_talker src/main.c)
+ament_target_dependencies(c_talker std_msgs)
+</code></pre>
+<p>The board, the RMW, the domain and the network identity are not in
+that file — they are in the <code>system.toml</code> beside it, and the build
+reads them from there. A single-package C/C++ leaf like this one
+configures and builds with plain CMake, no sync step required, because
+its message bindings are a CMake-time output:</p>
+<pre><code class="language-bash">cmake -B build
+cmake --build build
+</code></pre>
+<p>(<code>nros build</code> does not yet drive a single-package C/C++ leaf — the
+synthesised bringup is named after the directory while the driver asks
+for <code>[system] name</code>. That is
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1296-nros-build-c-leaf-bringup-name-mismatch.md">issue 1296</a>;
+use the two CMake commands above until it closes. A C/C++ <em>workspace</em>
+builds with <code>nros sync</code> + <code>nros build</code> as usual.)</p>
+<p>All in-tree C/C++ examples follow that shape. The <code>add_subdirectory</code>
+mechanism on this page sits underneath it.</p>
 
                     </main>
 

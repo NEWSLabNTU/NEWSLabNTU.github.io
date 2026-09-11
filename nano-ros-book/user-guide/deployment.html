@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -182,21 +182,22 @@
 prepare toolchain, build package, move binary/firmware to target, then
 verify ROS 2 communication.</p>
 <h2 id="native-host"><a class="header" href="#native-host">Native (host)</a></h2>
-<p>Three equivalent entry points; pick by workspace shape:</p>
-<pre><code class="language-bash"># Per-example (Pattern B or any single binary):
+<p>Two commands, whatever the workspace shape:</p>
+<pre><code class="language-bash"># A single Rust package:
 cd examples/native/rust/talker
-cargo run
+nros sync
+nros build
+./build/native/target/debug/talker
 
-# Multi-component system orchestration:
-nros metadata my_system
-nros plan my_system launch/my_system.launch.py
-nros check
-nros build          # generates and builds one entry per [image.*]
-
-# Colcon consumer workspace (Pattern A):
-colcon build &amp;&amp; source install/setup.bash
-ros2 run my_pkg my_node
+# A workspace — same two commands, one entry generated per [image.*]:
+cd my_robot
+nros sync
+nros build
+./build/posix-native/cmake/native_entry
 </code></pre>
+<p><code>nros metadata</code> / <code>nros plan</code> / <code>nros check</code> are the inspection path, not
+the build path — they produce and validate a plan you can read with
+<code>nros explain</code>. You do not need them to build.</p>
 <p>For interop with stock ROS 2 over Zenoh, run <strong>the router ROS ships</strong> and point
 ROS 2 at it:</p>
 <pre><code class="language-bash">ros2 run rmw_zenoh_cpp rmw_zenohd
@@ -211,10 +212,15 @@ RMW you are talking to — and it is what a ROS 2 deployment actually runs.</p>
 </code></pre>
 <p>See <a href="../platform-guides/native-host.html">Native host build</a>.</p>
 <h2 id="rtos-and-bare-metal"><a class="header" href="#rtos-and-bare-metal">RTOS and Bare-Metal</a></h2>
-<p>RTOS targets usually produce firmware images or simulator binaries,
-built with the platform’s own tool from the example / package dir:</p>
-<pre><code class="language-bash">cargo build --release          # Rust leaves (after `nros sync`)
-cmake -B build &amp;&amp; cmake --build build   # C / C++ leaves
+<p>RTOS targets usually produce firmware images or simulator binaries. The
+commands are the same as on the host — the board in <code>system.toml</code> is what
+makes them cross-compile:</p>
+<pre><code class="language-bash"># Rust leaf or workspace:
+nros sync
+nros build                     # or: nros build &lt;image-id&gt;
+
+# C / C++ single package — its own CMake, no sync needed:
+cmake -B build &amp;&amp; cmake --build build
 </code></pre>
 <blockquote>
 <p><strong>Contributors:</strong> the in-tree fixture build/test lanes are in
@@ -234,13 +240,14 @@ entry and hands off; it does not wrap running or flashing.)</p>
 <p>The embedded deploy contract is a documented three-step sequence (per
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0003-rtos-integration-pattern.md">RFC-0003 §4</a>):</p>
 <ol>
-<li><strong>Bake</strong> — <code>nros codegen-system --bringup &lt;pkg&gt;</code> reads
-<code>system.toml</code> + <code>[image.&lt;id&gt;]</code> + <code>launch/*.xml</code> and emits the
-baked tree under <code>build/&lt;board&gt;/</code>.</li>
-<li><strong>Build</strong> — the vendor tool builds it: <code>cargo build</code> / <code>cmake --build</code>
-/ <code>west build</code> / <code>idf.py build</code> (<strong>contributors:</strong> the in-tree
-<code>just &lt;plat&gt; build*</code> recipes wrap these with the right <code>-D</code> args
-derived from <code>[image.&lt;id&gt;]</code>).</li>
+<li><strong>Sync</strong> — <code>nros sync</code> reads <code>system.toml</code> + <code>[image.&lt;id&gt;]</code> +
+<code>launch/*.xml</code> and emits, per image, the generated message crates, the
+resolved system model and the image’s build settings under
+<code>build/&lt;image-id&gt;/</code>. Keyed on the image, not on the board: several
+images can name one board and still differ in what they contain.</li>
+<li><strong>Build</strong> — <code>nros build</code> generates that image’s entry and hands off to
+the vendor tool — <code>cargo</code> / <code>cmake</code> / <code>west</code> / <code>idf.py</code> — which you
+can equally drive yourself against the generated settings.</li>
 <li><strong>Flash + monitor</strong> — the vendor tool again: <code>probe-rs run</code> /
 <code>west flash</code> / <code>idf.py flash monitor</code>, or the platform’s QEMU runner.</li>
 </ol>
@@ -259,9 +266,17 @@ derived from <code>[image.&lt;id&gt;]</code>).</li>
 # **Contributors (in-tree checkout):** `just setup zephyr` creates
 # zephyr-workspace/ (west init + SDK) — then:
 source zephyr-workspace/env.sh      # in-tree workspace layout
+nros sync
 west build -b native_sim/native/64 nros/examples/zephyr/rust/talker
 ./build/zephyr/zephyr.exe
 </code></pre>
+<p>Zephyr is the one target that still names its board on the command line.
+Everywhere else the board comes from <code>system.toml</code> and <code>nros build</code> hands
+it to the tool; here the west <em>application</em> around the entry is not yet
+generated
+(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1288-zephyr-rust-workspace-entries-not-generated.md">issue 1288</a>),
+so west’s own <code>-b</code> is what selects the board. <code>nros sync</code> still runs
+first, for the message crates and the resolved model.</p>
 <p>Bringing your own west workspace instead? Follow
 <a href="../getting-started/integration-zephyr.html">Zephyr Integration</a> — the
 <code>zephyr-workspace/env.sh</code> line above is specific to the in-tree

@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -229,34 +229,51 @@ that pair into the shared store at <code>${NROS_HOME:-~/.nros}/sdk</code>.
 <code>--dry-run</code> prints the plan first. (The zenoh <em>router</em> is
 deliberately not provisioned — it comes from a ROS 2 install,
 <code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>.)</li>
-<li><strong>Message codegen.</strong> <code>NROS_REPO_DIR=&lt;checkout&gt; nros sync</code> from your
-workspace root — see the next section for why this is not optional.</li>
+<li><strong><code>nros sync</code>.</strong> <code>NROS_REPO_DIR=&lt;checkout&gt; nros sync</code> from your
+workspace root. It produces the message bindings <em>and</em> the build
+settings each <code>[image.*]</code> implies — see the next section for why
+this is not optional.</li>
 </ol>
-<h2 id="the-rust-side-nros-sync-is-mandatory-and-your-config-is-inline"><a class="header" href="#the-rust-side-nros-sync-is-mandatory-and-your-config-is-inline">The Rust side: <code>nros sync</code> is mandatory, and your config is inline</a></h2>
-<p>Two things in every Rust leaf are <strong>gitignored and generated</strong>: the
-<code>generated/</code> message crates and the cargo patch machinery that
-resolves registry-style names (<code>nros = { version = "*" }</code>) to the
-vendored sources. A fresh clone cannot build a Rust package until
-<code>nros sync</code> has run — the failure otherwise is cargo dying during
-manifest parse with an error that never names sync.</p>
-<p>For an <strong>out-of-tree consumer</strong> (your workspace, outside the nano-ros
-checkout), <code>nros sync</code> writes the <code>[patch.crates-io]</code> table <strong>inline
-into your leaf’s <code>.cargo/config.toml</code>, with absolute paths, and no
-<code>include</code> line</strong>. This is deliberate:</p>
-<ul>
-<li>The in-repo examples use a <em>relative</em> <code>include = ["…/nros-patch.toml"]</code> pointing at a central gitignored file. That
-shape has three fragile preconditions (cargo ≥ 1.93, a correct
-relative path, the central file existing) and its failure modes are
-confusing. Outside the checkout you get the whole table inline, so
-the only failure mode is loud.</li>
-<li><strong>Never copy an in-repo example’s <code>.cargo/config.toml</code> into your
-tree.</strong> You would be copying the relative <code>include</code> line, which
-cannot resolve from your directory. Copy the <em>package</em> and run
-<code>nros sync</code> — it writes the correct config for that location.</li>
-<li>A <strong>moved checkout invalidates the absolute paths</strong> — re-run
-<code>nros sync</code> after relocating either the workspace or the vendored
-nano-ros.</li>
-</ul>
+<h2 id="the-rust-side-nros-sync-is-mandatory-and-nothing-it-writes-is-in-your-source-tree"><a class="header" href="#the-rust-side-nros-sync-is-mandatory-and-nothing-it-writes-is-in-your-source-tree">The Rust side: <code>nros sync</code> is mandatory, and nothing it writes is in your source tree</a></h2>
+<p>Two things a Rust package needs are <strong>generated, not authored</strong>: the
+<code>generated/</code> message crates, and every build setting the target implies
+— the triple, the runner, the link flags, the resolved <code>[env]</code>, and the
+<code>[patch.crates-io]</code> table that resolves registry-style names
+(<code>nros = { version = "*" }</code>) to the vendored sources. You state the
+target once, as a board name in the package’s <code>system.toml</code>, and
+<code>nros sync</code> derives the rest (RFC-0098):</p>
+<pre><code class="language-toml">[system]
+name = "my_app"
+rmw  = "cyclonedds"
+
+[image.native]
+board = "native"
+</code></pre>
+<p><code>nros sync</code> writes those settings to <code>build/&lt;image-id&gt;/nros-cargo.toml</code>
+— one file per <code>[image.*]</code> row, under <code>build/</code>, never beside your
+package — and <code>nros build</code> hands it to cargo:</p>
+<pre><code class="language-bash">nros sync
+nros build            # or: nros build &lt;image-id&gt; for one image
+</code></pre>
+<p>A CI job that drives cargo itself passes the same file:</p>
+<pre><code class="language-bash">cargo build --manifest-path &lt;pkg&gt;/Cargo.toml \
+            --config &lt;pkg&gt;/build/&lt;image-id&gt;/nros-cargo.toml
+</code></pre>
+<p>(If the package still carries a <code>.cargo/</code> directory of its own — the
+in-tree examples do, until that directory is retired — run cargo from
+the directory <em>above</em> it, or cargo reads both and joins two sets of
+link flags. A package of yours has no such directory, so the working
+directory does not matter.)</p>
+<p>This is what makes a vendored tree cheap to move: there is no leaf
+<code>.cargo/config.toml</code> to copy from an in-repo example, no <code>include</code>
+line whose relative path cannot resolve from your directory, and no
+table of absolute paths under version control to invalidate. After
+relocating either the workspace or the vendored checkout, re-run
+<code>nros sync</code>; it rewrites what is under <code>build/</code> and touches nothing
+you track. Switching a package to another board is editing its one
+<code>board =</code> line and syncing again.</p>
+<p>A build that runs before sync fails at the first preflight with a line
+naming <code>nros sync</code>, rather than deep inside cargo.</p>
 <p>Message dependencies stay path deps pinned <code>0.0.0</code>
 (<code>std_msgs = { path = "generated/std_msgs" }</code> after sync); never
 registry-name a message crate — a bare <code>std_msgs = "*"</code> can resolve
@@ -343,8 +360,9 @@ missing packages, not like staleness.</p>
 <li><input disabled="" type="checkbox"> <code>play_launch</code> submodule initialized non-recursively</li>
 <li><input disabled="" type="checkbox"> CI passes <code>-Dnano_ros_ROOT=</code> / <code>NROS_REPO_DIR=</code> explicitly (no
 reliance on an activated shell)</li>
-<li><input disabled="" type="checkbox"> <code>nros sync</code> runs in CI before any Rust build; no <code>.cargo/config.toml</code>
-copied from in-repo examples</li>
+<li><input disabled="" type="checkbox"> <code>nros sync</code> runs in CI before any Rust build — before <code>nros build</code>,
+and before any cargo line that passes <code>--config     build/&lt;image-id&gt;/nros-cargo.toml</code>; no build setting hand-written
+into a package</li>
 <li><input disabled="" type="checkbox"> Air-gapped: <code>NANO_ROS_SKIP_BOOTSTRAP=ON</code>, submodules pre-seeded,
 Corrosion staged, <code>NROS_HOME</code> cached</li>
 <li><input disabled="" type="checkbox"> Local patch set (platform/board/index edits) lives on a fork

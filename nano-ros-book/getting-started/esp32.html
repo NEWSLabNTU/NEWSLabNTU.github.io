@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -227,28 +227,49 @@ the RISC-V ESP32-C3 only. Xtensa targets do not ship via <code>rustup</code>
 board crate is RISC-V only; this gap is tracked separately.</p>
 </blockquote>
 <pre><code class="language-text">examples/esp32-c3-baremetal/rust/talker/
-├── Cargo.toml                 # deps + [package.metadata.nros.deploy.esp32-c3-baremetal]
-├── .cargo/                    # config.toml + nros-board.toml
-│                              # (target = riscv32imc-unknown-none-elf lives in nros-board.toml)
+├── system.toml                # WHAT this deploys to — the one file you edit
+├── Cargo.toml                 # Rust deps only; nothing here names a board
 ├── package.xml
-├── generated/                 # codegen output — build.rs runs
-│                              #   `nros generate-rust` on first
-│                              #   `cargo build`; gitignored.
+├── generated/                 # generated message bindings (gitignored)
+├── build/                     # everything `nros sync` generates (gitignored)
 └── src/                       # lib.rs component class + main.rs entry
 </code></pre>
+<p>There is no <code>.cargo/</code> to edit. The <code>riscv32imc-unknown-none-elf</code> triple, the
+<code>-Tlinkall.x</code> link group, the <code>[unstable] build-std</code> that compiles <code>core</code> and
+<code>alloc</code> from source, <code>ESP_LOG</code>, the DRAM budgets and the <code>[patch.crates-io]</code>
+rows all come from the board, and <code>nros sync</code> writes them into
+<code>build/esp32-c3-baremetal/nros-cargo.toml</code> — a generated file the build reads
+with <code>--config</code> (RFC-0098).</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
-<p>Deploy config lives in the app’s <code>Cargo.toml</code> (baked at compile time;
-the board’s default <code>Config</code> supplies the remaining smoltcp knobs like
-the MAC). The QEMU ESP32 board uses OpenETH ethernet via
+<p>The whole deployment statement is <code>system.toml</code>, beside the manifest, and it is
+baked at compile time; the board’s default <code>Config</code> supplies the remaining
+smoltcp knobs like the MAC. The QEMU ESP32 board uses OpenETH ethernet via
 <code>nros-board-esp32-qemu</code>. Verbatim from
-<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/esp32-c3-baremetal/rust/talker/Cargo.toml"><code>examples/esp32-c3-baremetal/rust/talker/Cargo.toml</code></a>:</p>
-<pre><code class="language-toml">[package.metadata.nros.deploy.esp32-c3-baremetal]
-rmw       = "zenoh"
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/esp32-c3-baremetal/rust/talker/system.toml"><code>examples/esp32-c3-baremetal/rust/talker/system.toml</code></a>:</p>
+<pre><code class="language-toml">[system]
+name = "esp32_qemu_talker"
+rmw = "zenoh"
 domain_id = 0
-ip        = "10.0.2.50"
-gateway   = "10.0.2.2"
-locator   = "tcp/10.0.2.2:9800"
+
+[[component]]
+pkg = "esp32_qemu_talker"
+class = "esp32_qemu_talker::Talker"
+name = "talker"
+entities = ["publisher:std_msgs/msg/String:/chatter", "timer"]
+
+[image.esp32-c3-baremetal]
+board = "esp32-c3-baremetal"
+ip = "10.0.2.50"
+gateway = "10.0.2.2"
+locator = "tcp/10.0.2.2:9800"
 </code></pre>
+<p>The <code>entities</code> line is this board’s one extra obligation. Pool sizes are
+normally <em>probed</em> from a host build of the component, and this leaf has no
+host build — a foreign triple, <code>build-std</code>, and a board crate that only exists
+for the target. So the image states what the node creates, and <code>nros sync</code>
+sizes the pools from that (RFC-0098 D8). On <code>.bss</code>-tight ESP32-C3 that matters:
+the stack is whatever the linker leaves after <code>.bss</code>, so a pool sized for an
+entity this node never creates is stack it cannot use.</p>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
 <blockquote>
 <p><strong>Contributors:</strong> the in-tree fixture/test lanes for this platform are in
@@ -256,21 +277,36 @@ locator   = "tcp/10.0.2.2:9800"
 </blockquote>
 <p>Copy the example out, generate bindings, build with the pinned nightly,
 and pack the flash image:</p>
-<pre><code class="language-bash"># once per checkout location — bindings + the [patch.crates-io] table:
+<pre><code class="language-bash"># once per checkout location — message bindings + the generated
+# build/esp32-c3-baremetal/nros-cargo.toml:
 NROS_REPO_DIR=&lt;path-to-nano-ros&gt; nros sync
 
-# nightly because the board config builds core/alloc from source
-# ([unstable] build-std, from the board descriptor). The pinned channel
-# is tools/rust-toolchain.toml's; any recent nightly with the rust-src
-# component works:
+# nros build hands cargo the generated settings file. That file asks for
+# `[unstable] build-std`, so a nightly carrying `rust-src` must be the ACTIVE
+# toolchain — nros build picks no channel for you. The pinned channel is
+# tools/rust-toolchain.toml's; any recent nightly works:
 #   rustup toolchain install nightly &amp;&amp; rustup component add rust-src --toolchain nightly
 #   rustup target add riscv32imc-unknown-none-elf --toolchain nightly
-cargo +nightly build --release
+#   rustup override set nightly          # in this directory
+# Release, because ESP32-C3 DRAM is tight: anything after `--` goes to cargo
+# verbatim.
+nros build -- --release
 
 # pack the ELF into the flash image QEMU boots (espflash comes from
 # `nros setup esp32-c3-baremetal`, on PATH via activate):
 espflash save-image --chip esp32c3 --flash-size 4mb --merge \
-    target/riscv32imc-unknown-none-elf/release/esp32_qemu_talker talker.bin
+    build/esp32-c3-baremetal/target/riscv32imc-unknown-none-elf/release/esp32_qemu_talker \
+    talker.bin
+</code></pre>
+<p><strong>Driving cargo yourself</strong> — for an IDE or a CI step — run <code>nros sync</code> first,
+then point cargo at the same generated file. Run it from the directory <em>above</em>
+the package, so the package’s own <code>.cargo/</code> is not read a second time;
+phase-445 W6 deletes that directory, after which the working directory stops
+mattering:</p>
+<pre><code class="language-bash">cd examples/esp32-c3-baremetal/rust
+cargo +nightly build --release \
+      --manifest-path talker/Cargo.toml \
+      --config talker/build/esp32-c3-baremetal/nros-cargo.toml
 </code></pre>
 <p>First build cross-compiles core/alloc + every dep (~5 min); rebuilds are
 seconds. If you build a C-flavored variant, the riscv cross-gcc the zpico
@@ -283,7 +319,7 @@ shim needs is also provisioned by the same <code>nros setup</code>.</p>
                                 # the command names them if absent)
 </code></pre>
 <pre><code class="language-bash"># 1. Bring up the router (ROS's `rmw_zenohd`) on the port the example
-#    dials (9800 — the deploy `locator` above):
+#    dials (9800 — the image's `locator` above):
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:9800"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
@@ -312,8 +348,11 @@ ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 <ol>
 <li>Wrong locator → talker logs <code>zenoh open failed</code> and retries.
 Confirm the router is reachable on the host IP (<code>10.0.2.2:9800</code>).</li>
-<li>Confirm <code>.cargo/nros-board.toml</code> sets <code>target = "riscv32imc-unknown-none-elf"</code> (ESP32-C3). The tutorial does not
-support ESP32-S3 (Xtensa) yet.</li>
+<li>Confirm the image really is the C3 one — <code>[image.&lt;id&gt;] board</code> should
+read <code>esp32-c3-baremetal</code>, and the <code>[build] target</code> in the generated
+<code>build/esp32-c3-baremetal/nros-cargo.toml</code> should read
+<code>riscv32imc-unknown-none-elf</code>. The tutorial does not support ESP32-S3
+(Xtensa) yet.</li>
 <li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
 <h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>

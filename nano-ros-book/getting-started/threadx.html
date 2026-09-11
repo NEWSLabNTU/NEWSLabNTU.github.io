@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -231,24 +231,38 @@ Micro-XRCE-DDS agent (installed by <code>nros setup … --rmw xrce</code>).</p>
 <code>examples/threadx-linux/</code> and <code>examples/rv-virt-threadx/</code>
 (<code>&lt;lang&gt;/&lt;example&gt;/</code> under each):</p>
 <pre><code class="language-text">examples/threadx-linux/
-├── rust/talker/                 # Cargo, target = x86_64-unknown-linux-gnu
-│   ├── Cargo.toml                # deps + [package.metadata.nros.deploy.threadx-linux]
+├── rust/talker/                 # Cargo package
+│   ├── system.toml               # WHAT this deploys to — the one file you edit
+│   ├── Cargo.toml                # Rust deps only; nothing here names a board
 │   ├── package.xml
-│   ├── generated/                # codegen output — build.rs runs
-│   │                             #   `nros generate-rust` on first
-│   │                             #   `cargo build`; gitignored.
+│   ├── generated/                # generated message bindings (gitignored)
+│   ├── build/                    # everything `nros sync` generates (gitignored)
 │   └── src/lib.rs                # the component class; nros::main! generates the entry
 └── c/talker/                    # CMake, add_subdirectory
-    ├── CMakeLists.txt            # targets (deploy tuple in package.xml)
+    ├── system.toml               # the same file, same schema
+    ├── CMakeLists.txt            # targets only
     ├── package.xml
     └── src/Talker.c
 
 examples/rv-virt-threadx/
-├── rust/talker/                 # Cargo, target = riscv64gc-unknown-linux-gnu
+├── rust/talker/                 # identical shape; `board = "rv-virt-threadx"`
 │   └── ...
 └── c/talker/
     └── ...
 </code></pre>
+<p>The two flavours differ in the <code>board =</code> line of their <code>system.toml</code> — plus,
+on the Rust side, the board crate in <code>[dependencies]</code>
+(<code>nros-board-threadx-linux</code> against <code>nros-board-threadx-qemu-riscv64</code>). A
+single-package leaf is its own entry, so it still names that crate by hand and
+<code>nros sync</code> reads the patch rows from the manifest;
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1305-single-package-board-crate-dep-not-generated.md">issue 1305</a>
+is why it is two lines rather than one. The C leaves have no board crate and
+really do switch on the one line.</p>
+<p>Everything else follows the board. <code>threadx-linux</code> is a hosted build, so its
+board contributes no target triple; <code>rv-virt-threadx</code> cross-compiles, and its
+triple, link group and emulator all come from the board descriptor — never
+from a leaf. <code>nros sync</code> resolves the choice into
+<code>build/&lt;image-id&gt;/nros-cargo.toml</code>, which is what the build reads (RFC-0098).</p>
 <p>ThreadX-linux runs as a regular host process — no QEMU. NetX Duo
 uses the <code>nx_bsd_*</code> BSD socket shim layered on the host TCP stack
 (threadx-linux variant) or on its own NetX Duo TCP/IP stack
@@ -293,31 +307,38 @@ packets at runtime rather than a compiler error. A
 <code>packages/boards/nros-board-common/c/threadx_hooks.c</code> turns that mistake
 into a build failure with a name on it.</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
-<p>Deploy config is declared per flavour in the build manifest and baked at
-compile time. Both shipped shapes, verbatim:</p>
+<p>Deployment is declared per flavour in <code>system.toml</code> and baked at compile
+time. Both shipped shapes, verbatim:</p>
 <p>threadx-linux —
-<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/threadx-linux/rust/talker/Cargo.toml"><code>examples/threadx-linux/rust/talker/Cargo.toml</code></a>:</p>
-<pre><code class="language-toml">[package.metadata.nros.deploy.threadx-linux]
-board     = "threadx-linux"
-rmw       = "zenoh"
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/threadx-linux/rust/talker/system.toml"><code>examples/threadx-linux/rust/talker/system.toml</code></a>:</p>
+<pre><code class="language-toml">[system]
+name = "threadx_linux_rs_talker"
+rmw = "zenoh"
 domain_id = 0
-# locator/ip default to the board's loopback shape (dial 127.0.0.1)
+
+[[component]]
+pkg = "threadx_linux_rs_talker"
+class = "threadx_linux_rs_talker::Talker"
+name = "talker"
+
+[image.threadx-linux]
+board = "threadx-linux"
+locator = "tcp/127.0.0.1:9000"
 </code></pre>
 <p>threadx-riscv64 —
-<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/rv-virt-threadx/c/talker/CMakeLists.txt"><code>examples/rv-virt-threadx/c/talker/CMakeLists.txt</code></a>:</p>
-<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
-project(c_talker LANGUAGES C CXX)
-
-find_package(nano_ros REQUIRED)
-find_package(std_msgs REQUIRED)
-
-nano_ros_add_executable(c_talker src/main.c)
-ament_target_dependencies(c_talker std_msgs)
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/rv-virt-threadx/rust/talker/system.toml"><code>examples/rv-virt-threadx/rust/talker/system.toml</code></a>
+adds the guest’s network identity, because it boots behind QEMU Slirp:</p>
+<pre><code class="language-toml">[image.rv-virt-threadx]
+board = "rv-virt-threadx"
+locator = "tcp/10.0.2.2:9400"
+ip = "10.0.2.15"
+netmask = "255.255.255.0"
+gateway = "10.0.2.2"
 </code></pre>
-<p>The deploy coordinate lives in <code>package.xml</code>, not CMake:
-<code>&lt;nano_ros deploy="threadx" board="rv-virt-threadx" rmw="zenoh"/&gt;</code>.</p>
-<p>Network shape (guest IP, gateway, router locator) beyond these fields
-comes from the board crate’s defaults — see the
+<p>The C leaves carry the same file with the same keys; their <code>CMakeLists.txt</code>
+declares targets and nothing about the deployment, and their <code>package.xml</code>
+carries no <code>&lt;nano_ros …/&gt;</code> tuple. Anything the image does not state — the rest
+of the network shape — comes from the board crate’s defaults; see the
 <a href="../user-guide/configuration.html">Configuration Guide</a>.</p>
 <p>ThreadX-Linux normally uses a veth pair (<code>tap-tx0</code>) for an isolated
 host link, but <code>nros setup threadx-linux</code> does <strong>not</strong> create the
@@ -327,32 +348,42 @@ Bring up <code>tap-tx0</code> by hand (<code>ip link add … type veth …</code
 you need real-network bridging. The QEMU-RISC-V64 fixture uses
 Slirp’s default <code>10.0.2.2</code> gateway just like the FreeRTOS QEMU flow.</p>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
-<pre><code class="language-bash"># Single example — `nros sync` first (a hand-run cargo build does
-# not do it for you):
+<pre><code class="language-bash"># Single example — `nros sync` writes the generated message bindings and
+# build/threadx-linux/nros-cargo.toml from system.toml; `nros build` builds
+# the image that file declares.
 cd examples/threadx-linux/rust/talker
 nros sync
-cargo build --release
+nros build
 </code></pre>
 <blockquote>
 <p><strong>Contributors:</strong> the in-tree fixture build lanes for both flavours are in
 <a href="../internals/platform-lanes.html#threadx">Per-Platform Contributor Lanes</a>.</p>
 </blockquote>
 <p>First setup builds ThreadX + NetX Duo (~3 min). Subsequent example
-builds finish in seconds.</p>
-<p><strong>Contributors (in-tree checkout):</strong> the <code>just … build-fixtures</code>
-recipes run <code>nros sync</code> for you. A
-hand-run <code>cargo build</code> in a leaf does not — without it cargo fails
-while <em>parsing the manifest</em>, with
-<code>failed to load config include '…/nros-patch.toml'</code> and no mention of
-sync. See
+builds finish in seconds. The binary lands under the image’s own directory —
+<code>build/threadx-linux/target/debug/talker</code> for the hosted flavour, with the
+cross triple as an extra path segment for <code>rv-virt-threadx</code>.</p>
+<p><strong>Driving cargo yourself</strong> (an IDE, a CI step, <code>--release</code>) is supported: run
+<code>nros sync</code> first, then point cargo at the generated settings file. Run it from
+the directory <em>above</em> the package, so the package’s own <code>.cargo/</code> is not read
+a second time — phase-445 W6 deletes that directory, after which the working
+directory stops mattering:</p>
+<pre><code class="language-bash">cd examples/threadx-linux/rust
+cargo build --manifest-path talker/Cargo.toml \
+            --config talker/build/threadx-linux/nros-cargo.toml
+</code></pre>
+<p>Skipping <code>nros sync</code> is not a mysterious failure: <code>nros build</code> stops at its
+preflight with one line naming what is missing and telling you to run sync in
+that directory. See
 <a href="../user-guide/workflow-by-platform.html">Workflow by Platform and Language</a>.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
 <pre><code class="language-bash"># threadx-linux (no QEMU). Step 1 brings up the router (ROS's
-# `rmw_zenohd`) on port 9000 — the deploy `locator` the talker bakes
-# in its Cargo.toml. Step 2 builds + runs the talker:
+# `rmw_zenohd`) on port 9000 — the `locator` the talker bakes from
+# `[image.threadx-linux]`. Step 2 builds + runs the talker:
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:9000"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
-cd examples/threadx-linux/rust/talker &amp;&amp; nros sync &amp;&amp; cargo run --release
+cd examples/threadx-linux/rust/talker &amp;&amp; nros sync &amp;&amp; nros build
+./build/threadx-linux/target/debug/talker
 # Expected (per src/lib.rs structured logs):
 #   Publishing: 'Hello World: 1'
 #   Publishing: 'Hello World: 2'
@@ -363,10 +394,14 @@ cd examples/threadx-linux/rust/talker &amp;&amp; nros sync &amp;&amp; cargo run 
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:9400"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
+# Build it the same way (`system.toml` names `board = "rv-virt-threadx"`,
+# so the riscv64 triple and link group come from the board):
+cd examples/rv-virt-threadx/rust/talker &amp;&amp; nros sync &amp;&amp; nros build
+
 # Then boot the built image in QEMU (UART on stdio, Slirp networking):
 qemu-system-riscv64 -M virt -m 256M -bios none -nographic \
     -global virtio-mmio.force-legacy=false \
-    -kernel &lt;path-to-built-talker-elf&gt; \
+    -kernel build/rv-virt-threadx/target/riscv64gc-unknown-none-elf/debug/talker \
     -netdev user,id=net0 \
     -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.0
 # **Contributors (in-tree checkout):** `just threadx_riscv64 talker`
@@ -385,12 +420,12 @@ ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 <a href="../internals/platform-lanes.html#threadx">Per-Platform Contributor Lanes</a>.</p>
 </blockquote>
 <p><strong>Readiness signal.</strong> threadx-linux: <code>Publishing: 'Hello World: 1'</code>
-within a few seconds of <code>cargo run --release</code> <strong>on a warm
-cache</strong>; a cold first run rebuilds the Rust example (~80 s on a
+within a few seconds of starting the binary <strong>on a warm
+cache</strong>; a cold first <code>nros build</code> compiles the Rust example (~80 s on a
 fresh checkout) before the first publish lands. threadx-riscv64
 (QEMU): within ~15 seconds of QEMU boot. If no <code>Publishing:</code> line:</p>
 <ol>
-<li>Confirm the router is reachable on the deploy locator
+<li>Confirm the router is reachable on the image’s <code>locator</code>
 (threadx-linux uses <code>127.0.0.1</code>; riscv64 QEMU uses <code>10.0.2.2</code>).</li>
 <li>threadx-linux: if you brought up <code>tap-tx0</code> by hand, confirm it is
 up; without it the fixtures use the loopback fallback, which is
@@ -426,7 +461,8 @@ for the mechanics.</p>
 <ul>
 <li>Subscriber + service + action peers in the same example tree.</li>
 <li>DDS on ThreadX: Cyclone DDS is the surviving DDS backend
-(<code>nros-rmw-cyclonedds</code>, selected via <code>-DNANO_ROS_RMW=cyclonedds</code>); see
+(<code>nros-rmw-cyclonedds</code>) — select it with <code>[system] rmw = "cyclonedds"</code> in
+<code>system.toml</code> and re-run <code>nros sync</code>; see
 <a href="../user-guide/rmw-backends.html">Choosing an RMW Backend</a>.</li>
 <li>Real hardware: same code runs against ThreadX vendor BSPs (Renesas
 Synergy, MIMXRT, etc.); replace the QEMU board crate with a vendor

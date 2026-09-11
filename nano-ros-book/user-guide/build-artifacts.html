@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -206,7 +206,8 @@ workspace crosses languages:</p>
 <tr><th>platform / shape</th><th>driver</th><th>the artifact</th></tr>
 </thead>
 <tbody>
-<tr><td>Rust-only, any non-Zephyr non-ESP32 board</td><td><code>cargo</code></td><td><code>&lt;ws&gt;/target/[&lt;triple&gt;/]&lt;profile&gt;/&lt;image&gt;_entry</code></td></tr>
+<tr><td>Rust single package, any non-Zephyr non-ESP32 board</td><td><code>cargo</code></td><td><code>&lt;leaf&gt;/build/&lt;image-id&gt;/target/[&lt;triple&gt;/]&lt;profile&gt;/&lt;bin&gt;</code></td></tr>
+<tr><td>Rust-only workspace, the same boards</td><td><code>cargo</code></td><td><code>&lt;ws&gt;/build/&lt;coordinate&gt;/&lt;image&gt;_entry/target/[&lt;triple&gt;/]&lt;profile&gt;/&lt;image&gt;_entry</code></td></tr>
 <tr><td>any workspace containing C or C++</td><td><code>cmake</code></td><td><code>&lt;ws&gt;/build/&lt;coordinate&gt;/cmake/&lt;image&gt;_entry</code></td></tr>
 <tr><td>a <code>zephyr</code> board</td><td><code>west</code></td><td><code>&lt;ws&gt;/build/zephyr/zephyr.{elf,bin,exe}</code></td></tr>
 <tr><td>an <code>esp32</code> board</td><td><code>idf.py</code></td><td>ESP-IDF’s own <code>build/</code> in the project directory</td></tr>
@@ -217,25 +218,48 @@ workspace crosses languages:</p>
 <code>freertos-cyclonedds</code> — plus, for CMake, the board, because CMake pins one
 compiler per configure and two boards on one platform would otherwise share a
 cache: <code>posix-zenoh-native</code>, <code>freertos-zenoh-mps2-an385-freertos</code>.</p>
+<p>Everything above is under <code>build/</code>, and that is the rule rather than a
+coincidence: a workspace has <strong>no root <code>Cargo.toml</code> and no root
+<code>CMakeLists.txt</code></strong> (RFC-0098 D9). It is a directory of packages, like a
+colcon workspace, and every generated thing — the entry, the root build
+file, the cargo settings, the compiled output — lives in <code>build/</code>.</p>
 <p>One path the build <em>does</em> print is easy to mistake for the binary:</p>
 <pre><code class="language-text">nros build:   entry → …/build/posix-zenoh/native_entry
 </code></pre>
 <p>That is the generated <strong>entry package</strong> — source that nano-ros wrote for you,
 under <code>build/</code> because it is build output. The compiled program is elsewhere;
 see below.</p>
-<h2 id="native-host-cargo"><a class="header" href="#native-host-cargo">Native host (cargo)</a></h2>
-<p><code>nros build</code> runs <code>cargo build -p &lt;image&gt;_entry</code> from the workspace root and
-passes no <code>--target-dir</code>, so cargo’s own default applies:</p>
-<pre><code class="language-text">&lt;ws&gt;/target/&lt;profile-dir&gt;/&lt;image&gt;_entry
+<h2 id="cargo"><a class="header" href="#cargo">cargo</a></h2>
+<p>Every image gets its own cargo settings file, <code>build/&lt;image-id&gt;/nros-cargo.toml</code>
+for a single package and <code>build/&lt;coordinate&gt;/&lt;entry&gt;/nros-cargo.toml</code> for a
+workspace, and <code>nros build</code> points cargo at it:</p>
+<pre><code class="language-text">cargo build --manifest-path talker/Cargo.toml --config talker/build/native/nros-cargo.toml
 </code></pre>
+<p>That file states the image’s <code>target-dir</code>, so each image compiles into its
+own tree rather than sharing one <code>target/</code>. It also carries the board’s
+triple, linker flags and cross compiler, the resolved pool budgets as
+<code>[env]</code>, the in-repo <code>[patch.crates-io]</code> rows, and the <code>nros-*</code> build
+profiles. It is generated on every sync and build — read it, never edit it.</p>
+<p>For a single package the artifact is that package’s own binary:</p>
+<pre><code class="language-text">&lt;leaf&gt;/build/&lt;image-id&gt;/target/[&lt;triple&gt;/]&lt;profile-dir&gt;/&lt;bin&gt;
+</code></pre>
+<p><code>examples/native/rust/talker</code> lands at <code>build/native/target/debug/talker</code>;
+its bare-metal sibling <code>examples/mps2-an385-baremetal/rust/talker</code> at
+<code>build/mps2-an385-baremetal/target/thumbv7m-none-eabi/debug/qemu-bsp-talker</code>.
+The triple level appears whenever the board pins one — which it does in the
+generated <code>[build] target</code>, not on your command line.</p>
+<p>For a workspace the binary is the generated entry, inside that entry’s own
+target dir — the Rust scaffold’s <code>native</code> image is
+<code>build/posix/native_entry/target/debug/native_entry</code>.</p>
 <p><code>&lt;profile-dir&gt;</code> is <code>debug</code> unless the image declares
 <code>[image.&lt;id&gt;] profile = …</code>, in which case it is that profile’s directory
-(<code>nros profile dir &lt;name&gt;</code> prints it). A board that pins a cross triple adds a
-level — <code>target/&lt;triple&gt;/&lt;profile-dir&gt;/&lt;image&gt;_entry</code> — because <code>nros build</code>
-passes <code>--target</code> for it.</p>
-<p><strong>Next step:</strong> run it. It is an ordinary host executable.</p>
-<pre><code class="language-bash">./target/debug/native_entry
+(<code>nros profile dir &lt;name&gt;</code> prints it).</p>
+<p><strong>Next step:</strong> on a host board, run it. It is an ordinary executable.</p>
+<pre><code class="language-bash">./build/native/target/debug/talker
 </code></pre>
+<p>For a QEMU board, the generated settings file also carries that board’s
+<code>runner</code>, so <code>cargo run</code> through the same <code>--config</code> boots the image —
+see <a href="build-profiles.html">Build Profiles</a> for driving cargo yourself.</p>
 <p>A multi-process zenoh example also needs a router; that is ROS’s <code>rmw_zenohd</code>,
 not something nano-ros ships — see
 <a href="deployment.html">Deployment Workflow</a> and
@@ -291,13 +315,14 @@ project’s <code>build/</code>. The next step is Espressif’s:</p>
 <pre><code class="language-bash">idf.py -p /dev/ttyUSB0 flash monitor
 </code></pre>
 <p>See <a href="../getting-started/integration-esp-idf.html">ESP32 (ESP-IDF component)</a>.</p>
-<p><strong>Rust bare-metal (esp-hal)</strong> — these are standalone cargo leaves rather than
-<code>nros build</code> images, so the artifact is an ordinary cargo one: the ELF at
-<code>target/&lt;triple&gt;/&lt;profile-dir&gt;/&lt;name&gt;</code>. <code>espflash</code> turns it into a flash image
-or writes it to a board:</p>
-<pre><code class="language-bash">espflash flash --monitor target/riscv32imc-unknown-none-elf/release/talker
+<p><strong>Rust bare-metal (esp-hal)</strong> — a single-package image on the cargo driver
+like any other, so the ELF is under that image’s own target dir:
+<code>build/&lt;image-id&gt;/target/&lt;triple&gt;/&lt;profile-dir&gt;/&lt;name&gt;</code>. <code>espflash</code> turns it
+into a flash image or writes it to a board:</p>
+<pre><code class="language-bash">espflash flash --monitor \
+    build/esp32-c3-baremetal/target/riscv32imc-unknown-none-elf/release/talker
 espflash save-image --chip esp32c3 --flash-size 4mb --merge \
-    target/riscv32imc-unknown-none-elf/release/talker talker.bin
+    build/esp32-c3-baremetal/target/riscv32imc-unknown-none-elf/release/talker talker.bin
 </code></pre>
 <p>See <a href="../getting-started/esp32.html">ESP32 (esp-hal)</a>.</p>
 <h2 id="finding-it-yourself"><a class="header" href="#finding-it-yourself">Finding it yourself</a></h2>

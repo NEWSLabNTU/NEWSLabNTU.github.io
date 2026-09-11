@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -250,20 +250,30 @@ nros-board-mps2-an385 = { version = "*", features = ["serial"] }
 </tbody>
 </table>
 </div>
-<p>When both features are enabled, the transport is selected at runtime by the zenoh locator string in <code>Config</code>:</p>
+<p>When both features are enabled, the transport is selected at runtime by the
+<code>[image.&lt;id&gt;] locator</code> in <code>system.toml</code>:</p>
 <ul>
 <li><code>"tcp/192.0.3.1:7448"</code> → Ethernet/WiFi</li>
 <li><code>"serial/UART_0#baudrate=115200"</code> → Serial</li>
 </ul>
+<p>(The manifest above is a single-package leaf’s. In a workspace the entry —
+and with it the board-crate dependency — is generated from the image, so
+there is no manifest of yours to put the feature in.)</p>
 <h2 id="quick-start-qemu-serial-example"><a class="header" href="#quick-start-qemu-serial-example">Quick Start: QEMU Serial Example</a></h2>
 <p>This mirrors what the in-tree serial e2e test
 (<code>packages/testing/nros-tests/tests/emulator.rs</code>) actually does: a
 <strong>socat PTY pair</strong> links QEMU’s UART to the router, so both ends exist
 before either side starts.</p>
 <h3 id="1-build-the-serial-talker"><a class="header" href="#1-build-the-serial-talker">1. Build the Serial Talker</a></h3>
-<pre><code class="language-bash">nros sync                       # materialize generated/ + the patch table
-cd examples/mps2-an385-baremetal/rust/serial-talker
-cargo build --release
+<pre><code class="language-bash">cd examples/mps2-an385-baremetal/rust/serial-talker
+nros sync                       # generated/ + this image's build settings
+nros build
+</code></pre>
+<p>The serial locator is part of the image’s identity, so it is stated in the
+leaf’s <code>system.toml</code> rather than passed to the build:</p>
+<pre><code class="language-toml">[image.mps2-an385-baremetal]
+board   = "qemu-mps2-an385"
+locator = "serial/UART_0#baudrate=115200"
 </code></pre>
 <h3 id="2-create-the-pty-pair-and-start-the-router"><a class="header" href="#2-create-the-pty-pair-and-start-the-router">2. Create the PTY pair and start the router</a></h3>
 <pre><code class="language-bash"># Two linked PTYs; QEMU gets one end, the router the other:
@@ -282,14 +292,14 @@ Configuration travels in <code>ZENOH_CONFIG_OVERRIDE</code>, and the router
 <strong>listens</strong> on the serial endpoint; the MCU side dials it.</p>
 </blockquote>
 <h3 id="3-boot-qemu-with-uart0-on-the-other-end"><a class="header" href="#3-boot-qemu-with-uart0-on-the-other-end">3. Boot QEMU with UART0 on the other end</a></h3>
-<p>The leaf’s default <code>cargo run</code> runner uses semihosting only (no serial
+<p>The board’s <code>cargo run</code> runner uses semihosting only (no serial
 device) — boot QEMU explicitly, wiring UART0 to the pair:</p>
 <pre><code class="language-bash">qemu-system-arm -cpu cortex-m3 -machine mps2-an385 \
     -display none -monitor none \
     -icount shift=auto -semihosting-config enable=on,target=native \
     -chardev serial,id=ser0,path=/tmp/nros-serial-qemu \
     -serial chardev:ser0 \
-    -kernel target/thumbv7m-none-eabi/release/serial-talker
+    -kernel build/mps2-an385-baremetal/target/thumbv7m-none-eabi/release/qemu-serial-talker
 </code></pre>
 <p>(<code>-display none -monitor none</code>, not <code>-nographic</code> — <code>-nographic</code>
 implies <code>-serial mon:stdio</code>, which hijacks UART0 for the monitor.)</p>
@@ -354,21 +364,29 @@ run(config, |config| {
 └──────────────────────────────────────────────────────────┘
 </code></pre>
 <h3 id="qemu-flags"><a class="header" href="#qemu-flags">QEMU Flags</a></h3>
-<p>The serial example’s <code>.cargo/config.toml</code> uses:</p>
+<p>The runner is the <strong>board’s</strong>, not the example’s. <code>nros sync</code> writes it into
+the image’s generated settings file,
+<code>build/mps2-an385-baremetal/nros-cargo.toml</code>, where it reads:</p>
 <pre><code class="language-toml">[target.thumbv7m-none-eabi]
-runner = "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -semihosting-config enable=on,target=native -serial pty -kernel"
+runner = "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -semihosting-config enable=on,target=native -kernel"
 </code></pre>
 <p>Key flags:</p>
 <ul>
-<li><code>-serial pty</code> — Expose UART0 as a host PTY</li>
 <li><code>-nographic</code> — No display window</li>
 <li><code>-semihosting-config enable=on,target=native</code> — Debug output via semihosting (separate from UART)</li>
 <li>No <code>-netdev</code> / <code>-net</code> — Serial transport doesn’t need Ethernet</li>
 </ul>
+<p>That runner wires <strong>no serial device</strong>: it is the board’s general-purpose
+one, good for <code>cargo run</code> on any image for this board, and it is generated —
+editing it in place is overwritten by the next sync. The serial-specific
+flags (<code>-chardev</code> / <code>-serial chardev:…</code>) go on the explicit QEMU command
+line above, which is why step 3 boots QEMU by hand rather than through
+<code>cargo run</code>.</p>
 <h3 id="-icount-shiftauto"><a class="header" href="#-icount-shiftauto"><code>-icount shift=auto</code></a></h3>
-<p>For reliable serial communication, add <code>-icount shift=auto</code> to synchronize QEMU’s virtual clock with wall-clock time. Without this, QEMU runs the CPU at full speed, which can cause timing-sensitive serial handshakes to fail:</p>
-<pre><code class="language-toml">runner = "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -semihosting-config enable=on,target=native -icount shift=auto -serial pty -kernel"
-</code></pre>
+<p>For reliable serial communication, add <code>-icount shift=auto</code> to synchronize
+QEMU’s virtual clock with wall-clock time. Without this, QEMU runs the CPU at
+full speed, which can cause timing-sensitive serial handshakes to fail. The
+explicit command line in step 3 already carries it.</p>
 <h3 id="automated-testing"><a class="header" href="#automated-testing">Automated Testing</a></h3>
 <p>The integration test <code>test_qemu_serial_pubsub_e2e</code> in <code>packages/testing/nros-tests/tests/emulator.rs</code> automates the full workflow:</p>
 <ol>
@@ -419,7 +437,7 @@ runner = "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -semihos
 <p>On physical hardware, ensure the UART TX/RX pins aren’t shared with the debug console. Some boards use UART0 for debug output — use a different UART for zenoh transport, or disable debug prints.</p>
 <h3 id="esp32-serial"><a class="header" href="#esp32-serial">ESP32 Serial</a></h3>
 <p>ESP32 uses zenoh-pico’s built-in ESP-IDF serial implementation. No <code>zpico-serial</code> dependency is needed. Select serial transport in the board crate:</p>
-<pre><code class="language-toml">nros-board-esp32-qemu = { path = "...", default-features = false, features = ["serial"] }
+<pre><code class="language-toml">nros-board-esp32-qemu = { version = "*", default-features = false, features = ["serial"] }
 </code></pre>
 <p>The default locator is <code>serial/UART_0#baudrate=115200</code>. ESP32’s USB-JTAG-Serial peripheral or UART0/UART1 can be used.</p>
 

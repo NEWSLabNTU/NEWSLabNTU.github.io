@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -217,10 +217,14 @@ no <code>src/</code>. Its job is to describe <em>which</em> nodes run, how they�
 where they deploy. Naming convention: <code>&lt;system&gt;_bringup</code> (aliased <code>&lt;system&gt;_launch</code>),
 matching nav2 / Autoware / turtlebot3.</p>
 <p>A multi-node workspace needs exactly one per logical system. It is where
-<code>[image.*]</code> lives, so it is the package a buildable workspace cannot do
-without — <code>nros build</code> reads that table to decide what programs exist. (The
+<code>[image.*]</code> lives, so it is the package that gives a workspace images to
+build — <code>nros build</code> reads that table to decide what programs exist. A
+workspace with no bringup still builds, colcon-style: every package in
+dependency order, each into its own <code>build/&lt;pkg&gt;/</code>, with no images. (The
 single-package copy-out shape under <code>examples/&lt;platform&gt;/&lt;lang&gt;/</code> has no
-bringup and no images; it boots itself with a bare <code>nros::main!()</code>.)</p>
+bringup <em>package</em>, but it writes the same <code>system.toml</code> beside its own
+<code>Cargo.toml</code> or <code>CMakeLists.txt</code> — one schema either way, RFC-0098 D3 — and
+boots itself with a bare <code>nros::main!()</code>.)</p>
 <hr>
 <h2 id="anatomy"><a class="header" href="#anatomy">Anatomy</a></h2>
 <pre><code>src/demo_bringup/
@@ -383,24 +387,36 @@ above is the native authoring format.</p>
 </code></pre>
 <p>No <code>&lt;build_depend&gt;</code> entries — there is nothing to compile.</p>
 <hr>
-<h2 id="workflow-check--run"><a class="header" href="#workflow-check--run">Workflow: check → run</a></h2>
-<p>Once your Bringup pkg is written, <code>nros check</code> validates it and <code>nros build</code>
-turns one of its images into a program:</p>
-<pre><code class="language-bash"># 1. Lint the bringup pkg (pure-declarative check — no Cargo.toml, stray files, etc.)
+<h2 id="workflow-sync--check--run"><a class="header" href="#workflow-sync--check--run">Workflow: sync → check → run</a></h2>
+<p>Once your Bringup pkg is written, <code>nros sync</code> prepares what the build needs,
+<code>nros check</code> validates the declarations, and <code>nros build</code> turns one of its
+images into a program:</p>
+<pre><code class="language-bash"># 1. Sync. Once per workspace, and again after editing a .msg: it writes the
+#    generated message crates and each image's generated build settings.
+nros sync
+
+# 2. Lint the bringup pkg (pure-declarative check — no Cargo.toml, stray files, etc.)
 nros check --bringup src/demo_bringup
 
-# 2. Lint the whole workspace (pkg/class rows, duplicate system.toml, etc.)
+# 3. Lint the whole workspace (pkg/class rows, duplicate system.toml, etc.)
 nros check --workspace .
 
-# 3. Build an image. With no name, `nros build` lists what this workspace declares.
+# 4. Build an image. With no name, `nros build` lists what this workspace declares.
 nros build native
 
-# 4. Run it. Zenoh needs a router first, in another shell:
+# 5. Run it. Zenoh needs a router first, in another shell:
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 </code></pre>
+<p>Sync comes first because everything after it reads what it wrote. A workspace
+that has never been synced makes <code>nros build</code> stop at preflight with one line
+naming it:</p>
+<pre><code class="language-text">Error: missing prerequisites for this build:
+  - generated message bindings (this workspace has never been synced)
+      run: nros sync
+</code></pre>
 <p>The binary boots every node the launch file names, composed into one process.
-It lands beside the build <code>nros build</code> drove — under <code>target/</code> on the cargo
-driver, <code>build/&lt;coordinate&gt;/cmake/</code> on the cmake one.</p>
+It lands under <code>build/</code>, never beside your source: <code>build/&lt;coordinate&gt;/cmake/</code>
+on the cmake driver, <code>build/&lt;coordinate&gt;/&lt;entry&gt;/target/</code> on the cargo one.</p>
 <p>Both <code>nros check</code> forms pass for the canonical template at
 <code>examples/workspaces/rust/</code>.</p>
 <blockquote>
@@ -424,21 +440,13 @@ truth for the current CLI state.</p>
 <p><code>examples/workspaces/rust/</code> is the canonical Rust workspace that pairs with
 this guide. Copy the whole directory out and rename the packages, then:</p>
 <pre><code class="language-bash">nros setup native
-nros sync            # once per workspace — the generated message bindings
+nros sync            # once per workspace — message bindings + build settings
 nros build native
 </code></pre>
 <p><code>nros build</code> walks the packages, resolves the image, checks the toolchain,
-generates the root manifest and the entry, and hands off to cargo. The older
-<code>nros codegen-system</code> / <code>nros check</code> steps still work; they are just no longer
-something you have to type.</p>
-<p><code>nros sync</code> is the one that is still yours to run. A workspace that has never
-been synced has no generated message crates, so <code>nros build</code> refuses at
-preflight and names it:</p>
-<pre><code class="language-text">Error: missing prerequisites for this build:
-  - generated message bindings (this workspace has never been synced)
-      run: nros sync
-</code></pre>
-<p>Once per workspace is enough; after that, re-run it when you edit a <code>.msg</code>.</p>
+generates the entry and the build root that compiles it — both under <code>build/</code>,
+neither beside your source — and hands off to cargo. <code>nros check</code> still works
+and is worth running; it is just no longer something you have to type.</p>
 <p>The workspace README at <code>examples/workspaces/rust/README.md</code>
 documents the exact CLI commands that are verified green today.</p>
 <hr>

@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -195,13 +195,13 @@ changes language-side is the cmake-fn / macro surface.</p>
 <tr><th>Role</th><th>Rust</th><th>C / C++</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>Node pkg</strong></td><td><code>lib.rs</code> with <code>nros::node!(MyNode)</code> + <code>[package.metadata.nros.node]</code> in <code>Cargo.toml</code></td><td><code>Talker.{hpp,cpp}</code> with a <code>configure(::rclcpp::Node&amp;)</code> component method (C++) / <code>NROS_C_COMPONENT</code> (C); <code>CMakeLists.txt</code> calling <code>nano_ros_auto_add_library</code> + <code>nros_components_register_node</code> (RFC-0057)</td></tr>
+<tr><td><strong>Node pkg</strong></td><td><code>lib.rs</code> with <code>nros::node!(MyNode)</code>, declared by a <code>[[component]]</code> row in the bringup’s <code>system.toml</code></td><td><code>Talker.{hpp,cpp}</code> with a <code>configure(::rclcpp::Node&amp;)</code> component method (C++) / <code>NROS_C_COMPONENT</code> (C); <code>CMakeLists.txt</code> calling <code>nano_ros_auto_add_library</code> + <code>nros_components_register_node</code> (RFC-0057)</td></tr>
 <tr><td><strong>Bringup pkg</strong></td><td><code>package.xml</code> + <code>system.toml</code> + <code>launch/*.launch.xml</code> (no <code>Cargo.toml</code>)</td><td>identical (language-agnostic)</td></tr>
 <tr><td><strong>Image</strong></td><td><code>[image.native] board = "native"</code> in the bringup’s <code>system.toml</code></td><td>identical (language-agnostic)</td></tr>
 <tr><td><strong>The entry</strong></td><td>GENERATED into <code>build/&lt;coord&gt;/native_entry/</code> — a <code>Cargo.toml</code> and a <code>nros::main!(launch = "demo_bringup")</code></td><td>GENERATED into <code>build/&lt;coord&gt;/CMakeLists.txt</code> — a <code>nano_ros_add_executable(native_entry BOARD … BRINGUP … LAUNCH … LANG cpp TYPED DEPLOY native)</code> call, plus the <code>main</code> TU the verb emits</td></tr>
-<tr><td><strong>Workspace root</strong></td><td>GENERATED <code>Cargo.toml [workspace] members = […]</code></td><td>GENERATED <code>CMakeLists.txt</code> calling <code>nano_ros_workspace(WORKSPACE_ROOT … BACKEND zenoh PLATFORM posix SYSTEM demo_bringup SUBDIRS …)</code></td></tr>
-<tr><td><strong>Build</strong></td><td><code>nros build native</code></td><td><code>nros build native</code></td></tr>
-<tr><td><strong>Boot</strong></td><td>the binary under <code>target/</code></td><td><code>./build/posix-zenoh-native/cmake/native_entry</code></td></tr>
+<tr><td><strong>Workspace root</strong></td><td>none — the generated entry’s own <code>Cargo.toml</code> is the cargo root</td><td>none — the generated <code>build/&lt;coord&gt;/CMakeLists.txt</code> is the cmake root, calling <code>nano_ros_workspace(WORKSPACE_ROOT … BACKEND zenoh PLATFORM posix SYSTEM demo_bringup SUBDIRS …)</code></td></tr>
+<tr><td><strong>Build</strong></td><td><code>nros sync</code> then <code>nros build native</code></td><td><code>nros sync</code> then <code>nros build native</code></td></tr>
+<tr><td><strong>Boot</strong></td><td><code>./build/posix/native_entry/target/debug/native_entry</code></td><td><code>./build/posix-zenoh-native/cmake/native_entry</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -212,7 +212,7 @@ Copy the whole directory, rename the packages.</p>
 <p>Identical structure to the Rust template, swapping <code>Cargo.toml</code> →
 <code>CMakeLists.txt</code> inside each Node pkg — and, at the root, nothing at all:</p>
 <pre><code class="language-text">my_ws/
-├── .colcon_workspace             # tracked marker; the root CMakeLists.txt is GENERATED
+├── .colcon_workspace             # tracked marker; there is no root build file
 └── src/
     ├── talker_pkg/               # Node pkg (C++)
     │   ├── package.xml
@@ -227,15 +227,18 @@ Copy the whole directory, rename the packages.</p>
         ├── system.toml           #          [system] + [[component]] + [image.*]
         └── launch/system.launch.xml
 </code></pre>
-<p>No entry package. <code>nros build &lt;image&gt;</code> writes the root <code>CMakeLists.txt</code> and the
+<p>No entry package, and nothing at the root: a workspace is a directory of
+packages (RFC-0098 D9). <code>nros build &lt;image&gt;</code> writes a <code>CMakeLists.txt</code> and the
 entry’s <code>nano_ros_add_executable(…)</code> call into <code>build/&lt;coordinate&gt;/</code>, configures
 that into <code>build/&lt;coordinate&gt;/cmake/</code>, and builds — see
 <a href="./workspace-entry-pkg.html">Images</a>. The exception is a Zephyr application,
 which keeps a package because west needs a real application directory.</p>
-<h2 id="the-generated-workspace-root"><a class="header" href="#the-generated-workspace-root">The generated workspace root</a></h2>
+<h2 id="the-generated-cmake-root"><a class="header" href="#the-generated-cmake-root">The generated cmake root</a></h2>
 <p>You do not write this; <code>nros build</code> does, from the packages it discovered and
-the image it resolved. It is worth reading once, because everything below
-happens inside it:</p>
+the image it resolved. It is the cmake root — and it lives in
+<code>build/&lt;coordinate&gt;/</code>, not at the workspace root, which is why its first
+argument says where the workspace actually is. It is worth reading once,
+because everything below happens inside it:</p>
 <pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
 project(my_ws LANGUAGES C CXX)
 find_package(nano_ros REQUIRED COMPONENTS workspace)
@@ -414,7 +417,7 @@ rmw = "zenoh"
 [image.native]
 board = "native"
 </code></pre>
-<p>— and <code>nros build native</code> emits this into the generated root. <code>BOARD</code> and
+<p>— and <code>nros build native</code> emits this into that generated root. <code>BOARD</code> and
 <code>DEPLOY</code> come from the resolved image, so a generated entry cannot disagree
 with the board it was generated for; there is no <code>SOURCES</code>, because the verb
 generates the translation unit carrying <code>main</code>:</p>
@@ -461,17 +464,19 @@ NROS_MAIN(nros::board::LinuxBoard, "demo_bringup:system.launch.xml")
 <p><code>NROS_MAIN(...)</code> is a sentinel macro — the cmake fn owns the generated
 body, the user’s TU is documentation + IDE hint.</p>
 <h2 id="build--boot"><a class="header" href="#build--boot">Build + boot</a></h2>
-<pre><code class="language-bash">nros build native
+<pre><code class="language-bash">nros sync
+nros build native
 ./build/posix-zenoh-native/cmake/native_entry
 </code></pre>
 <p><code>nros build</code> resolves the SystemModel for you (via the pinned
 <code>nros-launch-resolve</code> helper, whenever the launch XML or <code>system.toml</code> is
-newer), writes the root, configures, and builds. It does <strong>not</strong> run <code>nros sync</code>: a workspace that has never been synced has no generated message
-bindings, and <code>nros build</code> refuses at preflight naming <code>nros sync</code> as the
-remedy. Sync once per workspace; after that only a <code>.msg</code> edit needs it
-again. The coordinate directory
-names what it contains: platform, RMW, board. Driving <code>cmake</code> yourself against
-the generated root still works.</p>
+newer), writes <code>build/&lt;coordinate&gt;/CMakeLists.txt</code>, configures, and builds. It
+does <strong>not</strong> run <code>nros sync</code>: a workspace that has never been synced has no
+generated message bindings, and <code>nros build</code> refuses at preflight naming <code>nros sync</code> as the remedy. Sync once per workspace; after that only a <code>.msg</code> edit
+needs it again. The coordinate directory names what it contains: platform, RMW,
+board. Driving <code>cmake</code> yourself against that generated root —
+<code>build/&lt;coordinate&gt;/CMakeLists.txt</code>, never a file at the workspace root — still
+works.</p>
 <p>The build produces:</p>
 <ul>
 <li><code>src/talker_pkg/libtalker_pkg_talker_component.a</code> — the Node pkg static lib
@@ -508,7 +513,7 @@ syntax the user types into the two package roles.</p>
 <tbody>
 <tr><td><code>nros new --component &lt;name&gt; --lang cpp --use-case talker</code></td><td>C++ Node pkg; <code>--component</code> is the compatibility scaffold flag</td></tr>
 <tr><td><code>nros new system &lt;name&gt;_bringup --components a,b</code></td><td>Bringup pkg (language-agnostic — works for both Rust and C++ workspaces)</td></tr>
-<tr><td><code>nros new &lt;name&gt; --lang cpp --platform native</code></td><td>A standalone single-package <em>project</em> with its own root — the copy-out shape, not a workspace member</td></tr>
+<tr><td><code>nros new &lt;name&gt; --lang cpp --platform native</code></td><td>A standalone single-package <em>project</em> — its own <code>CMakeLists.txt</code> and its own <code>system.toml</code>; the copy-out shape, not a workspace member</td></tr>
 <tr><td><code>nros new entry &lt;name&gt; --platform zephyr</code></td><td>A Zephyr application package + its <code>[image.*]</code> row. The verb accepts no other platform: everywhere else the entry is generated</td></tr>
 </tbody>
 </table>

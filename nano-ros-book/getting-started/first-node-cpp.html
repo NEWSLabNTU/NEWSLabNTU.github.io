@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -210,17 +210,28 @@ shared store; the router itself comes from your ROS 2 install —
 </code></pre>
 <p>See <a href="./installation.html">Install + first build (Linux)</a> for more.</p>
 <h2 id="project-layout"><a class="header" href="#project-layout">Project layout</a></h2>
-<p>The talker is a <strong>standalone CMake project</strong> that pulls nano-ros via
-<code>add_subdirectory(&lt;repo-root&gt;)</code>. Two files matter:</p>
+<p>The talker is a <strong>standalone CMake project</strong>. Three files matter:</p>
 <pre><code class="language-text">examples/native/cpp/talker/
-├── CMakeLists.txt      # add_subdirectory + targets
+├── system.toml         # WHAT this deploys to — the one file you edit
+├── CMakeLists.txt      # find_package + targets; no board facts
+├── package.xml         # ROS-style manifest
 └── src/
     └── main.cpp        # ~70-line talker
 </code></pre>
+<p><code>system.toml</code> is the whole deployment statement — <code>[system]</code> for the
+RMW and domain, <code>[[component]]</code> for what runs, and one <code>[image.&lt;id&gt;]</code>
+per target naming its <code>board</code> (RFC-0098). <code>find_package(nano_ros)</code>
+reads it and derives the platform from the board, so no line of
+<code>CMakeLists.txt</code> names a platform, a board or an RMW. Switching this
+example to a board is editing <code>[image.native] board</code> and re-running
+cmake; see <a href="first-node-c.html#project-layout">First Node — C</a> for the
+file in full.</p>
 <p>Native (host) talkers read the locator + domain from arguments passed to
-<code>nros::init(...)</code>; no config file is needed. Embedded variants under
-<code>examples/&lt;plat&gt;/cpp/talker/</code> bake theirs from the
-package.xml <code>&lt;nano_ros deploy=…/&gt;</code> tuple.</p>
+<code>nros::init(...)</code>; no other config is needed. An embedded image declares
+<code>locator</code> / <code>ip</code> / <code>gateway</code> / <code>netmask</code> in its own <code>[image.&lt;id&gt;]</code> table
+and bakes them at build time. The <code>package.xml</code>
+<code>&lt;nano_ros deploy=… board=… rmw=…/&gt;</code> export that used to carry that
+tuple is retired and refused.</p>
 <p>The CMakeLists is the <strong>ament shape you already know</strong> — this is the
 complete canonical file at
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/native/cpp/talker/CMakeLists.txt"><code>examples/native/cpp/talker/CMakeLists.txt</code></a>,
@@ -230,7 +241,7 @@ Find-stubs make <code>find_package(std_msgs)</code> generate bindings on the fly
 <pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
 project(cpp_talker LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(nano_ros REQUIRED)
@@ -244,8 +255,8 @@ ament_package()
 </code></pre>
 <p><strong><code>LANGUAGES C CXX</code></strong> (not <code>CXX</code> alone): the per-target register stub
 is a C translation unit, so C must be enabled in this directory scope
-or the link fails. Backend selection is a configure-line cache var
-(<code>-DNROS_RMW=zenoh|xrce|cyclonedds</code>), not CMake code.</p>
+or the link fails. Backend selection is <code>[system] rmw</code> in <code>system.toml</code>,
+not CMake code and not a configure-line cache variable.</p>
 <p>The C++ entry point is <strong><code>int nros_app_main(int argc, char** argv)</code></strong>
 (same as C); <code>&lt;nros/app_main.h&gt;</code> provides the OS-side <code>main</code> stub.</p>
 <p>The body uses typed <code>nros::Publisher&lt;M&gt;</code> / <code>nros::Subscription&lt;M&gt;</code>
@@ -321,6 +332,14 @@ cmake -B build          # with ./activate.sh sourced, nano_ros_ROOT is
                         # -Dnano_ros_ROOT=&lt;path-to-nano-ros&gt; explicitly
 cmake --build build
 </code></pre>
+<p>No <code>nros sync</code> here: a C++ leaf’s message bindings are generated inside
+CMake, at configure time. (A Rust leaf needs sync, because its message
+crates and its build settings have to exist before cargo parses
+anything.) <code>nros build</code>, the workspace verb, does not yet work in a
+single-package C or C++ leaf —
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1296-nros-build-c-leaf-bringup-name-mismatch.md">issue 1296</a>;
+these two <code>cmake</code> lines are the supported path here, and <code>nros build</code> is
+the path for a <a href="workspace-cpp.html">multi-node workspace</a>.</p>
 <p>First configure builds nano-ros’s Rust staticlibs (~3 minutes).
 Re-builds finish in seconds.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>

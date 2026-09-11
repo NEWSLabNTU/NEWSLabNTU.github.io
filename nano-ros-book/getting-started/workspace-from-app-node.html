@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-3be34869.js";
+            window.path_to_searchindex_js = "../searchindex-2346a0a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -221,10 +221,15 @@ C++ or Rust Node pkgs.</p>
     ├── listener_pkg/           # Node pkg: another reusable node
     └── robot_bringup/          # Bringup pkg: launch XML + system.toml + [image.*]
 </code></pre>
-<p>Two kinds of package, and that is the whole tracked tree. There is no root
-<code>Cargo.toml</code> or <code>CMakeLists.txt</code> to write and no binary package to write:
-<code>nros build</code> generates both from the packages it discovers plus the
-<code>[image.*]</code> table in the Bringup pkg (RFC-0065 D3/D4).</p>
+<p>Two kinds of package, and that is the whole tree. A workspace has <strong>no root
+build file at all</strong> — no <code>Cargo.toml</code>, no <code>CMakeLists.txt</code> — the way a colcon
+workspace is just a directory of packages (RFC-0098 D9). There is no binary
+package to write either: from the <code>[image.*]</code> table in the Bringup pkg,
+<code>nros build</code> generates the entry and the build root that compiles it, both
+under <code>build/</code>. The cargo root is the generated entry itself,
+<code>build/&lt;coordinate&gt;/&lt;entry&gt;/Cargo.toml</code>; the cmake root is
+<code>build/&lt;coordinate&gt;/CMakeLists.txt</code>. Nothing generated is ever written beside
+your source.</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -276,9 +281,10 @@ source ./activate.fish        # fish
 </code></pre>
 <h2 id="the-three-roles-in-practice"><a class="header" href="#the-three-roles-in-practice">The three roles in practice</a></h2>
 <p><strong>Node pkg</strong> — a <code>lib</code> crate that contains one node’s logic. It
-declares <code>nros::node!(T)</code> and carries
-<code>[package.metadata.nros.node]</code> in its <code>Cargo.toml</code>. It has no
-<code>fn main()</code> — no package you write has one. One Node pkg per node.
+declares <code>nros::node!(T)</code>; its <code>Cargo.toml</code> carries Rust-toolchain facts
+only, and the node’s identity — which package, which class, what it is
+called — is a <code>[[component]]</code> row in the Bringup pkg’s <code>system.toml</code>. It
+has no <code>fn main()</code> — no package you write has one. One Node pkg per node.
 Think of it as a composable building block: the same <code>talker_pkg</code> lib
 can be assembled into a native binary <em>and</em> an embedded binary without
 any source change.</p>
@@ -289,15 +295,24 @@ row per program), and a <code>launch/</code> directory with ROS 2 launch XML. <s
 <code>Cargo.toml</code>, no compiled code.</strong> Naming convention <code>&lt;system&gt;_bringup</code>,
 matching nav2 / Autoware / turtlebot3.</p>
 <p><strong>Image</strong> — not a package. <code>[image.native] board = "native"</code> is a row in
-that <code>system.toml</code>, and <code>nros build native</code> turns it into a program:
-<code>nros build</code> generates the root build file <em>and</em> the entry that links the
-Node pkgs and the board crate and hands control to the nano-ros runtime.
-A second board is a second row, not a second directory.</p>
+that <code>system.toml</code>, and <code>nros build native</code> turns it into a program: it
+generates, under <code>build/</code>, the entry that links the Node pkgs and the board
+crate and hands control to the nano-ros runtime. A second board is a second
+row, not a second directory.</p>
+<p>Two commands, in this order, and they are the same two everywhere in this
+group:</p>
+<pre><code class="language-bash">nros sync      # generated message bindings + the generated build settings
+nros build     # every [image.*]; or name one: nros build native
+</code></pre>
+<p><code>nros sync</code> is yours to run once per workspace, and again whenever you edit
+a <code>.msg</code> or move the checkout. A workspace that has never been synced makes
+<code>nros build</code> stop at preflight with one line naming it.</p>
 <p>The app-node shape you already know (<code>examples/native/rust/talker/</code>) is a
-single package that is both the logic and the boot point — no bringup, no
-images, <code>nros::main!()</code> reading its own <code>Cargo.toml</code>. That fusion is fine —
-and encouraged — for single-node work. Only split when you actually need
-the flexibility.</p>
+single package that is both the logic and the boot point — no bringup and
+no entry, but the same <code>system.toml</code> beside its <code>Cargo.toml</code>, stating its
+board in an <code>[image.*]</code> row (RFC-0098 D3). <code>nros::main!()</code> reads it. That
+fusion is fine — and encouraged — for single-node work. Only split when you
+actually need the flexibility.</p>
 <h2 id="ros-2--nano-ros-command-map"><a class="header" href="#ros-2--nano-ros-command-map">ROS 2 ↔ nano-ros command map</a></h2>
 <p>If you’re coming from ROS 2, here’s the mapping of the commands you
 already know:</p>
@@ -308,7 +323,7 @@ already know:</p>
 </thead>
 <tbody>
 <tr><td><code>ros2 pkg create</code></td><td><code>nros new node &lt;name&gt;</code></td><td>scaffolds a Node pkg and adds its <code>[[component]]</code> row</td></tr>
-<tr><td><code>colcon build</code></td><td><code>nros build &lt;image&gt;</code></td><td>resolves the image, generates the root, hands off to cargo / cmake / west / idf.py</td></tr>
+<tr><td><code>colcon build</code></td><td><code>nros sync</code> once, then <code>nros build &lt;image&gt;</code></td><td>resolves the image, generates the entry and its build root under <code>build/</code>, hands off to cargo / cmake / west / idf.py</td></tr>
 <tr><td><code>ros2 launch &lt;pkg&gt; &lt;file&gt;</code></td><td>run the image’s binary</td><td>the image IS the launch product; the old launch wrapper was removed in nros 0.5.0</td></tr>
 <tr><td>(plan/validate)</td><td><code>nros plan</code> → <code>nros check</code></td><td>resolve + statically check the topology</td></tr>
 <tr><td><code>ros2 run &lt;pkg&gt; &lt;exe&gt;</code></td><td>run the image’s binary</td><td>one <code>[image.*]</code> row per board</td></tr>
