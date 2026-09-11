@@ -237,7 +237,8 @@ Data Fields</h2></td></tr>
 <li><code>NROS_RMW_RET_INVALID_ARGUMENT</code> on bad pointers / size.</li>
 </ul>
 <p><code>*out_cap</code> may exceed <code>requested_len</code>. The slot's bytes are valid until the matching <code>pub_commit</code> or <code>pub_discard</code> runs. <code>*out_token</code> is an opaque per-loan handle the backend uses to match commit / discard back to the right slot.</p>
-<p>NULL function pointer = backend doesn't natively lend; the runtime falls back to a per-publisher staging arena and emits a single memcpy on commit. </p>
+<p>NULL function pointer = backend doesn't natively lend. The fallback then depends on whether the image has an allocator: with <code>alloc</code>, <code>try_lend_slot</code> allocates a staging <code>Vec</code> PER LOAN, hands its pointer back as the slot, and commit memcpys it into <code>publish</code>; without <code>alloc</code> there is no fallback at all and the loan is refused PERMANENTLY, not "try again" (issue 0814 — both facts are about the image and the vtable, neither can change while the publisher lives).</p>
+<p>This said "a per-publisher staging arena" until 2026-09-11. There is no per-publisher buffer anywhere in this tree — the same fiction issue 0782 corrected 200 lines below, on <code>publish_streamed</code>, and left standing here. </p>
 
 </div>
 </div>
@@ -514,7 +515,8 @@ Data Fields</h2></td></tr>
 </div><div class="memdoc">
 <p>Upstream <code>rmw_feature_supported</code>.</p>
 <p>Whether the backend populates an optional piece of CONTENT — upstream's two values both concern message-info sequence numbers. Deliberately not expressed as slot nullity: a NULL pointer says the backend cannot perform an OPERATION, which is a different question from whether the data an implemented operation returns is populated.</p>
-<p>NULL slot: the runtime answers <code>false</code> for every feature. </p>
+<p>NULL slot: there is NOTHING TO ANSWER — no code in this tree reads this slot, so a NULL one is not "answered elsewhere as
+false", it is unreachable. This doc promised the <code>false</code> fallback until 2026-09-11 and no such code was ever written: the same fiction corrected 60 lines above on <code>get_implementation_identifier</code>, and left standing here (phase-428 W12). It earns a dispatch site when a caller exists. </p>
 
 </div>
 </div>
@@ -774,7 +776,7 @@ mutate subscription state" was recorded here and true of nobody (issue 0780). </
 <p>Upstream <code>rmw_node_get_graph_guard_condition</code>.</p>
 <p>Registers a callback fired when the graph CHANGES. Upstream returns a guard condition the caller adds to a wait set; we have no wait set to add it to, and guard conditions are an executor concept here, so this is the <code>set_wake_callback</code> shape instead — the one guard condition whose trigger is genuinely backend knowledge.</p>
 <p>The callback is an EDGE, carrying no payload: delivering WHAT changed would mean buffering it, which is the graph cache a small target cannot afford.</p>
-<p>Named after upstream mechanically, per the campaign's rule, but the honest name for this shape is <code>set_on_graph_change_callback</code> — flagged for W5 rather than decided quietly here. </p>
+<p>Named after upstream mechanically, per the campaign's rule, but the honest name for this shape would be set-on-graph-change-callback — flagged for W5 rather than decided quietly here. (Unticked: no such slot exists, and a backtick in this header means it does.) </p>
 
 </div>
 </div>
@@ -796,12 +798,12 @@ router still reachable?") and waits up to <code>timeout_ms</code> for a reply. N
 <li><code>NROS_RMW_RET_OK</code> — peer responded within budget.</li>
 <li><code>NROS_RMW_RET_TIMEOUT</code> — no reply before <code>timeout_ms</code>.</li>
 <li><code>NROS_RMW_RET_UNSUPPORTED</code> — backend can't probe (DDS with no participant introspection).</li>
-<li>other negative — backend error.</li>
+<li>any other named constant — backend error. (This read "other negative" until 2026-09-11; W3.d step B made every error positive.)</li>
 </ul>
 <p>Implementation notes per backend:</p><ul>
 <li><b>Zenoh</b>: <code>z_send_ping</code> (or session keep-alive piggyback).</li>
 <li><b>XRCE</b>: <code>uxr_ping_agent_session_until_timeout</code>.</li>
-<li><b>DDS</b>: built-in participant ping if available, else <code>RET_UNSUPPORTED</code>.</li>
+<li><b>DDS</b>: built-in participant ping if available, else <code>NROS_RMW_RET_UNSUPPORTED</code>.</li>
 </ul>
 <p>NULL function pointer = runtime surfaces <code>NROS_RMW_RET_UNSUPPORTED</code> to the caller. </p>
 
@@ -879,7 +881,7 @@ staging buffer … where the staging buffer dominates `.bss`", which described a
 <li><code>chunk_cb(out_buf, cap, *out_written, user_ctx)</code> — write up to <code>cap</code> bytes starting at <code>out_buf</code>, then report the count written via <code>*out_written</code>. The backend may call <code>chunk_cb</code> repeatedly until the total promised by <code>size_cb</code> has been delivered. <code>*out_written == 0</code> means EOF; the backend tears down the slot.</li>
 </ul>
 <p>Lesson from micro-ROS's <code>rmw_uros_set_continous_serialization_callbacks</code>: pass the callbacks per-call rather than binding them to publisher state, so different messages on the same publisher can use different serialisation strategies.</p>
-<p>NULL function pointer = backend doesn't stream; the runtime falls back to a one-shot staging buffer (capped at the configured <code>NROS_MAX_STREAM_CHUNK</code>) + <code>publish_raw</code>. </p>
+<p>NULL function pointer = backend doesn't stream; the runtime stages into a 4 KiB buffer on the CALLER's stack and then <code>publish</code>es it, refusing a total larger than that with <code>NROS_RMW_RET_BUFFER_TOO_SMALL</code>. The cap is a constant in <code>CffiPublisher::publish_streamed</code>, not a knob: this said "the configured NROS_MAX_STREAM_CHUNK" until 2026-09-11 and no such setting has ever existed, so a reader looking for the knob to raise found nothing and had no way to know the limit was 4096 (phase-428 W12). </p>
 
 </div>
 </div>
@@ -1057,7 +1059,7 @@ out-of-tree backend" is not the reason and must not be cited as one. Three reaso
         </tr>
       </table>
 </div><div class="memdoc">
-<p>Phase 130.4 — non-blocking send_request_raw. Phase-301: the deprecated blocking <code>call_raw</code> slot is DELETED (rmw has no blocking call); this + <code>try_recv_reply_raw</code> is the ONE request/reply path and both slots are now REQUIRED for a backend that supports services.</p>
+<p>Phase 130.4 — non-blocking send_request_raw. Phase-301: the deprecated blocking <code>call_raw</code> slot is DELETED (rmw has no blocking call); this + <code>take_response</code> is the ONE request/reply path and both slots are now REQUIRED for a backend that supports services.</p>
 <p>Sends the request to the backend without blocking for a reply. Returns immediately.</p>
 <p><code>*sequence_id</code> is the id the backend assigned, written only on <code>NROS_RMW_RET_OK</code>. Upstream returns it for one reason and it is the same reason here: a client with two calls outstanding has nothing else to match a reply against.</p>
 <p>Issue 0778 — this out-parameter was ABSENT until 2026-08-25, and every backend computed the id and threw it away (cyclonedds a <code>RequestId{guid, seq}</code>, zenoh a <code>fetch_add</code> into the rmw attachment, xrce <code>uxr_buffer_request</code>'s id). With nothing to correlate BY, each invented a policy: cyclonedds ABANDONED the first request when a second was sent, zenoh took FIRST REPLY WINS on the grounds that "a queryable
@@ -1121,7 +1123,7 @@ is idempotent at the application layer" — which this ABI cannot enforce and wh
       </table>
 </div><div class="memdoc">
 <p>Phase 124.C.1 — service-server availability probe.</p>
-<p>Returns <code>1</code> if ≥ 1 matching server has been discovered on the RMW graph, <code>0</code> if none yet, or a negative <code>rmw_ret_t</code> constant on backend error. The runtime exposes this to user code as <code>nros_client_server_available()</code> / <code>Client&lt;S&gt;::server_available()</code> — clients use it to gate the first request so a startup-ordering race doesn't surface as a request-side timeout.</p>
+<p><code>*out_available</code> says whether ≥ 1 matching server has been discovered on the RMW graph; the return is a plain status. (This opened by describing the answer as the RETURN — <code>1</code>, <code>0</code>, or a negative code — the pre-W3.d shape that the rest of this same block goes on to explain was retired. Corrected 2026-09-11, phase-428 W12.) The runtime exposes this to user code as <code>nros_client_server_available()</code> / <code>Client&lt;S&gt;::server_available()</code> — clients use it to gate the first request so a startup-ordering race doesn't surface as a request-side timeout.</p>
 <p>Implementation notes per backend:</p><ul>
 <li><b>Zenoh</b>: <code>z_session</code> tracks matched queryables via interest declarations.</li>
 <li><b>Cyclone DDS / dust-DDS</b>: built-in topic readers expose matched-pub counts.</li>
@@ -1291,14 +1293,7 @@ global". Both clauses were false: <code>Logger::level</code> is an <code>AtomicU
         </tr>
       </table>
 </div><div class="memdoc">
-<p>Phase 124.A — zero-copy subscription borrow.</p>
-<p>Borrow a read-only view of the next available message in place, without copying into a caller buffer. Returns:</p><ul>
-<li><code>&gt;= 0</code> — message length; writes <code>*out_buf</code> / <code>*out_token</code>.</li>
-<li><code>0</code> — no message ready (subscription empty).</li>
-<li><code>&lt; 0</code> — error (see <code>rmw_ret_t</code> codes negated).</li>
-</ul>
-<p>The view is valid until the matching <code>sub_release</code> runs. Only one borrow may be outstanding per subscription at a time — callers MUST release before requesting another borrow.</p>
-<p>NULL function pointer = backend doesn't natively borrow; the runtime falls back to <code>try_recv_raw</code> into a staging buffer. Upstream <code>rmw_take_loaned_message</code>. Phase 376 W3.b/W3.d step A.</p>
+<p>Upstream <code>rmw_take_loaned_message</code>. Phase 376 W3.b/W3.d step A.</p>
 <p><code>*taken</code> says whether a view was handed out; <code>*out_buf</code>, <code>*out_len</code> and <code>*out_token</code> describe it and are meaningful only when taken. All are written only on <code>NROS_RMW_RET_OK</code>.</p>
 <p>Before this, the length was returned AND written to <code>*out_len</code>, and the runtime used the return — so a backend that disagreed with itself had one of its two answers silently ignored. There is now one length.</p>
 <p>Deviation from upstream, declared: upstream loans a typed <code>void **loaned_message</code>; ours is a byte view plus an opaque token to release, because there is no typesupport on target and the backend owns the buffer until <code>sub_release</code>.</p>
@@ -1368,20 +1363,16 @@ global". Both clauses were false: <code>Logger::level</code> is an <code>AtomicU
         </tr>
       </table>
 </div><div class="memdoc">
-<p>Phase 124.D.1 — burst-take.</p>
+<p>Upstream <code>rmw_take_sequence</code>. Phase 376 W3.b/W3.d step A — the COUNT moves to <code>*taken</code>, matching upstream's <code>size_t *taken</code>, and the return carries only a status. <code>*taken</code> is written only on <code>NROS_RMW_RET_OK</code>; a partial drain reports what it got rather than erroring.</p>
 <p>Drains up to <code>max_msgs</code> queued messages into a contiguous caller buffer in a single backend call, avoiding N × vtable dispatch when a burst-sensor subscription catches up on a backlog (e.g. a 100 Hz IMU feed polled at 10 Hz).</p>
 <p>Storage contract:</p><ul>
 <li><code>buf</code> is a contiguous <code>max_msgs * per_msg_cap</code> block.</li>
 <li>The i-th delivered message lives at <code>buf + i * per_msg_cap</code> and has byte length <code>out_lens[i]</code>.</li>
 <li><code>out_lens</code> is at least <code>max_msgs</code> entries long.</li>
 </ul>
-<p>Returns:</p><ul>
-<li><code>&gt;= 0</code> — count of messages taken (0..=max_msgs).</li>
-<li><code>&lt; 0</code> — <code>rmw_ret_t</code> error code; partial drains MUST use the count form, not error-out.</li>
-</ul>
-<p>NULL function pointer = backend doesn't natively batch; the runtime emits a <code>try_recv_raw</code> loop fallback in <code>CffiSubscriber::try_recv_sequence</code>. The fallback gives identical observable behaviour (each call still costs N vtable hops) but lets user code commit to the batched API. Upstream <code>rmw_take_sequence</code>. Phase 376 W3.b/W3.d step A — the COUNT moves to <code>*taken</code>, matching upstream's <code>size_t *taken</code>, and the return carries only a status. <code>*taken</code> is written only on <code>NROS_RMW_RET_OK</code>; a partial drain reports what it got rather than erroring.</p>
-<p>Issue 0971 — which leaves a question the count alone cannot answer: WHY the drain stopped. A batch that ends because a message did not fit <code>per_msg_cap</code> returns the same shape as one that drained the reader, and the message that stopped it is consumed — deliberately, for the reason the single take consumes it too: a sample left behind that no caller can ever take is a stuck subscription (<code>nros-verification</code>'s <code>try_recv_post_fix</code> / <code>no_silent_truncation</code>).</p>
-<p>So a backend that stops a drain for a reason the caller must hear PARKS that status on the subscription and returns it from the NEXT <code>take</code> or <code>take_sequence</code>, which takes nothing else that call. That rule is what makes the fallback note above true rather than aspirational: without it the runtime's <code>try_recv_raw</code> loop and a native batch answer the same condition differently — the loop erroring out and discarding the count it had already earned, the native path reporting a count and no reason. </p>
+<p>NULL slot = the backend does not natively batch; the runtime loops the single <code>take</code> instead, which gives identical observable behaviour (each message still costs one vtable hop) while letting user code commit to the batched API.</p>
+<p>Issue 0971 — which leaves a question the count alone cannot answer: WHY the drain stopped. A batch that ends because a message did not fit <code>per_msg_cap</code> returns the same shape as one that drained the reader, and the message that stopped it is consumed — deliberately, for the reason the single take consumes it too: a sample left behind that no caller can ever take is a stuck subscription (<code>nros-verification</code>'s <code>take_post_fix</code> / <code>no_silent_truncation</code>).</p>
+<p>So a backend that stops a drain for a reason the caller must hear PARKS that status on the subscription and returns it from the NEXT <code>take</code> or <code>take_sequence</code>, which takes nothing else that call. That rule is what makes the fallback note above true rather than aspirational: without it the runtime's <code>take</code> loop and a native batch answer the same condition differently — the loop erroring out and discarding the count it had already earned, the native path reporting a count and no reason. </p>
 
 </div>
 </div>
@@ -1399,7 +1390,7 @@ global". Both clauses were false: <code>Logger::level</code> is an <code>AtomicU
 <p>Upstream <code>rmw_take_with_info</code>.</p>
 <p><code>take</code> plus the sample's metadata, written to caller-owned storage. See <code><a class="el" href="structrmw__message__info__t.html">rmw_message_info_t</a></code> for why this is a pointer parameter rather than the side table the runtime uses today.</p>
 <p>Deviations from upstream, declared: the same two <code>take</code> declares — bytes (<code>buf</code>/<code>buf_len</code>/<code>*out_len</code>) instead of a typed <code>void *</code>, because there is no typesupport on target; and no allocation argument, because nothing in this ABI can produce upstream's opaque <code>rmw_subscription_allocation_t</code> — see <code>take</code>, which carries the full reason and the two wrong ones that preceded it.</p>
-<p>NULL slot: the runtime falls back to <code>take</code>, and the caller gets no metadata — which is exactly today's behaviour for every C backend. </p>
+<p>NULL slot: nothing dispatches this slot at all, so a NULL one changes nothing — the runtime calls <code>take</code> because <code>take</code> is the only take it calls, not because it fell back. The observable result ("no metadata, for every backend") is the same either way, which is exactly why the fallback prose survived unchallenged; the mechanism it described did not exist (phase-428 W12). Filling this slot on a backend today changes no behaviour. </p>
 
 </div>
 </div>
