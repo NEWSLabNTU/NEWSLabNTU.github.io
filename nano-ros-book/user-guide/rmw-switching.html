@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-07277a1f.js";
+            window.path_to_searchindex_js = "../searchindex-87abf940.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-3de5b2d7.js"></script>
@@ -185,22 +185,30 @@ built. This page lists the exact change per builder; for help picking a
 backend in the first place, see <a href="./rmw-choosing.html">Choosing an RMW</a>.</p>
 <p>Backend names are the same everywhere: <code>zenoh</code>, <code>xrce</code>, <code>cyclonedds</code>.
 When nothing selects a backend, the default is <code>zenoh</code>.</p>
-<h2 id="cc-workspace-cmake"><a class="header" href="#cc-workspace-cmake">C/C++ workspace (CMake)</a></h2>
-<p>One edit. The root <code>CMakeLists.txt</code> of a nano-ros workspace calls
-<code>nano_ros_workspace(...)</code>; change its <code>BACKEND</code> argument:</p>
-<pre><code class="language-cmake">nano_ros_workspace(
-    ORDER_FROM_DEPENDS
-    BACKEND  cyclonedds          # zenoh | xrce | cyclonedds
-    PLATFORM "${NANO_ROS_PLATFORM}"
-    SUBDIRS  ${_ws_subdirs})
+<h2 id="workspace-c-c-mixed-or-rust"><a class="header" href="#workspace-c-c-mixed-or-rust">Workspace (C, C++, mixed or Rust)</a></h2>
+<p>One edit, in the bringup’s <code>system.toml</code>:</p>
+<pre><code class="language-toml">[system]
+rmw = "cyclonedds"          # zenoh | xrce | cyclonedds
 </code></pre>
-<p>Then reconfigure and rebuild — preferably into a fresh build directory,
-so no object files from the previous backend linger.</p>
-<p>Note: when the root hard-codes <code>BACKEND</code>, passing <code>-DNROS_RMW=...</code> on
-the configure line is <strong>silently overridden</strong> — <code>nano_ros_workspace()</code>
-stamps the workspace-wide RMW from its <code>BACKEND</code> argument, and the
-cache variable loses without a warning. Edit the <code>BACKEND</code> argument;
-do not fight it from the command line.</p>
+<p>or, for one image only, <code>rmw = "…"</code> inside its <code>[image.&lt;id&gt;]</code> block. Then</p>
+<pre><code class="language-bash">nros sync
+nros build
+</code></pre>
+<p>A workspace has no root build file to edit (RFC-0098 D9): <code>nros build</code>
+writes the CMake root under <code>build/</code> with <code>BACKEND</code> taken from the
+image’s <code>rmw</code>, and for a Rust image <code>nros sync</code> writes the selection
+facade that gives the board crate the backend feature. Each image builds
+into its own directory, so no object files from another backend linger.</p>
+<blockquote>
+<p><strong>Known issue (<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1295-rust-cyclonedds-workspace-entry-no-publisher.md">1295</a>).</strong>
+A <em>Rust</em> image on <code>cyclonedds</code> also needs the <code>nros</code> crate’s
+<code>rmw-cyclonedds</code> feature — the type-descriptor gate: Cyclone DDS
+resolves topic types through a runtime descriptor registry, and this
+feature registers a message’s descriptor before its topic is created.
+The generated facade does not name it yet, so such an entry builds and
+then fails <code>PublisherCreationFailed</code> at startup. Zenoh and XRCE need no
+such feature, and C/C++ images are not affected.</p>
+</blockquote>
 <h2 id="single-cc-package-no-workspace-function"><a class="header" href="#single-cc-package-no-workspace-function">Single C/C++ package (no workspace function)</a></h2>
 <p>A standalone package that consumes nano-ros in source form — either
 <code>find_package(nano_ros REQUIRED)</code> (the ament-shape entry point,
@@ -213,42 +221,11 @@ cmake --build build
 </code></pre>
 <p>Use one build directory per backend (<code>build-zenoh/</code>, <code>build-cyclonedds/</code>,
 …) if you switch back and forth.</p>
-<h2 id="rust-workspace"><a class="header" href="#rust-workspace">Rust workspace</a></h2>
-<p>Today this is <strong>three edits</strong> that must agree. (A scaffold flag that
-bakes all three from one value is planned; until then, treat this as a
-checklist.) The example below switches to <code>cyclonedds</code>:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>#</th><th>File</th><th>Edit</th></tr>
-</thead>
-<tbody>
-<tr><td>1</td><td><code>src/&lt;bringup_pkg&gt;/system.toml</code></td><td><code>[system]</code> table: <code>rmw = "cyclonedds"</code></td></tr>
-<tr><td>2</td><td>Entry package <code>Cargo.toml</code> — the <strong>board</strong> dependency</td><td><code>nros-board-linux = { path = "...", default-features = false, features = ["rmw-cyclonedds"] }</code></td></tr>
-<tr><td>3</td><td>Entry package <code>Cargo.toml</code> — the <strong><code>nros</code></strong> dependency</td><td>add <code>"rmw-cyclonedds"</code> to its <code>features</code> list</td></tr>
-</tbody>
-</table>
-</div>
-<p>Why three places:</p>
-<ol>
-<li><strong><code>system.toml</code></strong> is the declared, language-agnostic selection — it
-is what the toolchain and deploy tooling read. See
-<a href="./configuration.html">Configuration</a>.</li>
-<li><strong>The board crate</strong> is what actually links the backend. On the host
-board, <code>nros-board-linux</code>’s features are <code>rmw-zenoh</code> (the default),
-<code>rmw-xrce</code>, and <code>rmw-cyclonedds</code>; each pulls in the corresponding
-backend crate and registers it during boot. Switching away from
-zenoh therefore needs <code>default-features = false</code> plus the feature
-you want.</li>
-<li><strong>The <code>nros</code> facade feature <code>rmw-cyclonedds</code></strong> is the
-type-descriptor gate: Cyclone DDS resolves topic types through a
-runtime descriptor registry, and this feature turns on the hook that
-registers a message’s descriptor before the topic is created.
-Without it, <code>create_publisher</code> fails at runtime because the
-descriptor was never registered. (Zenoh and XRCE do not need a
-facade feature — steps 1 and 2 are enough for them.)</li>
-</ol>
-<p>After editing, re-run <code>nros sync</code> in the workspace and rebuild.</p>
+<h2 id="single-rust-package"><a class="header" href="#single-rust-package">Single Rust package</a></h2>
+<p>A single Rust package with its own <code>system.toml</code> (no bringup) is the same
+one edit — <code>rmw</code> in that <code>system.toml</code> — followed by <code>nros sync</code> and a
+rebuild. The Rust workspace case is covered by the section above: a
+workspace entry is generated, so there is no entry <code>Cargo.toml</code> to edit.</p>
 <p>The full-system declaration model — how the one value in <code>system.toml</code>
 is lowered to cargo features and CMake cache variables — is specified in
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0031-rmw-selection-and-lowering.md">RFC-0031</a>.</p>

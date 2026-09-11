@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-07277a1f.js";
+            window.path_to_searchindex_js = "searchindex-87abf940.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-3de5b2d7.js"></script>
@@ -1027,51 +1027,33 @@ running</strong> — no router, no daemon, no ROS 2 installation.</p>
 <p>This assumes the two-step <a href="#installation">install</a> is done (<code>nros</code> on
 your PATH, <code>nros setup native --rmw cyclonedds</code> run once).</p>
 <h2 id="scaffold"><a class="header" href="#scaffold">Scaffold</a></h2>
-<pre><code class="language-bash probe=50">nros new my_robot --workspace
+<pre><code class="language-bash">nros new my_robot --workspace
 cd my_robot
 </code></pre>
-<p>That wrote 21 files — a complete workspace, not a hello-world stub:</p>
+<p>That wrote a complete workspace, not a hello-world stub:</p>
 <pre><code class="language-text">my_robot/
-├── CMakeLists.txt              # workspace root — names the packages, picks the RMW
+├── .colcon_workspace           # marks the workspace root; there is no root build file
 └── src/
     ├── talker_pkg/             # a C++ node: publishes std_msgs/Int32 on /chatter
     ├── listener_pkg/           # a C++ node: subscribes to /chatter
-    ├── demo_bringup/           # launch file + system.toml — no code
-    └── robot_entry/            # the binary: boots the launch topology
+    └── demo_bringup/           # launch file + system.toml — no code
 </code></pre>
-<p>What each directory is <em>for</em> is the next chapter,
+<p>There is no entry package and no root <code>CMakeLists.txt</code>: the binary is
+<em>generated</em> from the bringup’s <code>system.toml</code> when you build. What each
+directory is <em>for</em> is the next chapter,
 <a href="#anatomy-of-what-you-just-built">Anatomy of What You Just Built</a>. You don’t need it to run.</p>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
-<pre><code class="language-bash probe=60">cmake -S . -B build
-cmake --build build
+<pre><code class="language-bash">nros sync
+nros build
 </code></pre>
-<p>The first configure compiles nano-ros’s runtime into the build tree
-(~3 minutes); rebuilds are seconds.</p>
-<p>Configure has to find the nano-ros SDK root — the cmake modules, board
-descriptors and runtime crates your project compiles against. The
-scaffolded <code>CMakeLists.txt</code> asks, in order: <code>-DNANO_ROS_ROOT</code>, then
-<code>$NROS_REPO_DIR</code>, then <code>nros sdk-root</code>. Which one answers depends on how
-you got <code>nros</code>, so this page has two paths:</p>
-<ul>
-<li>
-<p><strong>Installed from a release</strong> — pass nothing. A release carries its own
-SDK root, and <code>nros sdk-root</code> prints it. The two commands above are
-the whole build.</p>
-</li>
-<li>
-<p><strong>Built from a checkout</strong> — which, until the first release is cut, is
-everyone. In a shell where you sourced <code>activate.sh</code> (or ran
-<code>direnv allow</code>), the two commands above work as written, because it
-exports <code>NROS_REPO_DIR</code>. In any other shell, name the checkout:</p>
-<pre><code class="language-bash">cmake -S . -B build -DNANO_ROS_ROOT=&lt;path-to-your-nano-ros-checkout&gt;
-cmake --build build
-</code></pre>
-</li>
-</ul>
-<p><code>nros sdk-root --explain</code> prints the root it would use and which of the
-two it came from.</p>
+<p><code>nros sync</code> resolves the launch file into the system model; <code>nros build</code>
+generates the entry for each <code>[image.*]</code> in <code>system.toml</code> and drives
+CMake under <code>build/</code>. The first build compiles nano-ros’s runtime into
+the build tree (~3 minutes); rebuilds are seconds. Outside a nano-ros
+checkout, <code>nros</code> finds the SDK itself; inside one, <code>direnv</code>/<code>activate.sh</code>
+exports <code>NROS_REPO_DIR</code> and that is used.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
-<pre><code class="language-bash">./build/src/robot_entry/robot_entry
+<pre><code class="language-bash">./build/posix-native/cmake/native_entry
 </code></pre>
 <pre><code class="language-text">Published: 0
 Received: 0
@@ -1093,25 +1075,31 @@ one-word edit — <a href="#switching-rmw-backends">Switching RMW in Config</a>.
 <h2 id="same-thing-in-rust"><a class="header" href="#same-thing-in-rust">Same thing in Rust</a></h2>
 <pre><code class="language-bash">nros new my_rust_robot --workspace --lang rust
 cd my_rust_robot
-NROS_REPO_DIR=&lt;path-to-nano-ros&gt; nros sync   # Rust-side codegen; once per checkout location
-RUST_LOG=info cargo run -p robot_entry
+nros sync
+nros build
+RUST_LOG=info ./build/posix/native_entry/target/debug/native_entry
 </code></pre>
 <pre><code class="language-text">[INFO  talker_pkg] Publishing: 0
 [INFO  listener_pkg] I heard: 0
 [INFO  talker_pkg] Publishing: 1
 </code></pre>
-<p>(The workspace root is a virtual manifest — <code>cargo run</code> alone has no
-default binary, so name the entry package with <code>-p robot_entry</code>. The
-Rust talker ticks at 1 s.)</p>
-<p>Same workspace shape, same <code>system.toml</code>, same launch file — only the
-node implementations and the build tool differ. The extra <code>nros sync</code>
-step is the Rust-side message codegen; C++ does the equivalent inside
-CMake, which is why the C++ path doesn’t have it.</p>
+<p>(The Rust talker ticks at 1 s.)</p>
+<blockquote>
+<p><strong>Known issue (<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1295-rust-cyclonedds-workspace-entry-no-publisher.md">1295</a>).</strong>
+On CycloneDDS — the scaffold’s default RMW — the generated Rust entry
+currently stops at startup with
+<code>NodeError::Transport(PublisherCreationFailed)</code>. The C++ path above is
+not affected.</p>
+</blockquote>
+<p>Same workspace shape, same <code>system.toml</code>, same launch file, same two
+commands — only the node implementations and the driver <code>nros build</code>
+picks (cargo instead of CMake) differ. Neither workspace has a root build
+file: the entry is generated per image under <code>build/</code>.</p>
 <h2 id="if-it-didnt-work"><a class="header" href="#if-it-didnt-work">If it didn’t work</a></h2>
 <ul>
 <li><code>nros: RMW session open failed</code> on a busy machine usually means the
 DDS port range on your <code>ROS_DOMAIN_ID</code> is contended — pick another:
-<code>ROS_DOMAIN_ID=57 ./build/src/robot_entry/robot_entry</code>.</li>
+<code>ROS_DOMAIN_ID=57 ./build/posix-native/cmake/native_entry</code>.</li>
 <li>Everything else: <a href="#troubleshooting--first-10-minutes">Troubleshooting — First 10 Minutes</a>.</li>
 </ul>
 <h2 id="where-to-go-next"><a class="header" href="#where-to-go-next">Where to go next</a></h2>
@@ -1137,7 +1125,7 @@ roles — the shape never changes, it only gains packages.</p>
 <tbody>
 <tr><td><code>src/talker_pkg/</code>, <code>src/listener_pkg/</code></td><td><strong>Node package</strong></td><td>a composable node (<code>rclcpp_components</code>)</td></tr>
 <tr><td><code>src/demo_bringup/</code></td><td><strong>Bringup package</strong></td><td><code>&lt;pkg&gt;_bringup</code> — launch files + config, no code</td></tr>
-<tr><td><code>src/robot_entry/</code></td><td><strong>Entry package</strong></td><td>the composition container / <code>main()</code></td></tr>
+<tr><td><em>(generated under <code>build/</code>)</em></td><td><strong>Entry</strong></td><td>the composition container / <code>main()</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -1185,21 +1173,21 @@ even carries a per-topic QoS override to show the plumbing:</p>
 <p>When you later target hardware, you add an <code>[image.&lt;id&gt;]</code> block per
 board — the code and topology stay put, and no new directory appears. That is
 the growth rule: <strong>configuration is a new block, never a restructure.</strong></p>
-<h2 id="the-entry-package--the-deliverable"><a class="header" href="#the-entry-package--the-deliverable">The entry package — the deliverable</a></h2>
-<p><code>src/robot_entry/</code> is the binary. Its CMakeLists calls
-<code>nano_ros_entry(... BRINGUP ... LAUNCH default)</code>, which at configure
-time resolves the bringup’s launch file and generates a <code>main()</code> that
-constructs each declared component, applies launch parameters and QoS
-overrides, and runs them on one executor — the launch product <em>is</em> the
-binary. There is no separate <code>ros2 launch</code> step; running the entry is
-launching the system.</p>
-<p>One binary per deployable image — but <em>image</em> is a row, not a directory. A
+<h2 id="the-entry--the-deliverable-and-it-is-generated"><a class="header" href="#the-entry--the-deliverable-and-it-is-generated">The entry — the deliverable, and it is generated</a></h2>
+<p>There is no entry directory under <code>src/</code>. <code>nros build</code> reads each
+<code>[image.&lt;id&gt;]</code> in <code>system.toml</code> and generates its entry under <code>build/</code>
+(for the scaffold’s <code>[image.native]</code>, the binary is
+<code>build/posix-native/cmake/native_entry</code>). That entry resolves the
+bringup’s launch file and has a <code>main()</code> that constructs each declared
+component, applies launch parameters and QoS overrides, and runs them on
+one executor — the launch product <em>is</em> the binary. There is no separate
+<code>ros2 launch</code> step; running the entry is launching the system.</p>
+<p>One binary per deployable image — and <em>image</em> is a row, not a directory. A
 robot with a perception image and a control image is one workspace, one
 bringup, and two <code>[image.*]</code> blocks in its <code>system.toml</code>; <code>nros build</code> derives
-each entry from <code>(launch, args, board)</code> and generates it under <code>build/</code>. The
-scaffold ships this one as a package so you can read it; deleting the directory
-is what makes the next build generate it instead. See
-<a href="#images">Images</a>.</p>
+each entry from <code>(launch, args, board)</code> and generates it under <code>build/</code>.
+Everything a hand-written entry used to carry — its board, its RMW locator —
+is a key in that block. See <a href="#images">Images</a>.</p>
 <h2 id="what-was-generated-vs-what-is-yours"><a class="header" href="#what-was-generated-vs-what-is-yours">What was generated vs. what is yours</a></h2>
 <p>Everything under <code>src/</code> is yours to edit. The build tree (<code>build/</code>)
 holds everything derived: generated message code, the resolved system
@@ -2411,22 +2399,30 @@ built. This page lists the exact change per builder; for help picking a
 backend in the first place, see <a href="#choosing-an-rmw">Choosing an RMW</a>.</p>
 <p>Backend names are the same everywhere: <code>zenoh</code>, <code>xrce</code>, <code>cyclonedds</code>.
 When nothing selects a backend, the default is <code>zenoh</code>.</p>
-<h2 id="cc-workspace-cmake"><a class="header" href="#cc-workspace-cmake">C/C++ workspace (CMake)</a></h2>
-<p>One edit. The root <code>CMakeLists.txt</code> of a nano-ros workspace calls
-<code>nano_ros_workspace(...)</code>; change its <code>BACKEND</code> argument:</p>
-<pre><code class="language-cmake">nano_ros_workspace(
-    ORDER_FROM_DEPENDS
-    BACKEND  cyclonedds          # zenoh | xrce | cyclonedds
-    PLATFORM "${NANO_ROS_PLATFORM}"
-    SUBDIRS  ${_ws_subdirs})
+<h2 id="workspace-c-c-mixed-or-rust"><a class="header" href="#workspace-c-c-mixed-or-rust">Workspace (C, C++, mixed or Rust)</a></h2>
+<p>One edit, in the bringup’s <code>system.toml</code>:</p>
+<pre><code class="language-toml">[system]
+rmw = "cyclonedds"          # zenoh | xrce | cyclonedds
 </code></pre>
-<p>Then reconfigure and rebuild — preferably into a fresh build directory,
-so no object files from the previous backend linger.</p>
-<p>Note: when the root hard-codes <code>BACKEND</code>, passing <code>-DNROS_RMW=...</code> on
-the configure line is <strong>silently overridden</strong> — <code>nano_ros_workspace()</code>
-stamps the workspace-wide RMW from its <code>BACKEND</code> argument, and the
-cache variable loses without a warning. Edit the <code>BACKEND</code> argument;
-do not fight it from the command line.</p>
+<p>or, for one image only, <code>rmw = "…"</code> inside its <code>[image.&lt;id&gt;]</code> block. Then</p>
+<pre><code class="language-bash">nros sync
+nros build
+</code></pre>
+<p>A workspace has no root build file to edit (RFC-0098 D9): <code>nros build</code>
+writes the CMake root under <code>build/</code> with <code>BACKEND</code> taken from the
+image’s <code>rmw</code>, and for a Rust image <code>nros sync</code> writes the selection
+facade that gives the board crate the backend feature. Each image builds
+into its own directory, so no object files from another backend linger.</p>
+<blockquote>
+<p><strong>Known issue (<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1295-rust-cyclonedds-workspace-entry-no-publisher.md">1295</a>).</strong>
+A <em>Rust</em> image on <code>cyclonedds</code> also needs the <code>nros</code> crate’s
+<code>rmw-cyclonedds</code> feature — the type-descriptor gate: Cyclone DDS
+resolves topic types through a runtime descriptor registry, and this
+feature registers a message’s descriptor before its topic is created.
+The generated facade does not name it yet, so such an entry builds and
+then fails <code>PublisherCreationFailed</code> at startup. Zenoh and XRCE need no
+such feature, and C/C++ images are not affected.</p>
+</blockquote>
 <h2 id="single-cc-package-no-workspace-function"><a class="header" href="#single-cc-package-no-workspace-function">Single C/C++ package (no workspace function)</a></h2>
 <p>A standalone package that consumes nano-ros in source form — either
 <code>find_package(nano_ros REQUIRED)</code> (the ament-shape entry point,
@@ -2439,42 +2435,11 @@ cmake --build build
 </code></pre>
 <p>Use one build directory per backend (<code>build-zenoh/</code>, <code>build-cyclonedds/</code>,
 …) if you switch back and forth.</p>
-<h2 id="rust-workspace"><a class="header" href="#rust-workspace">Rust workspace</a></h2>
-<p>Today this is <strong>three edits</strong> that must agree. (A scaffold flag that
-bakes all three from one value is planned; until then, treat this as a
-checklist.) The example below switches to <code>cyclonedds</code>:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>#</th><th>File</th><th>Edit</th></tr>
-</thead>
-<tbody>
-<tr><td>1</td><td><code>src/&lt;bringup_pkg&gt;/system.toml</code></td><td><code>[system]</code> table: <code>rmw = "cyclonedds"</code></td></tr>
-<tr><td>2</td><td>Entry package <code>Cargo.toml</code> — the <strong>board</strong> dependency</td><td><code>nros-board-linux = { path = "...", default-features = false, features = ["rmw-cyclonedds"] }</code></td></tr>
-<tr><td>3</td><td>Entry package <code>Cargo.toml</code> — the <strong><code>nros</code></strong> dependency</td><td>add <code>"rmw-cyclonedds"</code> to its <code>features</code> list</td></tr>
-</tbody>
-</table>
-</div>
-<p>Why three places:</p>
-<ol>
-<li><strong><code>system.toml</code></strong> is the declared, language-agnostic selection — it
-is what the toolchain and deploy tooling read. See
-<a href="#configuration-guide">Configuration</a>.</li>
-<li><strong>The board crate</strong> is what actually links the backend. On the host
-board, <code>nros-board-linux</code>’s features are <code>rmw-zenoh</code> (the default),
-<code>rmw-xrce</code>, and <code>rmw-cyclonedds</code>; each pulls in the corresponding
-backend crate and registers it during boot. Switching away from
-zenoh therefore needs <code>default-features = false</code> plus the feature
-you want.</li>
-<li><strong>The <code>nros</code> facade feature <code>rmw-cyclonedds</code></strong> is the
-type-descriptor gate: Cyclone DDS resolves topic types through a
-runtime descriptor registry, and this feature turns on the hook that
-registers a message’s descriptor before the topic is created.
-Without it, <code>create_publisher</code> fails at runtime because the
-descriptor was never registered. (Zenoh and XRCE do not need a
-facade feature — steps 1 and 2 are enough for them.)</li>
-</ol>
-<p>After editing, re-run <code>nros sync</code> in the workspace and rebuild.</p>
+<h2 id="single-rust-package"><a class="header" href="#single-rust-package">Single Rust package</a></h2>
+<p>A single Rust package with its own <code>system.toml</code> (no bringup) is the same
+one edit — <code>rmw</code> in that <code>system.toml</code> — followed by <code>nros sync</code> and a
+rebuild. The Rust workspace case is covered by the section above: a
+workspace entry is generated, so there is no entry <code>Cargo.toml</code> to edit.</p>
 <p>The full-system declaration model — how the one value in <code>system.toml</code>
 is lowered to cargo features and CMake cache variables — is specified in
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0031-rmw-selection-and-lowering.md">RFC-0031</a>.</p>
@@ -9631,7 +9596,7 @@ cargo run
 nros metadata my_system
 nros plan my_system launch/my_system.launch.py
 nros check
-cargo run -p robot_entry
+nros build          # generates and builds one entry per [image.*]
 
 # Colcon consumer workspace (Pattern A):
 colcon build &amp;&amp; source install/setup.bash
