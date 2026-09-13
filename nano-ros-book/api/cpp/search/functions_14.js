@@ -1,8 +1,6 @@
 var searchData=
 [
-  ['wait_0',['wait',['../classnros_1_1Future.html#a1aefa9870d83e03a81362ad3fc6f3487',1,'nros::Future']]],
-  ['wait_5ffor_5faction_5fserver_1',['wait_for_action_server',['../classrclcpp__action_1_1Client.html#a8d46bd552dcf978deb55a8955edf00ee',1,'rclcpp_action::Client::wait_for_action_server(uint32_t timeout_ms)'],['../classrclcpp__action_1_1Client.html#a3f803a78a58df58d84556ada829a0aea',1,'rclcpp_action::Client::wait_for_action_server()']]],
-  ['wait_5ffor_5fservice_2',['wait_for_service',['../classrclcpp_1_1Client.html#a33f8b6f9b9ab8ea6f6ad441032409b55',1,'rclcpp::Client::wait_for_service(uint32_t timeout_ms)'],['../classrclcpp_1_1Client.html#aad30c704ef8029b5ed39d0b8561f2ea5',1,'rclcpp::Client::wait_for_service()']]],
-  ['wait_5fnext_3',['wait_next',['../classnros_1_1Stream.html#a0febe2a16316421f06431a87f904bb56',1,'nros::Stream']]],
-  ['wait_5fnext_5fsized_4',['wait_next_sized',['../classnros_1_1Stream.html#af0ae3d414d415976e6374d3bbb6af8b0',1,'nros::Stream']]]
+  ['valid_0',['valid',['../structnros_1_1NodeHandle.html#ab0a244ff24f8af5c96e19fd6b5dbdcde',1,'nros::NodeHandle::valid()'],['../classnros_1_1ShutdownCallbackHandle.html#a93823f3aa2f9d265c24528e18df91459',1,'nros::ShutdownCallbackHandle::valid() const']]],
+  ['value_1',['value',['../classnros_1_1ShutdownCallbackHandle.html#ace894f87b48f98c798081f63b9cb28e5',1,'nros::ShutdownCallbackHandle::value()'],['../classnros_1_1ResultOf.html#aed670ee8ef39af69041d3e82ab814809',1,'nros::ResultOf::value() &amp;'],['../classnros_1_1ResultOf.html#a20e3522b4237100302c8e7bab22a7590',1,'nros::ResultOf::value() const &amp;'],['../classnros_1_1ResultOf.html#aecd345ebef3538b8cd855a91b284a57a',1,'nros::ResultOf::value() &amp;&amp;']]],
+  ['view_2',['view',['../classrclcpp_1_1Subscription_1_1View.html#ae3b852823fb72717681e9a097908bf54',1,'rclcpp::Subscription::View::View()'],['../classrclcpp_1_1Subscription_1_1View.html#af296f53201d49fc0db0adc1cd8810569',1,'rclcpp::Subscription::View::View(View &amp;&amp;o)'],['../classrclcpp_1_1Subscription_1_1View.html#a74b8c1f786d1cd3b51772eece8c50ffc',1,'rclcpp::Subscription::View::View(const View &amp;)=delete'],['../classrclcpp_1_1Subscription_1_1View.html#a811ba9bd7d9d1568bfce7f0ec3a0e275',1,'rclcpp::Subscription::View::View(void *sub, const uint8_t *buf, size_t len, void *token)']]]
 ];

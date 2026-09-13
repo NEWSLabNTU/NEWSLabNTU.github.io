@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["LegacyParameterBuilder","ParameterServer","ParameterStorage","ParameterTable"]};
+window.SIDEBAR_ITEMS = {"constant":["MAX_ON_SET_CALLBACKS"],"enum":["DeclarationError"],"struct":["LegacyParameterBuilder","OnSetContext","OnSetParameterHandle","ParameterServer","ParameterStorage","ParameterTable"],"type":["OnSetParameterFn"]};
