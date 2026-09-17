@@ -53,7 +53,7 @@ var searchData=
   ['std_20mode_20convenience_50',['Std-Mode Convenience',['../getting_started.html#autotoc_md13',1,'']]],
   ['std_20tt_51',['Freestanding vs &lt;tt&gt;std&lt;/tt&gt;',['../index.html#autotoc_md5',1,'']]],
   ['storage_20sizes_52',['C++ Storage Sizes',['../configuration.html#autotoc_md16',1,'']]],
-  ['stream_53',['stream',['../classnros_1_1Stream.html',1,'nros::Stream&lt; T &gt;'],['../classnros_1_1Stream.html#a6b3ff13e41e3688053ce6453fe57b983',1,'nros::Stream::Stream()'],['../classnros_1_1Stream.html#a58dec41d8ab90b0527b9e50ed16b8d34',1,'nros::Stream::Stream(Stream &amp;&amp;other) noexcept'],['../classrclcpp_1_1Subscription.html#ab3a686312097f11b3378bb1c9fefd0d9',1,'rclcpp::Subscription::stream() const'],['../classrclcpp_1_1Subscription.html#a21ffe11ac1307945eaf9ef01ba6acf8c',1,'rclcpp::Subscription::stream()']]],
+  ['stream_53',['stream',['../classnros_1_1Stream.html',1,'nros::Stream&lt; T &gt;'],['../classrclcpp_1_1Subscription.html#ab3a686312097f11b3378bb1c9fefd0d9',1,'rclcpp::Subscription::stream() const'],['../classrclcpp_1_1Subscription.html#a21ffe11ac1307945eaf9ef01ba6acf8c',1,'rclcpp::Subscription::stream()'],['../classnros_1_1Stream.html#a6b3ff13e41e3688053ce6453fe57b983',1,'nros::Stream::Stream()'],['../classnros_1_1Stream.html#a58dec41d8ab90b0527b9e50ed16b8d34',1,'nros::Stream::Stream(Stream &amp;&amp;other) noexcept']]],
   ['stream_2ehpp_54',['stream.hpp',['../stream_8hpp.html',1,'']]],
   ['stream_3c_20feedbacktype_20_3e_55',['Stream&lt; FeedbackType &gt;',['../classnros_1_1Stream.html',1,'nros']]],
   ['stream_3c_20m_20_3e_56',['Stream&lt; M &gt;',['../classnros_1_1Stream.html',1,'nros']]],

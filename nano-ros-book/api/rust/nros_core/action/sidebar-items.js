@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["CancelResponse","CancelReturnCode","GoalResponse","GoalStatus"],"struct":["ActionClient","ActionServer","GoalId","GoalInfo","GoalStatusStamped"],"trait":["RosAction"]};
+window.SIDEBAR_ITEMS = {"enum":["CancelResponse","CancelReturnCode","GoalResponse","GoalStatus"],"struct":["GoalId","GoalInfo","GoalStatusStamped"],"trait":["RosAction"]};
