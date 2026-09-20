@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["check","declared_depth"]};
+window.SIDEBAR_ITEMS = {"fn":["check","declared_depth","honour"]};
