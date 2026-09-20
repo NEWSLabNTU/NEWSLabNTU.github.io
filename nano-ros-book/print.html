@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-ffde3005.js";
+            window.path_to_searchindex_js = "searchindex-7df9d2bd.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-3de5b2d7.js"></script>
@@ -901,6 +901,13 @@ RMW daemon + board SDK sources. <code>--rmw</code> defaults to <code>zenoh</code
 </tbody>
 </table>
 </div>
+<p>Every board also needs a <strong>Rust toolchain</strong>, whatever language you write:
+the runtime your project links is compiled from source when you first
+configure. If the host has neither <code>rustup</code> nor <code>rustc</code> + <code>cargo</code>,
+<code>nros setup</code> installs rustup (a pinned, checksum-verified installer)
+into <code>~/.cargo</code> with the stable toolchain as the default — where
+<code>cmake</code> finds it without any PATH change. A host that already has Rust
+is left as it is. For <code>cargo</code> in a shell afterwards: <code>. "$HOME/.cargo/env"</code>.</p>
 <p>Useful flags:</p>
 <pre><code class="language-bash">nros setup --list            # every package in the index + its version
 nros setup &lt;board&gt; --dry-run # resolve + print the plan, fetch nothing
@@ -1041,7 +1048,7 @@ running</strong> — no router, no daemon, no ROS 2 installation.</p>
 <p>This assumes the two-step <a href="#installation">install</a> is done (<code>nros</code> on
 your PATH, <code>nros setup native --rmw cyclonedds</code> run once).</p>
 <h2 id="scaffold"><a class="header" href="#scaffold">Scaffold</a></h2>
-<pre><code class="language-bash">nros new my_robot --workspace
+<pre><code class="language-bash probe=50 track=installed">nros new my_robot --workspace
 cd my_robot
 </code></pre>
 <p>That wrote a complete workspace, not a hello-world stub:</p>
@@ -1057,7 +1064,7 @@ cd my_robot
 directory is <em>for</em> is the next chapter,
 <a href="#anatomy-of-what-you-just-built">Anatomy of What You Just Built</a>. You don’t need it to run.</p>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
-<pre><code class="language-bash">nros sync
+<pre><code class="language-bash probe=60 track=installed">nros sync
 nros build
 </code></pre>
 <p><code>nros sync</code> resolves the launch file into the system model; <code>nros build</code>
@@ -1068,7 +1075,7 @@ checkout, <code>nros</code> finds the SDK itself; inside one, <code>direnv</code
 exports <code>NROS_REPO_DIR</code> and that is used. <code>nros sdk-root --explain</code>
 prints the root it would use and where that came from.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
-<pre><code class="language-bash">./build/posix-native/cmake/native_entry
+<pre><code class="language-bash">./build/posix-cyclonedds-native/cmake/native_entry
 </code></pre>
 <pre><code class="language-text">Published: 0
 Received: 0
@@ -1092,7 +1099,7 @@ one-word edit — <a href="#switching-rmw-backends">Switching RMW in Config</a>.
 cd my_rust_robot
 nros sync
 nros build
-RUST_LOG=info ./build/posix/native_entry/target/debug/native_entry
+RUST_LOG=info ./build/posix-cyclonedds/native_entry/target/debug/native_entry
 </code></pre>
 <pre><code class="language-text">[INFO  talker_pkg] Publishing: 0
 [INFO  listener_pkg] I heard: 0
@@ -1114,7 +1121,7 @@ file: the entry is generated per image under <code>build/</code>.</p>
 <ul>
 <li><code>nros: RMW session open failed</code> on a busy machine usually means the
 DDS port range on your <code>ROS_DOMAIN_ID</code> is contended — pick another:
-<code>ROS_DOMAIN_ID=57 ./build/posix-native/cmake/native_entry</code>.</li>
+<code>ROS_DOMAIN_ID=57 ./build/posix-cyclonedds-native/cmake/native_entry</code>.</li>
 <li>Everything else: <a href="#troubleshooting--first-10-minutes">Troubleshooting — First 10 Minutes</a>.</li>
 </ul>
 <h2 id="where-to-go-next"><a class="header" href="#where-to-go-next">Where to go next</a></h2>
@@ -1182,9 +1189,15 @@ board = "native"
 unchanged (Python <code>.launch.py</code> is not supported). The scaffold’s launch
 even carries a per-topic QoS override to show the plumbing:</p>
 <pre><code class="language-xml">&lt;node pkg="talker_pkg" exec="talker" name="talker"&gt;
-  &lt;param name="qos_overrides./chatter.publisher.reliability" value="best_effort"/&gt;
+  &lt;param name="qos_overrides./chatter.publisher.depth" value="5"/&gt;
 &lt;/node&gt;
 </code></pre>
+<p>An override changes how the two ends MATCH as well as how one end behaves.
+Setting the publisher to <code>reliability = best_effort</code> here would look
+harmless and deliver nothing on CycloneDDS: DDS never pairs a best-effort
+writer with a reliable reader, and the listener’s subscription is reliable
+by default. (<code>ros2 topic echo --qos-reliability best_effort</code> is the same
+rule seen from the other side.)</p>
 <p>When you later target hardware, you add an <code>[image.&lt;id&gt;]</code> block per
 board — the code and topology stay put, and no new directory appears. That is
 the growth rule: <strong>configuration is a new block, never a restructure.</strong></p>
@@ -1192,7 +1205,7 @@ the growth rule: <strong>configuration is a new block, never a restructure.</str
 <p>There is no entry directory under <code>src/</code>. <code>nros build</code> reads each
 <code>[image.&lt;id&gt;]</code> in <code>system.toml</code> and generates its entry under <code>build/</code>
 (for the scaffold’s <code>[image.native]</code>, the binary is
-<code>build/posix-native/cmake/native_entry</code>). That entry resolves the
+<code>build/posix-cyclonedds-native/cmake/native_entry</code>). That entry resolves the
 bringup’s launch file and has a <code>main()</code> that constructs each declared
 component, applies launch parameters and QoS overrides, and runs them on
 one executor — the launch product <em>is</em> the binary. There is no separate
@@ -3863,7 +3876,7 @@ compiler per configure — the board. So <code>[image.native]</code> in
 <code>build/posix-zenoh-native/cmake/</code> and leaves its binary at
 <code>build/posix-zenoh-native/cmake/native_entry</code>. On the cargo driver <code>nros build</code>
 names the entry package it wrote as it goes:</p>
-<pre><code class="language-text">nros build:   entry → …/build/posix/native_entry
+<pre><code class="language-text">nros build:   entry → …/build/posix-zenoh/native_entry
 </code></pre>
 <p>The generated cmake root lists <strong>every</strong> image on that coordinate, not just the
 one being built: what a coordinate contains is a property of the workspace, and
@@ -4126,7 +4139,7 @@ changes language-side is the cmake-fn / macro surface.</p>
 <tr><td><strong>The entry</strong></td><td>GENERATED into <code>build/&lt;coord&gt;/native_entry/</code> — a <code>Cargo.toml</code> and a <code>nros::main!(launch = "demo_bringup")</code></td><td>GENERATED into <code>build/&lt;coord&gt;/CMakeLists.txt</code> — a <code>nano_ros_add_executable(native_entry BOARD … BRINGUP … LAUNCH … LANG cpp TYPED DEPLOY native)</code> call, plus the <code>main</code> TU the verb emits</td></tr>
 <tr><td><strong>Workspace root</strong></td><td>none — the generated entry’s own <code>Cargo.toml</code> is the cargo root</td><td>none — the generated <code>build/&lt;coord&gt;/CMakeLists.txt</code> is the cmake root, calling <code>nano_ros_workspace(WORKSPACE_ROOT … BACKEND zenoh PLATFORM posix SYSTEM demo_bringup SUBDIRS …)</code></td></tr>
 <tr><td><strong>Build</strong></td><td><code>nros sync</code> then <code>nros build native</code></td><td><code>nros sync</code> then <code>nros build native</code></td></tr>
-<tr><td><strong>Boot</strong></td><td><code>./build/posix/native_entry/target/debug/native_entry</code></td><td><code>./build/posix-zenoh-native/cmake/native_entry</code></td></tr>
+<tr><td><strong>Boot</strong></td><td><code>./build/posix-zenoh/native_entry/target/debug/native_entry</code></td><td><code>./build/posix-zenoh-native/cmake/native_entry</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -10068,7 +10081,7 @@ The triple level appears whenever the board pins one — which it does in the
 generated <code>[build] target</code>, not on your command line.</p>
 <p>For a workspace the binary is the generated entry, inside that entry’s own
 target dir — the Rust scaffold’s <code>native</code> image is
-<code>build/posix/native_entry/target/debug/native_entry</code>.</p>
+<code>build/posix-cyclonedds/native_entry/target/debug/native_entry</code>.</p>
 <p><code>&lt;profile-dir&gt;</code> is <code>debug</code> unless the image declares
 <code>[image.&lt;id&gt;] profile = …</code>, in which case it is that profile’s directory
 (<code>nros profile dir &lt;name&gt;</code> prints it).</p>
@@ -10251,7 +10264,7 @@ nros build
 cd my_robot
 nros sync
 nros build
-./build/posix-native/cmake/native_entry
+./build/posix-cyclonedds-native/cmake/native_entry
 </code></pre>
 <p><code>nros metadata</code> / <code>nros plan</code> / <code>nros check</code> are the inspection path, not
 the build path — they produce and validate a plan you can read with
