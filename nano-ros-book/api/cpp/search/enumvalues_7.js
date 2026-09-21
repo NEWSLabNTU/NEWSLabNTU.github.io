@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['keepall_0',['KeepAll',['../namespacenros.html#a6e3a83466949477b1d68de3c97150b4dac3afb79794cd632c72d5b9c6d6f63794',1,'nros']]],
-  ['keeplast_1',['KeepLast',['../namespacenros.html#a6e3a83466949477b1d68de3c97150b4da651235c0520367700c488d2203576f0e',1,'nros']]]
+  ['historysystemdefault_0',['HistorySystemDefault',['../namespacenros.html#a6e3a83466949477b1d68de3c97150b4da2a9524ee58680015281c66c1e2753ed8',1,'nros']]],
+  ['historyunknown_1',['HistoryUnknown',['../namespacenros.html#a6e3a83466949477b1d68de3c97150b4dadd183a897882ca08f3c687ffd93d5e38',1,'nros']]]
 ];

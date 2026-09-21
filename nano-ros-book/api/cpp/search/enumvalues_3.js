@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['error_0',['Error',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19ea902b0d55fddef6f8d651fe1035b7d4bd',1,'nros']]],
-  ['executing_1',['Executing',['../namespacenros.html#a824c95a7f291e516552584a26eb63c04a63c4cc5944eb60b1969f2333ead70fc9',1,'nros']]]
+  ['durabilitysystemdefault_0',['DurabilitySystemDefault',['../namespacenros.html#aba43f70da8488c12dd1a04921d57b825ade1d68d20e853266637ffdf0ae8d0066',1,'nros']]],
+  ['durabilityunknown_1',['DurabilityUnknown',['../namespacenros.html#aba43f70da8488c12dd1a04921d57b825a07b8df8cf44fe14fbb30ca41b4515c39',1,'nros']]]
 ];
