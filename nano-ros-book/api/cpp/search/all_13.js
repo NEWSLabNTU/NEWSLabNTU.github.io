@@ -18,7 +18,7 @@ var searchData=
   ['nros_3a_3acreate_5fnode_5fon_15',['create_node_on',['../classrclcpp_1_1Node.html#a4090db37b476041832e23ba3486c46c4',1,'rclcpp::Node']]],
   ['nros_3a_3adetail_16',['detail',['../namespacenros_1_1detail.html',1,'nros']]],
   ['nros_3a_3aglobal_5fhandle_17',['global_handle',['../classrclcpp_1_1Node.html#a9f406a67617d06bc9052c3c55d6fd6ee',1,'rclcpp::Node']]],
-  ['nros_3a_3ainit_18',['nros::init',['../classrclcpp_1_1Node.html#a26d56469513e660e06722bca5f651c7b',1,'rclcpp::Node::init'],['../classrclcpp_1_1Node.html#a89dc0f668b3d87cfed160dbec93bd1cb',1,'rclcpp::Node::init']]],
+  ['nros_3a_3ainit_18',['nros::init',['../classrclcpp_1_1Node.html#a842554915cb00fcc0e8cb43bff34f4b7',1,'rclcpp::Node::init'],['../classrclcpp_1_1Node.html#a26d56469513e660e06722bca5f651c7b',1,'rclcpp::Node::init'],['../classrclcpp_1_1Node.html#a89dc0f668b3d87cfed160dbec93bd1cb',1,'rclcpp::Node::init']]],
   ['nros_3a_3ainit_5fwith_5frmw_19',['init_with_rmw',['../classrclcpp_1_1Node.html#a4f61cd51239c26b5e83a2c14900d398c',1,'rclcpp::Node']]],
   ['nros_3a_3aok_20',['ok',['../classrclcpp_1_1Node.html#abb76d430d7798be6416c5b1a4e7c5417',1,'rclcpp::Node']]],
   ['nros_3a_3ashutdown_21',['shutdown',['../classrclcpp_1_1Node.html#a78d405e844350b19bc7ab108a4186a9c',1,'rclcpp::Node']]],
