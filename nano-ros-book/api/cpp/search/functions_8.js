@@ -7,7 +7,7 @@ var searchData=
   ['init_5fwith_5frmw_4',['init_with_rmw',['../namespacenros.html#a062738b893783963f8461d429b572948',1,'nros']]],
   ['is_5fcanceled_5',['is_canceled',['../classnros_1_1Timer.html#a67b46f069a8bf6a905b56259022b218c',1,'nros::Timer']]],
   ['is_5fconsumed_6',['is_consumed',['../classnros_1_1Future.html#ad647e63a401d92fca009d43549ce2131',1,'nros::Future']]],
-  ['is_5fready_7',['is_ready',['../classnros_1_1Future.html#aef60133ddd227088ed1334f2f7c737ef',1,'nros::Future']]],
+  ['is_5fready_7',['is_ready',['../classnros_1_1Timer.html#a61102bd13935aa950b8098672ef72333',1,'nros::Timer::is_ready()'],['../classnros_1_1Future.html#aef60133ddd227088ed1334f2f7c737ef',1,'nros::Future::is_ready()']]],
   ['is_5fros_5fargs_5fflag_8',['is_ros_args_flag',['../namespacerclcpp_1_1detail.html#a633cccb2b95edae425806a59107b1412',1,'rclcpp::detail']]],
   ['is_5fspinning_9',['is_spinning',['../classnros_1_1Executor.html#a703bb7aeb4b0bb4a344ffc1313195560',1,'nros::Executor']]],
   ['is_5ftriggered_10',['is_triggered',['../classnros_1_1GuardCondition.html#aabfec52bbaf9c4c7bdb6ef0afffbdfef',1,'nros::GuardCondition']]],
