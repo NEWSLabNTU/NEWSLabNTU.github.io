@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MAGIC","VERSION"],"enum":["Stage"],"fn":["checkpoint","init","note_alloc","note_alloc_failed","note_arena_capacity","note_cpp_init_ret","note_error"]};
+window.SIDEBAR_ITEMS = {"constant":["MAGIC","VERSION"],"enum":["Stage"],"fn":["checkpoint","init","note_alloc","note_alloc_failed","note_arena_capacity","note_cpp_init_ret","note_error","note_heap","nros_boot_report_note_heap"]};
