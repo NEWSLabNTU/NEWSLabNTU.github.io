@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ServiceInboxSpec"],"struct":["CallerInbox","CallerInboxStorage","InboxEntry"]};
