@@ -9,8 +9,7 @@ var searchData=
   ['span_6',['Span',['../structnros_1_1Span.html',1,'nros']]],
   ['stream_7',['Stream',['../classnros_1_1Stream.html',1,'nros']]],
   ['stream_3c_20feedbacktype_20_3e_8',['Stream&lt; FeedbackType &gt;',['../classnros_1_1Stream.html',1,'nros']]],
-  ['stream_3c_20m_20_3e_9',['Stream&lt; M &gt;',['../classnros_1_1Stream.html',1,'nros']]],
-  ['stringview_10',['StringView',['../structnros_1_1StringView.html',1,'nros']]],
-  ['subscription_11',['Subscription',['../classrclcpp_1_1Subscription.html',1,'rclcpp']]],
-  ['systemdefaultsqos_12',['SystemDefaultsQoS',['../classrclcpp_1_1SystemDefaultsQoS.html',1,'rclcpp']]]
+  ['stringview_9',['StringView',['../structnros_1_1StringView.html',1,'nros']]],
+  ['subscription_10',['Subscription',['../classrclcpp_1_1Subscription.html',1,'rclcpp']]],
+  ['systemdefaultsqos_11',['SystemDefaultsQoS',['../classrclcpp_1_1SystemDefaultsQoS.html',1,'rclcpp']]]
 ];

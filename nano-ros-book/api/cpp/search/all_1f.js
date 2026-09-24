@@ -10,6 +10,5 @@ var searchData=
   ['_7eserver_7',['~Server',['../classrclcpp__action_1_1Server.html#a02c88e1c362beb990423a7d59affc383',1,'rclcpp_action::Server']]],
   ['_7eservice_8',['~Service',['../classrclcpp_1_1Service.html#a4475e545149ce85ba847ef8c738db928',1,'rclcpp::Service']]],
   ['_7esubscription_9',['~Subscription',['../classrclcpp_1_1Subscription.html#a9de251e20664f5c5321d0983d68e0412',1,'rclcpp::Subscription']]],
-  ['_7etimer_10',['~Timer',['../classnros_1_1Timer.html#a80a742606d27c60653edbbc4960a8f8d',1,'nros::Timer']]],
-  ['_7eview_11',['~View',['../classrclcpp_1_1Subscription_1_1View.html#a9c882c2c53c672601cf7c28b2d2964f8',1,'rclcpp::Subscription::View']]]
+  ['_7etimer_10',['~Timer',['../classnros_1_1Timer.html#a80a742606d27c60653edbbc4960a8f8d',1,'nros::Timer']]]
 ];

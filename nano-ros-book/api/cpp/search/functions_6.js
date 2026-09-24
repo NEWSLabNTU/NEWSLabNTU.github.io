@@ -1,7 +1,7 @@
 var searchData=
 [
   ['get_5faction_5fname_0',['get_action_name',['../classrclcpp__action_1_1Client.html#abf41f559ff490608426679fadd362892',1,'rclcpp_action::Client::get_action_name()'],['../classrclcpp__action_1_1Server.html#a6278363af29294b518fe303572dbd1d6',1,'rclcpp_action::Server::get_action_name()']]],
-  ['get_5factual_5fqos_1',['get_actual_qos',['../classrclcpp_1_1Subscription.html#a9f7fb433f0d9960bab2e69a9fbb6e997',1,'rclcpp::Subscription::get_actual_qos()'],['../classrclcpp_1_1Publisher.html#ae68251e269595b6c88849558e29ecd93',1,'rclcpp::Publisher::get_actual_qos()']]],
+  ['get_5factual_5fqos_1',['get_actual_qos',['../classrclcpp_1_1Publisher.html#ae68251e269595b6c88849558e29ecd93',1,'rclcpp::Publisher']]],
   ['get_5fclient_5fnames_5fand_5ftypes_5fby_5fnode_2',['get_client_names_and_types_by_node',['../classrclcpp_1_1Node.html#a77a652a3fab645a796bc013794df222a',1,'rclcpp::Node::get_client_names_and_types_by_node()'],['../classnros_1_1Executor.html#a0665b5d19aafb3f13cacbdadb38864e7',1,'nros::Executor::get_client_names_and_types_by_node()']]],
   ['get_5fclock_3',['get_clock',['../classrclcpp_1_1Node.html#aacd9b5700595aa718d01dc88b7e02088',1,'rclcpp::Node::get_clock()'],['../classrclcpp_1_1Node.html#aa29ac94dc70fdcc0e79ffae3791cd301',1,'rclcpp::Node::get_clock() const']]],
   ['get_5ffully_5fqualified_5fname_4',['get_fully_qualified_name',['../classrclcpp_1_1Node.html#aa602d5b6c28336a99bf1240bc86324ff',1,'rclcpp::Node']]],
