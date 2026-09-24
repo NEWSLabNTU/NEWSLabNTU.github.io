@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_MONITORS","MAX_VIOLATIONS","RATE_CHECK_INTERVAL_US"],"fn":["observe_publish_stamp","peek_stamp_us"],"struct":["AgeMonitorSpec","MonitorSpec","PubMonitorCell","SubMonitorCell","Violation"]};
+window.SIDEBAR_ITEMS = {"constant":["MAX_AGE_MONITORS","MAX_MONITORS","MAX_VIOLATIONS","RATE_CHECK_INTERVAL_US"],"fn":["check_capacity_against","check_table_capacity","observe_publish_stamp","peek_stamp_us"],"struct":["AgeMonitorSpec","MonitorSpec","MonitorTableFull","PubMonitorCell","SubMonitorCell","Violation"]};
