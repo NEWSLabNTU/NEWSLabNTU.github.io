@@ -13,7 +13,9 @@ var searchData=
   ['report_5fdeclared_5fparam_5fmismatch_10',['report_declared_param_mismatch',['../namespacenros_1_1detail.html#ab70aff2cbd0d52dbea9f0667adb6d1fa',1,'nros::detail']]],
   ['require_5fcreated_11',['require_created',['../namespacerclcpp_1_1detail.html#a48a32d5d08da204973c91ca45f6f64e8',1,'rclcpp::detail']]],
   ['reset_12',['reset',['../classnros_1_1Timer.html#aa619525d64a48f9b2510720f1e8ab26c',1,'nros::Timer::reset()'],['../classrclcpp_1_1Rate.html#a9afedc73dd1189cb0073f35de1e5887d',1,'rclcpp::Rate::reset()']]],
-  ['resultof_13',['resultof',['../classnros_1_1ResultOf_3_01void_01_4.html#a0d5547e566a1dc6dc3f2ff0d554f7a5a',1,'nros::ResultOf&lt; void &gt;::ResultOf(int32_t raw)'],['../classnros_1_1ResultOf_3_01void_01_4.html#a30b73615eef1553a9ea5e0faeee13fd2',1,'nros::ResultOf&lt; void &gt;::ResultOf(ErrorCode code)'],['../classnros_1_1ResultOf_3_01void_01_4.html#aa4bef2ce5780b203aeb97845e982b6c8',1,'nros::ResultOf&lt; void &gt;::ResultOf()']]],
-  ['rmw_14',['rmw',['../classnros_1_1NodeBuilder.html#a48f0105f58242bfc9e59a6fe6f7defac',1,'nros::NodeBuilder']]],
-  ['rosoutqos_15',['RosoutQoS',['../classrclcpp_1_1RosoutQoS.html#adda42f101873431baec5fb268350b1fe',1,'rclcpp::RosoutQoS']]]
+  ['resolve_5fname_13',['resolve_name',['../structnros_1_1NodeHandle.html#a185f94cada9465b035bf3836c69f849f',1,'nros::NodeHandle']]],
+  ['resolve_5fnamespace_14',['resolve_namespace',['../structnros_1_1NodeHandle.html#a22eb50cda28326828eb52cd8d8fea8d2',1,'nros::NodeHandle']]],
+  ['resultof_15',['resultof',['../classnros_1_1ResultOf_3_01void_01_4.html#a0d5547e566a1dc6dc3f2ff0d554f7a5a',1,'nros::ResultOf&lt; void &gt;::ResultOf(int32_t raw)'],['../classnros_1_1ResultOf_3_01void_01_4.html#a30b73615eef1553a9ea5e0faeee13fd2',1,'nros::ResultOf&lt; void &gt;::ResultOf(ErrorCode code)'],['../classnros_1_1ResultOf_3_01void_01_4.html#aa4bef2ce5780b203aeb97845e982b6c8',1,'nros::ResultOf&lt; void &gt;::ResultOf()']]],
+  ['rmw_16',['rmw',['../classnros_1_1NodeBuilder.html#a48f0105f58242bfc9e59a6fe6f7defac',1,'nros::NodeBuilder']]],
+  ['rosoutqos_17',['RosoutQoS',['../classrclcpp_1_1RosoutQoS.html#adda42f101873431baec5fb268350b1fe',1,'rclcpp::RosoutQoS']]]
 ];

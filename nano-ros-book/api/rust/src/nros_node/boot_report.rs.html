@@ -58,14 +58,14 @@
 <a href=#58 id=58 data-nosnippet>58</a>//! same rule issue 0900's arena knob and phase-403's `rx_buffer_from_type()`
 <a href=#59 id=59 data-nosnippet>59</a>//! both keep.
 <a href=#60 id=60 data-nosnippet>60</a>//!
-<a href=#61 id=61 data-nosnippet>61</a>//! Enabled, it costs [`BootReport::struct_size`] bytes of `.bss` -- 88, the
+<a href=#61 id=61 data-nosnippet>61</a>//! Enabled, it costs [`BootReport::struct_size`] bytes of `.bss` -- 92, the
 <a href=#62 id=62 data-nosnippet>62</a>//! same on every target because every field is a `u32` -- and a handful of
 <a href=#63 id=63 data-nosnippet>63</a>//! relaxed atomic stores on paths that run once per entity at registration.
 <a href=#64 id=64 data-nosnippet>64</a>//!
-<a href=#65 id=65 data-nosnippet>65</a>//! The 88 is not a detail: it is the LENGTH an operator types into `savemem`,
+<a href=#65 id=65 data-nosnippet>65</a>//! The 92 is not a detail: it is the LENGTH an operator types into `savemem`,
 <a href=#66 id=66 data-nosnippet>66</a>//! and this sentence said 60 for as long as the record had fifteen fields. A
-<a href=#67 id=67 data-nosnippet>67</a>//! short dump decodes -- `read-boot-report.py` needs `22 * 4` bytes and a
-<a href=#68 id=68 data-nosnippet>68</a>//! 60-byte one is refused, but a reader who trusts the prose over the tool
+<a href=#67 id=67 data-nosnippet>67</a>//! short dump decodes -- `read-boot-report.py` needs `23 * 4` bytes and an
+<a href=#68 id=68 data-nosnippet>68</a>//! 88-byte one is refused, but a reader who trusts the prose over the tool
 <a href=#69 id=69 data-nosnippet>69</a>//! spends the refusal looking at the wrong thing. Ask the tool instead:
 <a href=#70 id=70 data-nosnippet>70</a>//! `read-boot-report.py --addr-only &lt;elf&gt;` prints the address AND the length,
 <a href=#71 id=71 data-nosnippet>71</a>//! from the ELF's own symbol size.
@@ -83,7 +83,7 @@
 <a href=#83 id=83 data-nosnippet>83</a>//!    reading the new word as one it knows;
 <a href=#84 id=84 data-nosnippet>84</a>//! 3. `FIELDS` in `scripts/read-boot-report.py`, same name, same position, and
 <a href=#85 id=85 data-nosnippet>85</a>//!    `KNOWN_VERSION` to match;
-<a href=#86 id=86 data-nosnippet>86</a>//! 4. the field count in `the_record_is_twenty_two_packed_u32s` below.
+<a href=#86 id=86 data-nosnippet>86</a>//! 4. the field count in `the_record_is_twenty_three_packed_u32s` below.
 <a href=#87 id=87 data-nosnippet>87</a>//!
 <a href=#88 id=88 data-nosnippet>88</a>//! `check-boot-report-layout` fails on 1 without 3, and the Rust test fails if
 <a href=#89 id=89 data-nosnippet>89</a>//! the compiler laid the record out with padding. Appending is what keeps a
@@ -99,619 +99,805 @@
 <a href=#99 id=99 data-nosnippet>99</a><span class="doccomment">/// Layout version. Bump on any field change; a reader refuses what it does not
 <a href=#100 id=100 data-nosnippet>100</a>/// know rather than decoding a record it would misread.
 <a href=#101 id=101 data-nosnippet>101</a>///
-<a href=#102 id=102 data-nosnippet>102</a>/// 4 since phase-460 W5 appended `heap_peak_bytes` and `heap_capacity_bytes`.
-<a href=#103 id=103 data-nosnippet>103</a></span><span class="kw">pub const </span>VERSION: u32 = <span class="number">4</span>;
-<a href=#104 id=104 data-nosnippet>104</a>
-<a href=#105 id=105 data-nosnippet>105</a><span class="doccomment">/// How far boot got. Monotonic, and the single most useful field: an arena
-<a href=#106 id=106 data-nosnippet>106</a>/// failure halts during entity creation, so the stage that was NOT reached
-<a href=#107 id=107 data-nosnippet>107</a>/// names the phase to look at.
-<a href=#108 id=108 data-nosnippet>108</a>///
-<a href=#109 id=109 data-nosnippet>109</a>/// Numbers follow EXECUTION ORDER, because `checkpoint` keeps the maximum
-<a href=#110 id=110 data-nosnippet>110</a>/// and a stage that runs earlier but numbers higher would make the record
-<a href=#111 id=111 data-nosnippet>111</a>/// claim less progress than was made. Inserting one therefore renumbers the
-<a href=#112 id=112 data-nosnippet>112</a>/// rest and bumps [`VERSION`]; the decoder refuses a version it does not
-<a href=#113 id=113 data-nosnippet>113</a>/// know rather than misreading it, which is what makes that safe.
-<a href=#114 id=114 data-nosnippet>114</a></span><span class="attr">#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-<a href=#115 id=115 data-nosnippet>115</a>#[repr(u32)]
-<a href=#116 id=116 data-nosnippet>116</a></span><span class="kw">pub enum </span>Stage {
-<a href=#117 id=117 data-nosnippet>117</a>    <span class="doccomment">/// RAM as the loader left it. Never stored; a reader seeing this with a
-<a href=#118 id=118 data-nosnippet>118</a>    /// valid magic has found a record that was reset but not re-entered.
-<a href=#119 id=119 data-nosnippet>119</a>    </span>Untouched = <span class="number">0</span>,
-<a href=#120 id=120 data-nosnippet>120</a>    <span class="doccomment">/// The record itself is initialised and the compile-time knobs are in it.
-<a href=#121 id=121 data-nosnippet>121</a>    ///
-<a href=#122 id=122 data-nosnippet>122</a>    /// Stamped at the TOP of the C++ entry point, before any argument is
-<a href=#123 id=123 data-nosnippet>123</a>    /// validated, so "the image never entered nano-ros" is distinguishable
-<a href=#124 id=124 data-nosnippet>124</a>    /// from "it entered and died before the executor". Version 1 stamped this
-<a href=#125 id=125 data-nosnippet>125</a>    /// inside the executor constructor instead, which made those two cases
-<a href=#126 id=126 data-nosnippet>126</a>    /// identical -- both read magic 0 -- and cost a disassembly walk to tell
-<a href=#127 id=127 data-nosnippet>127</a>    /// apart on the first board run.
-<a href=#128 id=128 data-nosnippet>128</a>    </span>ReportReady = <span class="number">1</span>,
-<a href=#129 id=129 data-nosnippet>129</a>    <span class="doccomment">/// The boot config resolved: node name, namespace, locator and domain id
-<a href=#130 id=130 data-nosnippet>130</a>    /// all parsed. Everything between here and [`Stage::ReportReady`] is
-<a href=#131 id=131 data-nosnippet>131</a>    /// argument validation, and [`BootReport::cpp_init_ret`] says which check
-<a href=#132 id=132 data-nosnippet>132</a>    /// rejected it.
-<a href=#133 id=133 data-nosnippet>133</a>    </span>BootConfigResolved = <span class="number">2</span>,
-<a href=#134 id=134 data-nosnippet>134</a>    <span class="doccomment">/// An `Executor` has bound its arena, so [`BootReport::arena_capacity`]
-<a href=#135 id=135 data-nosnippet>135</a>    /// is the real slice length rather than the compiled constant.
-<a href=#136 id=136 data-nosnippet>136</a>    </span>ExecutorReady = <span class="number">3</span>,
-<a href=#137 id=137 data-nosnippet>137</a>    <span class="doccomment">/// Entity registration has begun: something claimed arena bytes.
-<a href=#138 id=138 data-nosnippet>138</a>    ///
-<a href=#139 id=139 data-nosnippet>139</a>    /// Stamped by [`note_alloc`] and [`note_alloc_failed`], which is to say by
-<a href=#140 id=140 data-nosnippet>140</a>    /// the arena allocator itself rather than by any register seam. The arena
-<a href=#141 id=141 data-nosnippet>141</a>    /// is claimed by entity registration and by nothing else, so an allocation
-<a href=#142 id=142 data-nosnippet>142</a>    /// ATTEMPT is the event, and putting the stamp on the record's own writers
-<a href=#143 id=143 data-nosnippet>143</a>    /// means every present and future `arena_alloc*` call site is covered by
-<a href=#144 id=144 data-nosnippet>144</a>    /// construction -- there is no second place to remember.
-<a href=#145 id=145 data-nosnippet>145</a>    ///
-<a href=#146 id=146 data-nosnippet>146</a>    /// Issue 1036: nothing emitted this for three phases, so an image that ran
-<a href=#147 id=147 data-nosnippet>147</a>    /// out of arena left the stage reading [`Stage::ExecutorReady`] -- the same
-<a href=#148 id=148 data-nosnippet>148</a>    /// value as an image that opened its executor and died before registering
-<a href=#149 id=149 data-nosnippet>149</a>    /// anything at all. The record named the allocation and could not say
-<a href=#150 id=150 data-nosnippet>150</a>    /// WHERE, which is half of a diagnostic on a board where it is the only
-<a href=#151 id=151 data-nosnippet>151</a>    /// channel.
-<a href=#152 id=152 data-nosnippet>152</a>    ///
-<a href=#153 id=153 data-nosnippet>153</a>    /// The interval between this and [`Stage::FirstSpin`] is where an
-<a href=#154 id=154 data-nosnippet>154</a>    /// under-sized arena halts, so `stage == 4` with a non-zero
-<a href=#155 id=155 data-nosnippet>155</a>    /// [`BootReport::failed_alloc_shortfall`] is the signature of the failure
-<a href=#156 id=156 data-nosnippet>156</a>    /// this whole record exists to catch.
-<a href=#157 id=157 data-nosnippet>157</a>    </span>RegisteringEntities = <span class="number">4</span>,
-<a href=#158 id=158 data-nosnippet>158</a>    <span class="doccomment">/// RESERVED. Nothing emits this, and nothing can from inside the core.
-<a href=#159 id=159 data-nosnippet>159</a>    ///
-<a href=#160 id=160 data-nosnippet>160</a>    /// "Every entity the image declares was registered successfully" has no
-<a href=#161 id=161 data-nosnippet>161</a>    /// observable moment here: an application may register lazily, which is the
-<a href=#162 id=162 data-nosnippet>162</a>    /// same reason issue 0900's headroom advisory fires at the first spin
-<a href=#163 id=163 data-nosnippet>163</a>    /// rather than at an end of registration that does not exist. A stamp at
-<a href=#164 id=164 data-nosnippet>164</a>    /// the top of `spin_once` would be a claim the core cannot support.
-<a href=#165 id=165 data-nosnippet>165</a>    ///
-<a href=#166 id=166 data-nosnippet>166</a>    /// Kept rather than removed, and DOCUMENTED rather than left looking
-<a href=#167 id=167 data-nosnippet>167</a>    /// unfinished (issue 1036): removing it renumbers [`Stage::FirstSpin`] and
-<a href=#168 id=168 data-nosnippet>168</a>    /// bumps [`VERSION`] to retire a value no image can produce, and the next
-<a href=#169 id=169 data-nosnippet>169</a>    /// reader would file the renumbering as the bug. An entry shape that DOES
-<a href=#170 id=170 data-nosnippet>170</a>    /// know when its register pass ended -- a generated component `setup`
-<a href=#171 id=171 data-nosnippet>171</a>    /// callback returning OK -- can stamp it without moving anything.
-<a href=#172 id=172 data-nosnippet>172</a>    </span>EntitiesReady = <span class="number">5</span>,
-<a href=#173 id=173 data-nosnippet>173</a>    <span class="doccomment">/// The first `spin_once` was entered, which is where issue 0900's
-<a href=#174 id=174 data-nosnippet>174</a>    /// headroom advisory would have printed had a sink existed.
-<a href=#175 id=175 data-nosnippet>175</a>    ///
-<a href=#176 id=176 data-nosnippet>176</a>    /// Because [`Stage::EntitiesReady`] has no producer, this is also what
-<a href=#177 id=177 data-nosnippet>177</a>    /// "registration finished" reads as: reaching 6 means the application
-<a href=#178 id=178 data-nosnippet>178</a>    /// stopped registering and started spinning.
-<a href=#179 id=179 data-nosnippet>179</a>    </span>FirstSpin = <span class="number">6</span>,
-<a href=#180 id=180 data-nosnippet>180</a>}
-<a href=#181 id=181 data-nosnippet>181</a>
-<a href=#182 id=182 data-nosnippet>182</a><span class="attr">#[cfg(nros_boot_report)]
-<a href=#183 id=183 data-nosnippet>183</a></span><span class="kw">pub use </span>enabled::<span class="kw-2">*</span>;
-<a href=#184 id=184 data-nosnippet>184</a>
-<a href=#185 id=185 data-nosnippet>185</a><span class="attr">#[cfg(nros_boot_report)]
-<a href=#186 id=186 data-nosnippet>186</a></span><span class="kw">mod </span>enabled {
-<a href=#187 id=187 data-nosnippet>187</a>    <span class="kw">use super</span>::{MAGIC, Stage, VERSION};
-<a href=#188 id=188 data-nosnippet>188</a>    <span class="kw">use </span>portable_atomic::{AtomicU32, Ordering};
-<a href=#189 id=189 data-nosnippet>189</a>
-<a href=#190 id=190 data-nosnippet>190</a>    <span class="doccomment">/// The record. One per image, in `.bss`.
-<a href=#191 id=191 data-nosnippet>191</a>    ///
-<a href=#192 id=192 data-nosnippet>192</a>    /// `#[repr(C)]` with every field an `AtomicU32` -- which is
-<a href=#193 id=193 data-nosnippet>193</a>    /// `repr(transparent)` over `u32` -- so the layout is exactly the sequence
-<a href=#194 id=194 data-nosnippet>194</a>    /// of 32-bit words the reader script decodes, on every target this crate
-<a href=#195 id=195 data-nosnippet>195</a>    /// builds for.
-<a href=#196 id=196 data-nosnippet>196</a>    ///
-<a href=#197 id=197 data-nosnippet>197</a>    /// Atomics rather than a `static mut` because the record is written from
-<a href=#198 id=198 data-nosnippet>198</a>    /// registration paths that an application may reach from more than one
-<a href=#199 id=199 data-nosnippet>199</a>    /// thread. `Relaxed` throughout: there is no ordering relationship to
-<a href=#200 id=200 data-nosnippet>200</a>    /// establish with any other data, and the reader is a debugger that has
-<a href=#201 id=201 data-nosnippet>201</a>    /// already halted the core.
-<a href=#202 id=202 data-nosnippet>202</a>    </span><span class="attr">#[repr(C)]
-<a href=#203 id=203 data-nosnippet>203</a>    </span><span class="kw">pub struct </span>BootReport {
-<a href=#204 id=204 data-nosnippet>204</a>        magic: AtomicU32,
-<a href=#205 id=205 data-nosnippet>205</a>        version: AtomicU32,
-<a href=#206 id=206 data-nosnippet>206</a>        struct_size: AtomicU32,
-<a href=#207 id=207 data-nosnippet>207</a>        stage: AtomicU32,
-<a href=#208 id=208 data-nosnippet>208</a>
-<a href=#209 id=209 data-nosnippet>209</a>        <span class="comment">// Compile-time, so that comparing these against what the build system
-<a href=#210 id=210 data-nosnippet>210</a>        // BELIEVES it delivered turns a "derived value did not arrive" defect
-<a href=#211 id=211 data-nosnippet>211</a>        // into a measurement. `scripts/check-knob-delivery.py` asserts the same
-<a href=#212 id=212 data-nosnippet>212</a>        // identity one step earlier, at `build.ninja`; this is the same
-<a href=#213 id=213 data-nosnippet>213</a>        // assertion made by the silicon.
-<a href=#214 id=214 data-nosnippet>214</a>        </span>arena_size: AtomicU32,
-<a href=#215 id=215 data-nosnippet>215</a>        max_cbs: AtomicU32,
-<a href=#216 id=216 data-nosnippet>216</a>        max_sc: AtomicU32,
-<a href=#217 id=217 data-nosnippet>217</a>        max_nodes: AtomicU32,
-<a href=#218 id=218 data-nosnippet>218</a>        default_rx_buf_size: AtomicU32,
-<a href=#219 id=219 data-nosnippet>219</a>
-<a href=#220 id=220 data-nosnippet>220</a>        <span class="comment">// Runtime.
-<a href=#221 id=221 data-nosnippet>221</a>        </span>arena_capacity: AtomicU32,
-<a href=#222 id=222 data-nosnippet>222</a>        arena_used: AtomicU32,
-<a href=#223 id=223 data-nosnippet>223</a>        alloc_count: AtomicU32,
-<a href=#224 id=224 data-nosnippet>224</a>        last_alloc_size: AtomicU32,
-<a href=#225 id=225 data-nosnippet>225</a>        <span class="doccomment">/// Bytes the allocation that FAILED asked for, or 0 if none has.
-<a href=#226 id=226 data-nosnippet>226</a>        </span>failed_alloc_size: AtomicU32,
-<a href=#227 id=227 data-nosnippet>227</a>        <span class="doccomment">/// Bytes by which that allocation overran the arena. This is the
-<a href=#228 id=228 data-nosnippet>228</a>        /// number to add to `NROS_EXECUTOR_ARENA_SIZE`, which is why it is
-<a href=#229 id=229 data-nosnippet>229</a>        /// stored rather than left to be recomputed from the two above.
-<a href=#230 id=230 data-nosnippet>230</a>        </span>failed_alloc_shortfall: AtomicU32,
-<a href=#231 id=231 data-nosnippet>231</a>        <span class="doccomment">/// `nros_cpp_init`'s return code, as the two's-complement bits of an
-<a href=#232 id=232 data-nosnippet>232</a>        /// `i32`, or 0 (`NROS_CPP_RET_OK`) if it has not returned yet.
-<a href=#233 id=233 data-nosnippet>233</a>        ///
-<a href=#234 id=234 data-nosnippet>234</a>        /// The stage says HOW FAR init got; this says why it stopped. Without
-<a href=#235 id=235 data-nosnippet>235</a>        /// it, every early return in that function -- a null argument, a
-<a href=#236 id=236 data-nosnippet>236</a>        /// non-UTF-8 name, a bad domain id, a backend that refused to open --
-<a href=#237 id=237 data-nosnippet>237</a>        /// is one indistinguishable "did not reach the executor".
-<a href=#238 id=238 data-nosnippet>238</a>        </span>cpp_init_ret: AtomicU32,
-<a href=#239 id=239 data-nosnippet>239</a>        <span class="doccomment">/// The LAST `NodeError` that crossed the C++ FFI, as a stable code.
-<a href=#240 id=240 data-nosnippet>240</a>        ///
-<a href=#241 id=241 data-nosnippet>241</a>        /// Stable here means assigned by `nros-cpp`'s exhaustive mapper, not
-<a href=#242 id=242 data-nosnippet>242</a>        /// taken from the Rust discriminant -- a discriminant shifts whenever a
-<a href=#243 id=243 data-nosnippet>243</a>        /// variant is inserted, and a dump decoded against the wrong numbering
-<a href=#244 id=244 data-nosnippet>244</a>        /// names the wrong error, confidently.
-<a href=#245 id=245 data-nosnippet>245</a>        </span>err_class: AtomicU32,
-<a href=#246 id=246 data-nosnippet>246</a>        <span class="doccomment">/// For [`Self::err_class`] == Transport, which `TransportError`.
-<a href=#247 id=247 data-nosnippet>247</a>        ///
-<a href=#248 id=248 data-nosnippet>248</a>        /// The C++ ABI collapses eight distinct transport variants onto the
-<a href=#249 id=249 data-nosnippet>249</a>        /// single code -100, which is what made an island subscription failure
-<a href=#250 id=250 data-nosnippet>250</a>        /// undiagnosable: the return code said "transport" and nothing said
-<a href=#251 id=251 data-nosnippet>251</a>        /// which. This is the field that separates them.
-<a href=#252 id=252 data-nosnippet>252</a>        </span>err_transport: AtomicU32,
-<a href=#253 id=253 data-nosnippet>253</a>        <span class="doccomment">/// Address of the `Backend(&amp;'static str)` message, or 0.
-<a href=#254 id=254 data-nosnippet>254</a>        ///
-<a href=#255 id=255 data-nosnippet>255</a>        /// The pointer rather than the text: the message is a static string
-<a href=#256 id=256 data-nosnippet>256</a>        /// already in the image, so copying it would cost the record a buffer
-<a href=#257 id=257 data-nosnippet>257</a>        /// to hold something the reader can fetch. Paired with
-<a href=#258 id=258 data-nosnippet>258</a>        /// [`Self::err_backend_len`].
-<a href=#259 id=259 data-nosnippet>259</a>        </span>err_backend_ptr: AtomicU32,
-<a href=#260 id=260 data-nosnippet>260</a>        <span class="doccomment">/// Length of the message at [`Self::err_backend_ptr`], or 0.
-<a href=#261 id=261 data-nosnippet>261</a>        </span>err_backend_len: AtomicU32,
-<a href=#262 id=262 data-nosnippet>262</a>
-<a href=#263 id=263 data-nosnippet>263</a>        <span class="comment">// The platform heap -- the arena `nros_platform_alloc` hands out of,
-<a href=#264 id=264 data-nosnippet>264</a>        // which on Zephyr is CONFIG_NROS_ZEPHYR_HEAP_SIZE. Appended by
-<a href=#265 id=265 data-nosnippet>265</a>        // phase-460 W5; see "Adding a field" above for why the two words are
-<a href=#266 id=266 data-nosnippet>266</a>        // at the END.
-<a href=#267 id=267 data-nosnippet>267</a>        </span><span class="doccomment">/// High-water mark of the platform heap, in bytes, or 0 if this image
-<a href=#268 id=268 data-nosnippet>268</a>        /// never sampled it.
-<a href=#269 id=269 data-nosnippet>269</a>        ///
-<a href=#270 id=270 data-nosnippet>270</a>        /// `peak`, not `used`: `used` read at an arbitrary instant reports
-<a href=#271 id=271 data-nosnippet>271</a>        /// whatever happened to be live at the moment of the read, which is
-<a href=#272 id=272 data-nosnippet>272</a>        /// not what a size knob bounds. Issue 1424 -- the reporter behind this
-<a href=#273 id=273 data-nosnippet>273</a>        /// (`nros_zephyr_heap_peak`) has existed and been compiled into every
-<a href=#274 id=274 data-nosnippet>274</a>        /// Zephyr image since phase-412, and nothing read it off a board with
-<a href=#275 id=275 data-nosnippet>275</a>        /// no console, so the one knob it could have sized
-<a href=#276 id=276 data-nosnippet>276</a>        /// (`CONFIG_NROS_ZEPHYR_HEAP_SIZE`) was set by hand and annotated as a
-<a href=#277 id=277 data-nosnippet>277</a>        /// guess.
-<a href=#278 id=278 data-nosnippet>278</a>        ///
-<a href=#279 id=279 data-nosnippet>279</a>        /// MONOTONIC here as well as at the source, so a later sample of a
-<a href=#280 id=280 data-nosnippet>280</a>        /// heap that has since freed memory cannot lower the figure the knob
-<a href=#281 id=281 data-nosnippet>281</a>        /// is sized from.
-<a href=#282 id=282 data-nosnippet>282</a>        </span>heap_peak_bytes: AtomicU32,
-<a href=#283 id=283 data-nosnippet>283</a>        <span class="doccomment">/// Bytes the platform heap was given, or 0 if never sampled.
-<a href=#284 id=284 data-nosnippet>284</a>        ///
-<a href=#285 id=285 data-nosnippet>285</a>        /// The pair is what makes the peak actionable: a peak alone says how
-<a href=#286 id=286 data-nosnippet>286</a>        /// much was needed and says nothing about how close to the edge the
-<a href=#287 id=287 data-nosnippet>287</a>        /// image ran. `capacity - peak` is the headroom the gate refuses on.
-<a href=#288 id=288 data-nosnippet>288</a>        </span>heap_capacity_bytes: AtomicU32,
-<a href=#289 id=289 data-nosnippet>289</a>    }
+<a href=#102 id=102 data-nosnippet>102</a>/// 4 since phase-460 W5 appended `heap_peak_bytes` and `heap_capacity_bytes`;
+<a href=#103 id=103 data-nosnippet>103</a>/// 5 since phase-460 W7 appended `samples_dropped_too_small`.
+<a href=#104 id=104 data-nosnippet>104</a></span><span class="kw">pub const </span>VERSION: u32 = <span class="number">5</span>;
+<a href=#105 id=105 data-nosnippet>105</a>
+<a href=#106 id=106 data-nosnippet>106</a><span class="doccomment">/// How far boot got. Monotonic, and the single most useful field: an arena
+<a href=#107 id=107 data-nosnippet>107</a>/// failure halts during entity creation, so the stage that was NOT reached
+<a href=#108 id=108 data-nosnippet>108</a>/// names the phase to look at.
+<a href=#109 id=109 data-nosnippet>109</a>///
+<a href=#110 id=110 data-nosnippet>110</a>/// Numbers follow EXECUTION ORDER, because `checkpoint` keeps the maximum
+<a href=#111 id=111 data-nosnippet>111</a>/// and a stage that runs earlier but numbers higher would make the record
+<a href=#112 id=112 data-nosnippet>112</a>/// claim less progress than was made. Inserting one therefore renumbers the
+<a href=#113 id=113 data-nosnippet>113</a>/// rest and bumps [`VERSION`]; the decoder refuses a version it does not
+<a href=#114 id=114 data-nosnippet>114</a>/// know rather than misreading it, which is what makes that safe.
+<a href=#115 id=115 data-nosnippet>115</a></span><span class="attr">#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+<a href=#116 id=116 data-nosnippet>116</a>#[repr(u32)]
+<a href=#117 id=117 data-nosnippet>117</a></span><span class="kw">pub enum </span>Stage {
+<a href=#118 id=118 data-nosnippet>118</a>    <span class="doccomment">/// RAM as the loader left it. Never stored; a reader seeing this with a
+<a href=#119 id=119 data-nosnippet>119</a>    /// valid magic has found a record that was reset but not re-entered.
+<a href=#120 id=120 data-nosnippet>120</a>    </span>Untouched = <span class="number">0</span>,
+<a href=#121 id=121 data-nosnippet>121</a>    <span class="doccomment">/// The record itself is initialised and the compile-time knobs are in it.
+<a href=#122 id=122 data-nosnippet>122</a>    ///
+<a href=#123 id=123 data-nosnippet>123</a>    /// Stamped at the TOP of the C++ entry point, before any argument is
+<a href=#124 id=124 data-nosnippet>124</a>    /// validated, so "the image never entered nano-ros" is distinguishable
+<a href=#125 id=125 data-nosnippet>125</a>    /// from "it entered and died before the executor". Version 1 stamped this
+<a href=#126 id=126 data-nosnippet>126</a>    /// inside the executor constructor instead, which made those two cases
+<a href=#127 id=127 data-nosnippet>127</a>    /// identical -- both read magic 0 -- and cost a disassembly walk to tell
+<a href=#128 id=128 data-nosnippet>128</a>    /// apart on the first board run.
+<a href=#129 id=129 data-nosnippet>129</a>    </span>ReportReady = <span class="number">1</span>,
+<a href=#130 id=130 data-nosnippet>130</a>    <span class="doccomment">/// The boot config resolved: node name, namespace, locator and domain id
+<a href=#131 id=131 data-nosnippet>131</a>    /// all parsed. Everything between here and [`Stage::ReportReady`] is
+<a href=#132 id=132 data-nosnippet>132</a>    /// argument validation, and [`BootReport::cpp_init_ret`] says which check
+<a href=#133 id=133 data-nosnippet>133</a>    /// rejected it.
+<a href=#134 id=134 data-nosnippet>134</a>    </span>BootConfigResolved = <span class="number">2</span>,
+<a href=#135 id=135 data-nosnippet>135</a>    <span class="doccomment">/// An `Executor` has bound its arena, so [`BootReport::arena_capacity`]
+<a href=#136 id=136 data-nosnippet>136</a>    /// is the real slice length rather than the compiled constant.
+<a href=#137 id=137 data-nosnippet>137</a>    </span>ExecutorReady = <span class="number">3</span>,
+<a href=#138 id=138 data-nosnippet>138</a>    <span class="doccomment">/// Entity registration has begun: something claimed arena bytes.
+<a href=#139 id=139 data-nosnippet>139</a>    ///
+<a href=#140 id=140 data-nosnippet>140</a>    /// Stamped by [`note_alloc`] and [`note_alloc_failed`], which is to say by
+<a href=#141 id=141 data-nosnippet>141</a>    /// the arena allocator itself rather than by any register seam. The arena
+<a href=#142 id=142 data-nosnippet>142</a>    /// is claimed by entity registration and by nothing else, so an allocation
+<a href=#143 id=143 data-nosnippet>143</a>    /// ATTEMPT is the event, and putting the stamp on the record's own writers
+<a href=#144 id=144 data-nosnippet>144</a>    /// means every present and future `arena_alloc*` call site is covered by
+<a href=#145 id=145 data-nosnippet>145</a>    /// construction -- there is no second place to remember.
+<a href=#146 id=146 data-nosnippet>146</a>    ///
+<a href=#147 id=147 data-nosnippet>147</a>    /// Issue 1036: nothing emitted this for three phases, so an image that ran
+<a href=#148 id=148 data-nosnippet>148</a>    /// out of arena left the stage reading [`Stage::ExecutorReady`] -- the same
+<a href=#149 id=149 data-nosnippet>149</a>    /// value as an image that opened its executor and died before registering
+<a href=#150 id=150 data-nosnippet>150</a>    /// anything at all. The record named the allocation and could not say
+<a href=#151 id=151 data-nosnippet>151</a>    /// WHERE, which is half of a diagnostic on a board where it is the only
+<a href=#152 id=152 data-nosnippet>152</a>    /// channel.
+<a href=#153 id=153 data-nosnippet>153</a>    ///
+<a href=#154 id=154 data-nosnippet>154</a>    /// The interval between this and [`Stage::FirstSpin`] is where an
+<a href=#155 id=155 data-nosnippet>155</a>    /// under-sized arena halts, so `stage == 4` with a non-zero
+<a href=#156 id=156 data-nosnippet>156</a>    /// [`BootReport::failed_alloc_shortfall`] is the signature of the failure
+<a href=#157 id=157 data-nosnippet>157</a>    /// this whole record exists to catch.
+<a href=#158 id=158 data-nosnippet>158</a>    </span>RegisteringEntities = <span class="number">4</span>,
+<a href=#159 id=159 data-nosnippet>159</a>    <span class="doccomment">/// RESERVED. Nothing emits this, and nothing can from inside the core.
+<a href=#160 id=160 data-nosnippet>160</a>    ///
+<a href=#161 id=161 data-nosnippet>161</a>    /// "Every entity the image declares was registered successfully" has no
+<a href=#162 id=162 data-nosnippet>162</a>    /// observable moment here: an application may register lazily, which is the
+<a href=#163 id=163 data-nosnippet>163</a>    /// same reason issue 0900's headroom advisory fires at the first spin
+<a href=#164 id=164 data-nosnippet>164</a>    /// rather than at an end of registration that does not exist. A stamp at
+<a href=#165 id=165 data-nosnippet>165</a>    /// the top of `spin_once` would be a claim the core cannot support.
+<a href=#166 id=166 data-nosnippet>166</a>    ///
+<a href=#167 id=167 data-nosnippet>167</a>    /// Kept rather than removed, and DOCUMENTED rather than left looking
+<a href=#168 id=168 data-nosnippet>168</a>    /// unfinished (issue 1036): removing it renumbers [`Stage::FirstSpin`] and
+<a href=#169 id=169 data-nosnippet>169</a>    /// bumps [`VERSION`] to retire a value no image can produce, and the next
+<a href=#170 id=170 data-nosnippet>170</a>    /// reader would file the renumbering as the bug. An entry shape that DOES
+<a href=#171 id=171 data-nosnippet>171</a>    /// know when its register pass ended -- a generated component `setup`
+<a href=#172 id=172 data-nosnippet>172</a>    /// callback returning OK -- can stamp it without moving anything.
+<a href=#173 id=173 data-nosnippet>173</a>    </span>EntitiesReady = <span class="number">5</span>,
+<a href=#174 id=174 data-nosnippet>174</a>    <span class="doccomment">/// The first `spin_once` was entered, which is where issue 0900's
+<a href=#175 id=175 data-nosnippet>175</a>    /// headroom advisory would have printed had a sink existed.
+<a href=#176 id=176 data-nosnippet>176</a>    ///
+<a href=#177 id=177 data-nosnippet>177</a>    /// Because [`Stage::EntitiesReady`] has no producer, this is also what
+<a href=#178 id=178 data-nosnippet>178</a>    /// "registration finished" reads as: reaching 6 means the application
+<a href=#179 id=179 data-nosnippet>179</a>    /// stopped registering and started spinning.
+<a href=#180 id=180 data-nosnippet>180</a>    </span>FirstSpin = <span class="number">6</span>,
+<a href=#181 id=181 data-nosnippet>181</a>}
+<a href=#182 id=182 data-nosnippet>182</a>
+<a href=#183 id=183 data-nosnippet>183</a><span class="attr">#[cfg(nros_boot_report)]
+<a href=#184 id=184 data-nosnippet>184</a></span><span class="kw">pub use </span>enabled::<span class="kw-2">*</span>;
+<a href=#185 id=185 data-nosnippet>185</a>
+<a href=#186 id=186 data-nosnippet>186</a><span class="attr">#[cfg(nros_boot_report)]
+<a href=#187 id=187 data-nosnippet>187</a></span><span class="kw">mod </span>enabled {
+<a href=#188 id=188 data-nosnippet>188</a>    <span class="kw">use super</span>::{MAGIC, Stage, VERSION};
+<a href=#189 id=189 data-nosnippet>189</a>    <span class="kw">use </span>portable_atomic::{AtomicU32, Ordering};
+<a href=#190 id=190 data-nosnippet>190</a>
+<a href=#191 id=191 data-nosnippet>191</a>    <span class="doccomment">/// The record. One per image, in `.bss`.
+<a href=#192 id=192 data-nosnippet>192</a>    ///
+<a href=#193 id=193 data-nosnippet>193</a>    /// `#[repr(C)]` with every field an `AtomicU32` -- which is
+<a href=#194 id=194 data-nosnippet>194</a>    /// `repr(transparent)` over `u32` -- so the layout is exactly the sequence
+<a href=#195 id=195 data-nosnippet>195</a>    /// of 32-bit words the reader script decodes, on every target this crate
+<a href=#196 id=196 data-nosnippet>196</a>    /// builds for.
+<a href=#197 id=197 data-nosnippet>197</a>    ///
+<a href=#198 id=198 data-nosnippet>198</a>    /// Atomics rather than a `static mut` because the record is written from
+<a href=#199 id=199 data-nosnippet>199</a>    /// registration paths that an application may reach from more than one
+<a href=#200 id=200 data-nosnippet>200</a>    /// thread. `Relaxed` throughout: there is no ordering relationship to
+<a href=#201 id=201 data-nosnippet>201</a>    /// establish with any other data, and the reader is a debugger that has
+<a href=#202 id=202 data-nosnippet>202</a>    /// already halted the core.
+<a href=#203 id=203 data-nosnippet>203</a>    </span><span class="attr">#[repr(C)]
+<a href=#204 id=204 data-nosnippet>204</a>    </span><span class="kw">pub struct </span>BootReport {
+<a href=#205 id=205 data-nosnippet>205</a>        magic: AtomicU32,
+<a href=#206 id=206 data-nosnippet>206</a>        version: AtomicU32,
+<a href=#207 id=207 data-nosnippet>207</a>        struct_size: AtomicU32,
+<a href=#208 id=208 data-nosnippet>208</a>        stage: AtomicU32,
+<a href=#209 id=209 data-nosnippet>209</a>
+<a href=#210 id=210 data-nosnippet>210</a>        <span class="comment">// Compile-time, so that comparing these against what the build system
+<a href=#211 id=211 data-nosnippet>211</a>        // BELIEVES it delivered turns a "derived value did not arrive" defect
+<a href=#212 id=212 data-nosnippet>212</a>        // into a measurement. `scripts/check-knob-delivery.py` asserts the same
+<a href=#213 id=213 data-nosnippet>213</a>        // identity one step earlier, at `build.ninja`; this is the same
+<a href=#214 id=214 data-nosnippet>214</a>        // assertion made by the silicon.
+<a href=#215 id=215 data-nosnippet>215</a>        </span>arena_size: AtomicU32,
+<a href=#216 id=216 data-nosnippet>216</a>        max_cbs: AtomicU32,
+<a href=#217 id=217 data-nosnippet>217</a>        max_sc: AtomicU32,
+<a href=#218 id=218 data-nosnippet>218</a>        max_nodes: AtomicU32,
+<a href=#219 id=219 data-nosnippet>219</a>        default_rx_buf_size: AtomicU32,
+<a href=#220 id=220 data-nosnippet>220</a>
+<a href=#221 id=221 data-nosnippet>221</a>        <span class="comment">// Runtime.
+<a href=#222 id=222 data-nosnippet>222</a>        </span>arena_capacity: AtomicU32,
+<a href=#223 id=223 data-nosnippet>223</a>        arena_used: AtomicU32,
+<a href=#224 id=224 data-nosnippet>224</a>        alloc_count: AtomicU32,
+<a href=#225 id=225 data-nosnippet>225</a>        last_alloc_size: AtomicU32,
+<a href=#226 id=226 data-nosnippet>226</a>        <span class="doccomment">/// Bytes the allocation that FAILED asked for, or 0 if none has.
+<a href=#227 id=227 data-nosnippet>227</a>        </span>failed_alloc_size: AtomicU32,
+<a href=#228 id=228 data-nosnippet>228</a>        <span class="doccomment">/// Bytes by which that allocation overran the arena. This is the
+<a href=#229 id=229 data-nosnippet>229</a>        /// number to add to `NROS_EXECUTOR_ARENA_SIZE`, which is why it is
+<a href=#230 id=230 data-nosnippet>230</a>        /// stored rather than left to be recomputed from the two above.
+<a href=#231 id=231 data-nosnippet>231</a>        </span>failed_alloc_shortfall: AtomicU32,
+<a href=#232 id=232 data-nosnippet>232</a>        <span class="doccomment">/// `nros_cpp_init`'s return code, as the two's-complement bits of an
+<a href=#233 id=233 data-nosnippet>233</a>        /// `i32`, or 0 (`NROS_CPP_RET_OK`) if it has not returned yet.
+<a href=#234 id=234 data-nosnippet>234</a>        ///
+<a href=#235 id=235 data-nosnippet>235</a>        /// The stage says HOW FAR init got; this says why it stopped. Without
+<a href=#236 id=236 data-nosnippet>236</a>        /// it, every early return in that function -- a null argument, a
+<a href=#237 id=237 data-nosnippet>237</a>        /// non-UTF-8 name, a bad domain id, a backend that refused to open --
+<a href=#238 id=238 data-nosnippet>238</a>        /// is one indistinguishable "did not reach the executor".
+<a href=#239 id=239 data-nosnippet>239</a>        </span>cpp_init_ret: AtomicU32,
+<a href=#240 id=240 data-nosnippet>240</a>        <span class="doccomment">/// The LAST `NodeError` that crossed the C++ FFI, as a stable code.
+<a href=#241 id=241 data-nosnippet>241</a>        ///
+<a href=#242 id=242 data-nosnippet>242</a>        /// Stable here means assigned by `nros-cpp`'s exhaustive mapper, not
+<a href=#243 id=243 data-nosnippet>243</a>        /// taken from the Rust discriminant -- a discriminant shifts whenever a
+<a href=#244 id=244 data-nosnippet>244</a>        /// variant is inserted, and a dump decoded against the wrong numbering
+<a href=#245 id=245 data-nosnippet>245</a>        /// names the wrong error, confidently.
+<a href=#246 id=246 data-nosnippet>246</a>        </span>err_class: AtomicU32,
+<a href=#247 id=247 data-nosnippet>247</a>        <span class="doccomment">/// For [`Self::err_class`] == Transport, which `TransportError`.
+<a href=#248 id=248 data-nosnippet>248</a>        ///
+<a href=#249 id=249 data-nosnippet>249</a>        /// The C++ ABI collapses eight distinct transport variants onto the
+<a href=#250 id=250 data-nosnippet>250</a>        /// single code -100, which is what made an island subscription failure
+<a href=#251 id=251 data-nosnippet>251</a>        /// undiagnosable: the return code said "transport" and nothing said
+<a href=#252 id=252 data-nosnippet>252</a>        /// which. This is the field that separates them.
+<a href=#253 id=253 data-nosnippet>253</a>        </span>err_transport: AtomicU32,
+<a href=#254 id=254 data-nosnippet>254</a>        <span class="doccomment">/// Address of the `Backend(&amp;'static str)` message, or 0.
+<a href=#255 id=255 data-nosnippet>255</a>        ///
+<a href=#256 id=256 data-nosnippet>256</a>        /// The pointer rather than the text: the message is a static string
+<a href=#257 id=257 data-nosnippet>257</a>        /// already in the image, so copying it would cost the record a buffer
+<a href=#258 id=258 data-nosnippet>258</a>        /// to hold something the reader can fetch. Paired with
+<a href=#259 id=259 data-nosnippet>259</a>        /// [`Self::err_backend_len`].
+<a href=#260 id=260 data-nosnippet>260</a>        </span>err_backend_ptr: AtomicU32,
+<a href=#261 id=261 data-nosnippet>261</a>        <span class="doccomment">/// Length of the message at [`Self::err_backend_ptr`], or 0.
+<a href=#262 id=262 data-nosnippet>262</a>        </span>err_backend_len: AtomicU32,
+<a href=#263 id=263 data-nosnippet>263</a>
+<a href=#264 id=264 data-nosnippet>264</a>        <span class="comment">// The platform heap -- the arena `nros_platform_alloc` hands out of,
+<a href=#265 id=265 data-nosnippet>265</a>        // which on Zephyr is CONFIG_NROS_ZEPHYR_HEAP_SIZE. Appended by
+<a href=#266 id=266 data-nosnippet>266</a>        // phase-460 W5; see "Adding a field" above for why the two words are
+<a href=#267 id=267 data-nosnippet>267</a>        // at the END.
+<a href=#268 id=268 data-nosnippet>268</a>        </span><span class="doccomment">/// High-water mark of the platform heap, in bytes, or 0 if this image
+<a href=#269 id=269 data-nosnippet>269</a>        /// never sampled it.
+<a href=#270 id=270 data-nosnippet>270</a>        ///
+<a href=#271 id=271 data-nosnippet>271</a>        /// `peak`, not `used`: `used` read at an arbitrary instant reports
+<a href=#272 id=272 data-nosnippet>272</a>        /// whatever happened to be live at the moment of the read, which is
+<a href=#273 id=273 data-nosnippet>273</a>        /// not what a size knob bounds. Issue 1424 -- the reporter behind this
+<a href=#274 id=274 data-nosnippet>274</a>        /// (`nros_zephyr_heap_peak`) has existed and been compiled into every
+<a href=#275 id=275 data-nosnippet>275</a>        /// Zephyr image since phase-412, and nothing read it off a board with
+<a href=#276 id=276 data-nosnippet>276</a>        /// no console, so the one knob it could have sized
+<a href=#277 id=277 data-nosnippet>277</a>        /// (`CONFIG_NROS_ZEPHYR_HEAP_SIZE`) was set by hand and annotated as a
+<a href=#278 id=278 data-nosnippet>278</a>        /// guess.
+<a href=#279 id=279 data-nosnippet>279</a>        ///
+<a href=#280 id=280 data-nosnippet>280</a>        /// MONOTONIC here as well as at the source, so a later sample of a
+<a href=#281 id=281 data-nosnippet>281</a>        /// heap that has since freed memory cannot lower the figure the knob
+<a href=#282 id=282 data-nosnippet>282</a>        /// is sized from.
+<a href=#283 id=283 data-nosnippet>283</a>        </span>heap_peak_bytes: AtomicU32,
+<a href=#284 id=284 data-nosnippet>284</a>        <span class="doccomment">/// Bytes the platform heap was given, or 0 if never sampled.
+<a href=#285 id=285 data-nosnippet>285</a>        ///
+<a href=#286 id=286 data-nosnippet>286</a>        /// The pair is what makes the peak actionable: a peak alone says how
+<a href=#287 id=287 data-nosnippet>287</a>        /// much was needed and says nothing about how close to the edge the
+<a href=#288 id=288 data-nosnippet>288</a>        /// image ran. `capacity - peak` is the headroom the gate refuses on.
+<a href=#289 id=289 data-nosnippet>289</a>        </span>heap_capacity_bytes: AtomicU32,
 <a href=#290 id=290 data-nosnippet>290</a>
-<a href=#291 id=291 data-nosnippet>291</a>    <span class="kw">impl </span>BootReport {
-<a href=#292 id=292 data-nosnippet>292</a>        <span class="kw">const fn </span>new() -&gt; <span class="self">Self </span>{
-<a href=#293 id=293 data-nosnippet>293</a>            <span class="self">Self </span>{
-<a href=#294 id=294 data-nosnippet>294</a>                magic: AtomicU32::new(<span class="number">0</span>),
-<a href=#295 id=295 data-nosnippet>295</a>                version: AtomicU32::new(<span class="number">0</span>),
-<a href=#296 id=296 data-nosnippet>296</a>                struct_size: AtomicU32::new(<span class="number">0</span>),
-<a href=#297 id=297 data-nosnippet>297</a>                stage: AtomicU32::new(<span class="number">0</span>),
-<a href=#298 id=298 data-nosnippet>298</a>                arena_size: AtomicU32::new(<span class="number">0</span>),
-<a href=#299 id=299 data-nosnippet>299</a>                max_cbs: AtomicU32::new(<span class="number">0</span>),
-<a href=#300 id=300 data-nosnippet>300</a>                max_sc: AtomicU32::new(<span class="number">0</span>),
-<a href=#301 id=301 data-nosnippet>301</a>                max_nodes: AtomicU32::new(<span class="number">0</span>),
-<a href=#302 id=302 data-nosnippet>302</a>                default_rx_buf_size: AtomicU32::new(<span class="number">0</span>),
-<a href=#303 id=303 data-nosnippet>303</a>                arena_capacity: AtomicU32::new(<span class="number">0</span>),
-<a href=#304 id=304 data-nosnippet>304</a>                arena_used: AtomicU32::new(<span class="number">0</span>),
-<a href=#305 id=305 data-nosnippet>305</a>                alloc_count: AtomicU32::new(<span class="number">0</span>),
-<a href=#306 id=306 data-nosnippet>306</a>                last_alloc_size: AtomicU32::new(<span class="number">0</span>),
-<a href=#307 id=307 data-nosnippet>307</a>                failed_alloc_size: AtomicU32::new(<span class="number">0</span>),
-<a href=#308 id=308 data-nosnippet>308</a>                failed_alloc_shortfall: AtomicU32::new(<span class="number">0</span>),
-<a href=#309 id=309 data-nosnippet>309</a>                cpp_init_ret: AtomicU32::new(<span class="number">0</span>),
-<a href=#310 id=310 data-nosnippet>310</a>                err_class: AtomicU32::new(<span class="number">0</span>),
-<a href=#311 id=311 data-nosnippet>311</a>                err_transport: AtomicU32::new(<span class="number">0</span>),
-<a href=#312 id=312 data-nosnippet>312</a>                err_backend_ptr: AtomicU32::new(<span class="number">0</span>),
-<a href=#313 id=313 data-nosnippet>313</a>                err_backend_len: AtomicU32::new(<span class="number">0</span>),
-<a href=#314 id=314 data-nosnippet>314</a>                heap_peak_bytes: AtomicU32::new(<span class="number">0</span>),
-<a href=#315 id=315 data-nosnippet>315</a>                heap_capacity_bytes: AtomicU32::new(<span class="number">0</span>),
-<a href=#316 id=316 data-nosnippet>316</a>            }
-<a href=#317 id=317 data-nosnippet>317</a>        }
-<a href=#318 id=318 data-nosnippet>318</a>
-<a href=#319 id=319 data-nosnippet>319</a>        <span class="doccomment">/// Size of the record in bytes, as the reader must expect it.
-<a href=#320 id=320 data-nosnippet>320</a>        ///
-<a href=#321 id=321 data-nosnippet>321</a>        /// ASKED OF THE COMPILER, not counted by hand. A hand-written word
-<a href=#322 id=322 data-nosnippet>322</a>        /// count is a second statement of the field list that drifts the first
-<a href=#323 id=323 data-nosnippet>323</a>        /// time a field is added, and it would drift SILENTLY -- the reader
-<a href=#324 id=324 data-nosnippet>324</a>        /// would accept the record and decode one field short. This whole
-<a href=#325 id=325 data-nosnippet>325</a>        /// campaign is about not hand-picking numbers the build already knows.
-<a href=#326 id=326 data-nosnippet>326</a>        </span><span class="attr">#[must_use]
-<a href=#327 id=327 data-nosnippet>327</a>        </span><span class="kw">pub const fn </span>struct_size() -&gt; u32 {
-<a href=#328 id=328 data-nosnippet>328</a>            <span class="comment">// The record is all `AtomicU32`, so this is exact on every target
-<a href=#329 id=329 data-nosnippet>329</a>            // and there is no padding for the cast to lose.
-<a href=#330 id=330 data-nosnippet>330</a>            </span>core::mem::size_of::&lt;<span class="self">Self</span>&gt;() <span class="kw">as </span>u32
-<a href=#331 id=331 data-nosnippet>331</a>        }
-<a href=#332 id=332 data-nosnippet>332</a>    }
-<a href=#333 id=333 data-nosnippet>333</a>
-<a href=#334 id=334 data-nosnippet>334</a>    <span class="doccomment">/// A plain-value copy of the record.
-<a href=#335 id=335 data-nosnippet>335</a>    ///
-<a href=#336 id=336 data-nosnippet>336</a>    /// Field-for-field with [`BootReport`] and in the SAME ORDER, because
-<a href=#337 id=337 data-nosnippet>337</a>    /// `scripts/read-boot-report.py` decodes that order out of a memory dump.
-<a href=#338 id=338 data-nosnippet>338</a>    /// A test that reads through this therefore exercises the same layout the
-<a href=#339 id=339 data-nosnippet>339</a>    /// script assumes, which is the only thing keeping the two in step.
-<a href=#340 id=340 data-nosnippet>340</a>    </span><span class="attr">#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-<a href=#341 id=341 data-nosnippet>341</a>    </span><span class="kw">pub struct </span>Snapshot {
-<a href=#342 id=342 data-nosnippet>342</a>        <span class="kw">pub </span>magic: u32,
-<a href=#343 id=343 data-nosnippet>343</a>        <span class="kw">pub </span>version: u32,
-<a href=#344 id=344 data-nosnippet>344</a>        <span class="kw">pub </span>struct_size: u32,
-<a href=#345 id=345 data-nosnippet>345</a>        <span class="kw">pub </span>stage: u32,
-<a href=#346 id=346 data-nosnippet>346</a>        <span class="kw">pub </span>arena_size: u32,
-<a href=#347 id=347 data-nosnippet>347</a>        <span class="kw">pub </span>max_cbs: u32,
-<a href=#348 id=348 data-nosnippet>348</a>        <span class="kw">pub </span>max_sc: u32,
-<a href=#349 id=349 data-nosnippet>349</a>        <span class="kw">pub </span>max_nodes: u32,
-<a href=#350 id=350 data-nosnippet>350</a>        <span class="kw">pub </span>default_rx_buf_size: u32,
-<a href=#351 id=351 data-nosnippet>351</a>        <span class="kw">pub </span>arena_capacity: u32,
-<a href=#352 id=352 data-nosnippet>352</a>        <span class="kw">pub </span>arena_used: u32,
-<a href=#353 id=353 data-nosnippet>353</a>        <span class="kw">pub </span>alloc_count: u32,
-<a href=#354 id=354 data-nosnippet>354</a>        <span class="kw">pub </span>last_alloc_size: u32,
-<a href=#355 id=355 data-nosnippet>355</a>        <span class="kw">pub </span>failed_alloc_size: u32,
-<a href=#356 id=356 data-nosnippet>356</a>        <span class="kw">pub </span>failed_alloc_shortfall: u32,
-<a href=#357 id=357 data-nosnippet>357</a>        <span class="kw">pub </span>cpp_init_ret: u32,
-<a href=#358 id=358 data-nosnippet>358</a>        <span class="kw">pub </span>err_class: u32,
-<a href=#359 id=359 data-nosnippet>359</a>        <span class="kw">pub </span>err_transport: u32,
-<a href=#360 id=360 data-nosnippet>360</a>        <span class="kw">pub </span>err_backend_ptr: u32,
-<a href=#361 id=361 data-nosnippet>361</a>        <span class="kw">pub </span>err_backend_len: u32,
-<a href=#362 id=362 data-nosnippet>362</a>        <span class="kw">pub </span>heap_peak_bytes: u32,
-<a href=#363 id=363 data-nosnippet>363</a>        <span class="kw">pub </span>heap_capacity_bytes: u32,
-<a href=#364 id=364 data-nosnippet>364</a>    }
-<a href=#365 id=365 data-nosnippet>365</a>
-<a href=#366 id=366 data-nosnippet>366</a>    <span class="doccomment">/// Read the record.
-<a href=#367 id=367 data-nosnippet>367</a>    </span><span class="attr">#[must_use]
-<a href=#368 id=368 data-nosnippet>368</a>    </span><span class="kw">pub fn </span>snapshot() -&gt; Snapshot {
-<a href=#369 id=369 data-nosnippet>369</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
-<a href=#370 id=370 data-nosnippet>370</a>        <span class="kw">let </span>g = |f: <span class="kw-2">&amp;</span>AtomicU32| f.load(Ordering::Relaxed);
-<a href=#371 id=371 data-nosnippet>371</a>        Snapshot {
-<a href=#372 id=372 data-nosnippet>372</a>            magic: g(<span class="kw-2">&amp;</span>r.magic),
-<a href=#373 id=373 data-nosnippet>373</a>            version: g(<span class="kw-2">&amp;</span>r.version),
-<a href=#374 id=374 data-nosnippet>374</a>            struct_size: g(<span class="kw-2">&amp;</span>r.struct_size),
-<a href=#375 id=375 data-nosnippet>375</a>            stage: g(<span class="kw-2">&amp;</span>r.stage),
-<a href=#376 id=376 data-nosnippet>376</a>            arena_size: g(<span class="kw-2">&amp;</span>r.arena_size),
-<a href=#377 id=377 data-nosnippet>377</a>            max_cbs: g(<span class="kw-2">&amp;</span>r.max_cbs),
-<a href=#378 id=378 data-nosnippet>378</a>            max_sc: g(<span class="kw-2">&amp;</span>r.max_sc),
-<a href=#379 id=379 data-nosnippet>379</a>            max_nodes: g(<span class="kw-2">&amp;</span>r.max_nodes),
-<a href=#380 id=380 data-nosnippet>380</a>            default_rx_buf_size: g(<span class="kw-2">&amp;</span>r.default_rx_buf_size),
-<a href=#381 id=381 data-nosnippet>381</a>            arena_capacity: g(<span class="kw-2">&amp;</span>r.arena_capacity),
-<a href=#382 id=382 data-nosnippet>382</a>            arena_used: g(<span class="kw-2">&amp;</span>r.arena_used),
-<a href=#383 id=383 data-nosnippet>383</a>            alloc_count: g(<span class="kw-2">&amp;</span>r.alloc_count),
-<a href=#384 id=384 data-nosnippet>384</a>            last_alloc_size: g(<span class="kw-2">&amp;</span>r.last_alloc_size),
-<a href=#385 id=385 data-nosnippet>385</a>            failed_alloc_size: g(<span class="kw-2">&amp;</span>r.failed_alloc_size),
-<a href=#386 id=386 data-nosnippet>386</a>            failed_alloc_shortfall: g(<span class="kw-2">&amp;</span>r.failed_alloc_shortfall),
-<a href=#387 id=387 data-nosnippet>387</a>            cpp_init_ret: g(<span class="kw-2">&amp;</span>r.cpp_init_ret),
-<a href=#388 id=388 data-nosnippet>388</a>            err_class: g(<span class="kw-2">&amp;</span>r.err_class),
-<a href=#389 id=389 data-nosnippet>389</a>            err_transport: g(<span class="kw-2">&amp;</span>r.err_transport),
-<a href=#390 id=390 data-nosnippet>390</a>            err_backend_ptr: g(<span class="kw-2">&amp;</span>r.err_backend_ptr),
-<a href=#391 id=391 data-nosnippet>391</a>            err_backend_len: g(<span class="kw-2">&amp;</span>r.err_backend_len),
-<a href=#392 id=392 data-nosnippet>392</a>            heap_peak_bytes: g(<span class="kw-2">&amp;</span>r.heap_peak_bytes),
-<a href=#393 id=393 data-nosnippet>393</a>            heap_capacity_bytes: g(<span class="kw-2">&amp;</span>r.heap_capacity_bytes),
-<a href=#394 id=394 data-nosnippet>394</a>        }
-<a href=#395 id=395 data-nosnippet>395</a>    }
-<a href=#396 id=396 data-nosnippet>396</a>
-<a href=#397 id=397 data-nosnippet>397</a>    <span class="doccomment">/// The record, findable by symbol name from a debugger.
-<a href=#398 id=398 data-nosnippet>398</a>    ///
-<a href=#399 id=399 data-nosnippet>399</a>    /// `#[used]` because nothing in a minimal image necessarily reads it, and a
-<a href=#400 id=400 data-nosnippet>400</a>    /// static whose only writes are through this module's functions is exactly
-<a href=#401 id=401 data-nosnippet>401</a>    /// what a linker is entitled to discard.
-<a href=#402 id=402 data-nosnippet>402</a>    </span><span class="attr">#[<span class="kw">unsafe</span>(no_mangle)]
-<a href=#403 id=403 data-nosnippet>403</a>    #[used]
-<a href=#404 id=404 data-nosnippet>404</a>    </span><span class="kw">pub static </span>NROS_BOOT_REPORT: BootReport = BootReport::new();
-<a href=#405 id=405 data-nosnippet>405</a>
-<a href=#406 id=406 data-nosnippet>406</a>    <span class="doccomment">/// Stamp the header and the compile-time knobs.
-<a href=#407 id=407 data-nosnippet>407</a>    ///
-<a href=#408 id=408 data-nosnippet>408</a>    /// Idempotent, and safe to call from more than one place -- an image with
-<a href=#409 id=409 data-nosnippet>409</a>    /// two executors should not have to decide which one owns the record.
-<a href=#410 id=410 data-nosnippet>410</a>    /// MAGIC is stored LAST so a reader that finds it knows the rest is there.
-<a href=#411 id=411 data-nosnippet>411</a>    </span><span class="kw">pub fn </span>init() {
-<a href=#412 id=412 data-nosnippet>412</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
-<a href=#413 id=413 data-nosnippet>413</a>        r.version.store(VERSION, Ordering::Relaxed);
-<a href=#414 id=414 data-nosnippet>414</a>        r.struct_size
-<a href=#415 id=415 data-nosnippet>415</a>            .store(BootReport::struct_size(), Ordering::Relaxed);
-<a href=#416 id=416 data-nosnippet>416</a>        r.arena_size
-<a href=#417 id=417 data-nosnippet>417</a>            .store(saturate(<span class="kw">crate</span>::config::ARENA_SIZE), Ordering::Relaxed);
-<a href=#418 id=418 data-nosnippet>418</a>        r.max_cbs
-<a href=#419 id=419 data-nosnippet>419</a>            .store(saturate(<span class="kw">crate</span>::config::MAX_CBS), Ordering::Relaxed);
-<a href=#420 id=420 data-nosnippet>420</a>        r.max_sc
-<a href=#421 id=421 data-nosnippet>421</a>            .store(saturate(<span class="kw">crate</span>::config::MAX_SC), Ordering::Relaxed);
-<a href=#422 id=422 data-nosnippet>422</a>        r.max_nodes
-<a href=#423 id=423 data-nosnippet>423</a>            .store(saturate(<span class="kw">crate</span>::config::MAX_NODES), Ordering::Relaxed);
-<a href=#424 id=424 data-nosnippet>424</a>        r.default_rx_buf_size.store(
-<a href=#425 id=425 data-nosnippet>425</a>            saturate(<span class="kw">crate</span>::config::DEFAULT_RX_BUF_SIZE),
-<a href=#426 id=426 data-nosnippet>426</a>            Ordering::Relaxed,
-<a href=#427 id=427 data-nosnippet>427</a>        );
-<a href=#428 id=428 data-nosnippet>428</a>        r.magic.store(MAGIC, Ordering::Relaxed);
-<a href=#429 id=429 data-nosnippet>429</a>        checkpoint(Stage::ReportReady);
-<a href=#430 id=430 data-nosnippet>430</a>    }
-<a href=#431 id=431 data-nosnippet>431</a>
-<a href=#432 id=432 data-nosnippet>432</a>    <span class="doccomment">/// Record that boot reached `stage`.
-<a href=#433 id=433 data-nosnippet>433</a>    ///
-<a href=#434 id=434 data-nosnippet>434</a>    /// MONOTONIC: a lower stage never overwrites a higher one, so a late call
-<a href=#435 id=435 data-nosnippet>435</a>    /// on a re-entered path cannot make the record claim less progress than was
-<a href=#436 id=436 data-nosnippet>436</a>    /// actually made. That matters because the field's whole purpose is to be
-<a href=#437 id=437 data-nosnippet>437</a>    /// believed about a boot that did not finish.
-<a href=#438 id=438 data-nosnippet>438</a>    </span><span class="kw">pub fn </span>checkpoint(stage: Stage) {
-<a href=#439 id=439 data-nosnippet>439</a>        <span class="kw">let </span>want = stage <span class="kw">as </span>u32;
-<a href=#440 id=440 data-nosnippet>440</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
-<a href=#441 id=441 data-nosnippet>441</a>        <span class="kw">let </span><span class="kw-2">mut </span>cur = r.stage.load(Ordering::Relaxed);
-<a href=#442 id=442 data-nosnippet>442</a>        <span class="kw">while </span>want &gt; cur {
-<a href=#443 id=443 data-nosnippet>443</a>            <span class="kw">match </span>r
-<a href=#444 id=444 data-nosnippet>444</a>                .stage
-<a href=#445 id=445 data-nosnippet>445</a>                .compare_exchange_weak(cur, want, Ordering::Relaxed, Ordering::Relaxed)
-<a href=#446 id=446 data-nosnippet>446</a>            {
-<a href=#447 id=447 data-nosnippet>447</a>                <span class="prelude-val">Ok</span>(<span class="kw">_</span>) =&gt; <span class="kw">return</span>,
-<a href=#448 id=448 data-nosnippet>448</a>                <span class="prelude-val">Err</span>(actual) =&gt; cur = actual,
-<a href=#449 id=449 data-nosnippet>449</a>            }
-<a href=#450 id=450 data-nosnippet>450</a>        }
-<a href=#451 id=451 data-nosnippet>451</a>    }
-<a href=#452 id=452 data-nosnippet>452</a>
-<a href=#453 id=453 data-nosnippet>453</a>    <span class="doccomment">/// Record the arena slice an `Executor` actually bound.
-<a href=#454 id=454 data-nosnippet>454</a>    ///
-<a href=#455 id=455 data-nosnippet>455</a>    /// Not the same number as `ARENA_SIZE`, and the difference is a finding
-<a href=#456 id=456 data-nosnippet>456</a>    /// rather than noise: the arena's placement is the caller's choice
-<a href=#457 id=457 data-nosnippet>457</a>    /// (issue 0900), so an image can compile one size and hand the executor
-<a href=#458 id=458 data-nosnippet>458</a>    /// another. Both are in the record so a dump can say which happened.
-<a href=#459 id=459 data-nosnippet>459</a>    </span><span class="kw">pub fn </span>note_arena_capacity(capacity: usize) {
-<a href=#460 id=460 data-nosnippet>460</a>        NROS_BOOT_REPORT
-<a href=#461 id=461 data-nosnippet>461</a>            .arena_capacity
-<a href=#462 id=462 data-nosnippet>462</a>            .store(saturate(capacity), Ordering::Relaxed);
-<a href=#463 id=463 data-nosnippet>463</a>    }
-<a href=#464 id=464 data-nosnippet>464</a>
-<a href=#465 id=465 data-nosnippet>465</a>    <span class="doccomment">/// Record a successful arena allocation.
-<a href=#466 id=466 data-nosnippet>466</a>    ///
-<a href=#467 id=467 data-nosnippet>467</a>    /// Also stamps [`Stage::RegisteringEntities`]: see that variant for why the
-<a href=#468 id=468 data-nosnippet>468</a>    /// stamp belongs to the record's writers rather than to a register seam.
-<a href=#469 id=469 data-nosnippet>469</a>    </span><span class="kw">pub fn </span>note_alloc(size: usize, used_after: usize) {
-<a href=#470 id=470 data-nosnippet>470</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
-<a href=#471 id=471 data-nosnippet>471</a>        r.alloc_count.fetch_add(<span class="number">1</span>, Ordering::Relaxed);
-<a href=#472 id=472 data-nosnippet>472</a>        r.last_alloc_size.store(saturate(size), Ordering::Relaxed);
-<a href=#473 id=473 data-nosnippet>473</a>        r.arena_used.store(saturate(used_after), Ordering::Relaxed);
-<a href=#474 id=474 data-nosnippet>474</a>        checkpoint(Stage::RegisteringEntities);
-<a href=#475 id=475 data-nosnippet>475</a>    }
-<a href=#476 id=476 data-nosnippet>476</a>
-<a href=#477 id=477 data-nosnippet>477</a>    <span class="doccomment">/// Record the arena allocation that did not fit.
-<a href=#478 id=478 data-nosnippet>478</a>    ///
-<a href=#479 id=479 data-nosnippet>479</a>    /// FIRST writer wins, on the same reasoning as [`checkpoint`]: the first
-<a href=#480 id=480 data-nosnippet>480</a>    /// failure is the one that explains the boot, and any later one is a
-<a href=#481 id=481 data-nosnippet>481</a>    /// consequence of it.
-<a href=#482 id=482 data-nosnippet>482</a>    /// Also stamps [`Stage::RegisteringEntities`], and UNCONDITIONALLY -- outside
-<a href=#483 id=483 data-nosnippet>483</a>    /// the first-writer branch. A second failure adds nothing to the numbers but
-<a href=#484 id=484 data-nosnippet>484</a>    /// it is still evidence that registration was in flight, and a stage that
-<a href=#485 id=485 data-nosnippet>485</a>    /// depended on winning a race would be exactly the sort of number this
-<a href=#486 id=486 data-nosnippet>486</a>    /// record must never print.
-<a href=#487 id=487 data-nosnippet>487</a>    </span><span class="kw">pub fn </span>note_alloc_failed(size: usize, shortfall: usize) {
-<a href=#488 id=488 data-nosnippet>488</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
-<a href=#489 id=489 data-nosnippet>489</a>        checkpoint(Stage::RegisteringEntities);
-<a href=#490 id=490 data-nosnippet>490</a>        <span class="kw">if </span>r.failed_alloc_size
-<a href=#491 id=491 data-nosnippet>491</a>            .compare_exchange(<span class="number">0</span>, saturate(size), Ordering::Relaxed, Ordering::Relaxed)
-<a href=#492 id=492 data-nosnippet>492</a>            .is_ok()
-<a href=#493 id=493 data-nosnippet>493</a>        {
-<a href=#494 id=494 data-nosnippet>494</a>            r.failed_alloc_shortfall
-<a href=#495 id=495 data-nosnippet>495</a>                .store(saturate(shortfall), Ordering::Relaxed);
-<a href=#496 id=496 data-nosnippet>496</a>        }
-<a href=#497 id=497 data-nosnippet>497</a>    }
-<a href=#498 id=498 data-nosnippet>498</a>
-<a href=#499 id=499 data-nosnippet>499</a>    <span class="doccomment">/// Record `nros_cpp_init`'s return code.
-<a href=#500 id=500 data-nosnippet>500</a>    ///
-<a href=#501 id=501 data-nosnippet>501</a>    /// LAST writer wins, unlike [`note_alloc_failed`]: an image may call
-<a href=#502 id=502 data-nosnippet>502</a>    /// `nros_cpp_init` more than once (per component, per tier), and the
-<a href=#503 id=503 data-nosnippet>503</a>    /// interesting one is the call that did not get through, which is the one
-<a href=#504 id=504 data-nosnippet>504</a>    /// that leaves the stage where it stopped.
-<a href=#505 id=505 data-nosnippet>505</a>    </span><span class="kw">pub fn </span>note_cpp_init_ret(ret: i32) {
-<a href=#506 id=506 data-nosnippet>506</a>        NROS_BOOT_REPORT
-<a href=#507 id=507 data-nosnippet>507</a>            .cpp_init_ret
-<a href=#508 id=508 data-nosnippet>508</a>            .store(ret <span class="kw">as </span>u32, Ordering::Relaxed);
-<a href=#509 id=509 data-nosnippet>509</a>    }
-<a href=#510 id=510 data-nosnippet>510</a>
-<a href=#511 id=511 data-nosnippet>511</a>    <span class="doccomment">/// Record an error that crossed the FFI.
-<a href=#512 id=512 data-nosnippet>512</a>    ///
-<a href=#513 id=513 data-nosnippet>513</a>    /// Takes CODES, not the error type: `nros-node` must not need to know how
-<a href=#514 id=514 data-nosnippet>514</a>    /// `nros-cpp` numbers its variants, and the numbering has to be assigned by
-<a href=#515 id=515 data-nosnippet>515</a>    /// an exhaustive match that a new variant breaks at compile time. The caller
-<a href=#516 id=516 data-nosnippet>516</a>    /// owns both.
-<a href=#517 id=517 data-nosnippet>517</a>    ///
-<a href=#518 id=518 data-nosnippet>518</a>    /// LAST writer wins. An image that fails one entity and carries on would
-<a href=#519 id=519 data-nosnippet>519</a>    /// otherwise keep the first stumble instead of the one that stopped it, and
-<a href=#520 id=520 data-nosnippet>520</a>    /// the failure that stops setup is the one that explains the boot.
-<a href=#521 id=521 data-nosnippet>521</a>    </span><span class="kw">pub fn </span>note_error(class: u32, transport: u32, backend_ptr: u32, backend_len: u32) {
-<a href=#522 id=522 data-nosnippet>522</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
-<a href=#523 id=523 data-nosnippet>523</a>        r.err_class.store(class, Ordering::Relaxed);
-<a href=#524 id=524 data-nosnippet>524</a>        r.err_transport.store(transport, Ordering::Relaxed);
-<a href=#525 id=525 data-nosnippet>525</a>        r.err_backend_ptr.store(backend_ptr, Ordering::Relaxed);
-<a href=#526 id=526 data-nosnippet>526</a>        r.err_backend_len.store(backend_len, Ordering::Relaxed);
-<a href=#527 id=527 data-nosnippet>527</a>    }
-<a href=#528 id=528 data-nosnippet>528</a>
-<a href=#529 id=529 data-nosnippet>529</a>    <span class="doccomment">/// Record the platform heap's high-water mark and its capacity.
-<a href=#530 id=530 data-nosnippet>530</a>    ///
-<a href=#531 id=531 data-nosnippet>531</a>    /// `peak` keeps the MAXIMUM, `capacity` the last value: the peak is the
-<a href=#532 id=532 data-nosnippet>532</a>    /// figure a knob is sized from and must not be lowered by a later sample,
-<a href=#533 id=533 data-nosnippet>533</a>    /// while the capacity is a constant of the image that a second sample can
-<a href=#534 id=534 data-nosnippet>534</a>    /// only restate.
+<a href=#291 id=291 data-nosnippet>291</a>        <span class="doccomment">/// Samples received, ACKed and then THROWN AWAY because the
+<a href=#292 id=292 data-nosnippet>292</a>        /// subscription's buffer was smaller than the sample. Appended by
+<a href=#293 id=293 data-nosnippet>293</a>        /// phase-460 W7; see "Adding a field" above for why it is at the END.
+<a href=#294 id=294 data-nosnippet>294</a>        ///
+<a href=#295 id=295 data-nosnippet>295</a>        /// Issue 1425. A drop is a QoS fact, not a fault -- nothing halts --
+<a href=#296 id=296 data-nosnippet>296</a>        /// which is exactly why it needs a record: the image keeps running,
+<a href=#297 id=297 data-nosnippet>297</a>        /// every outside probe reports the subscription matched and healthy
+<a href=#298 id=298 data-nosnippet>298</a>        /// (the transport completed and ACKed the sample before the buffer was
+<a href=#299 id=299 data-nosnippet>299</a>        /// consulted), and the application simply never sees the message. On a
+<a href=#300 id=300 data-nosnippet>300</a>        /// board with a console the drop announces itself in a log line. On the
+<a href=#301 id=301 data-nosnippet>301</a>        /// island's target there is no console, so before this field the only
+<a href=#302 id=302 data-nosnippet>302</a>        /// evidence of a dropped 13.4 KiB trajectory was that nothing arrived.
+<a href=#303 id=303 data-nosnippet>303</a>        ///
+<a href=#304 id=304 data-nosnippet>304</a>        /// A TOTAL, not a per-entity figure, for the reason
+<a href=#305 id=305 data-nosnippet>305</a>        /// `executor::arena`'s `DROPPED_TAKES` is one: a per-entity counter is
+<a href=#306 id=306 data-nosnippet>306</a>        /// a field on the arena's entry structs, which are sized by knob at
+<a href=#307 id=307 data-nosnippet>307</a>        /// build time, so it would move every image's executor footprint to buy
+<a href=#308 id=308 data-nosnippet>308</a>        /// a diagnostic. Non-zero here means "read the log lines, or raise
+<a href=#309 id=309 data-nosnippet>309</a>        /// `NROS_SUBSCRIPTION_BUFFER_SIZE` and see whether it goes to zero".
+<a href=#310 id=310 data-nosnippet>310</a>        </span>samples_dropped_too_small: AtomicU32,
+<a href=#311 id=311 data-nosnippet>311</a>    }
+<a href=#312 id=312 data-nosnippet>312</a>
+<a href=#313 id=313 data-nosnippet>313</a>    <span class="kw">impl </span>BootReport {
+<a href=#314 id=314 data-nosnippet>314</a>        <span class="kw">const fn </span>new() -&gt; <span class="self">Self </span>{
+<a href=#315 id=315 data-nosnippet>315</a>            <span class="self">Self </span>{
+<a href=#316 id=316 data-nosnippet>316</a>                magic: AtomicU32::new(<span class="number">0</span>),
+<a href=#317 id=317 data-nosnippet>317</a>                version: AtomicU32::new(<span class="number">0</span>),
+<a href=#318 id=318 data-nosnippet>318</a>                struct_size: AtomicU32::new(<span class="number">0</span>),
+<a href=#319 id=319 data-nosnippet>319</a>                stage: AtomicU32::new(<span class="number">0</span>),
+<a href=#320 id=320 data-nosnippet>320</a>                arena_size: AtomicU32::new(<span class="number">0</span>),
+<a href=#321 id=321 data-nosnippet>321</a>                max_cbs: AtomicU32::new(<span class="number">0</span>),
+<a href=#322 id=322 data-nosnippet>322</a>                max_sc: AtomicU32::new(<span class="number">0</span>),
+<a href=#323 id=323 data-nosnippet>323</a>                max_nodes: AtomicU32::new(<span class="number">0</span>),
+<a href=#324 id=324 data-nosnippet>324</a>                default_rx_buf_size: AtomicU32::new(<span class="number">0</span>),
+<a href=#325 id=325 data-nosnippet>325</a>                arena_capacity: AtomicU32::new(<span class="number">0</span>),
+<a href=#326 id=326 data-nosnippet>326</a>                arena_used: AtomicU32::new(<span class="number">0</span>),
+<a href=#327 id=327 data-nosnippet>327</a>                alloc_count: AtomicU32::new(<span class="number">0</span>),
+<a href=#328 id=328 data-nosnippet>328</a>                last_alloc_size: AtomicU32::new(<span class="number">0</span>),
+<a href=#329 id=329 data-nosnippet>329</a>                failed_alloc_size: AtomicU32::new(<span class="number">0</span>),
+<a href=#330 id=330 data-nosnippet>330</a>                failed_alloc_shortfall: AtomicU32::new(<span class="number">0</span>),
+<a href=#331 id=331 data-nosnippet>331</a>                cpp_init_ret: AtomicU32::new(<span class="number">0</span>),
+<a href=#332 id=332 data-nosnippet>332</a>                err_class: AtomicU32::new(<span class="number">0</span>),
+<a href=#333 id=333 data-nosnippet>333</a>                err_transport: AtomicU32::new(<span class="number">0</span>),
+<a href=#334 id=334 data-nosnippet>334</a>                err_backend_ptr: AtomicU32::new(<span class="number">0</span>),
+<a href=#335 id=335 data-nosnippet>335</a>                err_backend_len: AtomicU32::new(<span class="number">0</span>),
+<a href=#336 id=336 data-nosnippet>336</a>                heap_peak_bytes: AtomicU32::new(<span class="number">0</span>),
+<a href=#337 id=337 data-nosnippet>337</a>                heap_capacity_bytes: AtomicU32::new(<span class="number">0</span>),
+<a href=#338 id=338 data-nosnippet>338</a>                samples_dropped_too_small: AtomicU32::new(<span class="number">0</span>),
+<a href=#339 id=339 data-nosnippet>339</a>            }
+<a href=#340 id=340 data-nosnippet>340</a>        }
+<a href=#341 id=341 data-nosnippet>341</a>
+<a href=#342 id=342 data-nosnippet>342</a>        <span class="doccomment">/// Size of the record in bytes, as the reader must expect it.
+<a href=#343 id=343 data-nosnippet>343</a>        ///
+<a href=#344 id=344 data-nosnippet>344</a>        /// ASKED OF THE COMPILER, not counted by hand. A hand-written word
+<a href=#345 id=345 data-nosnippet>345</a>        /// count is a second statement of the field list that drifts the first
+<a href=#346 id=346 data-nosnippet>346</a>        /// time a field is added, and it would drift SILENTLY -- the reader
+<a href=#347 id=347 data-nosnippet>347</a>        /// would accept the record and decode one field short. This whole
+<a href=#348 id=348 data-nosnippet>348</a>        /// campaign is about not hand-picking numbers the build already knows.
+<a href=#349 id=349 data-nosnippet>349</a>        </span><span class="attr">#[must_use]
+<a href=#350 id=350 data-nosnippet>350</a>        </span><span class="kw">pub const fn </span>struct_size() -&gt; u32 {
+<a href=#351 id=351 data-nosnippet>351</a>            <span class="comment">// The record is all `AtomicU32`, so this is exact on every target
+<a href=#352 id=352 data-nosnippet>352</a>            // and there is no padding for the cast to lose.
+<a href=#353 id=353 data-nosnippet>353</a>            </span>core::mem::size_of::&lt;<span class="self">Self</span>&gt;() <span class="kw">as </span>u32
+<a href=#354 id=354 data-nosnippet>354</a>        }
+<a href=#355 id=355 data-nosnippet>355</a>    }
+<a href=#356 id=356 data-nosnippet>356</a>
+<a href=#357 id=357 data-nosnippet>357</a>    <span class="doccomment">/// A plain-value copy of the record.
+<a href=#358 id=358 data-nosnippet>358</a>    ///
+<a href=#359 id=359 data-nosnippet>359</a>    /// Field-for-field with [`BootReport`] and in the SAME ORDER, because
+<a href=#360 id=360 data-nosnippet>360</a>    /// `scripts/read-boot-report.py` decodes that order out of a memory dump.
+<a href=#361 id=361 data-nosnippet>361</a>    /// A test that reads through this therefore exercises the same layout the
+<a href=#362 id=362 data-nosnippet>362</a>    /// script assumes, which is the only thing keeping the two in step.
+<a href=#363 id=363 data-nosnippet>363</a>    </span><span class="attr">#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+<a href=#364 id=364 data-nosnippet>364</a>    </span><span class="kw">pub struct </span>Snapshot {
+<a href=#365 id=365 data-nosnippet>365</a>        <span class="kw">pub </span>magic: u32,
+<a href=#366 id=366 data-nosnippet>366</a>        <span class="kw">pub </span>version: u32,
+<a href=#367 id=367 data-nosnippet>367</a>        <span class="kw">pub </span>struct_size: u32,
+<a href=#368 id=368 data-nosnippet>368</a>        <span class="kw">pub </span>stage: u32,
+<a href=#369 id=369 data-nosnippet>369</a>        <span class="kw">pub </span>arena_size: u32,
+<a href=#370 id=370 data-nosnippet>370</a>        <span class="kw">pub </span>max_cbs: u32,
+<a href=#371 id=371 data-nosnippet>371</a>        <span class="kw">pub </span>max_sc: u32,
+<a href=#372 id=372 data-nosnippet>372</a>        <span class="kw">pub </span>max_nodes: u32,
+<a href=#373 id=373 data-nosnippet>373</a>        <span class="kw">pub </span>default_rx_buf_size: u32,
+<a href=#374 id=374 data-nosnippet>374</a>        <span class="kw">pub </span>arena_capacity: u32,
+<a href=#375 id=375 data-nosnippet>375</a>        <span class="kw">pub </span>arena_used: u32,
+<a href=#376 id=376 data-nosnippet>376</a>        <span class="kw">pub </span>alloc_count: u32,
+<a href=#377 id=377 data-nosnippet>377</a>        <span class="kw">pub </span>last_alloc_size: u32,
+<a href=#378 id=378 data-nosnippet>378</a>        <span class="kw">pub </span>failed_alloc_size: u32,
+<a href=#379 id=379 data-nosnippet>379</a>        <span class="kw">pub </span>failed_alloc_shortfall: u32,
+<a href=#380 id=380 data-nosnippet>380</a>        <span class="kw">pub </span>cpp_init_ret: u32,
+<a href=#381 id=381 data-nosnippet>381</a>        <span class="kw">pub </span>err_class: u32,
+<a href=#382 id=382 data-nosnippet>382</a>        <span class="kw">pub </span>err_transport: u32,
+<a href=#383 id=383 data-nosnippet>383</a>        <span class="kw">pub </span>err_backend_ptr: u32,
+<a href=#384 id=384 data-nosnippet>384</a>        <span class="kw">pub </span>err_backend_len: u32,
+<a href=#385 id=385 data-nosnippet>385</a>        <span class="kw">pub </span>heap_peak_bytes: u32,
+<a href=#386 id=386 data-nosnippet>386</a>        <span class="kw">pub </span>heap_capacity_bytes: u32,
+<a href=#387 id=387 data-nosnippet>387</a>        <span class="kw">pub </span>samples_dropped_too_small: u32,
+<a href=#388 id=388 data-nosnippet>388</a>    }
+<a href=#389 id=389 data-nosnippet>389</a>
+<a href=#390 id=390 data-nosnippet>390</a>    <span class="doccomment">/// Read the record.
+<a href=#391 id=391 data-nosnippet>391</a>    </span><span class="attr">#[must_use]
+<a href=#392 id=392 data-nosnippet>392</a>    </span><span class="kw">pub fn </span>snapshot() -&gt; Snapshot {
+<a href=#393 id=393 data-nosnippet>393</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
+<a href=#394 id=394 data-nosnippet>394</a>        <span class="kw">let </span>g = |f: <span class="kw-2">&amp;</span>AtomicU32| f.load(Ordering::Relaxed);
+<a href=#395 id=395 data-nosnippet>395</a>        Snapshot {
+<a href=#396 id=396 data-nosnippet>396</a>            magic: g(<span class="kw-2">&amp;</span>r.magic),
+<a href=#397 id=397 data-nosnippet>397</a>            version: g(<span class="kw-2">&amp;</span>r.version),
+<a href=#398 id=398 data-nosnippet>398</a>            struct_size: g(<span class="kw-2">&amp;</span>r.struct_size),
+<a href=#399 id=399 data-nosnippet>399</a>            stage: g(<span class="kw-2">&amp;</span>r.stage),
+<a href=#400 id=400 data-nosnippet>400</a>            arena_size: g(<span class="kw-2">&amp;</span>r.arena_size),
+<a href=#401 id=401 data-nosnippet>401</a>            max_cbs: g(<span class="kw-2">&amp;</span>r.max_cbs),
+<a href=#402 id=402 data-nosnippet>402</a>            max_sc: g(<span class="kw-2">&amp;</span>r.max_sc),
+<a href=#403 id=403 data-nosnippet>403</a>            max_nodes: g(<span class="kw-2">&amp;</span>r.max_nodes),
+<a href=#404 id=404 data-nosnippet>404</a>            default_rx_buf_size: g(<span class="kw-2">&amp;</span>r.default_rx_buf_size),
+<a href=#405 id=405 data-nosnippet>405</a>            arena_capacity: g(<span class="kw-2">&amp;</span>r.arena_capacity),
+<a href=#406 id=406 data-nosnippet>406</a>            arena_used: g(<span class="kw-2">&amp;</span>r.arena_used),
+<a href=#407 id=407 data-nosnippet>407</a>            alloc_count: g(<span class="kw-2">&amp;</span>r.alloc_count),
+<a href=#408 id=408 data-nosnippet>408</a>            last_alloc_size: g(<span class="kw-2">&amp;</span>r.last_alloc_size),
+<a href=#409 id=409 data-nosnippet>409</a>            failed_alloc_size: g(<span class="kw-2">&amp;</span>r.failed_alloc_size),
+<a href=#410 id=410 data-nosnippet>410</a>            failed_alloc_shortfall: g(<span class="kw-2">&amp;</span>r.failed_alloc_shortfall),
+<a href=#411 id=411 data-nosnippet>411</a>            cpp_init_ret: g(<span class="kw-2">&amp;</span>r.cpp_init_ret),
+<a href=#412 id=412 data-nosnippet>412</a>            err_class: g(<span class="kw-2">&amp;</span>r.err_class),
+<a href=#413 id=413 data-nosnippet>413</a>            err_transport: g(<span class="kw-2">&amp;</span>r.err_transport),
+<a href=#414 id=414 data-nosnippet>414</a>            err_backend_ptr: g(<span class="kw-2">&amp;</span>r.err_backend_ptr),
+<a href=#415 id=415 data-nosnippet>415</a>            err_backend_len: g(<span class="kw-2">&amp;</span>r.err_backend_len),
+<a href=#416 id=416 data-nosnippet>416</a>            heap_peak_bytes: g(<span class="kw-2">&amp;</span>r.heap_peak_bytes),
+<a href=#417 id=417 data-nosnippet>417</a>            heap_capacity_bytes: g(<span class="kw-2">&amp;</span>r.heap_capacity_bytes),
+<a href=#418 id=418 data-nosnippet>418</a>            samples_dropped_too_small: g(<span class="kw-2">&amp;</span>r.samples_dropped_too_small),
+<a href=#419 id=419 data-nosnippet>419</a>        }
+<a href=#420 id=420 data-nosnippet>420</a>    }
+<a href=#421 id=421 data-nosnippet>421</a>
+<a href=#422 id=422 data-nosnippet>422</a>    <span class="doccomment">/// The record, findable by symbol name from a debugger.
+<a href=#423 id=423 data-nosnippet>423</a>    ///
+<a href=#424 id=424 data-nosnippet>424</a>    /// `#[used]` because nothing in a minimal image necessarily reads it, and a
+<a href=#425 id=425 data-nosnippet>425</a>    /// static whose only writes are through this module's functions is exactly
+<a href=#426 id=426 data-nosnippet>426</a>    /// what a linker is entitled to discard.
+<a href=#427 id=427 data-nosnippet>427</a>    </span><span class="attr">#[<span class="kw">unsafe</span>(no_mangle)]
+<a href=#428 id=428 data-nosnippet>428</a>    #[used]
+<a href=#429 id=429 data-nosnippet>429</a>    </span><span class="kw">pub static </span>NROS_BOOT_REPORT: BootReport = BootReport::new();
+<a href=#430 id=430 data-nosnippet>430</a>
+<a href=#431 id=431 data-nosnippet>431</a>    <span class="doccomment">/// Stamp the header and the compile-time knobs.
+<a href=#432 id=432 data-nosnippet>432</a>    ///
+<a href=#433 id=433 data-nosnippet>433</a>    /// Idempotent, and safe to call from more than one place -- an image with
+<a href=#434 id=434 data-nosnippet>434</a>    /// two executors should not have to decide which one owns the record.
+<a href=#435 id=435 data-nosnippet>435</a>    /// MAGIC is stored LAST so a reader that finds it knows the rest is there.
+<a href=#436 id=436 data-nosnippet>436</a>    </span><span class="kw">pub fn </span>init() {
+<a href=#437 id=437 data-nosnippet>437</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
+<a href=#438 id=438 data-nosnippet>438</a>        r.version.store(VERSION, Ordering::Relaxed);
+<a href=#439 id=439 data-nosnippet>439</a>        r.struct_size
+<a href=#440 id=440 data-nosnippet>440</a>            .store(BootReport::struct_size(), Ordering::Relaxed);
+<a href=#441 id=441 data-nosnippet>441</a>        r.arena_size
+<a href=#442 id=442 data-nosnippet>442</a>            .store(saturate(<span class="kw">crate</span>::config::ARENA_SIZE), Ordering::Relaxed);
+<a href=#443 id=443 data-nosnippet>443</a>        r.max_cbs
+<a href=#444 id=444 data-nosnippet>444</a>            .store(saturate(<span class="kw">crate</span>::config::MAX_CBS), Ordering::Relaxed);
+<a href=#445 id=445 data-nosnippet>445</a>        r.max_sc
+<a href=#446 id=446 data-nosnippet>446</a>            .store(saturate(<span class="kw">crate</span>::config::MAX_SC), Ordering::Relaxed);
+<a href=#447 id=447 data-nosnippet>447</a>        r.max_nodes
+<a href=#448 id=448 data-nosnippet>448</a>            .store(saturate(<span class="kw">crate</span>::config::MAX_NODES), Ordering::Relaxed);
+<a href=#449 id=449 data-nosnippet>449</a>        r.default_rx_buf_size.store(
+<a href=#450 id=450 data-nosnippet>450</a>            saturate(<span class="kw">crate</span>::config::DEFAULT_RX_BUF_SIZE),
+<a href=#451 id=451 data-nosnippet>451</a>            Ordering::Relaxed,
+<a href=#452 id=452 data-nosnippet>452</a>        );
+<a href=#453 id=453 data-nosnippet>453</a>        r.magic.store(MAGIC, Ordering::Relaxed);
+<a href=#454 id=454 data-nosnippet>454</a>        checkpoint(Stage::ReportReady);
+<a href=#455 id=455 data-nosnippet>455</a>    }
+<a href=#456 id=456 data-nosnippet>456</a>
+<a href=#457 id=457 data-nosnippet>457</a>    <span class="doccomment">/// Record that boot reached `stage`.
+<a href=#458 id=458 data-nosnippet>458</a>    ///
+<a href=#459 id=459 data-nosnippet>459</a>    /// MONOTONIC: a lower stage never overwrites a higher one, so a late call
+<a href=#460 id=460 data-nosnippet>460</a>    /// on a re-entered path cannot make the record claim less progress than was
+<a href=#461 id=461 data-nosnippet>461</a>    /// actually made. That matters because the field's whole purpose is to be
+<a href=#462 id=462 data-nosnippet>462</a>    /// believed about a boot that did not finish.
+<a href=#463 id=463 data-nosnippet>463</a>    </span><span class="kw">pub fn </span>checkpoint(stage: Stage) {
+<a href=#464 id=464 data-nosnippet>464</a>        <span class="kw">let </span>want = stage <span class="kw">as </span>u32;
+<a href=#465 id=465 data-nosnippet>465</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
+<a href=#466 id=466 data-nosnippet>466</a>        <span class="kw">let </span><span class="kw-2">mut </span>cur = r.stage.load(Ordering::Relaxed);
+<a href=#467 id=467 data-nosnippet>467</a>        <span class="kw">while </span>want &gt; cur {
+<a href=#468 id=468 data-nosnippet>468</a>            <span class="kw">match </span>r
+<a href=#469 id=469 data-nosnippet>469</a>                .stage
+<a href=#470 id=470 data-nosnippet>470</a>                .compare_exchange_weak(cur, want, Ordering::Relaxed, Ordering::Relaxed)
+<a href=#471 id=471 data-nosnippet>471</a>            {
+<a href=#472 id=472 data-nosnippet>472</a>                <span class="prelude-val">Ok</span>(<span class="kw">_</span>) =&gt; <span class="kw">return</span>,
+<a href=#473 id=473 data-nosnippet>473</a>                <span class="prelude-val">Err</span>(actual) =&gt; cur = actual,
+<a href=#474 id=474 data-nosnippet>474</a>            }
+<a href=#475 id=475 data-nosnippet>475</a>        }
+<a href=#476 id=476 data-nosnippet>476</a>    }
+<a href=#477 id=477 data-nosnippet>477</a>
+<a href=#478 id=478 data-nosnippet>478</a>    <span class="doccomment">/// Record the arena slice an `Executor` actually bound.
+<a href=#479 id=479 data-nosnippet>479</a>    ///
+<a href=#480 id=480 data-nosnippet>480</a>    /// Not the same number as `ARENA_SIZE`, and the difference is a finding
+<a href=#481 id=481 data-nosnippet>481</a>    /// rather than noise: the arena's placement is the caller's choice
+<a href=#482 id=482 data-nosnippet>482</a>    /// (issue 0900), so an image can compile one size and hand the executor
+<a href=#483 id=483 data-nosnippet>483</a>    /// another. Both are in the record so a dump can say which happened.
+<a href=#484 id=484 data-nosnippet>484</a>    </span><span class="kw">pub fn </span>note_arena_capacity(capacity: usize) {
+<a href=#485 id=485 data-nosnippet>485</a>        NROS_BOOT_REPORT
+<a href=#486 id=486 data-nosnippet>486</a>            .arena_capacity
+<a href=#487 id=487 data-nosnippet>487</a>            .store(saturate(capacity), Ordering::Relaxed);
+<a href=#488 id=488 data-nosnippet>488</a>    }
+<a href=#489 id=489 data-nosnippet>489</a>
+<a href=#490 id=490 data-nosnippet>490</a>    <span class="doccomment">/// Record a successful arena allocation.
+<a href=#491 id=491 data-nosnippet>491</a>    ///
+<a href=#492 id=492 data-nosnippet>492</a>    /// Also stamps [`Stage::RegisteringEntities`]: see that variant for why the
+<a href=#493 id=493 data-nosnippet>493</a>    /// stamp belongs to the record's writers rather than to a register seam.
+<a href=#494 id=494 data-nosnippet>494</a>    </span><span class="kw">pub fn </span>note_alloc(size: usize, used_after: usize) {
+<a href=#495 id=495 data-nosnippet>495</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
+<a href=#496 id=496 data-nosnippet>496</a>        r.alloc_count.fetch_add(<span class="number">1</span>, Ordering::Relaxed);
+<a href=#497 id=497 data-nosnippet>497</a>        r.last_alloc_size.store(saturate(size), Ordering::Relaxed);
+<a href=#498 id=498 data-nosnippet>498</a>        r.arena_used.store(saturate(used_after), Ordering::Relaxed);
+<a href=#499 id=499 data-nosnippet>499</a>        checkpoint(Stage::RegisteringEntities);
+<a href=#500 id=500 data-nosnippet>500</a>    }
+<a href=#501 id=501 data-nosnippet>501</a>
+<a href=#502 id=502 data-nosnippet>502</a>    <span class="doccomment">/// Record the arena allocation that did not fit.
+<a href=#503 id=503 data-nosnippet>503</a>    ///
+<a href=#504 id=504 data-nosnippet>504</a>    /// FIRST writer wins, on the same reasoning as [`checkpoint`]: the first
+<a href=#505 id=505 data-nosnippet>505</a>    /// failure is the one that explains the boot, and any later one is a
+<a href=#506 id=506 data-nosnippet>506</a>    /// consequence of it.
+<a href=#507 id=507 data-nosnippet>507</a>    /// Also stamps [`Stage::RegisteringEntities`], and UNCONDITIONALLY -- outside
+<a href=#508 id=508 data-nosnippet>508</a>    /// the first-writer branch. A second failure adds nothing to the numbers but
+<a href=#509 id=509 data-nosnippet>509</a>    /// it is still evidence that registration was in flight, and a stage that
+<a href=#510 id=510 data-nosnippet>510</a>    /// depended on winning a race would be exactly the sort of number this
+<a href=#511 id=511 data-nosnippet>511</a>    /// record must never print.
+<a href=#512 id=512 data-nosnippet>512</a>    </span><span class="kw">pub fn </span>note_alloc_failed(size: usize, shortfall: usize) {
+<a href=#513 id=513 data-nosnippet>513</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
+<a href=#514 id=514 data-nosnippet>514</a>        checkpoint(Stage::RegisteringEntities);
+<a href=#515 id=515 data-nosnippet>515</a>        <span class="kw">if </span>r.failed_alloc_size
+<a href=#516 id=516 data-nosnippet>516</a>            .compare_exchange(<span class="number">0</span>, saturate(size), Ordering::Relaxed, Ordering::Relaxed)
+<a href=#517 id=517 data-nosnippet>517</a>            .is_ok()
+<a href=#518 id=518 data-nosnippet>518</a>        {
+<a href=#519 id=519 data-nosnippet>519</a>            r.failed_alloc_shortfall
+<a href=#520 id=520 data-nosnippet>520</a>                .store(saturate(shortfall), Ordering::Relaxed);
+<a href=#521 id=521 data-nosnippet>521</a>        }
+<a href=#522 id=522 data-nosnippet>522</a>    }
+<a href=#523 id=523 data-nosnippet>523</a>
+<a href=#524 id=524 data-nosnippet>524</a>    <span class="doccomment">/// Record the PLATFORM HEAP allocation that did not fit.
+<a href=#525 id=525 data-nosnippet>525</a>    ///
+<a href=#526 id=526 data-nosnippet>526</a>    /// phase-460 W7 / issue 1425. `nros-platform-zephyr`'s `platform.c` calls
+<a href=#527 id=527 data-nosnippet>527</a>    /// this through the C entry below from `nros_platform_alloc`'s exhaustion
+<a href=#528 id=528 data-nosnippet>528</a>    /// path, BEFORE the printk and before the fatal hook, so a board halted by
+<a href=#529 id=529 data-nosnippet>529</a>    /// an exhausted heap names the request that killed it in the same two words
+<a href=#530 id=530 data-nosnippet>530</a>    /// an exhausted executor ARENA does.
+<a href=#531 id=531 data-nosnippet>531</a>    ///
+<a href=#532 id=532 data-nosnippet>532</a>    /// ONE PAIR OF FIELDS FOR TWO ARENAS. They cannot both fail in a boot that
+<a href=#533 id=533 data-nosnippet>533</a>    /// continues -- the first one to fail stops it -- and first-writer-wins is
+<a href=#534 id=534 data-nosnippet>534</a>    /// what makes the record name the cause rather than a consequence.
 <a href=#535 id=535 data-nosnippet>535</a>    ///
-<a href=#536 id=536 data-nosnippet>536</a>    /// Called from the port that owns the heap, because only that port can
-<a href=#537 id=537 data-nosnippet>537</a>    /// read it: `nros_zephyr_heap_peak()` is deliberately NOT in
-<a href=#538 id=538 data-nosnippet>538</a>    /// `nros/platform.h` (the cross-port ABI would need a stub per port for a
-<a href=#539 id=539 data-nosnippet>539</a>    /// figure one port can produce), so the core cannot pull the number and
-<a href=#540 id=540 data-nosnippet>540</a>    /// the platform pushes it instead. See
-<a href=#541 id=541 data-nosnippet>541</a>    /// [`nros_boot_report_note_heap`] for the C entry point.
-<a href=#542 id=542 data-nosnippet>542</a>    </span><span class="kw">pub fn </span>note_heap(peak: usize, capacity: usize) {
-<a href=#543 id=543 data-nosnippet>543</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
-<a href=#544 id=544 data-nosnippet>544</a>        r.heap_peak_bytes
-<a href=#545 id=545 data-nosnippet>545</a>            .fetch_max(saturate(peak), Ordering::Relaxed);
-<a href=#546 id=546 data-nosnippet>546</a>        r.heap_capacity_bytes
-<a href=#547 id=547 data-nosnippet>547</a>            .store(saturate(capacity), Ordering::Relaxed);
-<a href=#548 id=548 data-nosnippet>548</a>    }
-<a href=#549 id=549 data-nosnippet>549</a>
-<a href=#550 id=550 data-nosnippet>550</a>    <span class="doccomment">/// [`note_heap`] across the C ABI, for a platform written in C.
-<a href=#551 id=551 data-nosnippet>551</a>    ///
-<a href=#552 id=552 data-nosnippet>552</a>    /// `nros-platform-zephyr`'s `platform.c` calls this from
-<a href=#553 id=553 data-nosnippet>553</a>    /// `nros_platform_alloc` and `nros_platform_realloc` -- the only two
-<a href=#554 id=554 data-nosnippet>554</a>    /// places the heap's peak can change -- so the record is current at every
-<a href=#555 id=555 data-nosnippet>555</a>    /// stage transition without the stage transitions having to sample
-<a href=#556 id=556 data-nosnippet>556</a>    /// anything, and it is written on the exhaustion path BEFORE the printk
-<a href=#557 id=557 data-nosnippet>557</a>    /// that path emits, which is the case where the board is about to stop.
-<a href=#558 id=558 data-nosnippet>558</a>    ///
-<a href=#559 id=559 data-nosnippet>559</a>    /// Takes `usize`, not `u32`: the saturation rule belongs on this side
-<a href=#560 id=560 data-nosnippet>560</a>    /// (see [`saturate`]), and a C caster would truncate instead.
-<a href=#561 id=561 data-nosnippet>561</a>    </span><span class="attr">#[<span class="kw">unsafe</span>(no_mangle)]
-<a href=#562 id=562 data-nosnippet>562</a>    </span><span class="kw">pub extern </span><span class="string">"C" </span><span class="kw">fn </span>nros_boot_report_note_heap(peak: usize, capacity: usize) {
-<a href=#563 id=563 data-nosnippet>563</a>        note_heap(peak, capacity);
-<a href=#564 id=564 data-nosnippet>564</a>    }
-<a href=#565 id=565 data-nosnippet>565</a>
-<a href=#566 id=566 data-nosnippet>566</a>    <span class="doccomment">/// `usize` -&gt; `u32`, saturating.
-<a href=#567 id=567 data-nosnippet>567</a>    ///
-<a href=#568 id=568 data-nosnippet>568</a>    /// Every field is a `u32` so the record's layout does not change between a
-<a href=#569 id=569 data-nosnippet>569</a>    /// 32-bit board and a 64-bit host running the same tests. Saturating rather
-<a href=#570 id=570 data-nosnippet>570</a>    /// than truncating because a value too large to represent should read as
-<a href=#571 id=571 data-nosnippet>571</a>    /// "enormous", not as its low half -- a truncated 4 GiB reads as 0, which
-<a href=#572 id=572 data-nosnippet>572</a>    /// is the one wrong answer that looks like a normal one.
-<a href=#573 id=573 data-nosnippet>573</a>    </span><span class="kw">fn </span>saturate(v: usize) -&gt; u32 {
-<a href=#574 id=574 data-nosnippet>574</a>        u32::try_from(v).unwrap_or(u32::MAX)
-<a href=#575 id=575 data-nosnippet>575</a>    }
-<a href=#576 id=576 data-nosnippet>576</a>}
-<a href=#577 id=577 data-nosnippet>577</a>
-<a href=#578 id=578 data-nosnippet>578</a><span class="attr">#[cfg(not(nros_boot_report))]
-<a href=#579 id=579 data-nosnippet>579</a></span><span class="kw">pub use </span>disabled::<span class="kw-2">*</span>;
-<a href=#580 id=580 data-nosnippet>580</a>
-<a href=#581 id=581 data-nosnippet>581</a><span class="doccomment">/// No-op stubs, so call sites need no `cfg` of their own and an image that does
-<a href=#582 id=582 data-nosnippet>582</a>/// not opt in is byte-identical.
-<a href=#583 id=583 data-nosnippet>583</a></span><span class="attr">#[cfg(not(nros_boot_report))]
-<a href=#584 id=584 data-nosnippet>584</a></span><span class="kw">mod </span>disabled {
-<a href=#585 id=585 data-nosnippet>585</a>    <span class="kw">use </span><span class="kw">super</span>::Stage;
-<a href=#586 id=586 data-nosnippet>586</a>
-<a href=#587 id=587 data-nosnippet>587</a>    <span class="attr">#[inline(always)]
-<a href=#588 id=588 data-nosnippet>588</a>    </span><span class="kw">pub fn </span>init() {}
-<a href=#589 id=589 data-nosnippet>589</a>
-<a href=#590 id=590 data-nosnippet>590</a>    <span class="attr">#[inline(always)]
-<a href=#591 id=591 data-nosnippet>591</a>    </span><span class="kw">pub fn </span>checkpoint(_stage: Stage) {}
-<a href=#592 id=592 data-nosnippet>592</a>
-<a href=#593 id=593 data-nosnippet>593</a>    <span class="attr">#[inline(always)]
-<a href=#594 id=594 data-nosnippet>594</a>    </span><span class="kw">pub fn </span>note_arena_capacity(_capacity: usize) {}
-<a href=#595 id=595 data-nosnippet>595</a>
-<a href=#596 id=596 data-nosnippet>596</a>    <span class="attr">#[inline(always)]
-<a href=#597 id=597 data-nosnippet>597</a>    </span><span class="kw">pub fn </span>note_alloc(_size: usize, _used_after: usize) {}
-<a href=#598 id=598 data-nosnippet>598</a>
-<a href=#599 id=599 data-nosnippet>599</a>    <span class="attr">#[inline(always)]
-<a href=#600 id=600 data-nosnippet>600</a>    </span><span class="kw">pub fn </span>note_alloc_failed(_size: usize, _shortfall: usize) {}
-<a href=#601 id=601 data-nosnippet>601</a>
-<a href=#602 id=602 data-nosnippet>602</a>    <span class="attr">#[inline(always)]
-<a href=#603 id=603 data-nosnippet>603</a>    </span><span class="kw">pub fn </span>note_cpp_init_ret(_ret: i32) {}
-<a href=#604 id=604 data-nosnippet>604</a>
-<a href=#605 id=605 data-nosnippet>605</a>    <span class="attr">#[inline(always)]
-<a href=#606 id=606 data-nosnippet>606</a>    </span><span class="kw">pub fn </span>note_error(_class: u32, _transport: u32, _ptr: u32, _len: u32) {}
-<a href=#607 id=607 data-nosnippet>607</a>
-<a href=#608 id=608 data-nosnippet>608</a>    <span class="attr">#[inline(always)]
-<a href=#609 id=609 data-nosnippet>609</a>    </span><span class="kw">pub fn </span>note_heap(_peak: usize, _capacity: usize) {}
-<a href=#610 id=610 data-nosnippet>610</a>
-<a href=#611 id=611 data-nosnippet>611</a>    <span class="doccomment">/// The C entry point exists in BOTH builds, unlike every other stub here.
-<a href=#612 id=612 data-nosnippet>612</a>    ///
-<a href=#613 id=613 data-nosnippet>613</a>    /// The Rust half of an image takes the record from a cfg and the C half
-<a href=#614 id=614 data-nosnippet>614</a>    /// takes it from `CONFIG_NROS_BOOT_REPORT`; the two are set from the same
-<a href=#615 id=615 data-nosnippet>615</a>    /// knob and can still be built apart (a stale `cargo` artifact, a C smoke
-<a href=#616 id=616 data-nosnippet>616</a>    /// test). An absent symbol makes that a LINK failure naming nothing in
-<a href=#617 id=617 data-nosnippet>617</a>    /// particular, so the disabled build keeps an empty body instead.
-<a href=#618 id=618 data-nosnippet>618</a>    </span><span class="attr">#[<span class="kw">unsafe</span>(no_mangle)]
-<a href=#619 id=619 data-nosnippet>619</a>    </span><span class="kw">pub extern </span><span class="string">"C" </span><span class="kw">fn </span>nros_boot_report_note_heap(_peak: usize, _capacity: usize) {}
-<a href=#620 id=620 data-nosnippet>620</a>}
-<a href=#621 id=621 data-nosnippet>621</a>
-<a href=#622 id=622 data-nosnippet>622</a><span class="attr">#[cfg(all(test, nros_boot_report))]
-<a href=#623 id=623 data-nosnippet>623</a></span><span class="kw">mod </span>tests {
-<a href=#624 id=624 data-nosnippet>624</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
-<a href=#625 id=625 data-nosnippet>625</a>
-<a href=#626 id=626 data-nosnippet>626</a>    <span class="doccomment">/// The reader decodes twenty-two u32s positionally, so the record must be
-<a href=#627 id=627 data-nosnippet>627</a>    /// exactly that and nothing else -- no padding, no reordering.
-<a href=#628 id=628 data-nosnippet>628</a>    ///
-<a href=#629 id=629 data-nosnippet>629</a>    /// `size_of` on the TARGET, which is the half `check-boot-report-layout.py`
-<a href=#630 id=630 data-nosnippet>630</a>    /// cannot see: that gate compares two source files, and this compares the
-<a href=#631 id=631 data-nosnippet>631</a>    /// source against what the compiler actually laid out.
-<a href=#632 id=632 data-nosnippet>632</a>    </span><span class="attr">#[test]
-<a href=#633 id=633 data-nosnippet>633</a>    </span><span class="kw">fn </span>the_record_is_twenty_two_packed_u32s() {
-<a href=#634 id=634 data-nosnippet>634</a>        <span class="macro">assert_eq!</span>(BootReport::struct_size(), <span class="number">22 </span>* <span class="number">4</span>);
-<a href=#635 id=635 data-nosnippet>635</a>        <span class="macro">assert_eq!</span>(
-<a href=#636 id=636 data-nosnippet>636</a>            core::mem::size_of::&lt;BootReport&gt;(),
-<a href=#637 id=637 data-nosnippet>637</a>            <span class="number">22 </span>* core::mem::size_of::&lt;u32&gt;(),
-<a href=#638 id=638 data-nosnippet>638</a>            <span class="string">"the record grew padding; the reader decodes positionally"
-<a href=#639 id=639 data-nosnippet>639</a>        </span>);
-<a href=#640 id=640 data-nosnippet>640</a>        <span class="macro">assert_eq!</span>(core::mem::align_of::&lt;BootReport&gt;(), <span class="number">4</span>);
-<a href=#641 id=641 data-nosnippet>641</a>    }
-<a href=#642 id=642 data-nosnippet>642</a>
-<a href=#643 id=643 data-nosnippet>643</a>    <span class="doccomment">/// The magic is written LAST, so finding it means the rest is valid.
-<a href=#644 id=644 data-nosnippet>644</a>    ///
-<a href=#645 id=645 data-nosnippet>645</a>    /// The reader leans on this to tell "the image died before it had an
-<a href=#646 id=646 data-nosnippet>646</a>    /// executor" apart from "the dump is at the wrong address", and it can
-<a href=#647 id=647 data-nosnippet>647</a>    /// only do so if the ordering actually holds.
-<a href=#648 id=648 data-nosnippet>648</a>    </span><span class="attr">#[test]
-<a href=#649 id=649 data-nosnippet>649</a>    </span><span class="kw">fn </span>init_stamps_the_header_and_the_compiled_knobs() {
-<a href=#650 id=650 data-nosnippet>650</a>        init();
-<a href=#651 id=651 data-nosnippet>651</a>        <span class="kw">let </span>s = snapshot();
-<a href=#652 id=652 data-nosnippet>652</a>        <span class="macro">assert_eq!</span>(s.magic, MAGIC);
-<a href=#653 id=653 data-nosnippet>653</a>        <span class="macro">assert_eq!</span>(s.version, VERSION);
-<a href=#654 id=654 data-nosnippet>654</a>        <span class="macro">assert_eq!</span>(s.struct_size, BootReport::struct_size());
-<a href=#655 id=655 data-nosnippet>655</a>        <span class="macro">assert_eq!</span>(s.arena_size, <span class="kw">crate</span>::config::ARENA_SIZE <span class="kw">as </span>u32);
-<a href=#656 id=656 data-nosnippet>656</a>        <span class="macro">assert_eq!</span>(s.max_cbs, <span class="kw">crate</span>::config::MAX_CBS <span class="kw">as </span>u32);
-<a href=#657 id=657 data-nosnippet>657</a>        <span class="macro">assert_eq!</span>(s.max_nodes, <span class="kw">crate</span>::config::MAX_NODES <span class="kw">as </span>u32);
-<a href=#658 id=658 data-nosnippet>658</a>        <span class="macro">assert!</span>(s.stage &gt;= Stage::ReportReady <span class="kw">as </span>u32);
-<a href=#659 id=659 data-nosnippet>659</a>    }
-<a href=#660 id=660 data-nosnippet>660</a>
-<a href=#661 id=661 data-nosnippet>661</a>    <span class="doccomment">/// A late call on a re-entered path must not make the record claim LESS
-<a href=#662 id=662 data-nosnippet>662</a>    /// progress than was actually made. The field's whole purpose is to be
-<a href=#663 id=663 data-nosnippet>663</a>    /// believed about a boot that did not finish.
-<a href=#664 id=664 data-nosnippet>664</a>    </span><span class="attr">#[test]
-<a href=#665 id=665 data-nosnippet>665</a>    </span><span class="kw">fn </span>a_checkpoint_never_goes_backwards() {
-<a href=#666 id=666 data-nosnippet>666</a>        init();
-<a href=#667 id=667 data-nosnippet>667</a>        checkpoint(Stage::FirstSpin);
-<a href=#668 id=668 data-nosnippet>668</a>        <span class="macro">assert_eq!</span>(snapshot().stage, Stage::FirstSpin <span class="kw">as </span>u32);
-<a href=#669 id=669 data-nosnippet>669</a>        checkpoint(Stage::ExecutorReady);
-<a href=#670 id=670 data-nosnippet>670</a>        <span class="macro">assert_eq!</span>(
-<a href=#671 id=671 data-nosnippet>671</a>            snapshot().stage,
-<a href=#672 id=672 data-nosnippet>672</a>            Stage::FirstSpin <span class="kw">as </span>u32,
-<a href=#673 id=673 data-nosnippet>673</a>            <span class="string">"an earlier stage overwrote a later one"
-<a href=#674 id=674 data-nosnippet>674</a>        </span>);
-<a href=#675 id=675 data-nosnippet>675</a>    }
-<a href=#676 id=676 data-nosnippet>676</a>
-<a href=#677 id=677 data-nosnippet>677</a>    <span class="doccomment">/// The FIRST failure is the one that explains the boot; a later one is a
-<a href=#678 id=678 data-nosnippet>678</a>    /// consequence of it and must not overwrite the cause.
-<a href=#679 id=679 data-nosnippet>679</a>    </span><span class="attr">#[test]
-<a href=#680 id=680 data-nosnippet>680</a>    </span><span class="kw">fn </span>the_first_alloc_failure_wins() {
-<a href=#681 id=681 data-nosnippet>681</a>        init();
-<a href=#682 id=682 data-nosnippet>682</a>        note_alloc_failed(<span class="number">100</span>, <span class="number">8</span>);
-<a href=#683 id=683 data-nosnippet>683</a>        note_alloc_failed(<span class="number">999</span>, <span class="number">512</span>);
-<a href=#684 id=684 data-nosnippet>684</a>        <span class="kw">let </span>s = snapshot();
-<a href=#685 id=685 data-nosnippet>685</a>        <span class="macro">assert_eq!</span>(s.failed_alloc_size, <span class="number">100</span>);
-<a href=#686 id=686 data-nosnippet>686</a>        <span class="macro">assert_eq!</span>(s.failed_alloc_shortfall, <span class="number">8</span>);
-<a href=#687 id=687 data-nosnippet>687</a>    }
-<a href=#688 id=688 data-nosnippet>688</a>
-<a href=#689 id=689 data-nosnippet>689</a>    <span class="doccomment">/// A value too large for the field must read as enormous, not as its low
-<a href=#690 id=690 data-nosnippet>690</a>    /// half. A truncated 4 GiB reads as 0, which is the one wrong answer that
-<a href=#691 id=691 data-nosnippet>691</a>    /// looks like a normal one.
-<a href=#692 id=692 data-nosnippet>692</a>    </span><span class="attr">#[test]
-<a href=#693 id=693 data-nosnippet>693</a>    </span><span class="kw">fn </span>an_unrepresentable_size_saturates_rather_than_truncating() {
-<a href=#694 id=694 data-nosnippet>694</a>        init();
-<a href=#695 id=695 data-nosnippet>695</a>        note_arena_capacity(usize::MAX);
-<a href=#696 id=696 data-nosnippet>696</a>        <span class="macro">assert_eq!</span>(snapshot().arena_capacity, u32::MAX);
-<a href=#697 id=697 data-nosnippet>697</a>    }
-<a href=#698 id=698 data-nosnippet>698</a>
-<a href=#699 id=699 data-nosnippet>699</a>    <span class="doccomment">/// The heap PEAK is what sizes the knob, so a later sample taken after the
-<a href=#700 id=700 data-nosnippet>700</a>    /// image freed memory must not lower it. Issue 1424: the figure only has
-<a href=#701 id=701 data-nosnippet>701</a>    /// to be believed about a boot nobody watched.
-<a href=#702 id=702 data-nosnippet>702</a>    ///
-<a href=#703 id=703 data-nosnippet>703</a>    /// Through the C entry point, which is how the only producer in the tree
-<a href=#704 id=704 data-nosnippet>704</a>    /// (`nros-platform-zephyr/src/platform.c`) reaches it -- a test that wrote
-<a href=#705 id=705 data-nosnippet>705</a>    /// through `note_heap` would leave that symbol exercised by nothing.
-<a href=#706 id=706 data-nosnippet>706</a>    </span><span class="attr">#[test]
-<a href=#707 id=707 data-nosnippet>707</a>    </span><span class="kw">fn </span>the_heap_peak_keeps_the_maximum_and_the_capacity_the_last_word() {
-<a href=#708 id=708 data-nosnippet>708</a>        init();
-<a href=#709 id=709 data-nosnippet>709</a>        nros_boot_report_note_heap(<span class="number">4096</span>, <span class="number">94208</span>);
-<a href=#710 id=710 data-nosnippet>710</a>        nros_boot_report_note_heap(<span class="number">18352</span>, <span class="number">94208</span>);
-<a href=#711 id=711 data-nosnippet>711</a>        nros_boot_report_note_heap(<span class="number">1024</span>, <span class="number">94208</span>);
-<a href=#712 id=712 data-nosnippet>712</a>        <span class="kw">let </span>s = snapshot();
-<a href=#713 id=713 data-nosnippet>713</a>        <span class="macro">assert_eq!</span>(s.heap_peak_bytes, <span class="number">18352</span>, <span class="string">"a later sample lowered the peak"</span>);
-<a href=#714 id=714 data-nosnippet>714</a>        <span class="macro">assert_eq!</span>(s.heap_capacity_bytes, <span class="number">94208</span>);
-<a href=#715 id=715 data-nosnippet>715</a>    }
-<a href=#716 id=716 data-nosnippet>716</a>}
+<a href=#536 id=536 data-nosnippet>536</a>    /// NO STAGE STAMP, which is the whole reason this is not
+<a href=#537 id=537 data-nosnippet>537</a>    /// [`note_alloc_failed`]. That one stamps [`Stage::RegisteringEntities`]
+<a href=#538 id=538 data-nosnippet>538</a>    /// because the executor arena is claimed by entity registration and by
+<a href=#539 id=539 data-nosnippet>539</a>    /// nothing else. The platform heap is claimed by anything at any time --
+<a href=#540 id=540 data-nosnippet>540</a>    /// zenoh-pico's read task, a reply buffer, a reconnect -- so stamping would
+<a href=#541 id=541 data-nosnippet>541</a>    /// make the record claim registration was in flight on a boot that had long
+<a href=#542 id=542 data-nosnippet>542</a>    /// since reached its first spin. `checkpoint` is monotonic, so it would be
+<a href=#543 id=543 data-nosnippet>543</a>    /// an unfalsifiable claim: the stage would read 4 and nothing later could
+<a href=#544 id=544 data-nosnippet>544</a>    /// correct it.
+<a href=#545 id=545 data-nosnippet>545</a>    </span><span class="kw">pub fn </span>note_heap_alloc_failed(size: usize) {
+<a href=#546 id=546 data-nosnippet>546</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
+<a href=#547 id=547 data-nosnippet>547</a>        <span class="kw">if </span>r.failed_alloc_size
+<a href=#548 id=548 data-nosnippet>548</a>            .compare_exchange(<span class="number">0</span>, saturate(size), Ordering::Relaxed, Ordering::Relaxed)
+<a href=#549 id=549 data-nosnippet>549</a>            .is_ok()
+<a href=#550 id=550 data-nosnippet>550</a>        {
+<a href=#551 id=551 data-nosnippet>551</a>            <span class="comment">// The shortfall is the REQUEST, not `size - free`: the heap is
+<a href=#552 id=552 data-nosnippet>552</a>            // fragmented by the time it refuses, so the bytes that would have
+<a href=#553 id=553 data-nosnippet>553</a>            // made this request fit are not the deficit against the largest
+<a href=#554 id=554 data-nosnippet>554</a>            // free block. A number that looks like a precise deficit and is not
+<a href=#555 id=555 data-nosnippet>555</a>            // would be sized from.
+<a href=#556 id=556 data-nosnippet>556</a>            </span>r.failed_alloc_shortfall
+<a href=#557 id=557 data-nosnippet>557</a>                .store(saturate(size), Ordering::Relaxed);
+<a href=#558 id=558 data-nosnippet>558</a>        }
+<a href=#559 id=559 data-nosnippet>559</a>    }
+<a href=#560 id=560 data-nosnippet>560</a>
+<a href=#561 id=561 data-nosnippet>561</a>    <span class="doccomment">/// [`note_heap_alloc_failed`] across the C ABI, for a platform in C.
+<a href=#562 id=562 data-nosnippet>562</a>    </span><span class="attr">#[<span class="kw">unsafe</span>(no_mangle)]
+<a href=#563 id=563 data-nosnippet>563</a>    </span><span class="kw">pub extern </span><span class="string">"C" </span><span class="kw">fn </span>nros_boot_report_note_heap_alloc_failed(size: usize) {
+<a href=#564 id=564 data-nosnippet>564</a>        note_heap_alloc_failed(size);
+<a href=#565 id=565 data-nosnippet>565</a>    }
+<a href=#566 id=566 data-nosnippet>566</a>
+<a href=#567 id=567 data-nosnippet>567</a>    <span class="doccomment">/// Record `nros_cpp_init`'s return code.
+<a href=#568 id=568 data-nosnippet>568</a>    ///
+<a href=#569 id=569 data-nosnippet>569</a>    /// LAST writer wins, unlike [`note_alloc_failed`]: an image may call
+<a href=#570 id=570 data-nosnippet>570</a>    /// `nros_cpp_init` more than once (per component, per tier), and the
+<a href=#571 id=571 data-nosnippet>571</a>    /// interesting one is the call that did not get through, which is the one
+<a href=#572 id=572 data-nosnippet>572</a>    /// that leaves the stage where it stopped.
+<a href=#573 id=573 data-nosnippet>573</a>    </span><span class="kw">pub fn </span>note_cpp_init_ret(ret: i32) {
+<a href=#574 id=574 data-nosnippet>574</a>        NROS_BOOT_REPORT
+<a href=#575 id=575 data-nosnippet>575</a>            .cpp_init_ret
+<a href=#576 id=576 data-nosnippet>576</a>            .store(ret <span class="kw">as </span>u32, Ordering::Relaxed);
+<a href=#577 id=577 data-nosnippet>577</a>    }
+<a href=#578 id=578 data-nosnippet>578</a>
+<a href=#579 id=579 data-nosnippet>579</a>    <span class="doccomment">/// Record an error that crossed the FFI.
+<a href=#580 id=580 data-nosnippet>580</a>    ///
+<a href=#581 id=581 data-nosnippet>581</a>    /// Takes CODES, not the error type: `nros-node` must not need to know how
+<a href=#582 id=582 data-nosnippet>582</a>    /// `nros-cpp` numbers its variants, and the numbering has to be assigned by
+<a href=#583 id=583 data-nosnippet>583</a>    /// an exhaustive match that a new variant breaks at compile time. The caller
+<a href=#584 id=584 data-nosnippet>584</a>    /// owns both.
+<a href=#585 id=585 data-nosnippet>585</a>    ///
+<a href=#586 id=586 data-nosnippet>586</a>    /// LAST writer wins. An image that fails one entity and carries on would
+<a href=#587 id=587 data-nosnippet>587</a>    /// otherwise keep the first stumble instead of the one that stopped it, and
+<a href=#588 id=588 data-nosnippet>588</a>    /// the failure that stops setup is the one that explains the boot.
+<a href=#589 id=589 data-nosnippet>589</a>    </span><span class="kw">pub fn </span>note_error(class: u32, transport: u32, backend_ptr: u32, backend_len: u32) {
+<a href=#590 id=590 data-nosnippet>590</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
+<a href=#591 id=591 data-nosnippet>591</a>        r.err_class.store(class, Ordering::Relaxed);
+<a href=#592 id=592 data-nosnippet>592</a>        r.err_transport.store(transport, Ordering::Relaxed);
+<a href=#593 id=593 data-nosnippet>593</a>        r.err_backend_ptr.store(backend_ptr, Ordering::Relaxed);
+<a href=#594 id=594 data-nosnippet>594</a>        r.err_backend_len.store(backend_len, Ordering::Relaxed);
+<a href=#595 id=595 data-nosnippet>595</a>    }
+<a href=#596 id=596 data-nosnippet>596</a>
+<a href=#597 id=597 data-nosnippet>597</a>    <span class="doccomment">/// Record the platform heap's high-water mark and its capacity.
+<a href=#598 id=598 data-nosnippet>598</a>    ///
+<a href=#599 id=599 data-nosnippet>599</a>    /// `peak` keeps the MAXIMUM, `capacity` the last value: the peak is the
+<a href=#600 id=600 data-nosnippet>600</a>    /// figure a knob is sized from and must not be lowered by a later sample,
+<a href=#601 id=601 data-nosnippet>601</a>    /// while the capacity is a constant of the image that a second sample can
+<a href=#602 id=602 data-nosnippet>602</a>    /// only restate.
+<a href=#603 id=603 data-nosnippet>603</a>    ///
+<a href=#604 id=604 data-nosnippet>604</a>    /// Called from the port that owns the heap, because only that port can
+<a href=#605 id=605 data-nosnippet>605</a>    /// read it: `nros_zephyr_heap_peak()` is deliberately NOT in
+<a href=#606 id=606 data-nosnippet>606</a>    /// `nros/platform.h` (the cross-port ABI would need a stub per port for a
+<a href=#607 id=607 data-nosnippet>607</a>    /// figure one port can produce), so the core cannot pull the number and
+<a href=#608 id=608 data-nosnippet>608</a>    /// the platform pushes it instead. See
+<a href=#609 id=609 data-nosnippet>609</a>    /// [`nros_boot_report_note_heap`] for the C entry point.
+<a href=#610 id=610 data-nosnippet>610</a>    </span><span class="kw">pub fn </span>note_heap(peak: usize, capacity: usize) {
+<a href=#611 id=611 data-nosnippet>611</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
+<a href=#612 id=612 data-nosnippet>612</a>        r.heap_peak_bytes
+<a href=#613 id=613 data-nosnippet>613</a>            .fetch_max(saturate(peak), Ordering::Relaxed);
+<a href=#614 id=614 data-nosnippet>614</a>        r.heap_capacity_bytes
+<a href=#615 id=615 data-nosnippet>615</a>            .store(saturate(capacity), Ordering::Relaxed);
+<a href=#616 id=616 data-nosnippet>616</a>    }
+<a href=#617 id=617 data-nosnippet>617</a>
+<a href=#618 id=618 data-nosnippet>618</a>    <span class="doccomment">/// [`note_heap`] across the C ABI, for a platform written in C.
+<a href=#619 id=619 data-nosnippet>619</a>    ///
+<a href=#620 id=620 data-nosnippet>620</a>    /// `nros-platform-zephyr`'s `platform.c` calls this from
+<a href=#621 id=621 data-nosnippet>621</a>    /// `nros_platform_alloc` and `nros_platform_realloc` -- the only two
+<a href=#622 id=622 data-nosnippet>622</a>    /// places the heap's peak can change -- so the record is current at every
+<a href=#623 id=623 data-nosnippet>623</a>    /// stage transition without the stage transitions having to sample
+<a href=#624 id=624 data-nosnippet>624</a>    /// anything, and it is written on the exhaustion path BEFORE the printk
+<a href=#625 id=625 data-nosnippet>625</a>    /// that path emits, which is the case where the board is about to stop.
+<a href=#626 id=626 data-nosnippet>626</a>    ///
+<a href=#627 id=627 data-nosnippet>627</a>    /// Takes `usize`, not `u32`: the saturation rule belongs on this side
+<a href=#628 id=628 data-nosnippet>628</a>    /// (see [`saturate`]), and a C caster would truncate instead.
+<a href=#629 id=629 data-nosnippet>629</a>    </span><span class="attr">#[<span class="kw">unsafe</span>(no_mangle)]
+<a href=#630 id=630 data-nosnippet>630</a>    </span><span class="kw">pub extern </span><span class="string">"C" </span><span class="kw">fn </span>nros_boot_report_note_heap(peak: usize, capacity: usize) {
+<a href=#631 id=631 data-nosnippet>631</a>        note_heap(peak, capacity);
+<a href=#632 id=632 data-nosnippet>632</a>    }
+<a href=#633 id=633 data-nosnippet>633</a>
+<a href=#634 id=634 data-nosnippet>634</a>    <span class="doccomment">/// Count one sample dropped because the subscription buffer was too small.
+<a href=#635 id=635 data-nosnippet>635</a>    ///
+<a href=#636 id=636 data-nosnippet>636</a>    /// Returns the total AFTER this drop, so a caller can throttle its log on
+<a href=#637 id=637 data-nosnippet>637</a>    /// the same number the record carries rather than keeping a second one.
+<a href=#638 id=638 data-nosnippet>638</a>    ///
+<a href=#639 id=639 data-nosnippet>639</a>    /// SATURATES at `u32::MAX` instead of wrapping. A wrapping counter can
+<a href=#640 id=640 data-nosnippet>640</a>    /// read 0 on an image that dropped four billion samples, and 0 is the one
+<a href=#641 id=641 data-nosnippet>641</a>    /// answer here that means "nothing is wrong" -- the same rule
+<a href=#642 id=642 data-nosnippet>642</a>    /// [`saturate`] applies to every size in the record, applied to a tally.
+<a href=#643 id=643 data-nosnippet>643</a>    /// `fetch_update` rather than `fetch_add` is what makes that true under
+<a href=#644 id=644 data-nosnippet>644</a>    /// the concurrent callers `take_serialized` has.
+<a href=#645 id=645 data-nosnippet>645</a>    </span><span class="kw">pub fn </span>note_sample_dropped_too_small() -&gt; u32 {
+<a href=#646 id=646 data-nosnippet>646</a>        <span class="kw">let </span>r = <span class="kw-2">&amp;</span>NROS_BOOT_REPORT;
+<a href=#647 id=647 data-nosnippet>647</a>        <span class="kw">let </span>prev = r
+<a href=#648 id=648 data-nosnippet>648</a>            .samples_dropped_too_small
+<a href=#649 id=649 data-nosnippet>649</a>            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+<a href=#650 id=650 data-nosnippet>650</a>                <span class="prelude-val">Some</span>(n.saturating_add(<span class="number">1</span>))
+<a href=#651 id=651 data-nosnippet>651</a>            })
+<a href=#652 id=652 data-nosnippet>652</a>            .unwrap_or(u32::MAX);
+<a href=#653 id=653 data-nosnippet>653</a>        prev.saturating_add(<span class="number">1</span>)
+<a href=#654 id=654 data-nosnippet>654</a>    }
+<a href=#655 id=655 data-nosnippet>655</a>
+<a href=#656 id=656 data-nosnippet>656</a>    <span class="doccomment">/// [`note_sample_dropped_too_small`] across the C ABI.
+<a href=#657 id=657 data-nosnippet>657</a>    ///
+<a href=#658 id=658 data-nosnippet>658</a>    /// Present for the same reason [`nros_boot_report_note_heap`] is: the
+<a href=#659 id=659 data-nosnippet>659</a>    /// counting side may be a C translation unit, and a symbol that exists in
+<a href=#660 id=660 data-nosnippet>660</a>    /// only one of the two builds is a link error naming nothing in
+<a href=#661 id=661 data-nosnippet>661</a>    /// particular.
+<a href=#662 id=662 data-nosnippet>662</a>    </span><span class="attr">#[<span class="kw">unsafe</span>(no_mangle)]
+<a href=#663 id=663 data-nosnippet>663</a>    </span><span class="kw">pub extern </span><span class="string">"C" </span><span class="kw">fn </span>nros_boot_report_note_sample_dropped_too_small() -&gt; u32 {
+<a href=#664 id=664 data-nosnippet>664</a>        note_sample_dropped_too_small()
+<a href=#665 id=665 data-nosnippet>665</a>    }
+<a href=#666 id=666 data-nosnippet>666</a>
+<a href=#667 id=667 data-nosnippet>667</a>    <span class="doccomment">/// Preload the drop tally. TEST ONLY.
+<a href=#668 id=668 data-nosnippet>668</a>    ///
+<a href=#669 id=669 data-nosnippet>669</a>    /// The record's fields are private and `mod tests` is a sibling of this
+<a href=#670 id=670 data-nosnippet>670</a>    /// module, not a child, so it cannot reach one. The saturation rule is
+<a href=#671 id=671 data-nosnippet>671</a>    /// worth a test and `u32::MAX` is not reachable by calling the writer, so
+<a href=#672 id=672 data-nosnippet>672</a>    /// the seam is this, compiled only under `cfg(test)`.
+<a href=#673 id=673 data-nosnippet>673</a>    </span><span class="attr">#[cfg(test)]
+<a href=#674 id=674 data-nosnippet>674</a>    </span><span class="kw">pub fn </span>set_samples_dropped_too_small_for_test(v: u32) {
+<a href=#675 id=675 data-nosnippet>675</a>        NROS_BOOT_REPORT
+<a href=#676 id=676 data-nosnippet>676</a>            .samples_dropped_too_small
+<a href=#677 id=677 data-nosnippet>677</a>            .store(v, Ordering::Relaxed);
+<a href=#678 id=678 data-nosnippet>678</a>    }
+<a href=#679 id=679 data-nosnippet>679</a>
+<a href=#680 id=680 data-nosnippet>680</a>    <span class="doccomment">/// `usize` -&gt; `u32`, saturating.
+<a href=#681 id=681 data-nosnippet>681</a>    ///
+<a href=#682 id=682 data-nosnippet>682</a>    /// Every field is a `u32` so the record's layout does not change between a
+<a href=#683 id=683 data-nosnippet>683</a>    /// 32-bit board and a 64-bit host running the same tests. Saturating rather
+<a href=#684 id=684 data-nosnippet>684</a>    /// than truncating because a value too large to represent should read as
+<a href=#685 id=685 data-nosnippet>685</a>    /// "enormous", not as its low half -- a truncated 4 GiB reads as 0, which
+<a href=#686 id=686 data-nosnippet>686</a>    /// is the one wrong answer that looks like a normal one.
+<a href=#687 id=687 data-nosnippet>687</a>    </span><span class="kw">fn </span>saturate(v: usize) -&gt; u32 {
+<a href=#688 id=688 data-nosnippet>688</a>        u32::try_from(v).unwrap_or(u32::MAX)
+<a href=#689 id=689 data-nosnippet>689</a>    }
+<a href=#690 id=690 data-nosnippet>690</a>}
+<a href=#691 id=691 data-nosnippet>691</a>
+<a href=#692 id=692 data-nosnippet>692</a><span class="attr">#[cfg(not(nros_boot_report))]
+<a href=#693 id=693 data-nosnippet>693</a></span><span class="kw">pub use </span>disabled::<span class="kw-2">*</span>;
+<a href=#694 id=694 data-nosnippet>694</a>
+<a href=#695 id=695 data-nosnippet>695</a><span class="doccomment">/// No-op stubs, so call sites need no `cfg` of their own and an image that does
+<a href=#696 id=696 data-nosnippet>696</a>/// not opt in is byte-identical.
+<a href=#697 id=697 data-nosnippet>697</a></span><span class="attr">#[cfg(not(nros_boot_report))]
+<a href=#698 id=698 data-nosnippet>698</a></span><span class="kw">mod </span>disabled {
+<a href=#699 id=699 data-nosnippet>699</a>    <span class="kw">use </span><span class="kw">super</span>::Stage;
+<a href=#700 id=700 data-nosnippet>700</a>
+<a href=#701 id=701 data-nosnippet>701</a>    <span class="attr">#[inline(always)]
+<a href=#702 id=702 data-nosnippet>702</a>    </span><span class="kw">pub fn </span>init() {}
+<a href=#703 id=703 data-nosnippet>703</a>
+<a href=#704 id=704 data-nosnippet>704</a>    <span class="attr">#[inline(always)]
+<a href=#705 id=705 data-nosnippet>705</a>    </span><span class="kw">pub fn </span>checkpoint(_stage: Stage) {}
+<a href=#706 id=706 data-nosnippet>706</a>
+<a href=#707 id=707 data-nosnippet>707</a>    <span class="attr">#[inline(always)]
+<a href=#708 id=708 data-nosnippet>708</a>    </span><span class="kw">pub fn </span>note_arena_capacity(_capacity: usize) {}
+<a href=#709 id=709 data-nosnippet>709</a>
+<a href=#710 id=710 data-nosnippet>710</a>    <span class="attr">#[inline(always)]
+<a href=#711 id=711 data-nosnippet>711</a>    </span><span class="kw">pub fn </span>note_alloc(_size: usize, _used_after: usize) {}
+<a href=#712 id=712 data-nosnippet>712</a>
+<a href=#713 id=713 data-nosnippet>713</a>    <span class="attr">#[inline(always)]
+<a href=#714 id=714 data-nosnippet>714</a>    </span><span class="kw">pub fn </span>note_alloc_failed(_size: usize, _shortfall: usize) {}
+<a href=#715 id=715 data-nosnippet>715</a>
+<a href=#716 id=716 data-nosnippet>716</a>    <span class="attr">#[inline(always)]
+<a href=#717 id=717 data-nosnippet>717</a>    </span><span class="kw">pub fn </span>note_heap_alloc_failed(_size: usize) {}
+<a href=#718 id=718 data-nosnippet>718</a>
+<a href=#719 id=719 data-nosnippet>719</a>    <span class="doccomment">/// The C entry point exists in BOTH builds, for the reason below.
+<a href=#720 id=720 data-nosnippet>720</a>    </span><span class="attr">#[<span class="kw">unsafe</span>(no_mangle)]
+<a href=#721 id=721 data-nosnippet>721</a>    </span><span class="kw">pub extern </span><span class="string">"C" </span><span class="kw">fn </span>nros_boot_report_note_heap_alloc_failed(_size: usize) {}
+<a href=#722 id=722 data-nosnippet>722</a>
+<a href=#723 id=723 data-nosnippet>723</a>    <span class="attr">#[inline(always)]
+<a href=#724 id=724 data-nosnippet>724</a>    </span><span class="kw">pub fn </span>note_cpp_init_ret(_ret: i32) {}
+<a href=#725 id=725 data-nosnippet>725</a>
+<a href=#726 id=726 data-nosnippet>726</a>    <span class="attr">#[inline(always)]
+<a href=#727 id=727 data-nosnippet>727</a>    </span><span class="kw">pub fn </span>note_error(_class: u32, _transport: u32, _ptr: u32, _len: u32) {}
+<a href=#728 id=728 data-nosnippet>728</a>
+<a href=#729 id=729 data-nosnippet>729</a>    <span class="attr">#[inline(always)]
+<a href=#730 id=730 data-nosnippet>730</a>    </span><span class="kw">pub fn </span>note_heap(_peak: usize, _capacity: usize) {}
+<a href=#731 id=731 data-nosnippet>731</a>
+<a href=#732 id=732 data-nosnippet>732</a>    <span class="doccomment">/// Always 0 without the record, and the CALLER must not care.
+<a href=#733 id=733 data-nosnippet>733</a>    ///
+<a href=#734 id=734 data-nosnippet>734</a>    /// `nros-cpp`'s take path throttles its log on its OWN counter, never on
+<a href=#735 id=735 data-nosnippet>735</a>    /// this return value, precisely so that an image built without the report
+<a href=#736 id=736 data-nosnippet>736</a>    /// keeps the log behaviour an image built with it has. A stub that decided
+<a href=#737 id=737 data-nosnippet>737</a>    /// the throttle would make the diagnostic depend on the diagnostic.
+<a href=#738 id=738 data-nosnippet>738</a>    </span><span class="attr">#[inline(always)]
+<a href=#739 id=739 data-nosnippet>739</a>    </span><span class="kw">pub fn </span>note_sample_dropped_too_small() -&gt; u32 {
+<a href=#740 id=740 data-nosnippet>740</a>        <span class="number">0
+<a href=#741 id=741 data-nosnippet>741</a>    </span>}
+<a href=#742 id=742 data-nosnippet>742</a>
+<a href=#743 id=743 data-nosnippet>743</a>    <span class="doccomment">/// The C entry point exists in BOTH builds, unlike every other stub here.
+<a href=#744 id=744 data-nosnippet>744</a>    ///
+<a href=#745 id=745 data-nosnippet>745</a>    /// The Rust half of an image takes the record from a cfg and the C half
+<a href=#746 id=746 data-nosnippet>746</a>    /// takes it from `CONFIG_NROS_BOOT_REPORT`; the two are set from the same
+<a href=#747 id=747 data-nosnippet>747</a>    /// knob and can still be built apart (a stale `cargo` artifact, a C smoke
+<a href=#748 id=748 data-nosnippet>748</a>    /// test). An absent symbol makes that a LINK failure naming nothing in
+<a href=#749 id=749 data-nosnippet>749</a>    /// particular, so the disabled build keeps an empty body instead.
+<a href=#750 id=750 data-nosnippet>750</a>    </span><span class="attr">#[<span class="kw">unsafe</span>(no_mangle)]
+<a href=#751 id=751 data-nosnippet>751</a>    </span><span class="kw">pub extern </span><span class="string">"C" </span><span class="kw">fn </span>nros_boot_report_note_heap(_peak: usize, _capacity: usize) {}
+<a href=#752 id=752 data-nosnippet>752</a>
+<a href=#753 id=753 data-nosnippet>753</a>    <span class="doccomment">/// The C entry point exists in BOTH builds, for the reason above.
+<a href=#754 id=754 data-nosnippet>754</a>    </span><span class="attr">#[<span class="kw">unsafe</span>(no_mangle)]
+<a href=#755 id=755 data-nosnippet>755</a>    </span><span class="kw">pub extern </span><span class="string">"C" </span><span class="kw">fn </span>nros_boot_report_note_sample_dropped_too_small() -&gt; u32 {
+<a href=#756 id=756 data-nosnippet>756</a>        <span class="number">0
+<a href=#757 id=757 data-nosnippet>757</a>    </span>}
+<a href=#758 id=758 data-nosnippet>758</a>}
+<a href=#759 id=759 data-nosnippet>759</a>
+<a href=#760 id=760 data-nosnippet>760</a><span class="attr">#[cfg(all(test, nros_boot_report))]
+<a href=#761 id=761 data-nosnippet>761</a></span><span class="kw">mod </span>tests {
+<a href=#762 id=762 data-nosnippet>762</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#763 id=763 data-nosnippet>763</a>
+<a href=#764 id=764 data-nosnippet>764</a>    <span class="doccomment">/// The reader decodes twenty-three u32s positionally, so the record must
+<a href=#765 id=765 data-nosnippet>765</a>    /// be exactly that and nothing else -- no padding, no reordering.
+<a href=#766 id=766 data-nosnippet>766</a>    ///
+<a href=#767 id=767 data-nosnippet>767</a>    /// `size_of` on the TARGET, which is the half `check-boot-report-layout.py`
+<a href=#768 id=768 data-nosnippet>768</a>    /// cannot see: that gate compares two source files, and this compares the
+<a href=#769 id=769 data-nosnippet>769</a>    /// source against what the compiler actually laid out.
+<a href=#770 id=770 data-nosnippet>770</a>    </span><span class="attr">#[test]
+<a href=#771 id=771 data-nosnippet>771</a>    </span><span class="kw">fn </span>the_record_is_twenty_three_packed_u32s() {
+<a href=#772 id=772 data-nosnippet>772</a>        <span class="macro">assert_eq!</span>(BootReport::struct_size(), <span class="number">23 </span>* <span class="number">4</span>);
+<a href=#773 id=773 data-nosnippet>773</a>        <span class="macro">assert_eq!</span>(
+<a href=#774 id=774 data-nosnippet>774</a>            core::mem::size_of::&lt;BootReport&gt;(),
+<a href=#775 id=775 data-nosnippet>775</a>            <span class="number">23 </span>* core::mem::size_of::&lt;u32&gt;(),
+<a href=#776 id=776 data-nosnippet>776</a>            <span class="string">"the record grew padding; the reader decodes positionally"
+<a href=#777 id=777 data-nosnippet>777</a>        </span>);
+<a href=#778 id=778 data-nosnippet>778</a>        <span class="macro">assert_eq!</span>(core::mem::align_of::&lt;BootReport&gt;(), <span class="number">4</span>);
+<a href=#779 id=779 data-nosnippet>779</a>    }
+<a href=#780 id=780 data-nosnippet>780</a>
+<a href=#781 id=781 data-nosnippet>781</a>    <span class="doccomment">/// The magic is written LAST, so finding it means the rest is valid.
+<a href=#782 id=782 data-nosnippet>782</a>    ///
+<a href=#783 id=783 data-nosnippet>783</a>    /// The reader leans on this to tell "the image died before it had an
+<a href=#784 id=784 data-nosnippet>784</a>    /// executor" apart from "the dump is at the wrong address", and it can
+<a href=#785 id=785 data-nosnippet>785</a>    /// only do so if the ordering actually holds.
+<a href=#786 id=786 data-nosnippet>786</a>    </span><span class="attr">#[test]
+<a href=#787 id=787 data-nosnippet>787</a>    </span><span class="kw">fn </span>init_stamps_the_header_and_the_compiled_knobs() {
+<a href=#788 id=788 data-nosnippet>788</a>        init();
+<a href=#789 id=789 data-nosnippet>789</a>        <span class="kw">let </span>s = snapshot();
+<a href=#790 id=790 data-nosnippet>790</a>        <span class="macro">assert_eq!</span>(s.magic, MAGIC);
+<a href=#791 id=791 data-nosnippet>791</a>        <span class="macro">assert_eq!</span>(s.version, VERSION);
+<a href=#792 id=792 data-nosnippet>792</a>        <span class="macro">assert_eq!</span>(s.struct_size, BootReport::struct_size());
+<a href=#793 id=793 data-nosnippet>793</a>        <span class="macro">assert_eq!</span>(s.arena_size, <span class="kw">crate</span>::config::ARENA_SIZE <span class="kw">as </span>u32);
+<a href=#794 id=794 data-nosnippet>794</a>        <span class="macro">assert_eq!</span>(s.max_cbs, <span class="kw">crate</span>::config::MAX_CBS <span class="kw">as </span>u32);
+<a href=#795 id=795 data-nosnippet>795</a>        <span class="macro">assert_eq!</span>(s.max_nodes, <span class="kw">crate</span>::config::MAX_NODES <span class="kw">as </span>u32);
+<a href=#796 id=796 data-nosnippet>796</a>        <span class="macro">assert!</span>(s.stage &gt;= Stage::ReportReady <span class="kw">as </span>u32);
+<a href=#797 id=797 data-nosnippet>797</a>    }
+<a href=#798 id=798 data-nosnippet>798</a>
+<a href=#799 id=799 data-nosnippet>799</a>    <span class="doccomment">/// A late call on a re-entered path must not make the record claim LESS
+<a href=#800 id=800 data-nosnippet>800</a>    /// progress than was actually made. The field's whole purpose is to be
+<a href=#801 id=801 data-nosnippet>801</a>    /// believed about a boot that did not finish.
+<a href=#802 id=802 data-nosnippet>802</a>    </span><span class="attr">#[test]
+<a href=#803 id=803 data-nosnippet>803</a>    </span><span class="kw">fn </span>a_checkpoint_never_goes_backwards() {
+<a href=#804 id=804 data-nosnippet>804</a>        init();
+<a href=#805 id=805 data-nosnippet>805</a>        checkpoint(Stage::FirstSpin);
+<a href=#806 id=806 data-nosnippet>806</a>        <span class="macro">assert_eq!</span>(snapshot().stage, Stage::FirstSpin <span class="kw">as </span>u32);
+<a href=#807 id=807 data-nosnippet>807</a>        checkpoint(Stage::ExecutorReady);
+<a href=#808 id=808 data-nosnippet>808</a>        <span class="macro">assert_eq!</span>(
+<a href=#809 id=809 data-nosnippet>809</a>            snapshot().stage,
+<a href=#810 id=810 data-nosnippet>810</a>            Stage::FirstSpin <span class="kw">as </span>u32,
+<a href=#811 id=811 data-nosnippet>811</a>            <span class="string">"an earlier stage overwrote a later one"
+<a href=#812 id=812 data-nosnippet>812</a>        </span>);
+<a href=#813 id=813 data-nosnippet>813</a>    }
+<a href=#814 id=814 data-nosnippet>814</a>
+<a href=#815 id=815 data-nosnippet>815</a>    <span class="doccomment">/// The FIRST failure is the one that explains the boot; a later one is a
+<a href=#816 id=816 data-nosnippet>816</a>    /// consequence of it and must not overwrite the cause.
+<a href=#817 id=817 data-nosnippet>817</a>    </span><span class="attr">#[test]
+<a href=#818 id=818 data-nosnippet>818</a>    </span><span class="kw">fn </span>the_first_alloc_failure_wins() {
+<a href=#819 id=819 data-nosnippet>819</a>        init();
+<a href=#820 id=820 data-nosnippet>820</a>        note_alloc_failed(<span class="number">100</span>, <span class="number">8</span>);
+<a href=#821 id=821 data-nosnippet>821</a>        note_alloc_failed(<span class="number">999</span>, <span class="number">512</span>);
+<a href=#822 id=822 data-nosnippet>822</a>        <span class="kw">let </span>s = snapshot();
+<a href=#823 id=823 data-nosnippet>823</a>        <span class="macro">assert_eq!</span>(s.failed_alloc_size, <span class="number">100</span>);
+<a href=#824 id=824 data-nosnippet>824</a>        <span class="macro">assert_eq!</span>(s.failed_alloc_shortfall, <span class="number">8</span>);
+<a href=#825 id=825 data-nosnippet>825</a>    }
+<a href=#826 id=826 data-nosnippet>826</a>
+<a href=#827 id=827 data-nosnippet>827</a>    <span class="doccomment">/// A value too large for the field must read as enormous, not as its low
+<a href=#828 id=828 data-nosnippet>828</a>    /// half. A truncated 4 GiB reads as 0, which is the one wrong answer that
+<a href=#829 id=829 data-nosnippet>829</a>    /// looks like a normal one.
+<a href=#830 id=830 data-nosnippet>830</a>    </span><span class="attr">#[test]
+<a href=#831 id=831 data-nosnippet>831</a>    </span><span class="kw">fn </span>an_unrepresentable_size_saturates_rather_than_truncating() {
+<a href=#832 id=832 data-nosnippet>832</a>        init();
+<a href=#833 id=833 data-nosnippet>833</a>        note_arena_capacity(usize::MAX);
+<a href=#834 id=834 data-nosnippet>834</a>        <span class="macro">assert_eq!</span>(snapshot().arena_capacity, u32::MAX);
+<a href=#835 id=835 data-nosnippet>835</a>    }
+<a href=#836 id=836 data-nosnippet>836</a>
+<a href=#837 id=837 data-nosnippet>837</a>    <span class="doccomment">/// The heap PEAK is what sizes the knob, so a later sample taken after the
+<a href=#838 id=838 data-nosnippet>838</a>    /// image freed memory must not lower it. Issue 1424: the figure only has
+<a href=#839 id=839 data-nosnippet>839</a>    /// to be believed about a boot nobody watched.
+<a href=#840 id=840 data-nosnippet>840</a>    ///
+<a href=#841 id=841 data-nosnippet>841</a>    /// Through the C entry point, which is how the only producer in the tree
+<a href=#842 id=842 data-nosnippet>842</a>    /// (`nros-platform-zephyr/src/platform.c`) reaches it -- a test that wrote
+<a href=#843 id=843 data-nosnippet>843</a>    /// through `note_heap` would leave that symbol exercised by nothing.
+<a href=#844 id=844 data-nosnippet>844</a>    </span><span class="attr">#[test]
+<a href=#845 id=845 data-nosnippet>845</a>    </span><span class="kw">fn </span>the_heap_peak_keeps_the_maximum_and_the_capacity_the_last_word() {
+<a href=#846 id=846 data-nosnippet>846</a>        init();
+<a href=#847 id=847 data-nosnippet>847</a>        nros_boot_report_note_heap(<span class="number">4096</span>, <span class="number">94208</span>);
+<a href=#848 id=848 data-nosnippet>848</a>        nros_boot_report_note_heap(<span class="number">18352</span>, <span class="number">94208</span>);
+<a href=#849 id=849 data-nosnippet>849</a>        nros_boot_report_note_heap(<span class="number">1024</span>, <span class="number">94208</span>);
+<a href=#850 id=850 data-nosnippet>850</a>        <span class="kw">let </span>s = snapshot();
+<a href=#851 id=851 data-nosnippet>851</a>        <span class="macro">assert_eq!</span>(s.heap_peak_bytes, <span class="number">18352</span>, <span class="string">"a later sample lowered the peak"</span>);
+<a href=#852 id=852 data-nosnippet>852</a>        <span class="macro">assert_eq!</span>(s.heap_capacity_bytes, <span class="number">94208</span>);
+<a href=#853 id=853 data-nosnippet>853</a>    }
+<a href=#854 id=854 data-nosnippet>854</a>
+<a href=#855 id=855 data-nosnippet>855</a>    <span class="doccomment">/// Issue 1425 -- a sample dropped for being too big for its buffer is
+<a href=#856 id=856 data-nosnippet>856</a>    /// COUNTED, and the count is in the one record a console-less board can be
+<a href=#857 id=857 data-nosnippet>857</a>    /// asked for.
+<a href=#858 id=858 data-nosnippet>858</a>    ///
+<a href=#859 id=859 data-nosnippet>859</a>    /// Through the C entry point, which is the one `nros-cpp`'s take path
+<a href=#860 id=860 data-nosnippet>860</a>    /// reaches, and asserting the RETURNED total as well as the record: the
+<a href=#861 id=861 data-nosnippet>861</a>    /// caller throttles its log on that return, so a writer that stored
+<a href=#862 id=862 data-nosnippet>862</a>    /// correctly and returned garbage would log on the wrong samples while
+<a href=#863 id=863 data-nosnippet>863</a>    /// this test read the field and passed.
+<a href=#864 id=864 data-nosnippet>864</a>    </span><span class="attr">#[test]
+<a href=#865 id=865 data-nosnippet>865</a>    </span><span class="kw">fn </span>a_sample_dropped_for_being_too_small_is_counted_in_the_record() {
+<a href=#866 id=866 data-nosnippet>866</a>        init();
+<a href=#867 id=867 data-nosnippet>867</a>        <span class="kw">let </span>before = snapshot().samples_dropped_too_small;
+<a href=#868 id=868 data-nosnippet>868</a>        <span class="macro">assert_eq!</span>(
+<a href=#869 id=869 data-nosnippet>869</a>            nros_boot_report_note_sample_dropped_too_small(),
+<a href=#870 id=870 data-nosnippet>870</a>            before + <span class="number">1</span>,
+<a href=#871 id=871 data-nosnippet>871</a>            <span class="string">"the writer must return the total AFTER its own drop"
+<a href=#872 id=872 data-nosnippet>872</a>        </span>);
+<a href=#873 id=873 data-nosnippet>873</a>        <span class="macro">assert_eq!</span>(snapshot().samples_dropped_too_small, before + <span class="number">1</span>);
+<a href=#874 id=874 data-nosnippet>874</a>        <span class="macro">assert_eq!</span>(nros_boot_report_note_sample_dropped_too_small(), before + <span class="number">2</span>);
+<a href=#875 id=875 data-nosnippet>875</a>        <span class="macro">assert_eq!</span>(
+<a href=#876 id=876 data-nosnippet>876</a>            snapshot().samples_dropped_too_small,
+<a href=#877 id=877 data-nosnippet>877</a>            before + <span class="number">2</span>,
+<a href=#878 id=878 data-nosnippet>878</a>            <span class="string">"the second drop did not reach the record"
+<a href=#879 id=879 data-nosnippet>879</a>        </span>);
+<a href=#880 id=880 data-nosnippet>880</a>    }
+<a href=#881 id=881 data-nosnippet>881</a>
+<a href=#882 id=882 data-nosnippet>882</a>    <span class="doccomment">/// A tally that WRAPS reads 0 on an image that dropped four billion
+<a href=#883 id=883 data-nosnippet>883</a>    /// samples, and 0 is the one answer here that means nothing is wrong.
+<a href=#884 id=884 data-nosnippet>884</a>    ///
+<a href=#885 id=885 data-nosnippet>885</a>    /// The same rule as [`an_unrepresentable_size_saturates_rather_than_truncating`],
+<a href=#886 id=886 data-nosnippet>886</a>    /// applied to a counter rather than a size. Written through the record
+<a href=#887 id=887 data-nosnippet>887</a>    /// directly because reaching `u32::MAX` by calling the writer is not a test
+<a href=#888 id=888 data-nosnippet>888</a>    /// anyone can run.
+<a href=#889 id=889 data-nosnippet>889</a>    </span><span class="attr">#[test]
+<a href=#890 id=890 data-nosnippet>890</a>    </span><span class="kw">fn </span>the_drop_tally_saturates_rather_than_wrapping_to_zero() {
+<a href=#891 id=891 data-nosnippet>891</a>        init();
+<a href=#892 id=892 data-nosnippet>892</a>        set_samples_dropped_too_small_for_test(u32::MAX);
+<a href=#893 id=893 data-nosnippet>893</a>        <span class="macro">assert_eq!</span>(note_sample_dropped_too_small(), u32::MAX);
+<a href=#894 id=894 data-nosnippet>894</a>        <span class="macro">assert_eq!</span>(
+<a href=#895 id=895 data-nosnippet>895</a>            snapshot().samples_dropped_too_small,
+<a href=#896 id=896 data-nosnippet>896</a>            u32::MAX,
+<a href=#897 id=897 data-nosnippet>897</a>            <span class="string">"the tally wrapped; a dropping image would read as a healthy one"
+<a href=#898 id=898 data-nosnippet>898</a>        </span>);
+<a href=#899 id=899 data-nosnippet>899</a>        <span class="comment">// Leave the record where the other tests in this binary expect it.
+<a href=#900 id=900 data-nosnippet>900</a>        </span>set_samples_dropped_too_small_for_test(<span class="number">0</span>);
+<a href=#901 id=901 data-nosnippet>901</a>    }
+<a href=#902 id=902 data-nosnippet>902</a>}
 </code></pre></div></section></main></body></html>
