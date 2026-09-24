@@ -1,14 +1,4 @@
 var searchData=
 [
-  ['nros_5fcpp_5faccepted_5fcallback_5ft_0',['nros_cpp_accepted_callback_t',['../action__server_8hpp.html#ac0ccf16c3dea0c8266e2dececfe970c8',1,'action_server.hpp']]],
-  ['nros_5fcpp_5faction_5fclient_5ffeedback_5fcallback_5ft_1',['nros_cpp_action_client_feedback_callback_t',['../action__client_8hpp.html#aa3e04e46e7df233a268c69063582bd94',1,'action_client.hpp']]],
-  ['nros_5fcpp_5faction_5fclient_5fgoal_5fresponse_5fcallback_5ft_2',['nros_cpp_action_client_goal_response_callback_t',['../action__client_8hpp.html#a587a78600943f0edad58b5c9020be46c',1,'action_client.hpp']]],
-  ['nros_5fcpp_5faction_5fclient_5fresult_5fcallback_5ft_3',['nros_cpp_action_client_result_callback_t',['../action__client_8hpp.html#abd08fc902a9bcfd1dd6f9cbbcb718909',1,'action_client.hpp']]],
-  ['nros_5fcpp_5fcancel_5fcallback_5ft_4',['nros_cpp_cancel_callback_t',['../action__server_8hpp.html#a34e509a483aa012f1efa77efaa9f00c9',1,'action_server.hpp']]],
-  ['nros_5fcpp_5fgoal_5fcallback_5ft_5',['nros_cpp_goal_callback_t',['../action__server_8hpp.html#a22d8a6c03c62d6d259f9cdc2987532bc',1,'action_server.hpp']]],
-  ['nros_5fcpp_5fret_5ft_6',['nros_cpp_ret_t',['../future_8hpp.html#a45b2b7085c06c18b90bbab273aee11b1',1,'nros_cpp_ret_t:&#160;future.hpp'],['../stream_8hpp.html#a45b2b7085c06c18b90bbab273aee11b1',1,'nros_cpp_ret_t:&#160;stream.hpp']]],
-  ['nros_5fcpp_5fservice_5frequest_5fcallback_5ft_7',['nros_cpp_service_request_callback_t',['../service_8hpp.html#a52f236c6bec9091dad05a46f70b2185a',1,'service.hpp']]],
-  ['nros_5fcpp_5fservice_5fresponse_5fcallback_5ft_8',['nros_cpp_service_response_callback_t',['../client_8hpp.html#abd3e9a5a9109ac2d00a579c39a42c011',1,'client.hpp']]],
-  ['nros_5fcpp_5fsubscription_5fmessage_5fcallback_5ft_9',['nros_cpp_subscription_message_callback_t',['../subscription_8hpp.html#aca09411656ccf70618994c7fdef9de7c',1,'subscription.hpp']]],
-  ['nros_5fcpp_5fsubscription_5fmessage_5finfo_5fcallback_5ft_10',['nros_cpp_subscription_message_info_callback_t',['../subscription_8hpp.html#a8cdcc3df26179817d9ea6dc6d8b61b00',1,'subscription.hpp']]]
+  ['liveliness_0',['Liveliness',['../classnros_1_1QoS.html#a40760af5ba787420b819d10e6fa23719',1,'nros::QoS']]]
 ];
