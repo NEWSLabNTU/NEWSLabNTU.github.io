@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["custom_transport","event","service_inbox","sync","traits","type_descriptor"],"struct":["MessageInfo"]};
+window.SIDEBAR_ITEMS = {"constant":["PUBLISHER_GID_SIZE"],"fn":["pad_publisher_gid"],"mod":["custom_transport","event","service_inbox","sync","traits","type_descriptor"],"struct":["MessageInfo"]};
