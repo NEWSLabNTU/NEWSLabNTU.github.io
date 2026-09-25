@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["PUBLISHER_GID_SIZE"],"struct":["MessageInfo","RawMessageInfo"]};
+window.SIDEBAR_ITEMS = {"constant":["PUBLISHER_GID_SIZE"],"fn":["pad_publisher_gid"],"struct":["MessageInfo","RawMessageInfo"]};
