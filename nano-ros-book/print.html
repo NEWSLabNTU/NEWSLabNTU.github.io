@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-c5838003.js";
+            window.path_to_searchindex_js = "searchindex-48719437.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-529fefcc.js"></script>
@@ -18690,9 +18690,17 @@ last stage — <strong>render</strong> — and how to change or add a target lan
 <tr><td><code>packs/nros/</code></td><td>embedded (<code>no_std</code>) Rust</td></tr>
 <tr><td><code>packs/cpp/</code></td><td>C++ headers + the Rust FFI glue</td></tr>
 <tr><td><code>packs/scaffold/</code></td><td>per-package <code>Cargo.toml</code> / <code>lib.rs</code> / <code>build.rs</code></td></tr>
+<tr><td><code>packs/shared/</code></td><td>partials more than one pack includes (the codegen-version stamp)</td></tr>
 </tbody>
 </table>
 </div>
+<p>Each pack directory carries a <strong><code>pack.toml</code></strong> that declares it: its language, its
+<code>registry_order</code>, its templates as <code>{ key, file }</code> rows, and — for a pack that
+names C-family artifacts — the <code>header_extension</code> / <code>guard_suffix</code> /
+<code>source_extension</code> that <code>generator::naming</code> derives every artifact name from.
+<code>build.rs</code> reads every manifest and generates the template registry and the
+<code>Surface</code> enum, so <strong>a pack directory is a pack because it exists and describes
+itself</strong> (phase-469 W1). Nothing in <code>render.rs</code> names a template.</p>
 <p>A pack is just <code>.jinja</code> templates. The Rust side hands each template a
 <strong><code>serde</code>-serialized view struct</strong> (the render context) and never spells a type
 itself — the type strings are composed <strong>in the pack</strong> by registered filters:</p>
@@ -18719,8 +18727,9 @@ nros generate-rust …          # uses the override, no recompile
 </code></pre>
 <p>(Equivalently, <code>rosidl_codegen::render::set_template_dir(dir)</code> from Rust, called
 once before the first render.)</p>
-<p>The stable template names are the keys of <code>PACKS</code> in <code>render.rs</code> (e.g.
-<code>message.h</code>, <code>message_nros.rs</code>, <code>cargo.toml</code>, <code>_field.jinja</code>). <code>tests/ external_pack_smoke.rs</code> proves the override + fallback.</p>
+<p>The stable template names are the <code>templates</code> keys in each <code>packs/&lt;dir&gt;/pack.toml</code>
+(e.g. <code>message.h</code>, <code>message_nros.rs</code>, <code>cargo.toml</code>, <code>_field.jinja</code>); <code>nros</code>’s own
+copy of the generated registry is at <code>target/**/build/rosidl-codegen-*/out/ pack_registry.rs</code>. <code>tests/external_pack_smoke.rs</code> proves the override + fallback.</p>
 <blockquote>
 <p><strong>Do not set <code>NROS_TEMPLATE_DIR</code> during fixture or CI builds.</strong> The fingerprint
 hashes the <em>bundled</em> packs; an external override would silently produce output
@@ -18745,7 +18754,12 @@ or C++ entry needs the idiomatic and FFI message surfaces and the component
 seam, and nothing else.</p>
 <h3 id="step-1--the-message-pack"><a class="header" href="#step-1--the-message-pack">Step 1 — the message pack</a></h3>
 <ol>
-<li>add its <code>.jinja</code> templates (a new <code>packs/&lt;lang&gt;/</code>) and its rows in <code>PACKS</code>;</li>
+<li>add its <code>.jinja</code> templates (a new <code>packs/&lt;lang&gt;/</code>) <strong>and a <code>pack.toml</code>
+declaring them</strong>. No Rust edit: the registry is discovered from the manifest,
+and a pack directory with no manifest — or a <code>.jinja</code> no manifest claims —
+fails the build naming the file. If the pack names C-family artifacts, its
+three naming fields make it a <code>generator::naming</code> surface and the <code>Surface</code>
+variant is generated for it;</li>
 <li>if it needs type spelling the existing filters don’t cover, add a <strong>filter
 set</strong> for the language (<code>rosidl_codegen::filters::FILTER_SETS</code>) wrapping a
 <code>*_spelling</code> function in <code>types.rs</code>. The filter set is all the Rust that
@@ -18784,18 +18798,24 @@ variant still needs.</li>
 its own harness <code>Lang</code> and one emit arm per language), run
 <code>NROS_UPDATE_GOLDEN=1 cargo test -p nros-cli-core --lib codegen::entry::golden</code>,
 and <strong>read the diff</strong>. The generated source is a file, not a claim.</p>
-<p><code>just check entry-pack-conformance</code> refuses a half-wired pack: a directory with
-no manifest, a language pack missing the fields CMake needs, a <code>Language</code>
-variant nothing renders, or a language whose bytes are recorded in no golden.
-Run it before you believe the pack works.</p>
+<p><code>just check entry-pack-conformance</code> refuses a half-wired pack in EITHER family —
+entry and message; the name is historical (see the recipe comment). A directory
+with no manifest, a language pack missing the fields its consumer needs, a
+registry key or <code>registry_order</code> claimed twice, a template file that does not
+exist, a <code>.jinja</code> no manifest claims, a <code>Language</code> variant nothing renders, or a
+language whose bytes are recorded in no golden. Run it before you believe the pack
+works.</p>
 <h3 id="what-this-does-not-make-cheap"><a class="header" href="#what-this-does-not-make-cheap">What this does NOT make cheap</a></h3>
 <p>The <strong>toolchain story</strong> — how CMake compiles the language, how it links
 <code>libnros</code>, how its components declare themselves. The codegen cost becomes a
 pack; the build-integration cost does not. Budget for it separately.</p>
 <p>No per-language TYPE SPELLING lives in the message builders — the packs and
-their filters own it. The builders still hold per-language Rust (file and guard
-names, the context each surface needs), and an entry language brings its own
-emitter. Implemented by phase-335 (RFC-0068) and phase-432 (RFC-0091).</p>
+their filters own it, and since phase-469 W1 so do the artifact-naming suffixes
+(file and guard names). The builders still hold the per-language Rust that is a
+RULE rather than a parameter — which generator builds which context, and the ROS
+kind word, which is identical on every surface — and an entry language brings its
+own emitter. Implemented by phase-335 (RFC-0068), phase-432 (RFC-0091) and
+phase-469.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="canonical-platform-c-abi"><a class="header" href="#canonical-platform-c-abi">Canonical Platform C ABI</a></h1>
 <p>nano-ros separates the platform layer (clock, sleep, allocator,
