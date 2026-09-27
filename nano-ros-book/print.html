@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-1c47d2a0.js";
+            window.path_to_searchindex_js = "searchindex-c5838003.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-529fefcc.js"></script>
@@ -3978,12 +3978,18 @@ generated entry would carry that name (RFC-0098 D5, phase-445 W5). So the
 application reads its deployment — board, RMW, locator, domain — off the image
 that claims it, and a <code>[package.metadata.nros.entry] deploy</code> left in a
 <code>Cargo.toml</code> is now an error naming the file to write instead.</p>
-<p>Two images claiming one entry is refused rather than resolved by first match:
-<code>examples/workspaces/realtime-cpp</code> has <code>zephyr_entry</code> and <code>fvp_entry</code>, both
-<code>DEPLOY zephyr</code>, both on the same board, for two images that differ in payload
-— which image’s locator the entry bakes is not a coin toss, so <code>nros build</code>
-names the candidates instead of picking one. Everywhere else, leave <code>entry</code>
-out and let the name match.</p>
+<p>Two images claiming one entry is refused rather than resolved by first match —
+which image’s locator the entry bakes is not a coin toss, so <code>nros build</code> names
+the candidates instead of picking one. That arm is reachable for C/C++ entries,
+which are matched by their <code>DEPLOY</code> token; a Rust entry names its image in its
+own <code>system.toml</code>, so it is never a candidate for a sibling image.</p>
+<p>The other reason to set <code>entry</code> is that NO package claims the board — then
+<code>nros build</code> falls back to the Bringup directory and you see a conf fragment
+“not found” in a path that is not your application’s.
+<code>examples/workspaces/realtime-cpp</code>’s <code>[image.fvp]</code> is that case: <code>fvp_entry</code>
+takes its board from <code>nano_ros_use_board(...)</code> in its own <code>CMakeLists.txt</code>,
+which the <code>DEPLOY</code> scan does not read (issue 1517). Everywhere else, leave
+<code>entry</code> out and let the name match.</p>
 <p>The full Zephyr path — west workspaces, freestanding applications, <code>west nros</code>,
 sysbuild — is <a href="#zephyr-west-module">Zephyr (west module)</a>.</p>
 <h2 id="if-you-already-have-entry-packages"><a class="header" href="#if-you-already-have-entry-packages">If you already have entry packages</a></h2>
@@ -4900,12 +4906,17 @@ Every other platform builds through cargo or cmake, where the entry is
 GENERATED from the image and needs no package of its own (RFC-0065 D3).
 </code></pre>
 <p>One Zephyr entry covers every Zephyr board — Zephyr owns its board
-abstraction, so the board comes from the image’s <code>board</code> key (which becomes
-<code>west build -b</code>). Set the image’s <code>entry</code> key only when <em>several</em> packages
-claim one board: <code>examples/workspaces/realtime-cpp</code> has <code>zephyr_entry</code> and
-<code>fvp_entry</code>, both <code>DEPLOY zephyr</code>, on the same board, for two images that
-differ in payload. Deriving there is a coin flip, so <code>nros build</code> refuses and
-names the candidates.</p>
+abstraction, so the board comes from the image’s <code>board</code> key — a nano-ros board
+id, which the descriptor it resolves to turns into the string <code>west build -b</code>
+receives.</p>
+<p>Set the image’s <code>entry</code> key when the derivation cannot answer. Either
+<em>several</em> packages claim one board (a coin flip, so <code>nros build</code> refuses and
+names the candidates; reachable for C/C++ entries, matched by their <code>DEPLOY</code>
+token) or <em>none</em> does, which falls back to the Bringup directory and surfaces
+as a conf fragment “not found” in the wrong path.
+<code>examples/workspaces/realtime-cpp</code>’s <code>[image.fvp]</code> is the second case:
+<code>fvp_entry</code> takes its board from <code>nano_ros_use_board(...)</code> in its own
+<code>CMakeLists.txt</code>, which the <code>DEPLOY</code> scan does not read (issue 1517).</p>
 <p><strong>Migrating off a hand-written entry is a deletion.</strong> <code>nros build</code> keeps
 <code>src/&lt;image_id&gt;_entry/</code> when it carries a <code>Cargo.toml</code> or <code>CMakeLists.txt</code>;
 remove the directory and the next build generates its replacement. Move the
@@ -5733,11 +5744,20 @@ See below.</li>
 <li><strong><code>entry</code></strong> names the application package. Normally leave it out: an entry
 declares the deploy target it serves — its own <code>system.toml</code> in Rust,
 <code>nano_ros_add_executable(... DEPLOY zephyr)</code> in <code>CMakeLists.txt</code> — and one
-package usually claims a given board. Set it when
-several do (<code>realtime-cpp</code> has <code>zephyr_entry</code> and <code>fvp_entry</code>, both
-<code>DEPLOY zephyr</code>, on the same board, for two images that differ in payload).
-Deriving there is a coin flip, so <code>nros build</code> refuses and lists the
-candidates rather than picking one.</li>
+package usually claims a given board. Set it when the derivation cannot
+answer, which happens two ways and says which:
+<ul>
+<li><strong>several packages claim the board</strong> — deriving would be a coin flip, so
+<code>nros build</code> lists the candidates rather than picking one. Reachable for
+C/C++ entries, which are matched by their <code>DEPLOY</code> token;</li>
+<li><strong>none does</strong> — <code>nros build</code> falls back to the Bringup directory, and you
+see a conf fragment “not found” in a path that is not your application’s.
+<code>examples/workspaces/realtime-cpp</code>’s <code>[image.fvp]</code> is this one: its
+<code>fvp_entry</code> takes its board from <code>nano_ros_use_board(fvp-aemv8r-smp)</code>
+inside its own <code>CMakeLists.txt</code>, which the <code>DEPLOY</code> scan does not read
+(issue 1517).</li>
+</ul>
+</li>
 </ul>
 <h4 id="if-you-live-in-west-west-nros"><a class="header" href="#if-you-live-in-west-west-nros">If you live in west: <code>west nros</code></a></h4>
 <p>Everything above assumes you stand in your nano-ros workspace and name the
@@ -26777,7 +26797,7 @@ moves with it.</p>
 </thead>
 <tbody>
 <tr><td><code>LARGE_PAYLOADS</code></td><td style="text-align: right">— (unknown knob <code>ZPICO_MAX_LARGE_SUBSCRIBERS</code>)</td><td><code>ZPICO_MAX_LARGE_SUBSCRIBERS * ZPICO_SUBSCRIBER_RING_DEPTH * ZPICO_SUBSCRIBER_LARGE_SIZE</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh/src/shim/subscriber.rs:200</code></td></tr>
-<tr><td><code>SLOTS</code></td><td style="text-align: right">8,192</td><td><code>NROS_RMW_SUBSCRIBER_SLOTS * 1024</code></td><td><code>packages/rmw/cffi/src/rust_adapter.rs:111</code></td></tr>
+<tr><td><code>SLOTS</code></td><td style="text-align: right">8,192</td><td><code>NROS_RMW_SUBSCRIBER_SLOTS * NROS_RMW_SUBSCRIBER_SLOT_BYTES</code></td><td><code>packages/rmw/cffi/src/rust_adapter.rs:127</code></td></tr>
 <tr><td><code>SMALL_PAYLOADS</code></td><td style="text-align: right">— (knob <code>ZPICO_MAX_SUBSCRIBERS</code> has a computed default)</td><td><code>ZPICO_MAX_SUBSCRIBERS * ZPICO_SUBSCRIBER_RING_DEPTH * NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh/src/shim/subscriber.rs:199</code></td></tr>
 </tbody>
 </table>
@@ -26792,25 +26812,25 @@ its byte cost yet. Absence of a figure is not a claim that it is free.</p>
 </thead>
 <tbody>
 <tr><td><code>NROS_ACTION_INBOX_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:133</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
-<tr><td><code>NROS_EXECUTOR_ACTION_CLIENTS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:721</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>NROS_EXECUTOR_ACTION_CLIENTS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:722</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>NROS_EXECUTOR_ARENA_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:997</code></td><td><code>packages/core/nros-node</code></td></tr>
-<tr><td><code>NROS_EXECUTOR_BACKING_U64S</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:725</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_EXECUTOR_MAX_CBS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:717</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>NROS_EXECUTOR_BACKING_U64S</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:726</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>NROS_EXECUTOR_MAX_CBS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:718</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>NROS_EXECUTOR_MAX_NODES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:276</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
-<tr><td><code>NROS_EXECUTOR_MAX_SC</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:718</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>NROS_EXECUTOR_MAX_SC</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:719</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>NROS_EXECUTOR_MAX_SHUTDOWN_CBS</code></td><td style="text-align: right">2</td><td><code>packages/core/nros-node</code></td></tr>
-<tr><td><code>NROS_FREERTOS_APP_STACK_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1136</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_FREERTOS_HEAP_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1135</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>NROS_FREERTOS_APP_STACK_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1153</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>NROS_FREERTOS_HEAP_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1152</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>NROS_GRAPH_MAX_ENTITIES</code></td><td style="text-align: right">0</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
-<tr><td><code>NROS_KEYEXPR_STRING_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1304</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>NROS_KEYEXPR_STRING_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1321</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>NROS_LET_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-build-helpers/src/c.rs:119</code></td><td><code>packages/tooling/nros-build-helpers</code></td></tr>
-<tr><td><code>NROS_MAX_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:976</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_MAX_BYTE_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:977</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>NROS_MAX_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:993</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>NROS_MAX_BYTE_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:994</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>NROS_MAX_PARAMETERS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:56</code></td><td><code>packages/core/nros-params</code></td></tr>
 <tr><td><code>NROS_MAX_PARAM_CONSTRAINTS_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:149</code></td><td><code>packages/core/nros-params</code></td></tr>
 <tr><td><code>NROS_MAX_PARAM_DESCRIPTION_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:123</code></td><td><code>packages/core/nros-params</code></td></tr>
 <tr><td><code>NROS_MAX_PARAM_NAME_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:65</code></td><td><code>packages/core/nros-params</code></td></tr>
-<tr><td><code>NROS_MAX_STRING_VALUE_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:975</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>NROS_MAX_STRING_VALUE_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:992</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>NROS_MULTIGOAL_GOALS</code></td><td style="text-align: right">computed — see <code>packages/testing/nros-tests/bins/action-client-multigoal/src/main.rs:133</code></td><td><code>packages/testing/nros-tests/bins/action-client-multigoal</code></td></tr>
 <tr><td><code>NROS_MULTIGOAL_SOAK_MS</code></td><td style="text-align: right">0</td><td><code>packages/testing/nros-tests/bins/action-client-multigoal</code></td></tr>
 <tr><td><code>NROS_PARAM_SERVICE_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:569</code></td><td><code>packages/core/nros-node</code></td></tr>
@@ -26821,6 +26841,7 @@ its byte cost yet. Absence of a figure is not a claim that it is free.</p>
 <tr><td><code>NROS_RMW_MAX_NODES</code></td><td style="text-align: right">4</td><td><code>packages/rmw/cffi</code></td></tr>
 <tr><td><code>NROS_RMW_MESSAGE_INFO_SLOTS</code></td><td style="text-align: right">64</td><td><code>packages/rmw/cffi</code></td></tr>
 <tr><td><code>NROS_RMW_SUBSCRIBER_SLOTS</code></td><td style="text-align: right">8</td><td><code>packages/rmw/cffi</code></td></tr>
+<tr><td><code>NROS_RMW_SUBSCRIBER_SLOT_BYTES</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/cffi</code></td></tr>
 <tr><td><code>NROS_RUNTIME_COMPONENT_SLOT_BYTES</code></td><td style="text-align: right">computed — see <code>packages/api/nros/build.rs:61</code></td><td><code>packages/api/nros</code></td></tr>
 <tr><td><code>NROS_RUNTIME_MAX_CELL_ENTITIES</code></td><td style="text-align: right">computed — see <code>packages/api/nros/build.rs:101</code></td><td><code>packages/api/nros</code></td></tr>
 <tr><td><code>NROS_RUNTIME_MAX_CLASS_INSTANCES</code></td><td style="text-align: right">computed — see <code>packages/api/nros/build.rs:72</code></td><td><code>packages/api/nros</code></td></tr>
@@ -26833,7 +26854,7 @@ its byte cost yet. Absence of a figure is not a claim that it is free.</p>
 <tr><td><code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:52</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td></tr>
 <tr><td><code>NROS_SMOLTCP_SOCKET_TIMEOUT_MS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:67</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td></tr>
 <tr><td><code>NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:807</code></td><td><code>packages/core/nros-node</code></td></tr>
-<tr><td><code>NROS_SUBSCRIPTION_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:723</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>NROS_SUBSCRIPTION_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:724</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>NROS_XRCE_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/xrce</code></td></tr>
 <tr><td><code>NROS_XRCE_CUSTOM_TRANSPORT_MTU</code></td><td style="text-align: right">4096</td><td><code>packages/rmw/xrce</code></td></tr>
 <tr><td><code>NROS_XRCE_MAX_SERVICE_CLIENTS</code></td><td style="text-align: right">4</td><td><code>packages/rmw/xrce</code></td></tr>
@@ -26846,11 +26867,11 @@ its byte cost yet. Absence of a figure is not a claim that it is free.</p>
 <tr><td><code>NROS_XRCE_SUBSCRIBER_RING_DEPTH</code></td><td style="text-align: right">32</td><td><code>packages/rmw/xrce</code></td></tr>
 <tr><td><code>NROS_XRCE_TRANSPORT_MTU</code></td><td style="text-align: right">4096</td><td><code>packages/rmw/xrce</code></td></tr>
 <tr><td><code>NROS_ZEPHYR_HEAP_SIZE</code></td><td style="text-align: right">computed — see <code>packages/platform/nros-platform/build.rs:66</code></td><td><code>packages/platform/nros-platform</code></td></tr>
-<tr><td><code>ZPICO_BATCH_MULTICAST_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1324</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>ZPICO_BATCH_UNICAST_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1323</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>ZPICO_FRAG_MAX_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1325</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>ZPICO_GET_POLL_INTERVAL_MS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1327</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>ZPICO_GET_REPLY_BUF_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1326</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>ZPICO_BATCH_MULTICAST_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1341</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>ZPICO_BATCH_UNICAST_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1340</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>ZPICO_FRAG_MAX_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1342</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>ZPICO_GET_POLL_INTERVAL_MS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1344</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
+<tr><td><code>ZPICO_GET_REPLY_BUF_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1343</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
 <tr><td><code>ZPICO_GRAPH_CACHE_SIZE</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1203</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
 <tr><td><code>ZPICO_LEASE_TASK_PRIORITY</code></td><td style="text-align: right">16</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
 <tr><td><code>ZPICO_MAX_LIVELINESS</code></td><td style="text-align: right">16</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
