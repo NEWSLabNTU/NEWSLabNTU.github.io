@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d54b5e99.js";
+            window.path_to_searchindex_js = "../searchindex-d0f9bdb9.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-529fefcc.js"></script>
@@ -400,10 +400,60 @@ filter.</p>
 legacy <code>NROS_INFO</code> / etc. file:line printf surface stays
 alongside the new <code>NROS_LOG_*</code> macros).</li>
 </ul>
-<p><code>/rosout</code> publication is explicitly out of scope today; the
-dispatcher’s <code>&amp;'static [&amp;dyn LogSink]</code> shape leaves room for an
-add-later <code>RosoutSink</code> that consumes records alongside
-<code>PlatformSink</code>.</p>
+<h2 id="rosout"><a class="header" href="#rosout"><code>/rosout</code></a></h2>
+<p><strong>It exists now</strong> (phase-467 Q4; this section read “explicitly out of scope
+today” until 2026-09-29). Records can be republished as
+<code>rcl_interfaces/msg/Log</code> on <code>/rosout</code>, so <code>ros2 topic echo /rosout</code>,
+<code>rqt_console</code> and launch-side log aggregators see a nano-ros node.</p>
+<p>Turn on the <code>rosout</code> feature and wire three lines:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use nros_rcl_interfaces::msg::Log;
+
+let rosout = executor
+    .create_node("my_node")?
+    .create_publisher_with_qos::&lt;Log&gt;(nros::rosout::TOPIC, nros::rosout::qos_bounded())?;
+nros::rosout::enable();                  // records start queueing
+loop {
+    executor.spin_once(budget);
+    let _ = nros::rosout::pump(&amp;rosout); // and reach the wire here
+}
+<span class="boring">}</span></code></pre>
+<p>Four things to know before you rely on it.</p>
+<p><strong>It is not automatic.</strong> Upstream republishes from every rcl node with no user
+action. Here you create the publisher yourself, because a publisher is an
+ENTITY: it reaches the derived pool counts, the zenoh session’s tables and the
+sizing descriptor. An entity the runtime conjured below your declaration is how
+a queryable table fills up at boot with nothing in your launch file to explain
+it.</p>
+<p><strong>The default QoS is not upstream’s.</strong> <code>nros::rosout::qos()</code> IS
+<code>rcl_qos_profile_rosout_default</code> — KEEP_LAST(1000), RELIABLE, TRANSIENT_LOCAL,
+10 s lifespan — and on an embedded target it is expensive: a transient-local
+publisher takes a retention slot AND a cache queryable out of a
+<code>ZPICO_MAX_QUERYABLES</code> that defaults to 8 and already has eleven claimants if
+you run parameter and lifecycle services, and KEEP_LAST(1000) over a ~1 KB
+message is a megabyte of history. <code>qos_bounded()</code> is VOLATILE at the queue
+depth and costs neither. What you give up is that a subscriber which attaches
+LATE sees no boot story. A stock <code>ros2 topic echo</code> still matches — it requests
+VOLATILE and downgrades across a mixed publisher set.</p>
+<p><strong>The stamp is the platform monotonic clock</strong>, not wall time, because an RTOS
+image has none to offer: <code>rqt_console</code> will display an uptime as a time of day.
+Without <code>nros-log/platform-clock</code> it is a constant zero.</p>
+<p><strong>It costs <code>.bss</code>.</strong> 5 760 bytes on the defaults (16 queued records x 360 B),
+down to 1 856 B with <code>rosout-records-8</code> + <code>buffer-size-128</code> and up to 72 192 B
+with <code>rosout-records-64</code> + <code>buffer-size-1024</code>. An image that does not enable
+the feature pays nothing — the module is compiled out whole.</p>
+<h3 id="the-sink-does-not-publish-and-that-is-the-point"><a class="header" href="#the-sink-does-not-publish-and-that-is-the-point">The sink does not publish, and that is the point</a></h3>
+<p><code>nros_log</code>’s <code>/rosout</code> sink copies each record into a bounded static ring and
+returns. It never enters the transport. A logging sink that publishes, on a
+path that can itself log, is unbounded recursion — and on Zephyr native_sim
+that shape kills the image by stack exhaustion with no message at all. The
+publish happens in <code>pump()</code>, on your spin thread, with a flag set that makes
+the queue refuse anything logged underneath it; those refusals are counted
+(<code>nros::rosout::suppressed()</code>) alongside the ones lost to a full ring
+(<code>nros::rosout::dropped()</code>), and <code>pump</code> reports both on <code>/rosout</code> itself so an
+operator learns about a gap on the channel the gap is in.</p>
+<p>C and C++ reach none of this yet — see issue 1589.</p>
 
                     </main>
 
