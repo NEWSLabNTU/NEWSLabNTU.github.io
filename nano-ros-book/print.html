@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-06688dbe.js";
+            window.path_to_searchindex_js = "searchindex-9b4e2a7c.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-529fefcc.js"></script>
@@ -19104,34 +19104,73 @@ and sync are the least likely to move (deepest struct coupling).</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="measuring-static-memory"><a class="header" href="#measuring-static-memory">Measuring Static Memory</a></h1>
 <p>The <a href="#static-pool-inventory">Static Pool Inventory</a> tells you
-which knobs exist and what they cost at their defaults. It cannot tell you what
-<em>your</em> image costs — your knobs differ, your backend differs, and several pools
-are sized by a <code>sizeof</code> that no comment can see.</p>
+which knobs exist and what each one costs: a byte figure at its default where
+the pool is a plain product of knobs, and otherwise <em>where</em> its bytes go — a
+named static, the executor’s storage, a heap — and why no figure can be stated
+without building. It cannot tell you what <em>your</em> image costs — your knobs
+differ, your backend differs, and several pools are sized by a <code>sizeof</code> that no
+comment can see.</p>
 <p>For that, measure the image you built:</p>
 <pre><code class="language-sh">just mem-report path/to/your/binary
 </code></pre>
-<p>You get RAM broken down three ways — by symbol, by crate, and by declared pool —
-plus the section totals, so you can see how much is <em>not</em> attributable to any
+<p>You get RAM broken down by symbol, by owner, by storage role and by pool, plus
+the section totals, so you can see how much is <em>not</em> attributable to any
 symbol:</p>
-<pre><code>RAM (.bss + .data), by section:  357,154 bytes
-RAM attributed to symbols:       342,962 bytes
-unattributed (padding, linker reservations, symbol-less data): 14,192 bytes (4.0%)
+<pre><code>RAM (writable allocated sections): 518,234 bytes
+RAM attributed to symbols:         489,771 bytes
+unattributed (padding, linker reservations, symbol-less data): 28,463 bytes (5.5%)
 </code></pre>
 <p>That last line matters. Alignment padding and linker-script reservations are
 real RAM that no symbol names, so a budget built only from a list of pools will
-come up short.</p>
+come up short. “Writable allocated sections” means every section the linker
+marks allocated <em>and</em> writable, whatever it is called — on Zephyr that includes
+the per-file <code>.noinit.*</code> sections holding thread stacks and the kernel heap.</p>
+<h2 id="who-owns-the-bytes"><a class="header" href="#who-owns-the-bytes">Who owns the bytes</a></h2>
+<p>The <code>RAM by owner</code> table puts every byte under the owner you would name:</p>
+<pre><code>       177,112   34.2%  [executor storage]
+       206,358   39.8%  nros_rmw_zenoh
+        88,280   17.0%  (C / asm / no path)
+         8,064    1.6%  [component storage]
+</code></pre>
+<ul>
+<li><code>[executor storage]</code> — the executor’s backing, whichever language placed it:
+the C/C++ entry’s <code>__nros_executor_storage</code> / <code>__nros_tier_executor_storage</code>,
+the C++ boot storage <code>Node::GlobalStorageHolder&lt;0&gt;::storage</code>, and the Rust
+<code>EXECUTOR_BACKING</code> / <code>__NROS_TIER_EXECUTOR_BACKING</code>. In a tiered image this
+is usually the largest single owner.</li>
+<li><code>[component storage]</code> — the generated per-component storage
+(<code>__nros_comp_buf_N</code> for C++, <code>__NROS_COMPONENT_&lt;pkg&gt;_SLOT_STORE</code> for Rust).</li>
+<li>A Rust crate name, <code>C++ &lt;namespace&gt;</code>, or <code>(C / asm / no path)</code> otherwise. The
+language comes from the symbol’s mangling, so a C++ namespace that happens to
+share a Rust crate’s name is never filed under that crate.</li>
+</ul>
+<p>For the C and C++ executor storage, the report also reads the build’s own sizes
+header and tells you how many executors’ worth the image reserved:</p>
+<pre><code>        95,904  executor storage   __nros_tier_executor_storage
+                                   = 4 x 23,976 (NROS_CPP_EXECUTOR_STORAGE_SIZE = 23,976)
+</code></pre>
+<p>The header is found beside the image (the build’s <code>nros-cpp-generated/</code> mirror);
+pass <code>--sizes-header &lt;path&gt;</code> if your build keeps it elsewhere. If the header is
+newer than the image, or two headers disagree, the report says so instead of
+pricing.</p>
 <h2 id="finding-what-to-cut"><a class="header" href="#finding-what-to-cut">Finding what to cut</a></h2>
 <p>The per-symbol list is sorted, so the first few lines are usually the whole
 story:</p>
 <pre><code>## top 5 RAM symbols
 
-       144,128   40.4%  nros_rmw_zenoh::shim::service::SERVICE_BUFFERS
-       131,072   36.7%  nros_rmw_zenoh::shim::subscriber::LARGE_PAYLOADS
-        32,768    9.2%  nros_rmw_zenoh::shim::subscriber::SMALL_PAYLOADS
+       131,072   25.3%  nros_rmw_zenoh::shim::subscriber::LARGE_PAYLOADS
+        88,560   17.1%  native_entry::__nros_entry_run::__NROS_TIER_EXECUTOR_BACKING
+        88,552   17.1%  nros_node::executor::backing::EXECUTOR_BACKING
+        87,072   16.8%  g_sessions
+        33,536    6.5%  nros_rmw_zenoh::shim::service::USER_SERVICE_INBOX
 </code></pre>
-<p>Cross-reference each name against the <a href="#static-pool-inventory">pool
-inventory</a> to find the knob that moves
-it. Most of the large ones are pools with a knob you can set at build time.</p>
+<p>The last two sections of the report join these symbols to their knobs for you:
+<code>declared pools</code> lists the pools that carry a formula (and whether the image
+agrees with it), and <code>knob-sized pools</code> lists every other static the inventory
+knows a knob for, with its exact measured size:</p>
+<pre><code>        87,072  g_sessions
+                pool sized by ZPICO_MAX_SESSIONS, ZPICO_MAX_PUBLISHERS, ...
+</code></pre>
 <p>Be aware that today these pools are sized by which backend you link, <strong>not</strong> by
 what your node actually does: a publisher-only node still reserves the service
 and large-payload pools in full. If your image looks far larger than the entities
@@ -19145,9 +19184,18 @@ Turning the corresponding knobs down is the current remedy.</p>
 # ... tune a knob, rebuild ...
 just mem-report my-binary --baseline before.json
 </code></pre>
-<p>Symbols that moved are annotated with their delta. This is also how a change to
-nano-ros itself should report a memory saving: as a measured difference between
-two named images, not as an estimate.</p>
+<p>Every symbol row then carries an annotation: <code>(+12,288)</code> for a change, <code>(=)</code> for
+a symbol that matched and did not move, <code>(new)</code> for one the baseline does not
+have. A <code>baseline join</code> section lists what matched, what is new and what is
+gone, and the owner table shows each owner’s delta — so a pool that disappears
+entirely is reported, not silently absent.</p>
+<p>Symbols are matched across builds by name with the compiler’s per-build
+decorations removed (<code>.llvm.&lt;hash&gt;</code>, <code>.0</code>, <code>.constprop.0</code>, Rust crate hashes),
+so a static the linker renamed between two builds still compares. A baseline
+written by an older version of the tool lists only its top symbols; the report
+marks it incomplete and will not call a symbol “new” on its evidence.</p>
+<p>This is also how a change to nano-ros itself should report a memory saving: as
+a measured difference between two named images, not as an estimate.</p>
 <h2 id="cross-compiled-images"><a class="header" href="#cross-compiled-images">Cross-compiled images</a></h2>
 <p>The tool prefers <code>llvm-nm</code>, which reads ELF files for any target; your host’s
 GNU <code>nm</code> is built for one target family and refuses a cross-built image with
@@ -19158,6 +19206,8 @@ than on your <code>PATH</code>, and the tool looks there. If it reports that it 
 usable <code>nm</code>, run:</p>
 <pre><code class="language-sh">rustup component add llvm-tools
 </code></pre>
+<p><code>llvm-cxxfilt</code> (from a system LLVM) is used when present to demangle; without
+it the tool falls back to <code>nm -C</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="rmw-backends--host-language-policy"><a class="header" href="#rmw-backends--host-language-policy">RMW Backends — Host-Language Policy</a></h1>
 <p>This page documents which language each RMW backend is implemented in,
@@ -26909,103 +26959,153 @@ moves with it.</p>
 <tr><th>pool</th><th style="text-align: right">bytes at default</th><th>formula</th><th>declared in</th></tr>
 </thead>
 <tbody>
-<tr><td><code>LARGE_PAYLOADS</code></td><td style="text-align: right">— (unknown knob <code>ZPICO_MAX_LARGE_SUBSCRIBERS</code>)</td><td><code>ZPICO_MAX_LARGE_SUBSCRIBERS * ZPICO_SUBSCRIBER_RING_DEPTH * ZPICO_SUBSCRIBER_LARGE_SIZE</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh/src/shim/subscriber.rs:200</code></td></tr>
-<tr><td><code>SLOTS</code></td><td style="text-align: right">8,192</td><td><code>NROS_RMW_SUBSCRIBER_SLOTS * NROS_RMW_SUBSCRIBER_SLOT_BYTES</code></td><td><code>packages/rmw/cffi/src/rust_adapter.rs:127</code></td></tr>
+<tr><td><code>LARGE_PAYLOADS</code></td><td style="text-align: right">131,072 (builtin — an image that declares its entities derives its own)</td><td><code>ZPICO_MAX_LARGE_SUBSCRIBERS * ZPICO_SUBSCRIBER_RING_DEPTH * ZPICO_SUBSCRIBER_LARGE_SIZE</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh/src/shim/subscriber.rs:200</code></td></tr>
+<tr><td><code>SLOTS</code></td><td style="text-align: right">8,192 (builtin — an image that declares its entities derives its own)</td><td><code>NROS_RMW_SUBSCRIBER_SLOTS * NROS_RMW_SUBSCRIBER_SLOT_BYTES</code></td><td><code>packages/rmw/cffi/src/rust_adapter.rs:127</code></td></tr>
 <tr><td><code>SMALL_PAYLOADS</code></td><td style="text-align: right">— (knob <code>ZPICO_MAX_SUBSCRIBERS</code> has a computed default)</td><td><code>ZPICO_MAX_SUBSCRIBERS * ZPICO_SUBSCRIBER_RING_DEPTH * NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh/src/shim/subscriber.rs:199</code></td></tr>
+<tr><td><code>SOCKET_RX_BUFFERS</code></td><td style="text-align: right">— (knob <code>NROS_SMOLTCP_MAX_SOCKETS</code> has a computed default)</td><td><code>NROS_SMOLTCP_MAX_SOCKETS * NROS_SMOLTCP_BUFFER_SIZE</code></td><td><code>packages/drivers/net/nros-smoltcp/src/bridge.rs:260</code></td></tr>
+<tr><td><code>SOCKET_TX_BUFFERS</code></td><td style="text-align: right">— (knob <code>NROS_SMOLTCP_MAX_SOCKETS</code> has a computed default)</td><td><code>NROS_SMOLTCP_MAX_SOCKETS * NROS_SMOLTCP_BUFFER_SIZE</code></td><td><code>packages/drivers/net/nros-smoltcp/src/bridge.rs:261</code></td></tr>
+<tr><td><code>UDP_SOCKET_RX_BUFFERS</code></td><td style="text-align: right">— (knob <code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code> has a computed default)</td><td><code>NROS_SMOLTCP_MAX_UDP_SOCKETS * NROS_SMOLTCP_BUFFER_SIZE</code></td><td><code>packages/drivers/net/nros-smoltcp/src/bridge.rs:317</code></td></tr>
+<tr><td><code>UDP_SOCKET_TX_BUFFERS</code></td><td style="text-align: right">— (knob <code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code> has a computed default)</td><td><code>NROS_SMOLTCP_MAX_UDP_SOCKETS * NROS_SMOLTCP_BUFFER_SIZE</code></td><td><code>packages/drivers/net/nros-smoltcp/src/bridge.rs:318</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="pools-sized-by-a-knob-measured-per-image"><a class="header" href="#pools-sized-by-a-knob-measured-per-image">Pools sized by a knob, measured per image</a></h2>
+<p>These statics move with the knobs beside them, but their element is a
+struct (or the region is a heap), so no formula over defaults can state
+their size exactly — and a guessed multiplier is the defect this page
+exists to avoid. <code>just mem-report &lt;image&gt;</code> reports each one’s exact bytes
+in the image you built, beside the knobs listed here.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>symbol</th><th>kind</th><th>sized by</th></tr>
+</thead>
+<tbody>
+<tr><td><code>g_sessions</code></td><td>pool</td><td><code>ZPICO_GRAPH_CACHE_SIZE</code>, <code>ZPICO_MAX_LIVELINESS</code>, <code>ZPICO_MAX_PENDING_GETS</code>, <code>ZPICO_MAX_PUBLISHERS</code>, <code>ZPICO_MAX_QUERYABLES</code>, <code>ZPICO_MAX_SESSIONS</code>, <code>ZPICO_MAX_SUBSCRIBERS</code></td></tr>
+<tr><td><code>nros_node::parameter_services::PARAM_INBOX</code></td><td>pool</td><td><code>NROS_PARAM_SERVICE_INBOX_BYTES</code>, <code>NROS_PARAM_SERVICE_INBOX_DEPTH</code></td></tr>
+<tr><td><code>nros_platform::zephyr_heap::HEAP</code></td><td>heap</td><td><code>NROS_ZEPHYR_HEAP_SIZE</code></td></tr>
+<tr><td><code>nros_rmw_cffi::MESSAGE_INFO_TABLE</code></td><td>pool</td><td><code>NROS_RMW_MESSAGE_INFO_SLOTS</code></td></tr>
+<tr><td><code>nros_rmw_cffi::NODE_TABLE</code></td><td>pool</td><td><code>NROS_RMW_MAX_NODES</code></td></tr>
+<tr><td><code>nros_rmw_cffi::REGISTRY</code></td><td>pool</td><td><code>NROS_RMW_MAX_BACKENDS</code></td></tr>
+<tr><td><code>nros_rmw_zenoh::shim::publisher::transient_local::TL_SLOTS</code></td><td>pool</td><td><code>ZPICO_MAX_TL_PUBLISHERS</code>, <code>ZPICO_TL_RETAIN_BYTES</code></td></tr>
+<tr><td><code>nros_rmw_zenoh::shim::service::ACTION_INBOX</code></td><td>pool</td><td><code>NROS_ACTION_INBOX_BYTES</code>, <code>NROS_ACTION_INBOX_DEPTH</code></td></tr>
+<tr><td><code>nros_rmw_zenoh::shim::service::SERVICE_BUFFERS</code></td><td>pool</td><td><code>ZPICO_MAX_QUERYABLES</code>, <code>ZPICO_MAX_SESSIONS</code>, <code>ZPICO_SERVICE_BUFFER_SIZE</code></td></tr>
+<tr><td><code>nros_rmw_zenoh::shim::service::USER_SERVICE_INBOX</code></td><td>pool</td><td><code>NROS_SERVICE_INBOX_BYTES</code>, <code>NROS_SERVICE_INBOX_DEPTH</code>, <code>ZPICO_MAX_QUERYABLES</code>, <code>ZPICO_MAX_SESSIONS</code></td></tr>
+<tr><td><code>nros_rmw_zenoh::shim::subscriber::SMALL_PAYLOADS</code></td><td>pool</td><td><code>NROS_SUBSCRIBER_BUFFER_SIZE</code></td></tr>
+<tr><td><code>nros_rmw_zenoh::shim::subscriber::SUBSCRIBER_BUFFERS</code></td><td>pool</td><td><code>ZPICO_MAX_SUBSCRIBERS</code></td></tr>
+<tr><td><code>nros_smoltcp::bridge::SOCKET_RX_BUFFERS</code></td><td>pool</td><td><code>NROS_SMOLTCP_BUFFER_SIZE</code>, <code>NROS_SMOLTCP_MAX_SOCKETS</code></td></tr>
+<tr><td><code>nros_smoltcp::bridge::SOCKET_TABLE</code></td><td>pool</td><td><code>NROS_SMOLTCP_MAX_SOCKETS</code></td></tr>
+<tr><td><code>nros_smoltcp::bridge::SOCKET_TX_BUFFERS</code></td><td>pool</td><td><code>NROS_SMOLTCP_BUFFER_SIZE</code>, <code>NROS_SMOLTCP_MAX_SOCKETS</code></td></tr>
+<tr><td><code>nros_smoltcp::bridge::UDP_SOCKET_RX_BUFFERS</code></td><td>pool</td><td><code>NROS_SMOLTCP_BUFFER_SIZE</code>, <code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code></td></tr>
+<tr><td><code>nros_smoltcp::bridge::UDP_SOCKET_TABLE</code></td><td>pool</td><td><code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code></td></tr>
+<tr><td><code>nros_smoltcp::bridge::UDP_SOCKET_TX_BUFFERS</code></td><td>pool</td><td><code>NROS_SMOLTCP_BUFFER_SIZE</code>, <code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code></td></tr>
+<tr><td><code>ucHeap</code></td><td>heap</td><td><code>NROS_FREERTOS_HEAP_KB</code></td></tr>
 </tbody>
 </table>
 </div>
 <h2 id="every-sizing-knob"><a class="header" href="#every-sizing-knob">Every sizing knob</a></h2>
-<p>A knob with no pool row above is still tunable; it simply has not declared
-its byte cost yet. Absence of a figure is not a claim that it is free.</p>
+<p>Every knob says what it costs: a byte figure where a formula prices it,
+otherwise WHERE its bytes go and why no static figure exists. Nothing in
+this column is blank, and nothing here is free unless it says so.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>knob</th><th style="text-align: right">default</th><th>read by</th></tr>
+<tr><th>knob</th><th style="text-align: right">default</th><th>read by</th><th>cost</th></tr>
 </thead>
 <tbody>
-<tr><td><code>NROS_ACTION_INBOX_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:133</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
-<tr><td><code>NROS_EXECUTOR_ACTION_CLIENTS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:812</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_EXECUTOR_ARENA_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:1140</code></td><td><code>packages/core/nros-node</code></td></tr>
-<tr><td><code>NROS_EXECUTOR_BACKING_U64S</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:816</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_EXECUTOR_MAX_CBS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:808</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_EXECUTOR_MAX_NODES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:276</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
-<tr><td><code>NROS_EXECUTOR_MAX_SC</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:809</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_EXECUTOR_MAX_SHUTDOWN_CBS</code></td><td style="text-align: right">2</td><td><code>packages/core/nros-node</code></td></tr>
-<tr><td><code>NROS_FREERTOS_APP_STACK_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1243</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_FREERTOS_HEAP_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1242</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_GRAPH_MAX_ENTITIES</code></td><td style="text-align: right">0</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
-<tr><td><code>NROS_KEYEXPR_STRING_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1411</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_LET_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-build-helpers/src/c.rs:119</code></td><td><code>packages/tooling/nros-build-helpers</code></td></tr>
-<tr><td><code>NROS_MAX_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1083</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_MAX_BYTE_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1084</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_MAX_PARAMETERS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:56</code></td><td><code>packages/core/nros-params</code></td></tr>
-<tr><td><code>NROS_MAX_PARAM_CONSTRAINTS_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:149</code></td><td><code>packages/core/nros-params</code></td></tr>
-<tr><td><code>NROS_MAX_PARAM_DESCRIPTION_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:123</code></td><td><code>packages/core/nros-params</code></td></tr>
-<tr><td><code>NROS_MAX_PARAM_NAME_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:65</code></td><td><code>packages/core/nros-params</code></td></tr>
-<tr><td><code>NROS_MAX_STRING_VALUE_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1082</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_MULTIGOAL_GOALS</code></td><td style="text-align: right">computed — see <code>packages/testing/nros-tests/bins/action-client-multigoal/src/main.rs:133</code></td><td><code>packages/testing/nros-tests/bins/action-client-multigoal</code></td></tr>
-<tr><td><code>NROS_MULTIGOAL_SOAK_MS</code></td><td style="text-align: right">0</td><td><code>packages/testing/nros-tests/bins/action-client-multigoal</code></td></tr>
-<tr><td><code>NROS_PARAM_SERVICE_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:706</code></td><td><code>packages/core/nros-node</code></td></tr>
-<tr><td><code>NROS_PARAM_SERVICE_INBOX_BYTES</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:734</code></td><td><code>packages/core/nros-node</code></td></tr>
-<tr><td><code>NROS_PARAM_SERVICE_INBOX_DEPTH</code></td><td style="text-align: right">1</td><td><code>packages/core/nros-node</code></td></tr>
-<tr><td><code>NROS_PUBSUB_QOS_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:1008</code></td><td><code>packages/core/nros-node</code></td></tr>
-<tr><td><code>NROS_RMW_MAX_BACKENDS</code></td><td style="text-align: right">8</td><td><code>packages/rmw/cffi</code></td></tr>
-<tr><td><code>NROS_RMW_MAX_NODES</code></td><td style="text-align: right">4</td><td><code>packages/rmw/cffi</code></td></tr>
-<tr><td><code>NROS_RMW_MESSAGE_INFO_SLOTS</code></td><td style="text-align: right">64</td><td><code>packages/rmw/cffi</code></td></tr>
-<tr><td><code>NROS_RMW_SUBSCRIBER_SLOTS</code></td><td style="text-align: right">8</td><td><code>packages/rmw/cffi</code></td></tr>
-<tr><td><code>NROS_RMW_SUBSCRIBER_SLOT_BYTES</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/cffi</code></td></tr>
-<tr><td><code>NROS_RUNTIME_COMPONENT_SLOT_BYTES</code></td><td style="text-align: right">computed — see <code>packages/api/nros/build.rs:61</code></td><td><code>packages/api/nros</code></td></tr>
-<tr><td><code>NROS_RUNTIME_MAX_CELL_ENTITIES</code></td><td style="text-align: right">computed — see <code>packages/api/nros/build.rs:101</code></td><td><code>packages/api/nros</code></td></tr>
-<tr><td><code>NROS_RUNTIME_MAX_CLASS_INSTANCES</code></td><td style="text-align: right">computed — see <code>packages/api/nros/build.rs:72</code></td><td><code>packages/api/nros</code></td></tr>
-<tr><td><code>NROS_RUNTIME_MAX_COMPONENTS</code></td><td style="text-align: right">computed — see <code>packages/api/nros/build.rs:55</code></td><td><code>packages/api/nros</code></td></tr>
-<tr><td><code>NROS_SERVICE_INBOX_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:125</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
-<tr><td><code>NROS_SERVICE_TIMEOUT_MS</code></td><td style="text-align: right">30000</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
-<tr><td><code>NROS_SMOLTCP_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:57</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td></tr>
-<tr><td><code>NROS_SMOLTCP_CONNECT_TIMEOUT_MS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:62</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td></tr>
-<tr><td><code>NROS_SMOLTCP_MAX_SOCKETS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:44</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td></tr>
-<tr><td><code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:52</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td></tr>
-<tr><td><code>NROS_SMOLTCP_SOCKET_TIMEOUT_MS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:67</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td></tr>
-<tr><td><code>NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:944</code></td><td><code>packages/core/nros-node</code></td></tr>
-<tr><td><code>NROS_SUBSCRIPTION_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:814</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>NROS_XRCE_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/xrce</code></td></tr>
-<tr><td><code>NROS_XRCE_CUSTOM_TRANSPORT_MTU</code></td><td style="text-align: right">4096</td><td><code>packages/rmw/xrce</code></td></tr>
-<tr><td><code>NROS_XRCE_MAX_SERVICE_CLIENTS</code></td><td style="text-align: right">4</td><td><code>packages/rmw/xrce</code></td></tr>
-<tr><td><code>NROS_XRCE_MAX_SERVICE_SERVERS</code></td><td style="text-align: right">4</td><td><code>packages/rmw/xrce</code></td></tr>
-<tr><td><code>NROS_XRCE_MAX_SUBSCRIBERS</code></td><td style="text-align: right">8</td><td><code>packages/rmw/xrce</code></td></tr>
-<tr><td><code>NROS_XRCE_SERVICE_REPLY_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/xrce</code></td></tr>
-<tr><td><code>NROS_XRCE_SERVICE_REQUEST_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/xrce</code></td></tr>
-<tr><td><code>NROS_XRCE_STREAM_HISTORY</code></td><td style="text-align: right">16</td><td><code>packages/rmw/xrce</code></td></tr>
-<tr><td><code>NROS_XRCE_SUBSCRIBER_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/xrce</code></td></tr>
-<tr><td><code>NROS_XRCE_SUBSCRIBER_RING_DEPTH</code></td><td style="text-align: right">32</td><td><code>packages/rmw/xrce</code></td></tr>
-<tr><td><code>NROS_XRCE_TRANSPORT_MTU</code></td><td style="text-align: right">4096</td><td><code>packages/rmw/xrce</code></td></tr>
-<tr><td><code>NROS_ZEPHYR_HEAP_SIZE</code></td><td style="text-align: right">computed — see <code>packages/platform/nros-platform/build.rs:66</code></td><td><code>packages/platform/nros-platform</code></td></tr>
-<tr><td><code>ROSOUT_PROBE_PERIOD_MS</code></td><td style="text-align: right">250</td><td><code>packages/testing/nros-tests/bins/rosout-talker</code></td></tr>
-<tr><td><code>ROSOUT_PROBE_RECORDS</code></td><td style="text-align: right">60</td><td><code>packages/testing/nros-tests/bins/rosout-talker</code></td></tr>
-<tr><td><code>ZPICO_BATCH_MULTICAST_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1431</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>ZPICO_BATCH_UNICAST_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1430</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>ZPICO_FRAG_MAX_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1432</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>ZPICO_GET_POLL_INTERVAL_MS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1434</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>ZPICO_GET_REPLY_BUF_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1433</code></td><td><code>packages/tooling/nros-platform-config</code></td></tr>
-<tr><td><code>ZPICO_GRAPH_CACHE_SIZE</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1227</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
-<tr><td><code>ZPICO_GRAPH_DISCOVERY</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1239</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
-<tr><td><code>ZPICO_LEASE_TASK_PRIORITY</code></td><td style="text-align: right">16</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
-<tr><td><code>ZPICO_MAX_LIVELINESS</code></td><td style="text-align: right">16</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
-<tr><td><code>ZPICO_MAX_PENDING_GETS</code></td><td style="text-align: right">4</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
-<tr><td><code>ZPICO_MAX_PUBLISHERS</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1056</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
-<tr><td><code>ZPICO_MAX_QUERYABLES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1045</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
-<tr><td><code>ZPICO_MAX_SESSIONS</code></td><td style="text-align: right">1</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
-<tr><td><code>ZPICO_MAX_SUBSCRIBERS</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1060</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
-<tr><td><code>ZPICO_MAX_TL_PUBLISHERS</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:797</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
-<tr><td><code>ZPICO_PUBLISHER_TX_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
-<tr><td><code>ZPICO_READ_TASK_PRIORITY</code></td><td style="text-align: right">16</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td></tr>
-<tr><td><code>ZPICO_SERVICE_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:103</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
-<tr><td><code>ZPICO_SUBSCRIBER_RING_DEPTH</code></td><td style="text-align: right">4</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
-<tr><td><code>ZPICO_SUBSCRIBER_SIZE_THRESHOLD</code></td><td style="text-align: right">2048</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
-<tr><td><code>ZPICO_TL_RETAIN_BYTES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:293</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td></tr>
+<tr><td><code>NROS_ACTION_INBOX_BYTES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:126</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::service::ACTION_INBOX</code>: slot bytes of each action-family inbox ring; the element is an <code>InboxStorage</code> struct (ring header + slots), so only the compiler knows the product</td></tr>
+<tr><td><code>NROS_ACTION_INBOX_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:133</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::service::ACTION_INBOX</code>: ring depth of each action-family inbox; same <code>InboxStorage</code> element</td></tr>
+<tr><td><code>NROS_EXECUTOR_ACTION_CLIENTS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:812</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: action-client entries the executor arena is sized for</td></tr>
+<tr><td><code>NROS_EXECUTOR_ARENA_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:1140</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: the executor arena itself; the backing is <code>EXECUTOR_BACKING</code> (Rust) or the entry’s <code>__nros_executor_storage</code> / tier table (C/C++)</td></tr>
+<tr><td><code>NROS_EXECUTOR_BACKING_U64S</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:816</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: STATES the boot executor’s backing size in words; <code>EXECUTOR_BACKING</code> is exactly 8x this</td></tr>
+<tr><td><code>NROS_EXECUTOR_MAX_CBS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:808</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: callback slots inside the executor</td></tr>
+<tr><td><code>NROS_EXECUTOR_MAX_NODES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:276</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>executor</strong>: node slots inside the executor; the zenoh backend also sizes its per-node liveliness cap from it</td></tr>
+<tr><td><code>NROS_EXECUTOR_MAX_SC</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:809</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: sched-context slots inside the executor</td></tr>
+<tr><td><code>NROS_EXECUTOR_MAX_SHUTDOWN_CBS</code></td><td style="text-align: right">2</td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: shutdown-callback slots inside the executor</td></tr>
+<tr><td><code>NROS_FREERTOS_APP_STACK_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1243</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>stack</strong>: the application task’s stack, which FreeRTOS allocates out of <code>ucHeap</code> — it is inside that heap’s figure, never a symbol of its own</td></tr>
+<tr><td><code>NROS_FREERTOS_HEAP_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1242</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>heap</strong> <code>ucHeap</code>: FreeRTOS heap_4’s <code>ucHeap[configTOTAL_HEAP_SIZE]</code>; the symbol IS the region, measured per image</td></tr>
+<tr><td><code>NROS_GRAPH_MAX_ENTITIES</code></td><td style="text-align: right">0</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>input</strong>: the entity count <code>ZPICO_GRAPH_CACHE_SIZE</code> is derived from; storage is that knob’s</td></tr>
+<tr><td><code>NROS_KEYEXPR_STRING_SIZE</code></td><td style="text-align: right">256</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>element</strong>: the key-expression buffer inside each subscriber/service shim entry; lands in <code>SUBSCRIBER_BUFFERS</code>/<code>SERVICE_BUFFERS</code></td></tr>
+<tr><td><code>NROS_LET_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-build-helpers/src/c.rs:119</code></td><td><code>packages/tooling/nros-build-helpers</code></td><td><strong>element</strong>: the per-handle LET buffer inside each C/C++ API handle, which lives in the CALLER’s storage</td></tr>
+<tr><td><code>NROS_MAX_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1083</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>element</strong>: bounds an array parameter value; paid by every <code>ParameterValue</code>, i.e. every slot</td></tr>
+<tr><td><code>NROS_MAX_BYTE_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1084</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>element</strong>: bounds a byte-array parameter value; paid by every <code>ParameterValue</code>, i.e. every slot</td></tr>
+<tr><td><code>NROS_MAX_PARAMETERS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:56</code></td><td><code>packages/core/nros-params</code></td><td><strong>heap</strong>: slots of <code>ParameterStorage</code>, which <code>ensure_parameter_store</code> boxes on the heap once per executor (issue 0756) — no static symbol, so <code>mem-report</code> cannot see it</td></tr>
+<tr><td><code>NROS_MAX_PARAM_CONSTRAINTS_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:149</code></td><td><code>packages/core/nros-params</code></td><td><strong>element</strong>: bounds a parameter descriptor’s constraints text inside every <code>ParameterStorage</code> slot</td></tr>
+<tr><td><code>NROS_MAX_PARAM_DESCRIPTION_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:123</code></td><td><code>packages/core/nros-params</code></td><td><strong>element</strong>: bounds a parameter descriptor’s description inside every <code>ParameterStorage</code> slot</td></tr>
+<tr><td><code>NROS_MAX_PARAM_NAME_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:65</code></td><td><code>packages/core/nros-params</code></td><td><strong>element</strong>: bounds a parameter NAME inside every <code>ParameterStorage</code> slot (heap, see <code>NROS_MAX_PARAMETERS</code>)</td></tr>
+<tr><td><code>NROS_MAX_STRING_VALUE_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1082</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>element</strong>: bounds a string parameter VALUE — <code>ParameterValue</code> is sized by its largest variant, so this is paid by every slot</td></tr>
+<tr><td><code>NROS_MULTIGOAL_GOALS</code></td><td style="text-align: right">computed — see <code>packages/testing/nros-tests/bins/action-client-multigoal/src/main.rs:133</code></td><td><code>packages/testing/nros-tests/bins/action-client-multigoal</code></td><td><strong>test-only</strong>: <code>action-client-multigoal</code> test binary</td></tr>
+<tr><td><code>NROS_MULTIGOAL_SOAK_MS</code></td><td style="text-align: right">0</td><td><code>packages/testing/nros-tests/bins/action-client-multigoal</code></td><td><strong>test-only</strong>: <code>action-client-multigoal</code> test binary</td></tr>
+<tr><td><code>NROS_PARAM_SERVICE_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:706</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: request/reply buffers of the builtin parameter and lifecycle services, held in the executor’s value</td></tr>
+<tr><td><code>NROS_PARAM_SERVICE_INBOX_BYTES</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:734</code></td><td><code>packages/core/nros-node</code></td><td><strong>pool</strong> <code>nros_node::parameter_services::PARAM_INBOX</code>: slot bytes of the parameter-service inbox ring (<code>CallerInboxStorage</code> element)</td></tr>
+<tr><td><code>NROS_PARAM_SERVICE_INBOX_DEPTH</code></td><td style="text-align: right">1</td><td><code>packages/core/nros-node</code></td><td><strong>pool</strong> <code>nros_node::parameter_services::PARAM_INBOX</code>: ring depth of the parameter-service inbox (<code>CallerInboxStorage</code> element)</td></tr>
+<tr><td><code>NROS_PUBSUB_QOS_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:1008</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: the per-subscription receive queue depth the arena budgets for; derived from the declared QoS where an image states one; default DERIVED per image when it declares its entities</td></tr>
+<tr><td><code>NROS_RMW_MAX_BACKENDS</code></td><td style="text-align: right">8</td><td><code>packages/rmw/cffi</code></td><td><strong>pool</strong> <code>nros_rmw_cffi::REGISTRY</code>: backend slots in the RMW registry; the element is a <code>BackendSlot</code> struct</td></tr>
+<tr><td><code>NROS_RMW_MAX_NODES</code></td><td style="text-align: right">4</td><td><code>packages/rmw/cffi</code></td><td><strong>pool</strong> <code>nros_rmw_cffi::NODE_TABLE</code>: node slots in the RMW node table; the element is a <code>NodeSlot</code> struct</td></tr>
+<tr><td><code>NROS_RMW_MESSAGE_INFO_SLOTS</code></td><td style="text-align: right">64</td><td><code>packages/rmw/cffi</code></td><td><strong>pool</strong> <code>nros_rmw_cffi::MESSAGE_INFO_TABLE</code>: message-info slots; the <code>MessageInfoSlot</code> element gains fields under <code>alloc</code> + <code>safety-e2e</code>, so a constant would be right for one build (issue 0739)</td></tr>
+<tr><td><code>NROS_RMW_SUBSCRIBER_SLOTS</code></td><td style="text-align: right">8</td><td><code>packages/rmw/cffi</code></td><td>prices <code>SLOTS</code> (8,192 B at defaults); default DERIVED per image when it declares its entities</td></tr>
+<tr><td><code>NROS_RMW_SUBSCRIBER_SLOT_BYTES</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/cffi</code></td><td>prices <code>SLOTS</code> (8,192 B at defaults)</td></tr>
+<tr><td><code>NROS_RUNTIME_COMPONENT_SLOT_BYTES</code></td><td style="text-align: right">512</td><td><code>packages/api/nros</code></td><td><strong>component</strong>: byte budget of each component slot (<code>TypedSlot&lt;C&gt;</code>)</td></tr>
+<tr><td><code>NROS_RUNTIME_MAX_CELL_ENTITIES</code></td><td style="text-align: right">8</td><td><code>packages/api/nros</code></td><td><strong>component</strong>: entity-registry slots per component cell; default DERIVED per image when it declares its entities</td></tr>
+<tr><td><code>NROS_RUNTIME_MAX_CLASS_INSTANCES</code></td><td style="text-align: right">2</td><td><code>packages/api/nros</code></td><td><strong>component</strong>: instances one component class’s macro-emitted store (<code>__NROS_COMPONENT_&lt;pkg&gt;_SLOT_STORE</code>) holds</td></tr>
+<tr><td><code>NROS_RUNTIME_MAX_COMPONENTS</code></td><td style="text-align: right">4</td><td><code>packages/api/nros</code></td><td><strong>component</strong>: component slots of the runtime’s type-erased pool</td></tr>
+<tr><td><code>NROS_SERVICE_INBOX_BYTES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:118</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::service::USER_SERVICE_INBOX</code>: slot bytes of each user-service inbox ring (<code>InboxStorage</code> element); its default is DERIVED from the declared request types, so no static figure exists either</td></tr>
+<tr><td><code>NROS_SERVICE_INBOX_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:125</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::service::USER_SERVICE_INBOX</code>: ring depth of each user-service inbox (<code>InboxStorage</code> element)</td></tr>
+<tr><td><code>NROS_SERVICE_TIMEOUT_MS</code></td><td style="text-align: right">30000</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>not-a-size</strong>: milliseconds</td></tr>
+<tr><td><code>NROS_SMOLTCP_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:57</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td><td>sizes <code>SOCKET_RX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_SOCKETS</code> has a computed default); sizes <code>SOCKET_TX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_SOCKETS</code> has a computed default); sizes <code>UDP_SOCKET_RX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code> has a computed default); sizes <code>UDP_SOCKET_TX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code> has a computed default); <strong>pool</strong> <code>nros_smoltcp::bridge::SOCKET_RX_BUFFERS</code>, <code>nros_smoltcp::bridge::SOCKET_TX_BUFFERS</code>, <code>nros_smoltcp::bridge::UDP_SOCKET_RX_BUFFERS</code>, <code>nros_smoltcp::bridge::UDP_SOCKET_TX_BUFFERS</code>: per-socket buffer bytes; formula-priced, but the default is computed per platform</td></tr>
+<tr><td><code>NROS_SMOLTCP_CONNECT_TIMEOUT_MS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:62</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td><td><strong>not-a-size</strong>: milliseconds</td></tr>
+<tr><td><code>NROS_SMOLTCP_MAX_SOCKETS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:44</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td><td>sizes <code>SOCKET_RX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_SOCKETS</code> has a computed default); sizes <code>SOCKET_TX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_SOCKETS</code> has a computed default); <strong>pool</strong> <code>nros_smoltcp::bridge::SOCKET_RX_BUFFERS</code>, <code>nros_smoltcp::bridge::SOCKET_TX_BUFFERS</code>, <code>nros_smoltcp::bridge::SOCKET_TABLE</code>: TCP socket count; the byte buffers carry <code>nros-pool:</code> formulas, the socket table’s element is a struct</td></tr>
+<tr><td><code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:52</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td><td>sizes <code>UDP_SOCKET_RX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code> has a computed default); sizes <code>UDP_SOCKET_TX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code> has a computed default); <strong>pool</strong> <code>nros_smoltcp::bridge::UDP_SOCKET_RX_BUFFERS</code>, <code>nros_smoltcp::bridge::UDP_SOCKET_TX_BUFFERS</code>, <code>nros_smoltcp::bridge::UDP_SOCKET_TABLE</code>: UDP socket count; byte buffers formula-priced, the table’s element is a struct</td></tr>
+<tr><td><code>NROS_SMOLTCP_SOCKET_TIMEOUT_MS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:67</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td><td><strong>not-a-size</strong>: milliseconds</td></tr>
+<tr><td><code>NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:944</code></td><td><code>packages/core/nros-node</code> <strong>(conflicting defaults — see below)</strong></td><td>sizes <code>SMALL_PAYLOADS</code> — not priceable at defaults (knob <code>ZPICO_MAX_SUBSCRIBERS</code> has a computed default); <strong>pool</strong> <code>nros_rmw_zenoh::shim::subscriber::SMALL_PAYLOADS</code>: the small payload class (formula-priced); read by two crates with two defaults — the page flags that; default DERIVED per image when it declares its entities</td></tr>
+<tr><td><code>NROS_SUBSCRIPTION_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:814</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: each subscription’s receive buffer inside the executor arena (<code>DEFAULT_RX_BUF_SIZE</code>)</td></tr>
+<tr><td><code>NROS_XRCE_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: the default the three XRCE buffer sizes above alias to</td></tr>
+<tr><td><code>NROS_XRCE_CUSTOM_TRANSPORT_MTU</code></td><td style="text-align: right">4096</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: the custom-transport twin of <code>NROS_XRCE_TRANSPORT_MTU</code></td></tr>
+<tr><td><code>NROS_XRCE_MAX_SERVICE_CLIENTS</code></td><td style="text-align: right">4</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: service-client slots inside <code>xrce_session_state_t</code></td></tr>
+<tr><td><code>NROS_XRCE_MAX_SERVICE_SERVERS</code></td><td style="text-align: right">4</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: service-server slots inside <code>xrce_session_state_t</code></td></tr>
+<tr><td><code>NROS_XRCE_MAX_SUBSCRIBERS</code></td><td style="text-align: right">8</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: subscriber slots inside <code>xrce_session_state_t</code>, which the XRCE backend allocates from the platform heap (<code>nros_xrce_calloc</code>) when a session opens — no named static, so <code>mem-report</code> cannot see it</td></tr>
+<tr><td><code>NROS_XRCE_SERVICE_REPLY_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: per-client reply buffer inside <code>xrce_session_state_t</code></td></tr>
+<tr><td><code>NROS_XRCE_SERVICE_REQUEST_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: per-server request buffer inside <code>xrce_session_state_t</code></td></tr>
+<tr><td><code>NROS_XRCE_STREAM_HISTORY</code></td><td style="text-align: right">16</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: reliable-stream history depth; multiplies the stream buffers inside the session state</td></tr>
+<tr><td><code>NROS_XRCE_SUBSCRIBER_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: bytes per XRCE subscriber ring entry inside <code>xrce_session_state_t</code></td></tr>
+<tr><td><code>NROS_XRCE_SUBSCRIBER_RING_DEPTH</code></td><td style="text-align: right">32</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: ring depth of each XRCE subscriber slot inside <code>xrce_session_state_t</code></td></tr>
+<tr><td><code>NROS_XRCE_TRANSPORT_MTU</code></td><td style="text-align: right">4096</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: Micro-XRCE-DDS-Client transport MTU (UDP/TCP): sizes the transport’s buffer inside its transport struct</td></tr>
+<tr><td><code>NROS_ZEPHYR_HEAP_SIZE</code></td><td style="text-align: right">computed — see <code>packages/platform/nros-platform/build.rs:66</code></td><td><code>packages/platform/nros-platform</code></td><td><strong>heap</strong> <code>nros_platform::zephyr_heap::HEAP</code>: the rlsf arena both zenoh-pico’s <code>z_malloc</code> and Rust’s allocator draw from on Zephyr; the symbol IS the region, measured per image</td></tr>
+<tr><td><code>ROSOUT_PROBE_PERIOD_MS</code></td><td style="text-align: right">250</td><td><code>packages/testing/nros-tests/bins/rosout-talker</code></td><td><strong>test-only</strong>: <code>rosout-talker</code> test binary</td></tr>
+<tr><td><code>ROSOUT_PROBE_RECORDS</code></td><td style="text-align: right">60</td><td><code>packages/testing/nros-tests/bins/rosout-talker</code></td><td><strong>test-only</strong>: <code>rosout-talker</code> test binary</td></tr>
+<tr><td><code>ZPICO_BATCH_MULTICAST_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1431</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>heap</strong>: the multicast twin of the unicast batch buffers — heap at session open, no symbol</td></tr>
+<tr><td><code>ZPICO_BATCH_UNICAST_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1430</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>heap</strong>: zenoh-pico allocates its unicast TX/RX batch buffers (<code>_z_wbuf_make</code>/<code>_z_zbuf_make</code>) when a session opens — heap bytes, no symbol</td></tr>
+<tr><td><code>ZPICO_FRAG_MAX_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1432</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>heap</strong>: zenoh-pico’s defragmentation buffer, <code>_z_wbuf_make(Z_FRAG_MAX_SIZE)</code> on first fragment — heap, no symbol</td></tr>
+<tr><td><code>ZPICO_GET_POLL_INTERVAL_MS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1434</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>not-a-size</strong>: milliseconds</td></tr>
+<tr><td><code>ZPICO_GET_REPLY_BUF_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1433</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>stack</strong>: the blocking <code>z_get</code> reply context is stack-allocated per call (<code>zpico.c</code>), so it costs stack in the caller, never static RAM</td></tr>
+<tr><td><code>ZPICO_GRAPH_CACHE_SIZE</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1227</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>: the graph cache’s byte buffer, embedded in each <code>struct zpico_session</code> beside its mutex and subscriber handle</td></tr>
+<tr><td><code>ZPICO_GRAPH_DISCOVERY</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1239</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>not-a-size</strong>: switches the graph cache on; its bytes are <code>ZPICO_GRAPH_CACHE_SIZE</code></td></tr>
+<tr><td><code>ZPICO_LEASE_TASK_PRIORITY</code></td><td style="text-align: right">16</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>not-a-size</strong>: a task priority</td></tr>
+<tr><td><code>ZPICO_MAX_LARGE_SUBSCRIBERS</code></td><td style="text-align: right">2</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td>prices <code>LARGE_PAYLOADS</code> (131,072 B at defaults); default DERIVED per image when it declares its entities</td></tr>
+<tr><td><code>ZPICO_MAX_LIVELINESS</code></td><td style="text-align: right">16</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>: liveliness-token entries inside each <code>struct zpico_session</code></td></tr>
+<tr><td><code>ZPICO_MAX_PENDING_GETS</code></td><td style="text-align: right">4</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>: pending-get slots inside each <code>struct zpico_session</code></td></tr>
+<tr><td><code>ZPICO_MAX_PUBLISHERS</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1056</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>: publisher entries inside each <code>struct zpico_session</code>; default derived per image from the entity inventory</td></tr>
+<tr><td><code>ZPICO_MAX_QUERYABLES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1045</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>, <code>nros_rmw_zenoh::shim::service::SERVICE_BUFFERS</code>, <code>nros_rmw_zenoh::shim::service::USER_SERVICE_INBOX</code>: queryable entries inside each <code>struct zpico_session</code> and the per-queryable shim pools; default derived per image (a service server, a TRANSIENT_LOCAL publisher and the builtin param/lifecycle services each take one)</td></tr>
+<tr><td><code>ZPICO_MAX_SESSIONS</code></td><td style="text-align: right">1</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>, <code>nros_rmw_zenoh::shim::service::SERVICE_BUFFERS</code>, <code>nros_rmw_zenoh::shim::service::USER_SERVICE_INBOX</code>: session count: the outer dimension of the zpico session table and of every per-session shim pool; the session element is the <code>struct zpico_session</code> C struct</td></tr>
+<tr><td><code>ZPICO_MAX_SUBSCRIBERS</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1060</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td>sizes <code>SMALL_PAYLOADS</code> — not priceable at defaults (knob <code>ZPICO_MAX_SUBSCRIBERS</code> has a computed default); <strong>pool</strong> <code>g_sessions</code>, <code>nros_rmw_zenoh::shim::subscriber::SUBSCRIBER_BUFFERS</code>: subscriber entries inside each <code>struct zpico_session</code> and the shim’s <code>SubscriberBuffer</code> table (also priced through <code>SMALL_PAYLOADS</code>); default derived per image</td></tr>
+<tr><td><code>ZPICO_MAX_TL_PUBLISHERS</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:797</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::publisher::transient_local::TL_SLOTS</code>: retention slots for TRANSIENT_LOCAL publishers; the element is a <code>RetainSlot</code> struct and the count is derived per image</td></tr>
+<tr><td><code>ZPICO_PUBLISHER_TX_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>element</strong>: each publisher’s zero-copy lend arena (<code>ZENOH_TX_BUF</code>), inside the publisher entry wherever that is stored</td></tr>
+<tr><td><code>ZPICO_READ_TASK_PRIORITY</code></td><td style="text-align: right">16</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>not-a-size</strong>: a task priority</td></tr>
+<tr><td><code>ZPICO_SERVICE_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:103</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::service::SERVICE_BUFFERS</code>: payload bytes inside each <code>ServiceBuffer</code> struct; also the default for the two inbox slot sizes above</td></tr>
+<tr><td><code>ZPICO_SUBSCRIBER_LARGE_SIZE</code></td><td style="text-align: right">16384</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td>prices <code>LARGE_PAYLOADS</code> (131,072 B at defaults); default DERIVED per image when it declares its entities</td></tr>
+<tr><td><code>ZPICO_SUBSCRIBER_RING_DEPTH</code></td><td style="text-align: right">4</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td>prices <code>LARGE_PAYLOADS</code> (131,072 B at defaults); sizes <code>SMALL_PAYLOADS</code> — not priceable at defaults (knob <code>ZPICO_MAX_SUBSCRIBERS</code> has a computed default); default DERIVED per image when it declares its entities</td></tr>
+<tr><td><code>ZPICO_SUBSCRIBER_SIZE_THRESHOLD</code></td><td style="text-align: right">2048</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>not-a-size</strong>: the hint above which a subscription routes to the LARGE payload class — a routing threshold, not storage</td></tr>
+<tr><td><code>ZPICO_TL_RETAIN_BYTES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:293</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::publisher::transient_local::TL_SLOTS</code>: bytes retained inside each <code>RetainSlot</code></td></tr>
 </tbody>
 </table>
 </div>
+<h2 id="conflicting-defaults"><a class="header" href="#conflicting-defaults">Conflicting defaults</a></h2>
+<p>These knobs are read in more than one place with DIFFERENT defaults, so
+setting one moves only part of the tree — the issue-0135 split-brain
+shape one layer up.</p>
+<ul>
+<li><code>NROS_SUBSCRIBER_BUFFER_SIZE</code></li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="configuration-surface"><a class="header" href="#configuration-surface">Configuration surface</a></h1>
 <!-- GENERATED by scripts/gen-config-surface.py — do not edit. -->
