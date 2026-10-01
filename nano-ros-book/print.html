@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-07143ebd.js";
+            window.path_to_searchindex_js = "searchindex-06688dbe.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-529fefcc.js"></script>
@@ -3918,29 +3918,34 @@ that demands a real application directory.</strong> That is Zephyr.</p>
 carries authored Kconfig that nothing can derive: <code>prj.conf</code>, the per-RMW
 <code>prj-&lt;rmw&gt;.conf</code> fragments, <code>boards/*.overlay</code>. RFC-0065 D5 draws the line
 there — <em>“west and ESP-IDF apps keep their own files because those are Kconfig
-overlays — user intent, not derivable.”</em> So <code>nros build</code> generates no entry for
-a Zephyr image; it resolves your application, applies the image’s overlays, and
-runs <code>west build</code>.</p>
-<p><code>examples/workspaces/c/src/zephyr_entry/</code> is the whole package — four files, no
-sources:</p>
-<pre><code class="language-text">src/zephyr_entry/
-├── CMakeLists.txt      # find_package(Zephyr) + nano_ros_add_executable(... DEPLOY zephyr)
-├── package.xml
-├── prj.conf
-└── prj-zenoh.conf
+overlays — user intent, not derivable.”</em></p>
+<p><strong>The Kconfig is the exception; the application is not</strong> (issue 1288). <code>nros build</code> writes the west application too — <code>build/&lt;coord&gt;/&lt;image&gt;_entry/ CMakeLists.txt</code>, with <code>find_package(Zephyr)</code>, <code>project()</code>, one
+<code>add_subdirectory</code> per node package your launch file names, and the single
+<code>nano_ros_add_executable(...)</code> (or <code>rust_cargo_application()</code> for a Rust image)
+— and then runs <code>west build</code> against it. What you author is the Kconfig, and it
+lives with the bringup:</p>
+<pre><code class="language-text">src/demo_bringup/boards/native_sim_native_64/
+├── prj.conf                            # APPLICATION_CONFIG_DIR
+├── prj-zenoh.conf                      # named by [image.&lt;id&gt;] conf
+└── boards/
+    └── native_sim_native_64.conf       # Zephyr's own per-board discovery
 </code></pre>
-<p>and its <code>CMakeLists.txt</code> states the reason in its own words:</p>
-<pre><code class="language-cmake"># Unlike the FreeRTOS/NuttX/ThreadX entries (cmake-lane, add_executable +
-# nros_platform_link_app), a Zephyr app IS the `app` target that find_package(Zephyr)
-# creates — so this entry CMakeLists is itself a Zephyr application, built by west
-</code></pre>
-<p>For a Rust workspace you do not have to write it by hand:</p>
+<p>That directory is what <code>[image.&lt;id&gt;] board</code> selects, and switching boards
+selects a different one rather than editing a package. Every Zephyr image in
+<code>examples/workspaces/{rust,c,cpp,mixed,derived-tiers-cpp,realtime-cpp}</code> is
+built this way; <code>realtime-c</code> still carries a hand-written <code>src/zephyr_entry</code>,
+because its one package serves an <code>[image.zephyr]</code> in <em>two</em> bringups and the
+generated directory is keyed on (platform, RMW) alone.</p>
+<p>For a Rust workspace whose image needs a hand-written application after all —
+Kconfig <code>nros build</code> cannot express, a <code>nano_ros_use_board()</code> preamble — the
+scaffold is still there:</p>
 <pre><code class="language-sh">nros new entry zephyr_entry --platform zephyr
 </code></pre>
 <p>That writes <code>Cargo.toml</code>, <code>CMakeLists.txt</code> and <code>prj.conf</code>, <strong>and</strong> the
 <code>[image.*]</code> row — the two halves are one declaration, and every Zephyr build
-failure worth having is the two disagreeing. (The C and C++ Zephyr entries in
-<code>examples/workspaces/{c,cpp}</code> are authored; the shape above is all of it.)
+failure worth having is the two disagreeing. A package written this way
+SUPPRESSES generation for the image that would carry its name, which is what
+makes the migration in either direction a file operation rather than a flag.
 Zephyr is the only platform the verb accepts, which is the rule stated by the
 tool itself:</p>
 <pre><code class="language-text">`nros new entry` currently scaffolds Zephyr entries only (got --platform native).
@@ -3961,15 +3966,18 @@ nros build demo_bringup:zephyr -- -t run
 <p>Plain <code>west</code> keeps working and stays the primary flow — <code>nros build</code> is the
 convenience that applies an image’s overlays for you, never a required layer
 between you and west:</p>
-<pre><code class="language-sh">west build -b native_sim/native/64 src/zephyr_entry \
-    -- -DCONF_FILE="prj.conf;prj-zenoh.conf"
+<pre><code class="language-sh">west build -b native_sim/native/64 build/zephyr-zenoh/zephyr_entry \
+    -- -DAPPLICATION_CONFIG_DIR=src/demo_bringup/boards/native_sim_native_64
 west build -t run                      # native_sim; `west flash` for hardware
 </code></pre>
-<p><strong>One Zephyr entry package covers every Zephyr board.</strong> Zephyr owns its board
-abstraction, so the board is chosen by the image’s <code>board</code> key (which becomes
-<code>west build -b</code>), not baked into the package. Swap
-<code>native_sim/native/64</code> for <code>nrf52840dk/nrf52840</code> and <code>prj-zenoh.conf</code> for
-<code>prj-xrce.conf</code>, and nothing in <code>src/</code> changes.</p>
+<p>(<code>nros build demo_bringup:zephyr --dry-run</code> prints that command for your image,
+which is the reliable way to get it: the application path carries the
+coordinate, and <code>--dry-run</code> reads it off the image rather than asking you to
+spell it.)</p>
+<p><strong>One workspace covers every Zephyr board.</strong> Zephyr owns its board abstraction,
+so the board is chosen by the image’s <code>board</code> key (which becomes <code>west build -b</code>) and never baked into a package. Swap <code>native_sim/native/64</code> for
+<code>nrf52840dk/nrf52840</code> and <code>prj-zenoh.conf</code> for <code>prj-xrce.conf</code>: what changes is
+which <code>boards/&lt;board&gt;/</code> directory is read, and nothing in <code>src/</code> at all.</p>
 <p>The <code>entry</code> key exists for the case where <em>several</em> packages could answer to
 one image. An application package no longer declares the board it serves —
 that direction is reversed: the <strong>image claims the entry</strong>, by naming it
