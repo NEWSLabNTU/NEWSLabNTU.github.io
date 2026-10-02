@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d21e6a86.js";
+            window.path_to_searchindex_js = "searchindex-9c22af56.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-529fefcc.js"></script>
@@ -2487,8 +2487,10 @@ for the full three-terminal walkthrough.</p>
 <h2 id="xrce-dds--smallest-footprint-serial-transport"><a class="header" href="#xrce-dds--smallest-footprint-serial-transport">XRCE-DDS — smallest footprint, serial transport</a></h2>
 <p>Choose the <strong>XRCE-DDS</strong> backend when:</p>
 <ul>
-<li>RAM is the constraint: ~3 KB of client RAM, fully static allocation,
-no heap required on the MCU.</li>
+<li>RAM is the constraint: ~3 KB of client RAM, and the backend allocates
+only when a session or entity is created — never per message. (It is
+not heap-free: each allocation goes through <code>nros_platform_alloc</code>, and
+their number follows the entities you declare.)</li>
 <li>You need a <strong>serial (UART)</strong> transport — the only backend that works
 on an MCU with no networking hardware. See
 <a href="#serial-transport">Serial Transport</a>.</li>
@@ -2661,7 +2663,10 @@ means flipping that constant, rebuilding the shim, and accepting the footprint.<
 <ul>
 <li>Agent is <strong>mandatory</strong> – the MCU cannot participate in the network without it</li>
 <li>If the Agent crashes, the MCU loses all connectivity</li>
-<li>Fully static memory allocation on the MCU (no heap required)</li>
+<li>Small, bounded heap use on the MCU: the backend allocates when a session
+or entity is created, never per message (each is a <code>nros_xrce_calloc</code>
+in an open/create path, through <code>nros_platform_alloc</code>;
+each <code>XRCE_MAX_SUBSCRIBERS</code> slot is heap, so size it to what you declare)</li>
 <li>Client-side discovery is not supported; the Agent handles it</li>
 <li>Transport options: UDP, serial (HDLC framing)</li>
 </ul>
@@ -11835,11 +11840,19 @@ the banner above.</p>
 <p>A natural-feeling Embassy API would make <code>ExecutableNode::on_callback</code>
 an <code>async fn</code>. We don’t — for two reasons:</p>
 <ol>
-<li><strong>The no-alloc contract.</strong> Async fns desugar to anonymous future
-types; storing them generically in the runtime requires either
-boxing (<code>Box&lt;dyn Future&gt;</code> → <code>alloc</code> dependency) or const-generic
-GAT plumbing through every trait. Both add cost without buying
-anything <code>Spawner::spawn</code> doesn’t already give us.</li>
+<li><strong>Keeping the dispatch path heap-free.</strong> Async fns desugar to
+anonymous future types; storing them generically in the runtime
+requires either boxing (<code>Box&lt;dyn Future&gt;</code> → <code>alloc</code> dependency) or
+const-generic GAT plumbing through every trait. Both add cost without
+buying anything <code>Spawner::spawn</code> doesn’t already give us.
+What is CHECKED, and what is not: <code>heap-free-poc-mps2</code> — a bare-metal Cortex-M3 image built with
+<code>nros</code> minus its <code>alloc</code> feature, which opens an executor over static
+backing, installs a component, spins, and uses the <code>ParameterServer</code> —
+links with no allocation symbol at all, and the L3 CI lane fails if it
+ever does (<code>scripts/check-no-alloc-image.py --tier heap-free</code>).
+No Embassy image is built, and every shipped RMW backend allocates in
+C, so this is a property of the executor and dispatch path — not of an
+Embassy image with a transport linked in.</li>
 <li><strong>Framework-task routing.</strong> The runtime already dispatches
 callbacks from a framework-owned task (<code>__nros_dispatch_task</code> on
 Embassy, <code>__nros_dispatch</code> on RTIC). The Node author can spawn
@@ -12060,8 +12073,9 @@ task picks up. <strong>216.E.2 lands only if real usage shows
 spawn-from-sync is consistently painful.</strong> If your application is
 hitting that case, file an issue with the call pattern that’s
 prompting it.</p>
-<p>Until then: spawn from sync. It’s two lines per callback and stays
-fully no-alloc.</p>
+<p>Until then: spawn from sync. It’s two lines per callback and
+stays heap-free on the dispatch path (the spawned task comes from the
+framework’s static task pool).</p>
 <h2 id="see-also-5"><a class="header" href="#see-also-5">See also</a></h2>
 <ul>
 <li><a href="#dispatch-strategy">Dispatch Strategy (internals)</a> —
@@ -13626,7 +13640,7 @@ let publisher = {
 <li>The caller has its own scheduling primitive (RTIC dispatcher, embassy task, FreeRTOS task per entity).</li>
 <li>The flow is fundamentally request-response — service-client <code>Promise&lt;Reply&gt;</code> and action-client <code>send_goal</code> → <code>get_result</code> work this way.</li>
 <li>The receive logic isn’t simple enough to express as a one-shot closure — e.g. a Fibonacci server that publishes feedback in a loop after accepting a goal.</li>
-<li>You want zero allocations and no executor arena overhead (the L2 path stores the closure + its captures inline in the arena; the arena byte budget is per-build-tunable but non-zero).</li>
+<li>You want no executor arena overhead (the L2 path stores the closure + its captures inline in the arena; the arena byte budget is per-build-tunable but non-zero).</li>
 </ul>
 <p><strong>Use L2 (<code>Executor::register_*</code>) when:</strong></p>
 <ul>
@@ -14453,7 +14467,7 @@ non-Kconfig RTOS never touches it.</p>
 </tbody>
 </table>
 </div>
-<p>XRCE-DDS is significantly simpler to port: it is single-threaded, heap-free, and uses user-provided transport callbacks rather than a full socket API. A minimal XRCE-DDS port requires only <code>PlatformClock</code> and four C function pointers (open, close, read, write).</p>
+<p>XRCE-DDS is significantly simpler to port: it is single-threaded, allocates only when a session or entity is created (nothing per message), and uses user-provided transport callbacks rather than a full socket API. A minimal XRCE-DDS port requires only <code>PlatformClock</code> and four C function pointers (open, close, read, write).</p>
 <p>zenoh-pico requires a complete platform implementation but provides richer functionality (peer-to-peer, scouting, zero-copy receive, actions).</p>
 <h2 id="registration"><a class="header" href="#registration">Registration</a></h2>
 <p>After implementing the required traits, you register your platform with two changes:</p>
@@ -20708,8 +20722,12 @@ everywhere, but state still needs somewhere to live), or</li>
 closure type to <code>Box&lt;dyn FnMut(...)&gt;</code> (alloc-dependent) or to
 <code>extern "C" fn</code> (no captures at all).</li>
 </ul>
-<p>Both options conflict with the no-alloc + framework-task-routed
-contract. So Phase 216.A.4 introduces <strong>tags</strong>:</p>
+<p>Both options conflict with keeping dispatch heap-free and
+framework-task-routed. (Heap-free here is a checked property of the
+executor path, not of an image with a transport: <code>heap-free-poc-mps2</code>
+links the executor, component install and spin path with no allocation
+symbol, and the L3 CI lane fails if that changes. Every shipped RMW backend
+allocates in C.) So Phase 216.A.4 introduces <strong>tags</strong>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>// File: packages/api/nros/src/dispatch_tag.rs
@@ -27022,7 +27040,7 @@ this column is blank, and nothing here is free unless it says so.</p>
 <tr><td><code>NROS_ACTION_INBOX_BYTES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:126</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::service::ACTION_INBOX</code>: slot bytes of each action-family inbox ring; the element is an <code>InboxStorage</code> struct (ring header + slots), so only the compiler knows the product</td></tr>
 <tr><td><code>NROS_ACTION_INBOX_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:133</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::service::ACTION_INBOX</code>: ring depth of each action-family inbox; same <code>InboxStorage</code> element</td></tr>
 <tr><td><code>NROS_EXECUTOR_ACTION_CLIENTS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:812</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: action-client entries the executor arena is sized for</td></tr>
-<tr><td><code>NROS_EXECUTOR_ARENA_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:1150</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: the executor arena itself; the backing is <code>EXECUTOR_BACKING</code> (Rust) or the entry’s <code>__nros_executor_storage</code> / tier table (C/C++)</td></tr>
+<tr><td><code>NROS_EXECUTOR_ARENA_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:907</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: the executor arena itself; the backing is <code>EXECUTOR_BACKING</code> (Rust) or the entry’s <code>__nros_executor_storage</code> / tier table (C/C++)</td></tr>
 <tr><td><code>NROS_EXECUTOR_BACKING_U64S</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:816</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: STATES the boot executor’s backing size in words; <code>EXECUTOR_BACKING</code> is exactly 8x this</td></tr>
 <tr><td><code>NROS_EXECUTOR_MAX_CBS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:808</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: callback slots inside the executor</td></tr>
 <tr><td><code>NROS_EXECUTOR_MAX_NODES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:276</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>executor</strong>: node slots inside the executor; the zenoh backend also sizes its per-node liveliness cap from it</td></tr>
@@ -27042,10 +27060,10 @@ this column is blank, and nothing here is free unless it says so.</p>
 <tr><td><code>NROS_MAX_STRING_VALUE_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1082</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>element</strong>: bounds a string parameter VALUE — <code>ParameterValue</code> is sized by its largest variant, so this is paid by every slot</td></tr>
 <tr><td><code>NROS_MULTIGOAL_GOALS</code></td><td style="text-align: right">computed — see <code>packages/testing/nros-tests/bins/action-client-multigoal/src/main.rs:133</code></td><td><code>packages/testing/nros-tests/bins/action-client-multigoal</code></td><td><strong>test-only</strong>: <code>action-client-multigoal</code> test binary</td></tr>
 <tr><td><code>NROS_MULTIGOAL_SOAK_MS</code></td><td style="text-align: right">0</td><td><code>packages/testing/nros-tests/bins/action-client-multigoal</code></td><td><strong>test-only</strong>: <code>action-client-multigoal</code> test binary</td></tr>
-<tr><td><code>NROS_PARAM_SERVICE_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:706</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: request/reply buffers of the builtin parameter and lifecycle services, held in the executor’s value</td></tr>
-<tr><td><code>NROS_PARAM_SERVICE_INBOX_BYTES</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:734</code></td><td><code>packages/core/nros-node</code></td><td><strong>pool</strong> <code>nros_node::parameter_services::PARAM_INBOX</code>: slot bytes of the parameter-service inbox ring (<code>CallerInboxStorage</code> element)</td></tr>
+<tr><td><code>NROS_PARAM_SERVICE_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:463</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: request/reply buffers of the builtin parameter and lifecycle services, held in the executor’s value</td></tr>
+<tr><td><code>NROS_PARAM_SERVICE_INBOX_BYTES</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:491</code></td><td><code>packages/core/nros-node</code></td><td><strong>pool</strong> <code>nros_node::parameter_services::PARAM_INBOX</code>: slot bytes of the parameter-service inbox ring (<code>CallerInboxStorage</code> element)</td></tr>
 <tr><td><code>NROS_PARAM_SERVICE_INBOX_DEPTH</code></td><td style="text-align: right">1</td><td><code>packages/core/nros-node</code></td><td><strong>pool</strong> <code>nros_node::parameter_services::PARAM_INBOX</code>: ring depth of the parameter-service inbox (<code>CallerInboxStorage</code> element)</td></tr>
-<tr><td><code>NROS_PUBSUB_QOS_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:1018</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: the per-subscription receive queue depth the arena budgets for; derived from the declared QoS where an image states one; default DERIVED per image when it declares its entities</td></tr>
+<tr><td><code>NROS_PUBSUB_QOS_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:775</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: the per-subscription receive queue depth the arena budgets for; derived from the declared QoS where an image states one; default DERIVED per image when it declares its entities</td></tr>
 <tr><td><code>NROS_RMW_MAX_BACKENDS</code></td><td style="text-align: right">8</td><td><code>packages/rmw/cffi</code></td><td><strong>pool</strong> <code>nros_rmw_cffi::REGISTRY</code>: backend slots in the RMW registry; the element is a <code>BackendSlot</code> struct</td></tr>
 <tr><td><code>NROS_RMW_MAX_NODES</code></td><td style="text-align: right">4</td><td><code>packages/rmw/cffi</code></td><td><strong>pool</strong> <code>nros_rmw_cffi::NODE_TABLE</code>: node slots in the RMW node table; the element is a <code>NodeSlot</code> struct</td></tr>
 <tr><td><code>NROS_RMW_MESSAGE_INFO_SLOTS</code></td><td style="text-align: right">64</td><td><code>packages/rmw/cffi</code></td><td><strong>pool</strong> <code>nros_rmw_cffi::MESSAGE_INFO_TABLE</code>: message-info slots; the <code>MessageInfoSlot</code> element gains fields under <code>alloc</code> + <code>safety-e2e</code>, so a constant would be right for one build (issue 0739)</td></tr>
@@ -27063,7 +27081,7 @@ this column is blank, and nothing here is free unless it says so.</p>
 <tr><td><code>NROS_SMOLTCP_MAX_SOCKETS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:44</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td><td>sizes <code>SOCKET_RX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_SOCKETS</code> has a computed default); sizes <code>SOCKET_TX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_SOCKETS</code> has a computed default); <strong>pool</strong> <code>nros_smoltcp::bridge::SOCKET_RX_BUFFERS</code>, <code>nros_smoltcp::bridge::SOCKET_TX_BUFFERS</code>, <code>nros_smoltcp::bridge::SOCKET_TABLE</code>: TCP socket count; the byte buffers carry <code>nros-pool:</code> formulas, the socket table’s element is a struct</td></tr>
 <tr><td><code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:52</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td><td>sizes <code>UDP_SOCKET_RX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code> has a computed default); sizes <code>UDP_SOCKET_TX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code> has a computed default); <strong>pool</strong> <code>nros_smoltcp::bridge::UDP_SOCKET_RX_BUFFERS</code>, <code>nros_smoltcp::bridge::UDP_SOCKET_TX_BUFFERS</code>, <code>nros_smoltcp::bridge::UDP_SOCKET_TABLE</code>: UDP socket count; byte buffers formula-priced, the table’s element is a struct</td></tr>
 <tr><td><code>NROS_SMOLTCP_SOCKET_TIMEOUT_MS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:67</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td><td><strong>not-a-size</strong>: milliseconds</td></tr>
-<tr><td><code>NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:954</code></td><td><code>packages/core/nros-node</code> <strong>(conflicting defaults — see below)</strong></td><td>sizes <code>SMALL_PAYLOADS</code> — not priceable at defaults (knob <code>ZPICO_MAX_SUBSCRIBERS</code> has a computed default); <strong>pool</strong> <code>nros_rmw_zenoh::shim::subscriber::SMALL_PAYLOADS</code>: the small payload class (formula-priced); read by two crates with two defaults — the page flags that; default DERIVED per image when it declares its entities</td></tr>
+<tr><td><code>NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:711</code></td><td><code>packages/core/nros-node</code> <strong>(conflicting defaults — see below)</strong></td><td>sizes <code>SMALL_PAYLOADS</code> — not priceable at defaults (knob <code>ZPICO_MAX_SUBSCRIBERS</code> has a computed default); <strong>pool</strong> <code>nros_rmw_zenoh::shim::subscriber::SMALL_PAYLOADS</code>: the small payload class (formula-priced); read by two crates with two defaults — the page flags that; default DERIVED per image when it declares its entities</td></tr>
 <tr><td><code>NROS_SUBSCRIPTION_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:814</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: each subscription’s receive buffer inside the executor arena (<code>DEFAULT_RX_BUF_SIZE</code>)</td></tr>
 <tr><td><code>NROS_XRCE_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: the default the three XRCE buffer sizes above alias to</td></tr>
 <tr><td><code>NROS_XRCE_CUSTOM_TRANSPORT_MTU</code></td><td style="text-align: right">4096</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: the custom-transport twin of <code>NROS_XRCE_TRANSPORT_MTU</code></td></tr>
