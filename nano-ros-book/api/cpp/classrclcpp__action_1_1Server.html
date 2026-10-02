@@ -409,10 +409,8 @@ template&lt;typename A &gt; </div>
   </tr>
 </table>
 </div><div class="memdoc">
-<p>Destructor — ABANDONS the arena entry, and detaches it from <code>storage_</code>.</p>
-<p>Issue 1496 — "releases action server resources" is what this comment used to say and it was not true of either call. The action's five RMW entities (three service servers, the feedback and status publishers), its goal table and its result slab live in an <code>ActionServerRawArenaEntry</code> in the executor arena; the arena is a BUMP ALLOCATOR with no removal path, so they stay live and the action stays advertised for the executor's lifetime. <code>nros_cpp_action_server_destroy</code> is a <code>drop_in_place</code> over a struct of <code>Copy</code> fields and runs no destructor at all. Nothing here can change that — a free list for the arena is resolution 2 of issue 1496.</p>
-<p>What the detach DOES fix is the one arm with memory-safety consequences: the arena entry's callback <code>context</code> is <code>storage_</code>, so a <code>send_goal</code> arriving after this destructor returned would dispatch the goal trampoline against freed C++ storage. After <code>nros_cpp_action_server_detach</code> the entry carries context-free stubs — a late goal is rejected, a late cancel is accepted inside the core — and <code>storage_</code> is no longer named by anything.</p>
-<p>Every in-tree C++ action server holds its server for the whole program, which is why this was never observed; the fix does not depend on that staying true. </p>
+<p>Destructor — RELEASES the arena entry (issue 1496).</p>
+<p>The action's five RMW entities (three service servers, the feedback and status publishers), its goal table and its result slab live in an <code>ActionServerRawArenaEntry</code> in the executor arena, and the entry's callback <code>context</code> is <code>storage_</code>. <code>nros_cpp_action_server_detach</code> drops that entry in place — the entities are destroyed, so the action leaves the graph and no late <code>send_goal</code> can dispatch into this storage — frees its callback slot, and returns its arena bytes to the executor's free list for the next registration that fits. A program that creates and destroys servers in a loop therefore does not exhaust <code>NROS_EXECUTOR_MAX_CBS</code> or the arena. (<code>nros_cpp_action_server_destroy</code> after it is a <code>drop_in_place</code> over <code>Copy</code> fields and runs no destructor itself; the release is the detach call's.) </p>
 
 </div>
 </div>
