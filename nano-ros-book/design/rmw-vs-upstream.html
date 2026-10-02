@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-1eb25e92.js";
+            window.path_to_searchindex_js = "../searchindex-295fe3a6.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-529fefcc.js"></script>
@@ -920,46 +920,40 @@ with the <code>message_info()</code> builder:
 C mirrors this with <code>nros_executor_register_subscription_raw_with_info</code>
 (the callback receives the payload plus the attachment/metadata
 arguments directly — there is no info struct on the C side).</li>
-<li><strong>What’s carved out.</strong> The hot <code>take</code> vtable slot returns
-bytes ONLY. The metadata rides a separate <code>MessageInfoSlot</code>
-side-channel that the backend populates from its native attachment /
-sample-info (Zenoh attachment, DDS sample-info, XRCE topic callback)
-and the runtime pairs with the payload. A <code>take_with_info</code>-shaped
-vtable slot would widen the ABI of the byte-count-return take path
-(<code>int32_t</code> bytes) for no functional gain — the side-channel already
-delivers the info to the <code>message_info()</code> builder.</li>
+<li><strong>Two backend channels.</strong> The hot <code>take</code> vtable slot returns bytes
+only. A backend that fills the optional <code>take_with_info</code> slot reports
+<code>rmw_message_info_t</code> in caller-owned storage, and the runtime dispatches
+it whenever it is present — that is how a C/C++ backend (Cyclone)
+reports metadata (issue 1495). A Rust backend behind the adapter writes a
+<code>MessageInfoSlot</code> side-channel instead, which the runtime pairs with the
+payload. Either way the <code>message_info()</code> builder sees the same
+<code>MessageInfo</code>.</li>
 </ul>
-<h3 id="publisher-identity-per-message-gid-no-standalone-query"><a class="header" href="#publisher-identity-per-message-gid-no-standalone-query">Publisher identity: per-message GID, no standalone query</a></h3>
+<h3 id="publisher-identity-one-gid-from-one-source"><a class="header" href="#publisher-identity-one-gid-from-one-source">Publisher identity: one GID, from one source</a></h3>
 <p>Upstream exposes <code>rmw_get_gid_for_publisher(pub, out_gid)</code> and stamps
-every sample with the writer’s GID.</p>
-<p>nano-ros <strong>does carry a publisher GID</strong> where the wire supports it: a
-zenoh publisher generates a 16-byte GID at create time
-(<code>RmwAttachment::generate_gid</code>) and stamps it into the per-sample
-attachment; the subscriber zero-extends it into
-<code>MessageInfo.publisher_gid</code>, so <strong>per-message publisher attribution is
-observable</strong> via <code>info.publisher_gid()</code> (populated on the zenoh path;
-zero-filled on backends whose wire carries no writer GID).</p>
-<p>The field is <strong>24 bytes</strong> — upstream’s <code>RMW_GID_STORAGE_SIZE</code>, the same
-width as the ABI’s <code>rmw_gid_t</code> (the phase-467 RMW gap-closure design
-study’s Q1(a); it was 16 before). The 16 is zenoh’s <em>wire</em> width and
-stays there: <code>rmw_zenoh_cpp</code>’s attachment reader rejects any other
-length. So the widths no longer differ — but the two gids are still not
-one VALUE, because no backend fills both. See the <code>rmw_gid_t</code> comment in
-<code>rmw_entity.h</code>, and issue 1495.</p>
-<ul>
-<li><strong>What’s carved out.</strong> The standalone <code>rmw_get_gid_for_publisher</code>
-QUERY — reading a <em>publisher’s own</em> GID back through a C API — is not
-provided. The publisher holds its GID internally, but no in-tree
-consumer needs to query it: the one need, bridge loop-suppression /
-dedup, is served by the <code>bridge_origin</code> attachment, and per-message
-attribution is already covered by <code>MessageInfo.publisher_gid</code>.</li>
-</ul>
-<h3 id="if-a-consumer-shows-up"><a class="header" href="#if-a-consumer-shows-up">If a consumer shows up</a></h3>
-<p>Both carved-out shapes — a <code>take_with_info</code> vtable slot and a
-<code>get_publisher_gid</code> query slot — can land later as NULL-able optional
-vtable slots (the established tail-append extension pattern, RFC-0035)
-without an ABI break, the day a concrete consumer needs the upstream-exact
-entry point rather than the builder / per-message forms above.</p>
+every sample with the writer’s GID, so a subscriber can name the
+publisher that sent a message. nano-ros does both, and — since issue
+1495 — the two answers are the same bytes:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>backend</th><th><code>get_gid()</code> and <code>MessageInfo::publisher_gid</code></th></tr>
+</thead>
+<tbody>
+<tr><td>zenoh-pico</td><td>XXH3-128 of the entity’s liveliness keyexpr, 16 bytes zero-extended to 24 — <code>rmw_zenoh_cpp</code>’s own derivation, so a stock peer’s <code>ros2 topic info --verbose</code> prints the same GID</td></tr>
+<tr><td>cyclonedds</td><td>the DDS writer GUID, 16 bytes zero-extended; the take path reports it through the <code>take_with_info</code> slot</td></tr>
+<tr><td>XRCE-DDS, uORB</td><td><code>UNSUPPORTED</code>; no metadata on a take</td></tr>
+</tbody>
+</table>
+</div>
+<p>The field is <strong>24 bytes</strong>, upstream’s <code>RMW_GID_STORAGE_SIZE</code>. The 16 is
+zenoh’s <em>wire</em> width and stays there: <code>rmw_zenoh_cpp</code>’s attachment
+reader rejects any other length.</p>
+<p>One upstream divergence worth knowing when comparing against a stock
+peer: a Humble <code>rmw_cyclonedds_cpp</code> subscriber puts the 8-byte
+publication <em>handle</em> in <code>message_info.publisher_gid</code>, not the writer
+GUID it reports everywhere else, so its take-side gid matches no gid
+query. Ours reports the GUID.</p>
 <h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
 <ul>
 <li><a href="rmw.html">RMW API Design</a> — deeper architectural rationale (heap,
