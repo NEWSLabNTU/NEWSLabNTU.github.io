@@ -4,6 +4,7 @@ var searchData=
   ['deadline_5fms_1',['deadline_ms',['../structnros__cpp__qos__t.html#abb632f39e20e60fe22d7374b66ac1614',1,'nros_cpp_qos_t']]],
   ['declared_5fdepth_5fmismatch_2',['DECLARED_DEPTH_MISMATCH',['../namespacenros_1_1detail.html#acc66698b9857f1cf8f9b05726d61a477',1,'nros::detail']]],
   ['declared_5fparam_5fmismatch_3',['DECLARED_PARAM_MISMATCH',['../namespacenros_1_1detail.html#a2bb111533f6ceedc5fe218ceda9ef8e4',1,'nros::detail']]],
-  ['depth_4',['depth',['../structnros__cpp__qos__t.html#acfa3abca89031c99a8461cd9ece9a090',1,'nros_cpp_qos_t']]],
-  ['durability_5',['durability',['../structnros__cpp__qos__t.html#a221e6bce6b2426d1c6546292cb922f10',1,'nros_cpp_qos_t']]]
+  ['declared_5fqos_5fmismatch_4',['DECLARED_QOS_MISMATCH',['../namespacenros_1_1detail.html#aa9e7eec860d4854af01a95aaa955346b',1,'nros::detail']]],
+  ['depth_5',['depth',['../structnros__cpp__qos__t.html#acfa3abca89031c99a8461cd9ece9a090',1,'nros_cpp_qos_t']]],
+  ['durability_6',['durability',['../structnros__cpp__qos__t.html#a221e6bce6b2426d1c6546292cb922f10',1,'nros_cpp_qos_t']]]
 ];
