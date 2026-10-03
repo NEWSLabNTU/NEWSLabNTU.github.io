@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["check","declared_depth","declared_durability","declared_reliability","honour"],"struct":["DeclaredEndpoint"]};
+window.SIDEBAR_ITEMS = {"fn":["check","declared_depth","declared_durability","declared_publisher","declared_reliability","honour","honour_publisher"],"struct":["DeclaredEndpoint"]};
