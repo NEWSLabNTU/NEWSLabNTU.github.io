@@ -1267,400 +1267,400 @@
 <a href=#1267 id=1267 data-nosnippet>1267</a>/// **What this can and cannot say.** The buffer capacity is known here and is
 <a href=#1268 id=1268 data-nosnippet>1268</a>/// the actionable half — it names the knob to raise
 <a href=#1269 id=1269 data-nosnippet>1269</a>/// (`NROS_SUBSCRIPTION_BUFFER_SIZE`, or `NROS_SUBSCRIBER_BUFFER_SIZE` /
-<a href=#1270 id=1270 data-nosnippet>1270</a>/// `ZPICO_SUBSCRIBER_LARGE_SIZE` on zenoh). The SAMPLE size is not: the C ABI
-<a href=#1271 id=1271 data-nosnippet>1271</a>/// contract is "non-negative = bytes produced, negative = error code"
-<a href=#1272 id=1272 data-nosnippet>1272</a>/// (`rmw_vtable.h`), with no required-length out-param, so the backend cannot
-<a href=#1273 id=1273 data-nosnippet>1273</a>/// report how big the sample was. The topic is not either: `SubBufferedEntry`
-<a href=#1274 id=1274 data-nosnippet>1274</a>/// carries no name and adding one changes arena sizing. Both are ABI/struct
-<a href=#1275 id=1275 data-nosnippet>1275</a>/// changes worth doing on their own merits, not smuggled in behind a log line.
-<a href=#1276 id=1276 data-nosnippet>1276</a>///
-<a href=#1277 id=1277 data-nosnippet>1277</a>/// `nros_log`, never stdio: this site is reached on `no_std` targets and inside
-<a href=#1278 id=1278 data-nosnippet>1278</a>/// Zephyr `native_sim`, where a Rust `std` stdio call is FATAL (issue 0589).
-<a href=#1279 id=1279 data-nosnippet>1279</a></span><span class="attr">#[cold]
-<a href=#1280 id=1280 data-nosnippet>1280</a></span><span class="kw">fn </span>report_dropped_take(err: <span class="kw-2">&amp;</span>TransportError, buf_len: usize) {
-<a href=#1281 id=1281 data-nosnippet>1281</a>    <span class="kw">let </span>n = DROPPED_TAKES.fetch_add(<span class="number">1</span>, portable_atomic::Ordering::Relaxed);
-<a href=#1282 id=1282 data-nosnippet>1282</a>    <span class="comment">// First, then every 64th. A 40-participant graph must not turn one
-<a href=#1283 id=1283 data-nosnippet>1283</a>    // misconfigured subscription into a log flood (issue 0371's shape).
-<a href=#1284 id=1284 data-nosnippet>1284</a>    </span><span class="kw">if </span>n != <span class="number">0 </span>&amp;&amp; !n.is_multiple_of(<span class="number">64</span>) {
-<a href=#1285 id=1285 data-nosnippet>1285</a>        <span class="kw">return</span>;
-<a href=#1286 id=1286 data-nosnippet>1286</a>    }
-<a href=#1287 id=1287 data-nosnippet>1287</a>    <span class="macro">nros_log::log_error!</span>(
-<a href=#1288 id=1288 data-nosnippet>1288</a>        nros_log::get_logger(<span class="string">"nros"</span>),
-<a href=#1289 id=1289 data-nosnippet>1289</a>        <span class="string">"subscription take DROPPED ({err:?}); buffer is {buf_len} bytes. The \
-<a href=#1290 id=1290 data-nosnippet>1290</a>         sample was received and ACKed, then discarded — raise the subscription \
-<a href=#1291 id=1291 data-nosnippet>1291</a>         buffer knob if this is BufferTooSmall. Dropped {} so far (issue 0757)"</span>,
-<a href=#1292 id=1292 data-nosnippet>1292</a>        n + <span class="number">1
-<a href=#1293 id=1293 data-nosnippet>1293</a>    </span>);
-<a href=#1294 id=1294 data-nosnippet>1294</a>}
-<a href=#1295 id=1295 data-nosnippet>1295</a>
-<a href=#1296 id=1296 data-nosnippet>1296</a><span class="kw">unsafe fn </span>drain_into_buffer&lt;M, F&gt;(
-<a href=#1297 id=1297 data-nosnippet>1297</a>    entry: <span class="kw-2">&amp;mut </span>SubBufferedEntry&lt;M, F&gt;,
-<a href=#1298 id=1298 data-nosnippet>1298</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(), TransportError&gt; {
-<a href=#1299 id=1299 data-nosnippet>1299</a>    <span class="kw">match </span><span class="kw-2">&amp;</span>entry.buffer {
-<a href=#1300 id=1300 data-nosnippet>1300</a>        BufferStrategy::Triple(tb) =&gt; {
-<a href=#1301 id=1301 data-nosnippet>1301</a>            <span class="kw">let </span>slot = tb.write_slot();
-<a href=#1302 id=1302 data-nosnippet>1302</a>            <span class="kw">let </span>cap = slot.len();
-<a href=#1303 id=1303 data-nosnippet>1303</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(len) = entry.handle.take_serialized(slot).inspect_err(|e| {
-<a href=#1304 id=1304 data-nosnippet>1304</a>                report_dropped_take(e, cap);
-<a href=#1305 id=1305 data-nosnippet>1305</a>            })<span class="question-mark">? </span>{
-<a href=#1306 id=1306 data-nosnippet>1306</a>                tb.writer_publish(len);
-<a href=#1307 id=1307 data-nosnippet>1307</a>            }
-<a href=#1308 id=1308 data-nosnippet>1308</a>        }
-<a href=#1309 id=1309 data-nosnippet>1309</a>        BufferStrategy::Ring(ring) =&gt; {
-<a href=#1310 id=1310 data-nosnippet>1310</a>            <span class="kw">while let </span><span class="prelude-val">Some</span>(slot) = ring.try_push() {
-<a href=#1311 id=1311 data-nosnippet>1311</a>                <span class="kw">let </span>cap = slot.len();
-<a href=#1312 id=1312 data-nosnippet>1312</a>                <span class="kw">match </span>entry.handle.take_serialized(slot).inspect_err(|e| {
-<a href=#1313 id=1313 data-nosnippet>1313</a>                    report_dropped_take(e, cap);
-<a href=#1314 id=1314 data-nosnippet>1314</a>                })<span class="question-mark">? </span>{
-<a href=#1315 id=1315 data-nosnippet>1315</a>                    <span class="prelude-val">Some</span>(len) =&gt; ring.commit_push(len),
-<a href=#1316 id=1316 data-nosnippet>1316</a>                    <span class="prelude-val">None </span>=&gt; <span class="kw">break</span>,
-<a href=#1317 id=1317 data-nosnippet>1317</a>                }
-<a href=#1318 id=1318 data-nosnippet>1318</a>            }
-<a href=#1319 id=1319 data-nosnippet>1319</a>        }
-<a href=#1320 id=1320 data-nosnippet>1320</a>    }
-<a href=#1321 id=1321 data-nosnippet>1321</a>    <span class="prelude-val">Ok</span>(())
-<a href=#1322 id=1322 data-nosnippet>1322</a>}
-<a href=#1323 id=1323 data-nosnippet>1323</a>
-<a href=#1324 id=1324 data-nosnippet>1324</a><span class="doccomment">/// Monomorphized dispatch for buffered subscriptions.
-<a href=#1325 id=1325 data-nosnippet>1325</a>///
-<a href=#1326 id=1326 data-nosnippet>1326</a>/// First drains the RMW subscriber into the buffer strategy (triple buffer
-<a href=#1327 id=1327 data-nosnippet>1327</a>/// or SPSC ring), then dispatches from the buffer to the user callback.
-<a href=#1328 id=1328 data-nosnippet>1328</a>///
-<a href=#1329 id=1329 data-nosnippet>1329</a>/// # Safety
-<a href=#1330 id=1330 data-nosnippet>1330</a>/// `ptr` must point to a valid, aligned `SubBufferedEntry&lt;M, F&gt;`.
-<a href=#1331 id=1331 data-nosnippet>1331</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_buffered_try_process&lt;M, F&gt;(
-<a href=#1332 id=1332 data-nosnippet>1332</a>    ptr: <span class="kw-2">*mut </span>u8,
-<a href=#1333 id=1333 data-nosnippet>1333</a>    _delta_us: u64,
-<a href=#1334 id=1334 data-nosnippet>1334</a>    desc_idx: u8,
-<a href=#1335 id=1335 data-nosnippet>1335</a>) -&gt; <span class="prelude-ty">Result</span>&lt;bool, TransportError&gt;
-<a href=#1336 id=1336 data-nosnippet>1336</a><span class="kw">where
-<a href=#1337 id=1337 data-nosnippet>1337</a>    </span>M: RosMessage,
-<a href=#1338 id=1338 data-nosnippet>1338</a>    F: FnMut(<span class="kw-2">&amp;</span>M),
-<a href=#1339 id=1339 data-nosnippet>1339</a>{
-<a href=#1340 id=1340 data-nosnippet>1340</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>(ptr <span class="kw">as </span><span class="kw-2">*mut </span>SubBufferedEntry&lt;M, F&gt;) };
-<a href=#1341 id=1341 data-nosnippet>1341</a>
-<a href=#1342 id=1342 data-nosnippet>1342</a>    <span class="comment">// Phase 1: drain RMW subscriber → buffer strategy
-<a href=#1343 id=1343 data-nosnippet>1343</a>    // Issue 0757 — let a transport error OUT, exactly as issue 0737 does for
-<a href=#1344 id=1344 data-nosnippet>1344</a>    // the C copy below. Anything already buffered from an earlier spin is still
-<a href=#1345 id=1345 data-nosnippet>1345</a>    // dispatched on the next call.
-<a href=#1346 id=1346 data-nosnippet>1346</a>    </span><span class="kw">unsafe </span>{ drain_into_buffer(entry)<span class="question-mark">? </span>};
-<a href=#1347 id=1347 data-nosnippet>1347</a>
-<a href=#1348 id=1348 data-nosnippet>1348</a>    <span class="comment">// Phase 2: dispatch from buffer → user callback
-<a href=#1349 id=1349 data-nosnippet>1349</a>    </span><span class="kw">match </span><span class="kw-2">&amp;</span>entry.buffer {
-<a href=#1350 id=1350 data-nosnippet>1350</a>        <span class="comment">// Phase 8 — hooked. Triple-buffered: at most one invocation per
-<a href=#1351 id=1351 data-nosnippet>1351</a>        // `try_process`, and none at all when `reader_acquire` is empty.
-<a href=#1352 id=1352 data-nosnippet>1352</a>        // The two deserialization `?`s sit BEFORE the start hook, so a
-<a href=#1353 id=1353 data-nosnippet>1353</a>        // malformed sample returns early without opening a span.
-<a href=#1354 id=1354 data-nosnippet>1354</a>        </span>BufferStrategy::Triple(tb) =&gt; <span class="kw">match </span>tb.reader_acquire() {
-<a href=#1355 id=1355 data-nosnippet>1355</a>            <span class="prelude-val">Some</span>((data, len)) =&gt; {
-<a href=#1356 id=1356 data-nosnippet>1356</a>                observe_age::&lt;M&gt;(<span class="kw-2">&amp;</span>data[..len], <span class="kw-2">&amp;</span>entry.age_mon);
-<a href=#1357 id=1357 data-nosnippet>1357</a>                <span class="kw">let </span><span class="kw-2">mut </span>reader = CdrReader::new_with_header(<span class="kw-2">&amp;</span>data[..len])
-<a href=#1358 id=1358 data-nosnippet>1358</a>                    .map_err(|<span class="kw">_</span>| TransportError::DeserializationError)<span class="question-mark">?</span>;
-<a href=#1359 id=1359 data-nosnippet>1359</a>                <span class="kw">let </span>msg = M::deserialize(<span class="kw-2">&amp;mut </span>reader)
-<a href=#1360 id=1360 data-nosnippet>1360</a>                    .map_err(|<span class="kw">_</span>| TransportError::DeserializationError)<span class="question-mark">?</span>;
-<a href=#1361 id=1361 data-nosnippet>1361</a>                trace_cb_start(desc_idx);
-<a href=#1362 id=1362 data-nosnippet>1362</a>                (entry.callback)(<span class="kw-2">&amp;</span>msg);
-<a href=#1363 id=1363 data-nosnippet>1363</a>                trace_cb_end(desc_idx);
-<a href=#1364 id=1364 data-nosnippet>1364</a>                <span class="prelude-val">Ok</span>(<span class="bool-val">true</span>)
-<a href=#1365 id=1365 data-nosnippet>1365</a>            }
-<a href=#1366 id=1366 data-nosnippet>1366</a>            <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Ok</span>(<span class="bool-val">false</span>),
-<a href=#1367 id=1367 data-nosnippet>1367</a>        },
-<a href=#1368 id=1368 data-nosnippet>1368</a>        <span class="comment">// Phase 8 — hooked INSIDE the loop: a ring drains N queued messages
-<a href=#1369 id=1369 data-nosnippet>1369</a>        // per `try_process` and fires the callback once per message, so N
-<a href=#1370 id=1370 data-nosnippet>1370</a>        // messages must produce N spans, not one.
-<a href=#1371 id=1371 data-nosnippet>1371</a>        </span>BufferStrategy::Ring(ring) =&gt; {
-<a href=#1372 id=1372 data-nosnippet>1372</a>            <span class="kw">let </span><span class="kw-2">mut </span>did_work = <span class="bool-val">false</span>;
-<a href=#1373 id=1373 data-nosnippet>1373</a>            <span class="kw">while let </span><span class="prelude-val">Some</span>((data, len)) = ring.try_pop() {
-<a href=#1374 id=1374 data-nosnippet>1374</a>                observe_age::&lt;M&gt;(<span class="kw-2">&amp;</span>data[..len], <span class="kw-2">&amp;</span>entry.age_mon);
-<a href=#1375 id=1375 data-nosnippet>1375</a>                <span class="kw">let </span><span class="kw-2">mut </span>reader = CdrReader::new_with_header(<span class="kw-2">&amp;</span>data[..len])
-<a href=#1376 id=1376 data-nosnippet>1376</a>                    .map_err(|<span class="kw">_</span>| TransportError::DeserializationError)<span class="question-mark">?</span>;
-<a href=#1377 id=1377 data-nosnippet>1377</a>                <span class="kw">let </span>msg = M::deserialize(<span class="kw-2">&amp;mut </span>reader)
-<a href=#1378 id=1378 data-nosnippet>1378</a>                    .map_err(|<span class="kw">_</span>| TransportError::DeserializationError)<span class="question-mark">?</span>;
-<a href=#1379 id=1379 data-nosnippet>1379</a>                trace_cb_start(desc_idx);
-<a href=#1380 id=1380 data-nosnippet>1380</a>                (entry.callback)(<span class="kw-2">&amp;</span>msg);
-<a href=#1381 id=1381 data-nosnippet>1381</a>                trace_cb_end(desc_idx);
-<a href=#1382 id=1382 data-nosnippet>1382</a>                ring.commit_pop();
-<a href=#1383 id=1383 data-nosnippet>1383</a>                did_work = <span class="bool-val">true</span>;
-<a href=#1384 id=1384 data-nosnippet>1384</a>            }
-<a href=#1385 id=1385 data-nosnippet>1385</a>            <span class="prelude-val">Ok</span>(did_work)
-<a href=#1386 id=1386 data-nosnippet>1386</a>        }
-<a href=#1387 id=1387 data-nosnippet>1387</a>    }
-<a href=#1388 id=1388 data-nosnippet>1388</a>}
-<a href=#1389 id=1389 data-nosnippet>1389</a>
-<a href=#1390 id=1390 data-nosnippet>1390</a><span class="doccomment">/// Readiness check for buffered subscriptions.
-<a href=#1391 id=1391 data-nosnippet>1391</a>///
-<a href=#1392 id=1392 data-nosnippet>1392</a>/// Checks the RMW subscriber handle first (new data available from transport),
-<a href=#1393 id=1393 data-nosnippet>1393</a>/// then the buffer strategy (data already drained into triple buffer/ring).
-<a href=#1394 id=1394 data-nosnippet>1394</a>///
-<a href=#1395 id=1395 data-nosnippet>1395</a>/// # Safety
-<a href=#1396 id=1396 data-nosnippet>1396</a>/// `ptr` must point to a valid `SubBufferedEntry&lt;M, F&gt;`.
-<a href=#1397 id=1397 data-nosnippet>1397</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_buffered_has_data&lt;M, F&gt;(ptr: <span class="kw-2">*const </span>u8) -&gt; bool {
-<a href=#1398 id=1398 data-nosnippet>1398</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>(ptr <span class="kw">as </span><span class="kw-2">*const </span>SubBufferedEntry&lt;M, F&gt;) };
-<a href=#1399 id=1399 data-nosnippet>1399</a>    <span class="comment">// Check RMW handle first (data may be in static buffer, not yet drained)
-<a href=#1400 id=1400 data-nosnippet>1400</a>    </span>entry.handle.has_data() || entry.buffer.has_data()
-<a href=#1401 id=1401 data-nosnippet>1401</a>}
-<a href=#1402 id=1402 data-nosnippet>1402</a>
-<a href=#1403 id=1403 data-nosnippet>1403</a><span class="comment">// ============================================================================
-<a href=#1404 id=1404 data-nosnippet>1404</a>// In-place typed subscription (Phase 231 Wave 0.2 — RFC-0038)
-<a href=#1405 id=1405 data-nosnippet>1405</a>// ============================================================================
-<a href=#1406 id=1406 data-nosnippet>1406</a>
-<a href=#1407 id=1407 data-nosnippet>1407</a></span><span class="doccomment">/// In-place typed subscription entry — **no arena buffer**.
-<a href=#1408 id=1408 data-nosnippet>1408</a>///
-<a href=#1409 id=1409 data-nosnippet>1409</a>/// Unlike [`SubBufferedEntry`], this carries no trailing `BufferStrategy`: the
-<a href=#1410 id=1410 data-nosnippet>1410</a>/// callback deserializes directly from the backend's borrowed receive slot via
-<a href=#1411 id=1411 data-nosnippet>1411</a>/// [`Subscriber::process_raw_in_place`], so copy #1 (ring → arena) and the arena
-<a href=#1412 id=1412 data-nosnippet>1412</a>/// buffer are both gone. Selected at registration when the backend advertises
-<a href=#1413 id=1413 data-nosnippet>1413</a>/// `supports_process_in_place()`.
-<a href=#1414 id=1414 data-nosnippet>1414</a></span><span class="attr">#[repr(C)]
-<a href=#1415 id=1415 data-nosnippet>1415</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>SubInplaceEntry&lt;M, F&gt; {
-<a href=#1416 id=1416 data-nosnippet>1416</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) handle: session::RmwSubscriber,
-<a href=#1417 id=1417 data-nosnippet>1417</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) callback: F,
-<a href=#1418 id=1418 data-nosnippet>1418</a>    <span class="doccomment">/// W3b.5 — age hook for contracted endpoints.
-<a href=#1419 id=1419 data-nosnippet>1419</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) age_mon: <span class="prelude-ty">Option</span>&lt;AgeMon&gt;,
-<a href=#1420 id=1420 data-nosnippet>1420</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) _phantom: PhantomData&lt;M&gt;,
-<a href=#1421 id=1421 data-nosnippet>1421</a>}
-<a href=#1422 id=1422 data-nosnippet>1422</a>
-<a href=#1423 id=1423 data-nosnippet>1423</a><span class="doccomment">/// Monomorphized in-place dispatch for typed subscriptions.
-<a href=#1424 id=1424 data-nosnippet>1424</a>///
-<a href=#1425 id=1425 data-nosnippet>1425</a>/// Drains all pending messages from the backend, deserializing + invoking the
-<a href=#1426 id=1426 data-nosnippet>1426</a>/// callback directly from each borrowed slot. Returns `Ok(true)` if any message
-<a href=#1427 id=1427 data-nosnippet>1427</a>/// was dispatched.
-<a href=#1428 id=1428 data-nosnippet>1428</a>///
-<a href=#1429 id=1429 data-nosnippet>1429</a>/// # Safety
-<a href=#1430 id=1430 data-nosnippet>1430</a>/// `ptr` must point to a valid, aligned `SubInplaceEntry&lt;M, F&gt;`.
-<a href=#1431 id=1431 data-nosnippet>1431</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_inplace_try_process&lt;M, F&gt;(
-<a href=#1432 id=1432 data-nosnippet>1432</a>    ptr: <span class="kw-2">*mut </span>u8,
-<a href=#1433 id=1433 data-nosnippet>1433</a>    _delta_us: u64,
-<a href=#1434 id=1434 data-nosnippet>1434</a>    desc_idx: u8,
-<a href=#1435 id=1435 data-nosnippet>1435</a>) -&gt; <span class="prelude-ty">Result</span>&lt;bool, TransportError&gt;
-<a href=#1436 id=1436 data-nosnippet>1436</a><span class="kw">where
-<a href=#1437 id=1437 data-nosnippet>1437</a>    </span>M: RosMessage,
-<a href=#1438 id=1438 data-nosnippet>1438</a>    F: FnMut(<span class="kw-2">&amp;</span>M),
-<a href=#1439 id=1439 data-nosnippet>1439</a>{
-<a href=#1440 id=1440 data-nosnippet>1440</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>(ptr <span class="kw">as </span><span class="kw-2">*mut </span>SubInplaceEntry&lt;M, F&gt;) };
-<a href=#1441 id=1441 data-nosnippet>1441</a>    <span class="comment">// Split-borrow the handle and callback (disjoint fields).
-<a href=#1442 id=1442 data-nosnippet>1442</a>    </span><span class="kw">let </span>SubInplaceEntry {
-<a href=#1443 id=1443 data-nosnippet>1443</a>        handle,
-<a href=#1444 id=1444 data-nosnippet>1444</a>        callback,
-<a href=#1445 id=1445 data-nosnippet>1445</a>        age_mon,
-<a href=#1446 id=1446 data-nosnippet>1446</a>        ..
-<a href=#1447 id=1447 data-nosnippet>1447</a>    } = entry;
-<a href=#1448 id=1448 data-nosnippet>1448</a>    <span class="kw">let </span><span class="kw-2">mut </span>did_work = <span class="bool-val">false</span>;
-<a href=#1449 id=1449 data-nosnippet>1449</a>    <span class="kw">loop </span>{
-<a href=#1450 id=1450 data-nosnippet>1450</a>        <span class="kw">let </span><span class="kw-2">mut </span>deser_err = <span class="bool-val">false</span>;
-<a href=#1451 id=1451 data-nosnippet>1451</a>        <span class="comment">// Phase 8 — hooked inside the `Ok(msg)` arm of the borrow closure,
-<a href=#1452 id=1452 data-nosnippet>1452</a>        // which the drain loop re-enters once per pending message: N
-<a href=#1453 id=1453 data-nosnippet>1453</a>        // messages therefore produce N spans. The pair is fully contained
-<a href=#1454 id=1454 data-nosnippet>1454</a>        // in the closure, so the `?` on `process_raw_in_place` below can
-<a href=#1455 id=1455 data-nosnippet>1455</a>        // never fire between a start and its end. Deserialization failures
-<a href=#1456 id=1456 data-nosnippet>1456</a>        // take the `deser_err` arms and emit nothing.
-<a href=#1457 id=1457 data-nosnippet>1457</a>        </span><span class="kw">let </span>processed = handle.process_raw_in_place(|raw| {
-<a href=#1458 id=1458 data-nosnippet>1458</a>            observe_age::&lt;M&gt;(raw, age_mon);
-<a href=#1459 id=1459 data-nosnippet>1459</a>            <span class="kw">match </span>CdrReader::new_with_header(raw) {
-<a href=#1460 id=1460 data-nosnippet>1460</a>                <span class="prelude-val">Ok</span>(<span class="kw-2">mut </span>reader) =&gt; <span class="kw">match </span>M::deserialize(<span class="kw-2">&amp;mut </span>reader) {
-<a href=#1461 id=1461 data-nosnippet>1461</a>                    <span class="prelude-val">Ok</span>(msg) =&gt; {
-<a href=#1462 id=1462 data-nosnippet>1462</a>                        trace_cb_start(desc_idx);
-<a href=#1463 id=1463 data-nosnippet>1463</a>                        (callback)(<span class="kw-2">&amp;</span>msg);
-<a href=#1464 id=1464 data-nosnippet>1464</a>                        trace_cb_end(desc_idx);
-<a href=#1465 id=1465 data-nosnippet>1465</a>                    }
-<a href=#1466 id=1466 data-nosnippet>1466</a>                    <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; deser_err = <span class="bool-val">true</span>,
-<a href=#1467 id=1467 data-nosnippet>1467</a>                },
-<a href=#1468 id=1468 data-nosnippet>1468</a>                <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; deser_err = <span class="bool-val">true</span>,
-<a href=#1469 id=1469 data-nosnippet>1469</a>            }
-<a href=#1470 id=1470 data-nosnippet>1470</a>        })<span class="question-mark">?</span>;
-<a href=#1471 id=1471 data-nosnippet>1471</a>        <span class="kw">if </span>deser_err {
-<a href=#1472 id=1472 data-nosnippet>1472</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(TransportError::DeserializationError);
-<a href=#1473 id=1473 data-nosnippet>1473</a>        }
-<a href=#1474 id=1474 data-nosnippet>1474</a>        <span class="kw">if </span>processed {
-<a href=#1475 id=1475 data-nosnippet>1475</a>            did_work = <span class="bool-val">true</span>;
-<a href=#1476 id=1476 data-nosnippet>1476</a>        } <span class="kw">else </span>{
-<a href=#1477 id=1477 data-nosnippet>1477</a>            <span class="kw">break</span>;
-<a href=#1478 id=1478 data-nosnippet>1478</a>        }
-<a href=#1479 id=1479 data-nosnippet>1479</a>    }
-<a href=#1480 id=1480 data-nosnippet>1480</a>    <span class="prelude-val">Ok</span>(did_work)
-<a href=#1481 id=1481 data-nosnippet>1481</a>}
-<a href=#1482 id=1482 data-nosnippet>1482</a>
-<a href=#1483 id=1483 data-nosnippet>1483</a><span class="doccomment">/// Readiness check for in-place typed subscriptions.
-<a href=#1484 id=1484 data-nosnippet>1484</a>///
-<a href=#1485 id=1485 data-nosnippet>1485</a>/// # Safety
-<a href=#1486 id=1486 data-nosnippet>1486</a>/// `ptr` must point to a valid `SubInplaceEntry&lt;M, F&gt;`.
-<a href=#1487 id=1487 data-nosnippet>1487</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_inplace_has_data&lt;M, F&gt;(ptr: <span class="kw-2">*const </span>u8) -&gt; bool {
-<a href=#1488 id=1488 data-nosnippet>1488</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>(ptr <span class="kw">as </span><span class="kw-2">*const </span>SubInplaceEntry&lt;M, F&gt;) };
-<a href=#1489 id=1489 data-nosnippet>1489</a>    entry.handle.has_data()
+<a href=#1270 id=1270 data-nosnippet>1270</a>/// `ZPICO_SUBSCRIBER_LARGE_SIZE` on zenoh). The SAMPLE size is known when the
+<a href=#1271 id=1271 data-nosnippet>1271</a>/// backend knows it: issue 1612 made a too-small `take` carry the size the
+<a href=#1272 id=1272 data-nosnippet>1272</a>/// sample needed (`rmw_entity.h`), which reaches here as
+<a href=#1273 id=1273 data-nosnippet>1273</a>/// `Subscription::refused_sample_len`, and issue 1632 made this line print it
+<a href=#1274 id=1274 data-nosnippet>1274</a>/// beside the buffer (`?` when unknown — `nros_rmw::RefusedLen`'s rule, which
+<a href=#1275 id=1275 data-nosnippet>1275</a>/// the C++ drop log shares). The topic is still not known: `SubBufferedEntry`
+<a href=#1276 id=1276 data-nosnippet>1276</a>/// carries no name and adding one changes arena sizing.
+<a href=#1277 id=1277 data-nosnippet>1277</a>///
+<a href=#1278 id=1278 data-nosnippet>1278</a>/// `nros_log`, never stdio: this site is reached on `no_std` targets and inside
+<a href=#1279 id=1279 data-nosnippet>1279</a>/// Zephyr `native_sim`, where a Rust `std` stdio call is FATAL (issue 0589).
+<a href=#1280 id=1280 data-nosnippet>1280</a>/// `take_serialized`, with a refusal reported through [`report_dropped_take`]
+<a href=#1281 id=1281 data-nosnippet>1281</a>/// together with the size the backend says the sample needed — the one
+<a href=#1282 id=1282 data-nosnippet>1282</a>/// spelling of the five buffered drain sites.
+<a href=#1283 id=1283 data-nosnippet>1283</a></span><span class="kw">fn </span>take_reporting_drop(
+<a href=#1284 id=1284 data-nosnippet>1284</a>    handle: <span class="kw-2">&amp;mut </span>session::RmwSubscriber,
+<a href=#1285 id=1285 data-nosnippet>1285</a>    slot: <span class="kw-2">&amp;mut </span>[u8],
+<a href=#1286 id=1286 data-nosnippet>1286</a>) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="prelude-ty">Option</span>&lt;usize&gt;, TransportError&gt; {
+<a href=#1287 id=1287 data-nosnippet>1287</a>    <span class="kw">let </span>cap = slot.len();
+<a href=#1288 id=1288 data-nosnippet>1288</a>    handle.take_serialized(slot).inspect_err(|e| {
+<a href=#1289 id=1289 data-nosnippet>1289</a>        report_dropped_take(e, cap, handle.refused_sample_len());
+<a href=#1290 id=1290 data-nosnippet>1290</a>    })
+<a href=#1291 id=1291 data-nosnippet>1291</a>}
+<a href=#1292 id=1292 data-nosnippet>1292</a>
+<a href=#1293 id=1293 data-nosnippet>1293</a><span class="attr">#[cold]
+<a href=#1294 id=1294 data-nosnippet>1294</a></span><span class="kw">fn </span>report_dropped_take(err: <span class="kw-2">&amp;</span>TransportError, buf_len: usize, recorded: <span class="prelude-ty">Option</span>&lt;usize&gt;) {
+<a href=#1295 id=1295 data-nosnippet>1295</a>    <span class="kw">let </span>needed = nros_rmw::RefusedLen::for_error(err, recorded);
+<a href=#1296 id=1296 data-nosnippet>1296</a>    <span class="kw">let </span>n = DROPPED_TAKES.fetch_add(<span class="number">1</span>, portable_atomic::Ordering::Relaxed);
+<a href=#1297 id=1297 data-nosnippet>1297</a>    <span class="comment">// First, then every 64th. A 40-participant graph must not turn one
+<a href=#1298 id=1298 data-nosnippet>1298</a>    // misconfigured subscription into a log flood (issue 0371's shape).
+<a href=#1299 id=1299 data-nosnippet>1299</a>    </span><span class="kw">if </span>n != <span class="number">0 </span>&amp;&amp; !n.is_multiple_of(<span class="number">64</span>) {
+<a href=#1300 id=1300 data-nosnippet>1300</a>        <span class="kw">return</span>;
+<a href=#1301 id=1301 data-nosnippet>1301</a>    }
+<a href=#1302 id=1302 data-nosnippet>1302</a>    <span class="macro">nros_log::log_error!</span>(
+<a href=#1303 id=1303 data-nosnippet>1303</a>        nros_log::get_logger(<span class="string">"nros"</span>),
+<a href=#1304 id=1304 data-nosnippet>1304</a>        <span class="string">"subscription take DROPPED ({err:?}): {needed}-byte sample, {buf_len}-byte \
+<a href=#1305 id=1305 data-nosnippet>1305</a>         buffer. Received and ACKed, then discarded — raise the subscription \
+<a href=#1306 id=1306 data-nosnippet>1306</a>         buffer knob if this is BufferTooSmall. Dropped {} so far (issue 0757)"</span>,
+<a href=#1307 id=1307 data-nosnippet>1307</a>        n + <span class="number">1
+<a href=#1308 id=1308 data-nosnippet>1308</a>    </span>);
+<a href=#1309 id=1309 data-nosnippet>1309</a>}
+<a href=#1310 id=1310 data-nosnippet>1310</a>
+<a href=#1311 id=1311 data-nosnippet>1311</a><span class="kw">unsafe fn </span>drain_into_buffer&lt;M, F&gt;(
+<a href=#1312 id=1312 data-nosnippet>1312</a>    entry: <span class="kw-2">&amp;mut </span>SubBufferedEntry&lt;M, F&gt;,
+<a href=#1313 id=1313 data-nosnippet>1313</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(), TransportError&gt; {
+<a href=#1314 id=1314 data-nosnippet>1314</a>    <span class="kw">match </span><span class="kw-2">&amp;</span>entry.buffer {
+<a href=#1315 id=1315 data-nosnippet>1315</a>        BufferStrategy::Triple(tb) =&gt; {
+<a href=#1316 id=1316 data-nosnippet>1316</a>            <span class="kw">let </span>slot = tb.write_slot();
+<a href=#1317 id=1317 data-nosnippet>1317</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(len) = take_reporting_drop(<span class="kw-2">&amp;mut </span>entry.handle, slot)<span class="question-mark">? </span>{
+<a href=#1318 id=1318 data-nosnippet>1318</a>                tb.writer_publish(len);
+<a href=#1319 id=1319 data-nosnippet>1319</a>            }
+<a href=#1320 id=1320 data-nosnippet>1320</a>        }
+<a href=#1321 id=1321 data-nosnippet>1321</a>        BufferStrategy::Ring(ring) =&gt; {
+<a href=#1322 id=1322 data-nosnippet>1322</a>            <span class="kw">while let </span><span class="prelude-val">Some</span>(slot) = ring.try_push() {
+<a href=#1323 id=1323 data-nosnippet>1323</a>                <span class="kw">match </span>take_reporting_drop(<span class="kw-2">&amp;mut </span>entry.handle, slot)<span class="question-mark">? </span>{
+<a href=#1324 id=1324 data-nosnippet>1324</a>                    <span class="prelude-val">Some</span>(len) =&gt; ring.commit_push(len),
+<a href=#1325 id=1325 data-nosnippet>1325</a>                    <span class="prelude-val">None </span>=&gt; <span class="kw">break</span>,
+<a href=#1326 id=1326 data-nosnippet>1326</a>                }
+<a href=#1327 id=1327 data-nosnippet>1327</a>            }
+<a href=#1328 id=1328 data-nosnippet>1328</a>        }
+<a href=#1329 id=1329 data-nosnippet>1329</a>    }
+<a href=#1330 id=1330 data-nosnippet>1330</a>    <span class="prelude-val">Ok</span>(())
+<a href=#1331 id=1331 data-nosnippet>1331</a>}
+<a href=#1332 id=1332 data-nosnippet>1332</a>
+<a href=#1333 id=1333 data-nosnippet>1333</a><span class="doccomment">/// Monomorphized dispatch for buffered subscriptions.
+<a href=#1334 id=1334 data-nosnippet>1334</a>///
+<a href=#1335 id=1335 data-nosnippet>1335</a>/// First drains the RMW subscriber into the buffer strategy (triple buffer
+<a href=#1336 id=1336 data-nosnippet>1336</a>/// or SPSC ring), then dispatches from the buffer to the user callback.
+<a href=#1337 id=1337 data-nosnippet>1337</a>///
+<a href=#1338 id=1338 data-nosnippet>1338</a>/// # Safety
+<a href=#1339 id=1339 data-nosnippet>1339</a>/// `ptr` must point to a valid, aligned `SubBufferedEntry&lt;M, F&gt;`.
+<a href=#1340 id=1340 data-nosnippet>1340</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_buffered_try_process&lt;M, F&gt;(
+<a href=#1341 id=1341 data-nosnippet>1341</a>    ptr: <span class="kw-2">*mut </span>u8,
+<a href=#1342 id=1342 data-nosnippet>1342</a>    _delta_us: u64,
+<a href=#1343 id=1343 data-nosnippet>1343</a>    desc_idx: u8,
+<a href=#1344 id=1344 data-nosnippet>1344</a>) -&gt; <span class="prelude-ty">Result</span>&lt;bool, TransportError&gt;
+<a href=#1345 id=1345 data-nosnippet>1345</a><span class="kw">where
+<a href=#1346 id=1346 data-nosnippet>1346</a>    </span>M: RosMessage,
+<a href=#1347 id=1347 data-nosnippet>1347</a>    F: FnMut(<span class="kw-2">&amp;</span>M),
+<a href=#1348 id=1348 data-nosnippet>1348</a>{
+<a href=#1349 id=1349 data-nosnippet>1349</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>(ptr <span class="kw">as </span><span class="kw-2">*mut </span>SubBufferedEntry&lt;M, F&gt;) };
+<a href=#1350 id=1350 data-nosnippet>1350</a>
+<a href=#1351 id=1351 data-nosnippet>1351</a>    <span class="comment">// Phase 1: drain RMW subscriber → buffer strategy
+<a href=#1352 id=1352 data-nosnippet>1352</a>    // Issue 0757 — let a transport error OUT, exactly as issue 0737 does for
+<a href=#1353 id=1353 data-nosnippet>1353</a>    // the C copy below. Anything already buffered from an earlier spin is still
+<a href=#1354 id=1354 data-nosnippet>1354</a>    // dispatched on the next call.
+<a href=#1355 id=1355 data-nosnippet>1355</a>    </span><span class="kw">unsafe </span>{ drain_into_buffer(entry)<span class="question-mark">? </span>};
+<a href=#1356 id=1356 data-nosnippet>1356</a>
+<a href=#1357 id=1357 data-nosnippet>1357</a>    <span class="comment">// Phase 2: dispatch from buffer → user callback
+<a href=#1358 id=1358 data-nosnippet>1358</a>    </span><span class="kw">match </span><span class="kw-2">&amp;</span>entry.buffer {
+<a href=#1359 id=1359 data-nosnippet>1359</a>        <span class="comment">// Phase 8 — hooked. Triple-buffered: at most one invocation per
+<a href=#1360 id=1360 data-nosnippet>1360</a>        // `try_process`, and none at all when `reader_acquire` is empty.
+<a href=#1361 id=1361 data-nosnippet>1361</a>        // The two deserialization `?`s sit BEFORE the start hook, so a
+<a href=#1362 id=1362 data-nosnippet>1362</a>        // malformed sample returns early without opening a span.
+<a href=#1363 id=1363 data-nosnippet>1363</a>        </span>BufferStrategy::Triple(tb) =&gt; <span class="kw">match </span>tb.reader_acquire() {
+<a href=#1364 id=1364 data-nosnippet>1364</a>            <span class="prelude-val">Some</span>((data, len)) =&gt; {
+<a href=#1365 id=1365 data-nosnippet>1365</a>                observe_age::&lt;M&gt;(<span class="kw-2">&amp;</span>data[..len], <span class="kw-2">&amp;</span>entry.age_mon);
+<a href=#1366 id=1366 data-nosnippet>1366</a>                <span class="kw">let </span><span class="kw-2">mut </span>reader = CdrReader::new_with_header(<span class="kw-2">&amp;</span>data[..len])
+<a href=#1367 id=1367 data-nosnippet>1367</a>                    .map_err(|<span class="kw">_</span>| TransportError::DeserializationError)<span class="question-mark">?</span>;
+<a href=#1368 id=1368 data-nosnippet>1368</a>                <span class="kw">let </span>msg = M::deserialize(<span class="kw-2">&amp;mut </span>reader)
+<a href=#1369 id=1369 data-nosnippet>1369</a>                    .map_err(|<span class="kw">_</span>| TransportError::DeserializationError)<span class="question-mark">?</span>;
+<a href=#1370 id=1370 data-nosnippet>1370</a>                trace_cb_start(desc_idx);
+<a href=#1371 id=1371 data-nosnippet>1371</a>                (entry.callback)(<span class="kw-2">&amp;</span>msg);
+<a href=#1372 id=1372 data-nosnippet>1372</a>                trace_cb_end(desc_idx);
+<a href=#1373 id=1373 data-nosnippet>1373</a>                <span class="prelude-val">Ok</span>(<span class="bool-val">true</span>)
+<a href=#1374 id=1374 data-nosnippet>1374</a>            }
+<a href=#1375 id=1375 data-nosnippet>1375</a>            <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Ok</span>(<span class="bool-val">false</span>),
+<a href=#1376 id=1376 data-nosnippet>1376</a>        },
+<a href=#1377 id=1377 data-nosnippet>1377</a>        <span class="comment">// Phase 8 — hooked INSIDE the loop: a ring drains N queued messages
+<a href=#1378 id=1378 data-nosnippet>1378</a>        // per `try_process` and fires the callback once per message, so N
+<a href=#1379 id=1379 data-nosnippet>1379</a>        // messages must produce N spans, not one.
+<a href=#1380 id=1380 data-nosnippet>1380</a>        </span>BufferStrategy::Ring(ring) =&gt; {
+<a href=#1381 id=1381 data-nosnippet>1381</a>            <span class="kw">let </span><span class="kw-2">mut </span>did_work = <span class="bool-val">false</span>;
+<a href=#1382 id=1382 data-nosnippet>1382</a>            <span class="kw">while let </span><span class="prelude-val">Some</span>((data, len)) = ring.try_pop() {
+<a href=#1383 id=1383 data-nosnippet>1383</a>                observe_age::&lt;M&gt;(<span class="kw-2">&amp;</span>data[..len], <span class="kw-2">&amp;</span>entry.age_mon);
+<a href=#1384 id=1384 data-nosnippet>1384</a>                <span class="kw">let </span><span class="kw-2">mut </span>reader = CdrReader::new_with_header(<span class="kw-2">&amp;</span>data[..len])
+<a href=#1385 id=1385 data-nosnippet>1385</a>                    .map_err(|<span class="kw">_</span>| TransportError::DeserializationError)<span class="question-mark">?</span>;
+<a href=#1386 id=1386 data-nosnippet>1386</a>                <span class="kw">let </span>msg = M::deserialize(<span class="kw-2">&amp;mut </span>reader)
+<a href=#1387 id=1387 data-nosnippet>1387</a>                    .map_err(|<span class="kw">_</span>| TransportError::DeserializationError)<span class="question-mark">?</span>;
+<a href=#1388 id=1388 data-nosnippet>1388</a>                trace_cb_start(desc_idx);
+<a href=#1389 id=1389 data-nosnippet>1389</a>                (entry.callback)(<span class="kw-2">&amp;</span>msg);
+<a href=#1390 id=1390 data-nosnippet>1390</a>                trace_cb_end(desc_idx);
+<a href=#1391 id=1391 data-nosnippet>1391</a>                ring.commit_pop();
+<a href=#1392 id=1392 data-nosnippet>1392</a>                did_work = <span class="bool-val">true</span>;
+<a href=#1393 id=1393 data-nosnippet>1393</a>            }
+<a href=#1394 id=1394 data-nosnippet>1394</a>            <span class="prelude-val">Ok</span>(did_work)
+<a href=#1395 id=1395 data-nosnippet>1395</a>        }
+<a href=#1396 id=1396 data-nosnippet>1396</a>    }
+<a href=#1397 id=1397 data-nosnippet>1397</a>}
+<a href=#1398 id=1398 data-nosnippet>1398</a>
+<a href=#1399 id=1399 data-nosnippet>1399</a><span class="doccomment">/// Readiness check for buffered subscriptions.
+<a href=#1400 id=1400 data-nosnippet>1400</a>///
+<a href=#1401 id=1401 data-nosnippet>1401</a>/// Checks the RMW subscriber handle first (new data available from transport),
+<a href=#1402 id=1402 data-nosnippet>1402</a>/// then the buffer strategy (data already drained into triple buffer/ring).
+<a href=#1403 id=1403 data-nosnippet>1403</a>///
+<a href=#1404 id=1404 data-nosnippet>1404</a>/// # Safety
+<a href=#1405 id=1405 data-nosnippet>1405</a>/// `ptr` must point to a valid `SubBufferedEntry&lt;M, F&gt;`.
+<a href=#1406 id=1406 data-nosnippet>1406</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_buffered_has_data&lt;M, F&gt;(ptr: <span class="kw-2">*const </span>u8) -&gt; bool {
+<a href=#1407 id=1407 data-nosnippet>1407</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>(ptr <span class="kw">as </span><span class="kw-2">*const </span>SubBufferedEntry&lt;M, F&gt;) };
+<a href=#1408 id=1408 data-nosnippet>1408</a>    <span class="comment">// Check RMW handle first (data may be in static buffer, not yet drained)
+<a href=#1409 id=1409 data-nosnippet>1409</a>    </span>entry.handle.has_data() || entry.buffer.has_data()
+<a href=#1410 id=1410 data-nosnippet>1410</a>}
+<a href=#1411 id=1411 data-nosnippet>1411</a>
+<a href=#1412 id=1412 data-nosnippet>1412</a><span class="comment">// ============================================================================
+<a href=#1413 id=1413 data-nosnippet>1413</a>// In-place typed subscription (Phase 231 Wave 0.2 — RFC-0038)
+<a href=#1414 id=1414 data-nosnippet>1414</a>// ============================================================================
+<a href=#1415 id=1415 data-nosnippet>1415</a>
+<a href=#1416 id=1416 data-nosnippet>1416</a></span><span class="doccomment">/// In-place typed subscription entry — **no arena buffer**.
+<a href=#1417 id=1417 data-nosnippet>1417</a>///
+<a href=#1418 id=1418 data-nosnippet>1418</a>/// Unlike [`SubBufferedEntry`], this carries no trailing `BufferStrategy`: the
+<a href=#1419 id=1419 data-nosnippet>1419</a>/// callback deserializes directly from the backend's borrowed receive slot via
+<a href=#1420 id=1420 data-nosnippet>1420</a>/// [`Subscriber::process_raw_in_place`], so copy #1 (ring → arena) and the arena
+<a href=#1421 id=1421 data-nosnippet>1421</a>/// buffer are both gone. Selected at registration when the backend advertises
+<a href=#1422 id=1422 data-nosnippet>1422</a>/// `supports_process_in_place()`.
+<a href=#1423 id=1423 data-nosnippet>1423</a></span><span class="attr">#[repr(C)]
+<a href=#1424 id=1424 data-nosnippet>1424</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>SubInplaceEntry&lt;M, F&gt; {
+<a href=#1425 id=1425 data-nosnippet>1425</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) handle: session::RmwSubscriber,
+<a href=#1426 id=1426 data-nosnippet>1426</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) callback: F,
+<a href=#1427 id=1427 data-nosnippet>1427</a>    <span class="doccomment">/// W3b.5 — age hook for contracted endpoints.
+<a href=#1428 id=1428 data-nosnippet>1428</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) age_mon: <span class="prelude-ty">Option</span>&lt;AgeMon&gt;,
+<a href=#1429 id=1429 data-nosnippet>1429</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) _phantom: PhantomData&lt;M&gt;,
+<a href=#1430 id=1430 data-nosnippet>1430</a>}
+<a href=#1431 id=1431 data-nosnippet>1431</a>
+<a href=#1432 id=1432 data-nosnippet>1432</a><span class="doccomment">/// Monomorphized in-place dispatch for typed subscriptions.
+<a href=#1433 id=1433 data-nosnippet>1433</a>///
+<a href=#1434 id=1434 data-nosnippet>1434</a>/// Drains all pending messages from the backend, deserializing + invoking the
+<a href=#1435 id=1435 data-nosnippet>1435</a>/// callback directly from each borrowed slot. Returns `Ok(true)` if any message
+<a href=#1436 id=1436 data-nosnippet>1436</a>/// was dispatched.
+<a href=#1437 id=1437 data-nosnippet>1437</a>///
+<a href=#1438 id=1438 data-nosnippet>1438</a>/// # Safety
+<a href=#1439 id=1439 data-nosnippet>1439</a>/// `ptr` must point to a valid, aligned `SubInplaceEntry&lt;M, F&gt;`.
+<a href=#1440 id=1440 data-nosnippet>1440</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_inplace_try_process&lt;M, F&gt;(
+<a href=#1441 id=1441 data-nosnippet>1441</a>    ptr: <span class="kw-2">*mut </span>u8,
+<a href=#1442 id=1442 data-nosnippet>1442</a>    _delta_us: u64,
+<a href=#1443 id=1443 data-nosnippet>1443</a>    desc_idx: u8,
+<a href=#1444 id=1444 data-nosnippet>1444</a>) -&gt; <span class="prelude-ty">Result</span>&lt;bool, TransportError&gt;
+<a href=#1445 id=1445 data-nosnippet>1445</a><span class="kw">where
+<a href=#1446 id=1446 data-nosnippet>1446</a>    </span>M: RosMessage,
+<a href=#1447 id=1447 data-nosnippet>1447</a>    F: FnMut(<span class="kw-2">&amp;</span>M),
+<a href=#1448 id=1448 data-nosnippet>1448</a>{
+<a href=#1449 id=1449 data-nosnippet>1449</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>(ptr <span class="kw">as </span><span class="kw-2">*mut </span>SubInplaceEntry&lt;M, F&gt;) };
+<a href=#1450 id=1450 data-nosnippet>1450</a>    <span class="comment">// Split-borrow the handle and callback (disjoint fields).
+<a href=#1451 id=1451 data-nosnippet>1451</a>    </span><span class="kw">let </span>SubInplaceEntry {
+<a href=#1452 id=1452 data-nosnippet>1452</a>        handle,
+<a href=#1453 id=1453 data-nosnippet>1453</a>        callback,
+<a href=#1454 id=1454 data-nosnippet>1454</a>        age_mon,
+<a href=#1455 id=1455 data-nosnippet>1455</a>        ..
+<a href=#1456 id=1456 data-nosnippet>1456</a>    } = entry;
+<a href=#1457 id=1457 data-nosnippet>1457</a>    <span class="kw">let </span><span class="kw-2">mut </span>did_work = <span class="bool-val">false</span>;
+<a href=#1458 id=1458 data-nosnippet>1458</a>    <span class="kw">loop </span>{
+<a href=#1459 id=1459 data-nosnippet>1459</a>        <span class="kw">let </span><span class="kw-2">mut </span>deser_err = <span class="bool-val">false</span>;
+<a href=#1460 id=1460 data-nosnippet>1460</a>        <span class="comment">// Phase 8 — hooked inside the `Ok(msg)` arm of the borrow closure,
+<a href=#1461 id=1461 data-nosnippet>1461</a>        // which the drain loop re-enters once per pending message: N
+<a href=#1462 id=1462 data-nosnippet>1462</a>        // messages therefore produce N spans. The pair is fully contained
+<a href=#1463 id=1463 data-nosnippet>1463</a>        // in the closure, so the `?` on `process_raw_in_place` below can
+<a href=#1464 id=1464 data-nosnippet>1464</a>        // never fire between a start and its end. Deserialization failures
+<a href=#1465 id=1465 data-nosnippet>1465</a>        // take the `deser_err` arms and emit nothing.
+<a href=#1466 id=1466 data-nosnippet>1466</a>        </span><span class="kw">let </span>processed = handle.process_raw_in_place(|raw| {
+<a href=#1467 id=1467 data-nosnippet>1467</a>            observe_age::&lt;M&gt;(raw, age_mon);
+<a href=#1468 id=1468 data-nosnippet>1468</a>            <span class="kw">match </span>CdrReader::new_with_header(raw) {
+<a href=#1469 id=1469 data-nosnippet>1469</a>                <span class="prelude-val">Ok</span>(<span class="kw-2">mut </span>reader) =&gt; <span class="kw">match </span>M::deserialize(<span class="kw-2">&amp;mut </span>reader) {
+<a href=#1470 id=1470 data-nosnippet>1470</a>                    <span class="prelude-val">Ok</span>(msg) =&gt; {
+<a href=#1471 id=1471 data-nosnippet>1471</a>                        trace_cb_start(desc_idx);
+<a href=#1472 id=1472 data-nosnippet>1472</a>                        (callback)(<span class="kw-2">&amp;</span>msg);
+<a href=#1473 id=1473 data-nosnippet>1473</a>                        trace_cb_end(desc_idx);
+<a href=#1474 id=1474 data-nosnippet>1474</a>                    }
+<a href=#1475 id=1475 data-nosnippet>1475</a>                    <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; deser_err = <span class="bool-val">true</span>,
+<a href=#1476 id=1476 data-nosnippet>1476</a>                },
+<a href=#1477 id=1477 data-nosnippet>1477</a>                <span class="prelude-val">Err</span>(<span class="kw">_</span>) =&gt; deser_err = <span class="bool-val">true</span>,
+<a href=#1478 id=1478 data-nosnippet>1478</a>            }
+<a href=#1479 id=1479 data-nosnippet>1479</a>        })<span class="question-mark">?</span>;
+<a href=#1480 id=1480 data-nosnippet>1480</a>        <span class="kw">if </span>deser_err {
+<a href=#1481 id=1481 data-nosnippet>1481</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(TransportError::DeserializationError);
+<a href=#1482 id=1482 data-nosnippet>1482</a>        }
+<a href=#1483 id=1483 data-nosnippet>1483</a>        <span class="kw">if </span>processed {
+<a href=#1484 id=1484 data-nosnippet>1484</a>            did_work = <span class="bool-val">true</span>;
+<a href=#1485 id=1485 data-nosnippet>1485</a>        } <span class="kw">else </span>{
+<a href=#1486 id=1486 data-nosnippet>1486</a>            <span class="kw">break</span>;
+<a href=#1487 id=1487 data-nosnippet>1487</a>        }
+<a href=#1488 id=1488 data-nosnippet>1488</a>    }
+<a href=#1489 id=1489 data-nosnippet>1489</a>    <span class="prelude-val">Ok</span>(did_work)
 <a href=#1490 id=1490 data-nosnippet>1490</a>}
 <a href=#1491 id=1491 data-nosnippet>1491</a>
-<a href=#1492 id=1492 data-nosnippet>1492</a><span class="comment">// ============================================================================
-<a href=#1493 id=1493 data-nosnippet>1493</a>// Zero-copy raw buffered subscription (Phase 73.10)
-<a href=#1494 id=1494 data-nosnippet>1494</a>// ============================================================================
-<a href=#1495 id=1495 data-nosnippet>1495</a>
-<a href=#1496 id=1496 data-nosnippet>1496</a></span><span class="doccomment">/// Buffered subscription entry for zero-copy raw callbacks.
-<a href=#1497 id=1497 data-nosnippet>1497</a>///
-<a href=#1498 id=1498 data-nosnippet>1498</a>/// The callback receives `&amp;[u8]` (CDR data) borrowing directly from the
-<a href=#1499 id=1499 data-nosnippet>1499</a>/// triple buffer's read slot or SPSC ring's pop slot. For borrowed message
-<a href=#1500 id=1500 data-nosnippet>1500</a>/// types (e.g., `Image&lt;'a&gt;`), the callback calls `deserialize_view()`
-<a href=#1501 id=1501 data-nosnippet>1501</a>/// on the data, giving the message a lifetime tied to the callback scope.
-<a href=#1502 id=1502 data-nosnippet>1502</a></span><span class="attr">#[repr(C)]
-<a href=#1503 id=1503 data-nosnippet>1503</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>SubBufferedRawEntry&lt;F&gt; {
-<a href=#1504 id=1504 data-nosnippet>1504</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) handle: session::RmwSubscriber,
-<a href=#1505 id=1505 data-nosnippet>1505</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) buffer: BufferStrategy,
-<a href=#1506 id=1506 data-nosnippet>1506</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) callback: F,
-<a href=#1507 id=1507 data-nosnippet>1507</a>}
-<a href=#1508 id=1508 data-nosnippet>1508</a>
-<a href=#1509 id=1509 data-nosnippet>1509</a><span class="doccomment">/// Drain helper for raw buffered entries.
-<a href=#1510 id=1510 data-nosnippet>1510</a>///
-<a href=#1511 id=1511 data-nosnippet>1511</a>/// Issue 0757 — the THIRD copy of this drain, and it had the same swallow as
-<a href=#1512 id=1512 data-nosnippet>1512</a>/// the typed one above. Fixed the way issue 0737 fixed the C copy
-<a href=#1513 id=1513 data-nosnippet>1513</a>/// (`drain_into_buffer_raw_c`): let the error OUT so `spin_once` counts it,
-<a href=#1514 id=1514 data-nosnippet>1514</a>/// rather than inventing a second remedy for one defect.
-<a href=#1515 id=1515 data-nosnippet>1515</a></span><span class="kw">unsafe fn </span>drain_into_buffer_raw&lt;F&gt;(
-<a href=#1516 id=1516 data-nosnippet>1516</a>    entry: <span class="kw-2">&amp;mut </span>SubBufferedRawEntry&lt;F&gt;,
-<a href=#1517 id=1517 data-nosnippet>1517</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(), TransportError&gt; {
-<a href=#1518 id=1518 data-nosnippet>1518</a>    <span class="kw">match </span><span class="kw-2">&amp;</span>entry.buffer {
-<a href=#1519 id=1519 data-nosnippet>1519</a>        BufferStrategy::Triple(tb) =&gt; {
-<a href=#1520 id=1520 data-nosnippet>1520</a>            <span class="kw">let </span>slot = tb.write_slot();
-<a href=#1521 id=1521 data-nosnippet>1521</a>            <span class="kw">let </span>cap = slot.len();
-<a href=#1522 id=1522 data-nosnippet>1522</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(len) = entry.handle.take_serialized(slot).inspect_err(|e| {
-<a href=#1523 id=1523 data-nosnippet>1523</a>                report_dropped_take(e, cap);
-<a href=#1524 id=1524 data-nosnippet>1524</a>            })<span class="question-mark">? </span>{
-<a href=#1525 id=1525 data-nosnippet>1525</a>                tb.writer_publish(len);
-<a href=#1526 id=1526 data-nosnippet>1526</a>            }
-<a href=#1527 id=1527 data-nosnippet>1527</a>        }
-<a href=#1528 id=1528 data-nosnippet>1528</a>        BufferStrategy::Ring(ring) =&gt; {
-<a href=#1529 id=1529 data-nosnippet>1529</a>            <span class="kw">while let </span><span class="prelude-val">Some</span>(slot) = ring.try_push() {
-<a href=#1530 id=1530 data-nosnippet>1530</a>                <span class="kw">let </span>cap = slot.len();
-<a href=#1531 id=1531 data-nosnippet>1531</a>                <span class="kw">match </span>entry.handle.take_serialized(slot).inspect_err(|e| {
-<a href=#1532 id=1532 data-nosnippet>1532</a>                    report_dropped_take(e, cap);
-<a href=#1533 id=1533 data-nosnippet>1533</a>                })<span class="question-mark">? </span>{
-<a href=#1534 id=1534 data-nosnippet>1534</a>                    <span class="prelude-val">Some</span>(len) =&gt; ring.commit_push(len),
-<a href=#1535 id=1535 data-nosnippet>1535</a>                    <span class="prelude-val">None </span>=&gt; <span class="kw">break</span>,
-<a href=#1536 id=1536 data-nosnippet>1536</a>                }
-<a href=#1537 id=1537 data-nosnippet>1537</a>            }
-<a href=#1538 id=1538 data-nosnippet>1538</a>        }
-<a href=#1539 id=1539 data-nosnippet>1539</a>    }
-<a href=#1540 id=1540 data-nosnippet>1540</a>    <span class="prelude-val">Ok</span>(())
-<a href=#1541 id=1541 data-nosnippet>1541</a>}
-<a href=#1542 id=1542 data-nosnippet>1542</a>
-<a href=#1543 id=1543 data-nosnippet>1543</a><span class="doccomment">/// Dispatch for zero-copy raw buffered subscriptions.
-<a href=#1544 id=1544 data-nosnippet>1544</a>///
-<a href=#1545 id=1545 data-nosnippet>1545</a>/// Drains the RMW handle into the buffer, then passes the raw CDR slice
-<a href=#1546 id=1546 data-nosnippet>1546</a>/// to the callback. The callback borrows from the buffer slot — no copy.
+<a href=#1492 id=1492 data-nosnippet>1492</a><span class="doccomment">/// Readiness check for in-place typed subscriptions.
+<a href=#1493 id=1493 data-nosnippet>1493</a>///
+<a href=#1494 id=1494 data-nosnippet>1494</a>/// # Safety
+<a href=#1495 id=1495 data-nosnippet>1495</a>/// `ptr` must point to a valid `SubInplaceEntry&lt;M, F&gt;`.
+<a href=#1496 id=1496 data-nosnippet>1496</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_inplace_has_data&lt;M, F&gt;(ptr: <span class="kw-2">*const </span>u8) -&gt; bool {
+<a href=#1497 id=1497 data-nosnippet>1497</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>(ptr <span class="kw">as </span><span class="kw-2">*const </span>SubInplaceEntry&lt;M, F&gt;) };
+<a href=#1498 id=1498 data-nosnippet>1498</a>    entry.handle.has_data()
+<a href=#1499 id=1499 data-nosnippet>1499</a>}
+<a href=#1500 id=1500 data-nosnippet>1500</a>
+<a href=#1501 id=1501 data-nosnippet>1501</a><span class="comment">// ============================================================================
+<a href=#1502 id=1502 data-nosnippet>1502</a>// Zero-copy raw buffered subscription (Phase 73.10)
+<a href=#1503 id=1503 data-nosnippet>1503</a>// ============================================================================
+<a href=#1504 id=1504 data-nosnippet>1504</a>
+<a href=#1505 id=1505 data-nosnippet>1505</a></span><span class="doccomment">/// Buffered subscription entry for zero-copy raw callbacks.
+<a href=#1506 id=1506 data-nosnippet>1506</a>///
+<a href=#1507 id=1507 data-nosnippet>1507</a>/// The callback receives `&amp;[u8]` (CDR data) borrowing directly from the
+<a href=#1508 id=1508 data-nosnippet>1508</a>/// triple buffer's read slot or SPSC ring's pop slot. For borrowed message
+<a href=#1509 id=1509 data-nosnippet>1509</a>/// types (e.g., `Image&lt;'a&gt;`), the callback calls `deserialize_view()`
+<a href=#1510 id=1510 data-nosnippet>1510</a>/// on the data, giving the message a lifetime tied to the callback scope.
+<a href=#1511 id=1511 data-nosnippet>1511</a></span><span class="attr">#[repr(C)]
+<a href=#1512 id=1512 data-nosnippet>1512</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>SubBufferedRawEntry&lt;F&gt; {
+<a href=#1513 id=1513 data-nosnippet>1513</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) handle: session::RmwSubscriber,
+<a href=#1514 id=1514 data-nosnippet>1514</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) buffer: BufferStrategy,
+<a href=#1515 id=1515 data-nosnippet>1515</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) callback: F,
+<a href=#1516 id=1516 data-nosnippet>1516</a>}
+<a href=#1517 id=1517 data-nosnippet>1517</a>
+<a href=#1518 id=1518 data-nosnippet>1518</a><span class="doccomment">/// Drain helper for raw buffered entries.
+<a href=#1519 id=1519 data-nosnippet>1519</a>///
+<a href=#1520 id=1520 data-nosnippet>1520</a>/// Issue 0757 — the THIRD copy of this drain, and it had the same swallow as
+<a href=#1521 id=1521 data-nosnippet>1521</a>/// the typed one above. Fixed the way issue 0737 fixed the C copy
+<a href=#1522 id=1522 data-nosnippet>1522</a>/// (`drain_into_buffer_raw_c`): let the error OUT so `spin_once` counts it,
+<a href=#1523 id=1523 data-nosnippet>1523</a>/// rather than inventing a second remedy for one defect.
+<a href=#1524 id=1524 data-nosnippet>1524</a></span><span class="kw">unsafe fn </span>drain_into_buffer_raw&lt;F&gt;(
+<a href=#1525 id=1525 data-nosnippet>1525</a>    entry: <span class="kw-2">&amp;mut </span>SubBufferedRawEntry&lt;F&gt;,
+<a href=#1526 id=1526 data-nosnippet>1526</a>) -&gt; <span class="prelude-ty">Result</span>&lt;(), TransportError&gt; {
+<a href=#1527 id=1527 data-nosnippet>1527</a>    <span class="kw">match </span><span class="kw-2">&amp;</span>entry.buffer {
+<a href=#1528 id=1528 data-nosnippet>1528</a>        BufferStrategy::Triple(tb) =&gt; {
+<a href=#1529 id=1529 data-nosnippet>1529</a>            <span class="kw">let </span>slot = tb.write_slot();
+<a href=#1530 id=1530 data-nosnippet>1530</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(len) = take_reporting_drop(<span class="kw-2">&amp;mut </span>entry.handle, slot)<span class="question-mark">? </span>{
+<a href=#1531 id=1531 data-nosnippet>1531</a>                tb.writer_publish(len);
+<a href=#1532 id=1532 data-nosnippet>1532</a>            }
+<a href=#1533 id=1533 data-nosnippet>1533</a>        }
+<a href=#1534 id=1534 data-nosnippet>1534</a>        BufferStrategy::Ring(ring) =&gt; {
+<a href=#1535 id=1535 data-nosnippet>1535</a>            <span class="kw">while let </span><span class="prelude-val">Some</span>(slot) = ring.try_push() {
+<a href=#1536 id=1536 data-nosnippet>1536</a>                <span class="kw">match </span>take_reporting_drop(<span class="kw-2">&amp;mut </span>entry.handle, slot)<span class="question-mark">? </span>{
+<a href=#1537 id=1537 data-nosnippet>1537</a>                    <span class="prelude-val">Some</span>(len) =&gt; ring.commit_push(len),
+<a href=#1538 id=1538 data-nosnippet>1538</a>                    <span class="prelude-val">None </span>=&gt; <span class="kw">break</span>,
+<a href=#1539 id=1539 data-nosnippet>1539</a>                }
+<a href=#1540 id=1540 data-nosnippet>1540</a>            }
+<a href=#1541 id=1541 data-nosnippet>1541</a>        }
+<a href=#1542 id=1542 data-nosnippet>1542</a>    }
+<a href=#1543 id=1543 data-nosnippet>1543</a>    <span class="prelude-val">Ok</span>(())
+<a href=#1544 id=1544 data-nosnippet>1544</a>}
+<a href=#1545 id=1545 data-nosnippet>1545</a>
+<a href=#1546 id=1546 data-nosnippet>1546</a><span class="doccomment">/// Dispatch for zero-copy raw buffered subscriptions.
 <a href=#1547 id=1547 data-nosnippet>1547</a>///
-<a href=#1548 id=1548 data-nosnippet>1548</a>/// # Safety
-<a href=#1549 id=1549 data-nosnippet>1549</a>/// `ptr` must point to a valid, aligned `SubBufferedRawEntry&lt;F&gt;`.
-<a href=#1550 id=1550 data-nosnippet>1550</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_buffered_raw_try_process&lt;F&gt;(
-<a href=#1551 id=1551 data-nosnippet>1551</a>    ptr: <span class="kw-2">*mut </span>u8,
-<a href=#1552 id=1552 data-nosnippet>1552</a>    _delta_us: u64,
-<a href=#1553 id=1553 data-nosnippet>1553</a>    desc_idx: u8,
-<a href=#1554 id=1554 data-nosnippet>1554</a>) -&gt; <span class="prelude-ty">Result</span>&lt;bool, TransportError&gt;
-<a href=#1555 id=1555 data-nosnippet>1555</a><span class="kw">where
-<a href=#1556 id=1556 data-nosnippet>1556</a>    </span>F: FnMut(<span class="kw-2">&amp;</span>[u8]),
-<a href=#1557 id=1557 data-nosnippet>1557</a>{
-<a href=#1558 id=1558 data-nosnippet>1558</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>(ptr <span class="kw">as </span><span class="kw-2">*mut </span>SubBufferedRawEntry&lt;F&gt;) };
-<a href=#1559 id=1559 data-nosnippet>1559</a>
-<a href=#1560 id=1560 data-nosnippet>1560</a>    <span class="comment">// Issue 0757 — see `drain_into_buffer`; the error reaches `spin_once`'s
-<a href=#1561 id=1561 data-nosnippet>1561</a>    // `subscription_errors` instead of vanishing.
-<a href=#1562 id=1562 data-nosnippet>1562</a>    </span><span class="kw">unsafe </span>{ drain_into_buffer_raw(entry)<span class="question-mark">? </span>};
-<a href=#1563 id=1563 data-nosnippet>1563</a>
-<a href=#1564 id=1564 data-nosnippet>1564</a>    <span class="kw">match </span><span class="kw-2">&amp;</span>entry.buffer {
-<a href=#1565 id=1565 data-nosnippet>1565</a>        <span class="comment">// Phase 8 — hooked. Triple-buffered: one invocation per
-<a href=#1566 id=1566 data-nosnippet>1566</a>        // `try_process` at most, none when `reader_acquire` is empty.
-<a href=#1567 id=1567 data-nosnippet>1567</a>        </span>BufferStrategy::Triple(tb) =&gt; <span class="kw">match </span>tb.reader_acquire() {
-<a href=#1568 id=1568 data-nosnippet>1568</a>            <span class="prelude-val">Some</span>((data, len)) =&gt; {
-<a href=#1569 id=1569 data-nosnippet>1569</a>                trace_cb_start(desc_idx);
-<a href=#1570 id=1570 data-nosnippet>1570</a>                (entry.callback)(<span class="kw-2">&amp;</span>data[..len]);
-<a href=#1571 id=1571 data-nosnippet>1571</a>                trace_cb_end(desc_idx);
-<a href=#1572 id=1572 data-nosnippet>1572</a>                <span class="prelude-val">Ok</span>(<span class="bool-val">true</span>)
-<a href=#1573 id=1573 data-nosnippet>1573</a>            }
-<a href=#1574 id=1574 data-nosnippet>1574</a>            <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Ok</span>(<span class="bool-val">false</span>),
-<a href=#1575 id=1575 data-nosnippet>1575</a>        },
-<a href=#1576 id=1576 data-nosnippet>1576</a>        <span class="comment">// Phase 8 — hooked INSIDE the loop: one span per drained message,
-<a href=#1577 id=1577 data-nosnippet>1577</a>        // not one per `try_process`.
-<a href=#1578 id=1578 data-nosnippet>1578</a>        </span>BufferStrategy::Ring(ring) =&gt; {
-<a href=#1579 id=1579 data-nosnippet>1579</a>            <span class="kw">let </span><span class="kw-2">mut </span>did_work = <span class="bool-val">false</span>;
-<a href=#1580 id=1580 data-nosnippet>1580</a>            <span class="kw">while let </span><span class="prelude-val">Some</span>((data, len)) = ring.try_pop() {
-<a href=#1581 id=1581 data-nosnippet>1581</a>                trace_cb_start(desc_idx);
-<a href=#1582 id=1582 data-nosnippet>1582</a>                (entry.callback)(<span class="kw-2">&amp;</span>data[..len]);
-<a href=#1583 id=1583 data-nosnippet>1583</a>                trace_cb_end(desc_idx);
-<a href=#1584 id=1584 data-nosnippet>1584</a>                ring.commit_pop();
-<a href=#1585 id=1585 data-nosnippet>1585</a>                did_work = <span class="bool-val">true</span>;
-<a href=#1586 id=1586 data-nosnippet>1586</a>            }
-<a href=#1587 id=1587 data-nosnippet>1587</a>            <span class="prelude-val">Ok</span>(did_work)
-<a href=#1588 id=1588 data-nosnippet>1588</a>        }
-<a href=#1589 id=1589 data-nosnippet>1589</a>    }
-<a href=#1590 id=1590 data-nosnippet>1590</a>}
-<a href=#1591 id=1591 data-nosnippet>1591</a>
-<a href=#1592 id=1592 data-nosnippet>1592</a><span class="doccomment">/// Readiness check for raw buffered subscriptions.
-<a href=#1593 id=1593 data-nosnippet>1593</a>///
-<a href=#1594 id=1594 data-nosnippet>1594</a>/// # Safety
-<a href=#1595 id=1595 data-nosnippet>1595</a>/// `ptr` must point to a valid `SubBufferedRawEntry&lt;F&gt;`.
-<a href=#1596 id=1596 data-nosnippet>1596</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_buffered_raw_has_data&lt;F&gt;(ptr: <span class="kw-2">*const </span>u8) -&gt; bool {
-<a href=#1597 id=1597 data-nosnippet>1597</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>(ptr <span class="kw">as </span><span class="kw-2">*const </span>SubBufferedRawEntry&lt;F&gt;) };
-<a href=#1598 id=1598 data-nosnippet>1598</a>    entry.handle.has_data() || entry.buffer.has_data()
-<a href=#1599 id=1599 data-nosnippet>1599</a>}
-<a href=#1600 id=1600 data-nosnippet>1600</a>
-<a href=#1601 id=1601 data-nosnippet>1601</a><span class="comment">// ============================================================================
-<a href=#1602 id=1602 data-nosnippet>1602</a>// Borrowed (zero-copy) buffered subscription (Phase 229.6, issue 0007)
-<a href=#1603 id=1603 data-nosnippet>1603</a>// ============================================================================
-<a href=#1604 id=1604 data-nosnippet>1604</a>
-<a href=#1605 id=1605 data-nosnippet>1605</a></span><span class="doccomment">/// Buffered subscription entry for borrowed (zero-copy) message callbacks.
-<a href=#1606 id=1606 data-nosnippet>1606</a>///
-<a href=#1607 id=1607 data-nosnippet>1607</a>/// The callback receives `&amp;B::View&lt;'a&gt;` — a lifetime-carrying message whose
-<a href=#1608 id=1608 data-nosnippet>1608</a>/// unbounded sequence/string fields borrow directly from the triple buffer's
-<a href=#1609 id=1609 data-nosnippet>1609</a>/// read slot (no arena copy, no `heapless::Vec` copy). The view is materialised
-<a href=#1610 id=1610 data-nosnippet>1610</a>/// per dispatch via [`DeserializeView`] and dropped before the slot is
-<a href=#1611 id=1611 data-nosnippet>1611</a>/// released, so the borrow never outlives the buffer.
-<a href=#1612 id=1612 data-nosnippet>1612</a>///
-<a href=#1613 id=1613 data-nosnippet>1613</a>/// **Triple-buffer only.** A borrowed view must reference exactly one
-<a href=#1614 id=1614 data-nosnippet>1614</a>/// well-defined slot for the duration of the callback; an SPSC ring (depth &gt; 1)
-<a href=#1615 id=1615 data-nosnippet>1615</a>/// holds several samples in flight with no single such slot. Registration
-<a href=#1616 id=1616 data-nosnippet>1616</a>/// rejects `qos.depth &gt; 1` for borrowed subscriptions, so `buffer` is always
-<a href=#1617 id=1617 data-nosnippet>1617</a>/// [`BufferStrategy::Triple`] here.
-<a href=#1618 id=1618 data-nosnippet>1618</a></span><span class="attr">#[repr(C)]
-<a href=#1619 id=1619 data-nosnippet>1619</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>SubBufferedViewEntry&lt;B, F&gt; {
-<a href=#1620 id=1620 data-nosnippet>1620</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) handle: session::RmwSubscriber,
-<a href=#1621 id=1621 data-nosnippet>1621</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) buffer: BufferStrategy,
-<a href=#1622 id=1622 data-nosnippet>1622</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) callback: F,
-<a href=#1623 id=1623 data-nosnippet>1623</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) _phantom: PhantomData&lt;B&gt;,
-<a href=#1624 id=1624 data-nosnippet>1624</a>}
-<a href=#1625 id=1625 data-nosnippet>1625</a>
-<a href=#1626 id=1626 data-nosnippet>1626</a><span class="doccomment">/// Dispatch for borrowed (zero-copy) buffered subscriptions.
-<a href=#1627 id=1627 data-nosnippet>1627</a>///
-<a href=#1628 id=1628 data-nosnippet>1628</a>/// Drains the RMW handle into the triple buffer, then materialises a borrowed
-<a href=#1629 id=1629 data-nosnippet>1629</a>/// `B::View&lt;'_&gt;` over the read slot and hands it to the callback. The view
-<a href=#1630 id=1630 data-nosnippet>1630</a>/// borrows the slot; it is dropped at the end of the callback, before the next
-<a href=#1631 id=1631 data-nosnippet>1631</a>/// dispatch can publish over the slot.
-<a href=#1632 id=1632 data-nosnippet>1632</a>///
-<a href=#1633 id=1633 data-nosnippet>1633</a>/// # Safety
-<a href=#1634 id=1634 data-nosnippet>1634</a>/// `ptr` must point to a valid, aligned `SubBufferedViewEntry&lt;B, F&gt;`.
-<a href=#1635 id=1635 data-nosnippet>1635</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_buffered_view_try_process&lt;B, F&gt;(
-<a href=#1636 id=1636 data-nosnippet>1636</a>    ptr: <span class="kw-2">*mut </span>u8,
-<a href=#1637 id=1637 data-nosnippet>1637</a>    _delta_us: u64,
-<a href=#1638 id=1638 data-nosnippet>1638</a>    desc_idx: u8,
-<a href=#1639 id=1639 data-nosnippet>1639</a>) -&gt; <span class="prelude-ty">Result</span>&lt;bool, TransportError&gt;
-<a href=#1640 id=1640 data-nosnippet>1640</a><span class="kw">where
-<a href=#1641 id=1641 data-nosnippet>1641</a>    </span>B: ViewableMessage,
-<a href=#1642 id=1642 data-nosnippet>1642</a>    F: <span class="kw">for</span>&lt;<span class="lifetime">'a</span>&gt; FnMut(<span class="kw-2">&amp;</span>B::View&lt;<span class="lifetime">'a</span>&gt;),
-<a href=#1643 id=1643 data-nosnippet>1643</a>{
-<a href=#1644 id=1644 data-nosnippet>1644</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>(ptr <span class="kw">as </span><span class="kw-2">*mut </span>SubBufferedViewEntry&lt;B, F&gt;) };
-<a href=#1645 id=1645 data-nosnippet>1645</a>
-<a href=#1646 id=1646 data-nosnippet>1646</a>    <span class="comment">// Borrowed subscriptions are triple-buffer only (enforced at registration).
-<a href=#1647 id=1647 data-nosnippet>1647</a>    </span><span class="kw">let </span>tb = <span class="kw">match </span><span class="kw-2">&amp;</span>entry.buffer {
-<a href=#1648 id=1648 data-nosnippet>1648</a>        BufferStrategy::Triple(tb) =&gt; tb,
-<a href=#1649 id=1649 data-nosnippet>1649</a>        <span class="comment">// Unreachable: registration rejects depth &gt; 1. Treat as no work.
-<a href=#1650 id=1650 data-nosnippet>1650</a>        </span>BufferStrategy::Ring(<span class="kw">_</span>) =&gt; <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>),
-<a href=#1651 id=1651 data-nosnippet>1651</a>    };
-<a href=#1652 id=1652 data-nosnippet>1652</a>
-<a href=#1653 id=1653 data-nosnippet>1653</a>    <span class="comment">// Phase 1: drain RMW subscriber → triple buffer write slot.
-<a href=#1654 id=1654 data-nosnippet>1654</a>    //
-<a href=#1655 id=1655 data-nosnippet>1655</a>    // Issue 0757 — the FOURTH copy of this drain (the borrowed/zero-copy path)
-<a href=#1656 id=1656 data-nosnippet>1656</a>    // and it swallowed non-OK takes like the others. Same remedy as issue 0737's
-<a href=#1657 id=1657 data-nosnippet>1657</a>    // C copy: report the actionable size, then let the error out.
-<a href=#1658 id=1658 data-nosnippet>1658</a>    </span>{
-<a href=#1659 id=1659 data-nosnippet>1659</a>        <span class="kw">let </span>slot = tb.write_slot();
-<a href=#1660 id=1660 data-nosnippet>1660</a>        <span class="kw">let </span>cap = slot.len();
-<a href=#1661 id=1661 data-nosnippet>1661</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(len) = entry.handle.take_serialized(slot).inspect_err(|e| {
-<a href=#1662 id=1662 data-nosnippet>1662</a>            report_dropped_take(e, cap);
-<a href=#1663 id=1663 data-nosnippet>1663</a>        })<span class="question-mark">? </span>{
+<a href=#1548 id=1548 data-nosnippet>1548</a>/// Drains the RMW handle into the buffer, then passes the raw CDR slice
+<a href=#1549 id=1549 data-nosnippet>1549</a>/// to the callback. The callback borrows from the buffer slot — no copy.
+<a href=#1550 id=1550 data-nosnippet>1550</a>///
+<a href=#1551 id=1551 data-nosnippet>1551</a>/// # Safety
+<a href=#1552 id=1552 data-nosnippet>1552</a>/// `ptr` must point to a valid, aligned `SubBufferedRawEntry&lt;F&gt;`.
+<a href=#1553 id=1553 data-nosnippet>1553</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_buffered_raw_try_process&lt;F&gt;(
+<a href=#1554 id=1554 data-nosnippet>1554</a>    ptr: <span class="kw-2">*mut </span>u8,
+<a href=#1555 id=1555 data-nosnippet>1555</a>    _delta_us: u64,
+<a href=#1556 id=1556 data-nosnippet>1556</a>    desc_idx: u8,
+<a href=#1557 id=1557 data-nosnippet>1557</a>) -&gt; <span class="prelude-ty">Result</span>&lt;bool, TransportError&gt;
+<a href=#1558 id=1558 data-nosnippet>1558</a><span class="kw">where
+<a href=#1559 id=1559 data-nosnippet>1559</a>    </span>F: FnMut(<span class="kw-2">&amp;</span>[u8]),
+<a href=#1560 id=1560 data-nosnippet>1560</a>{
+<a href=#1561 id=1561 data-nosnippet>1561</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>(ptr <span class="kw">as </span><span class="kw-2">*mut </span>SubBufferedRawEntry&lt;F&gt;) };
+<a href=#1562 id=1562 data-nosnippet>1562</a>
+<a href=#1563 id=1563 data-nosnippet>1563</a>    <span class="comment">// Issue 0757 — see `drain_into_buffer`; the error reaches `spin_once`'s
+<a href=#1564 id=1564 data-nosnippet>1564</a>    // `subscription_errors` instead of vanishing.
+<a href=#1565 id=1565 data-nosnippet>1565</a>    </span><span class="kw">unsafe </span>{ drain_into_buffer_raw(entry)<span class="question-mark">? </span>};
+<a href=#1566 id=1566 data-nosnippet>1566</a>
+<a href=#1567 id=1567 data-nosnippet>1567</a>    <span class="kw">match </span><span class="kw-2">&amp;</span>entry.buffer {
+<a href=#1568 id=1568 data-nosnippet>1568</a>        <span class="comment">// Phase 8 — hooked. Triple-buffered: one invocation per
+<a href=#1569 id=1569 data-nosnippet>1569</a>        // `try_process` at most, none when `reader_acquire` is empty.
+<a href=#1570 id=1570 data-nosnippet>1570</a>        </span>BufferStrategy::Triple(tb) =&gt; <span class="kw">match </span>tb.reader_acquire() {
+<a href=#1571 id=1571 data-nosnippet>1571</a>            <span class="prelude-val">Some</span>((data, len)) =&gt; {
+<a href=#1572 id=1572 data-nosnippet>1572</a>                trace_cb_start(desc_idx);
+<a href=#1573 id=1573 data-nosnippet>1573</a>                (entry.callback)(<span class="kw-2">&amp;</span>data[..len]);
+<a href=#1574 id=1574 data-nosnippet>1574</a>                trace_cb_end(desc_idx);
+<a href=#1575 id=1575 data-nosnippet>1575</a>                <span class="prelude-val">Ok</span>(<span class="bool-val">true</span>)
+<a href=#1576 id=1576 data-nosnippet>1576</a>            }
+<a href=#1577 id=1577 data-nosnippet>1577</a>            <span class="prelude-val">None </span>=&gt; <span class="prelude-val">Ok</span>(<span class="bool-val">false</span>),
+<a href=#1578 id=1578 data-nosnippet>1578</a>        },
+<a href=#1579 id=1579 data-nosnippet>1579</a>        <span class="comment">// Phase 8 — hooked INSIDE the loop: one span per drained message,
+<a href=#1580 id=1580 data-nosnippet>1580</a>        // not one per `try_process`.
+<a href=#1581 id=1581 data-nosnippet>1581</a>        </span>BufferStrategy::Ring(ring) =&gt; {
+<a href=#1582 id=1582 data-nosnippet>1582</a>            <span class="kw">let </span><span class="kw-2">mut </span>did_work = <span class="bool-val">false</span>;
+<a href=#1583 id=1583 data-nosnippet>1583</a>            <span class="kw">while let </span><span class="prelude-val">Some</span>((data, len)) = ring.try_pop() {
+<a href=#1584 id=1584 data-nosnippet>1584</a>                trace_cb_start(desc_idx);
+<a href=#1585 id=1585 data-nosnippet>1585</a>                (entry.callback)(<span class="kw-2">&amp;</span>data[..len]);
+<a href=#1586 id=1586 data-nosnippet>1586</a>                trace_cb_end(desc_idx);
+<a href=#1587 id=1587 data-nosnippet>1587</a>                ring.commit_pop();
+<a href=#1588 id=1588 data-nosnippet>1588</a>                did_work = <span class="bool-val">true</span>;
+<a href=#1589 id=1589 data-nosnippet>1589</a>            }
+<a href=#1590 id=1590 data-nosnippet>1590</a>            <span class="prelude-val">Ok</span>(did_work)
+<a href=#1591 id=1591 data-nosnippet>1591</a>        }
+<a href=#1592 id=1592 data-nosnippet>1592</a>    }
+<a href=#1593 id=1593 data-nosnippet>1593</a>}
+<a href=#1594 id=1594 data-nosnippet>1594</a>
+<a href=#1595 id=1595 data-nosnippet>1595</a><span class="doccomment">/// Readiness check for raw buffered subscriptions.
+<a href=#1596 id=1596 data-nosnippet>1596</a>///
+<a href=#1597 id=1597 data-nosnippet>1597</a>/// # Safety
+<a href=#1598 id=1598 data-nosnippet>1598</a>/// `ptr` must point to a valid `SubBufferedRawEntry&lt;F&gt;`.
+<a href=#1599 id=1599 data-nosnippet>1599</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_buffered_raw_has_data&lt;F&gt;(ptr: <span class="kw-2">*const </span>u8) -&gt; bool {
+<a href=#1600 id=1600 data-nosnippet>1600</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>(ptr <span class="kw">as </span><span class="kw-2">*const </span>SubBufferedRawEntry&lt;F&gt;) };
+<a href=#1601 id=1601 data-nosnippet>1601</a>    entry.handle.has_data() || entry.buffer.has_data()
+<a href=#1602 id=1602 data-nosnippet>1602</a>}
+<a href=#1603 id=1603 data-nosnippet>1603</a>
+<a href=#1604 id=1604 data-nosnippet>1604</a><span class="comment">// ============================================================================
+<a href=#1605 id=1605 data-nosnippet>1605</a>// Borrowed (zero-copy) buffered subscription (Phase 229.6, issue 0007)
+<a href=#1606 id=1606 data-nosnippet>1606</a>// ============================================================================
+<a href=#1607 id=1607 data-nosnippet>1607</a>
+<a href=#1608 id=1608 data-nosnippet>1608</a></span><span class="doccomment">/// Buffered subscription entry for borrowed (zero-copy) message callbacks.
+<a href=#1609 id=1609 data-nosnippet>1609</a>///
+<a href=#1610 id=1610 data-nosnippet>1610</a>/// The callback receives `&amp;B::View&lt;'a&gt;` — a lifetime-carrying message whose
+<a href=#1611 id=1611 data-nosnippet>1611</a>/// unbounded sequence/string fields borrow directly from the triple buffer's
+<a href=#1612 id=1612 data-nosnippet>1612</a>/// read slot (no arena copy, no `heapless::Vec` copy). The view is materialised
+<a href=#1613 id=1613 data-nosnippet>1613</a>/// per dispatch via [`DeserializeView`] and dropped before the slot is
+<a href=#1614 id=1614 data-nosnippet>1614</a>/// released, so the borrow never outlives the buffer.
+<a href=#1615 id=1615 data-nosnippet>1615</a>///
+<a href=#1616 id=1616 data-nosnippet>1616</a>/// **Triple-buffer only.** A borrowed view must reference exactly one
+<a href=#1617 id=1617 data-nosnippet>1617</a>/// well-defined slot for the duration of the callback; an SPSC ring (depth &gt; 1)
+<a href=#1618 id=1618 data-nosnippet>1618</a>/// holds several samples in flight with no single such slot. Registration
+<a href=#1619 id=1619 data-nosnippet>1619</a>/// rejects `qos.depth &gt; 1` for borrowed subscriptions, so `buffer` is always
+<a href=#1620 id=1620 data-nosnippet>1620</a>/// [`BufferStrategy::Triple`] here.
+<a href=#1621 id=1621 data-nosnippet>1621</a></span><span class="attr">#[repr(C)]
+<a href=#1622 id=1622 data-nosnippet>1622</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">struct </span>SubBufferedViewEntry&lt;B, F&gt; {
+<a href=#1623 id=1623 data-nosnippet>1623</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) handle: session::RmwSubscriber,
+<a href=#1624 id=1624 data-nosnippet>1624</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) buffer: BufferStrategy,
+<a href=#1625 id=1625 data-nosnippet>1625</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) callback: F,
+<a href=#1626 id=1626 data-nosnippet>1626</a>    <span class="kw">pub</span>(<span class="kw">crate</span>) _phantom: PhantomData&lt;B&gt;,
+<a href=#1627 id=1627 data-nosnippet>1627</a>}
+<a href=#1628 id=1628 data-nosnippet>1628</a>
+<a href=#1629 id=1629 data-nosnippet>1629</a><span class="doccomment">/// Dispatch for borrowed (zero-copy) buffered subscriptions.
+<a href=#1630 id=1630 data-nosnippet>1630</a>///
+<a href=#1631 id=1631 data-nosnippet>1631</a>/// Drains the RMW handle into the triple buffer, then materialises a borrowed
+<a href=#1632 id=1632 data-nosnippet>1632</a>/// `B::View&lt;'_&gt;` over the read slot and hands it to the callback. The view
+<a href=#1633 id=1633 data-nosnippet>1633</a>/// borrows the slot; it is dropped at the end of the callback, before the next
+<a href=#1634 id=1634 data-nosnippet>1634</a>/// dispatch can publish over the slot.
+<a href=#1635 id=1635 data-nosnippet>1635</a>///
+<a href=#1636 id=1636 data-nosnippet>1636</a>/// # Safety
+<a href=#1637 id=1637 data-nosnippet>1637</a>/// `ptr` must point to a valid, aligned `SubBufferedViewEntry&lt;B, F&gt;`.
+<a href=#1638 id=1638 data-nosnippet>1638</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>sub_buffered_view_try_process&lt;B, F&gt;(
+<a href=#1639 id=1639 data-nosnippet>1639</a>    ptr: <span class="kw-2">*mut </span>u8,
+<a href=#1640 id=1640 data-nosnippet>1640</a>    _delta_us: u64,
+<a href=#1641 id=1641 data-nosnippet>1641</a>    desc_idx: u8,
+<a href=#1642 id=1642 data-nosnippet>1642</a>) -&gt; <span class="prelude-ty">Result</span>&lt;bool, TransportError&gt;
+<a href=#1643 id=1643 data-nosnippet>1643</a><span class="kw">where
+<a href=#1644 id=1644 data-nosnippet>1644</a>    </span>B: ViewableMessage,
+<a href=#1645 id=1645 data-nosnippet>1645</a>    F: <span class="kw">for</span>&lt;<span class="lifetime">'a</span>&gt; FnMut(<span class="kw-2">&amp;</span>B::View&lt;<span class="lifetime">'a</span>&gt;),
+<a href=#1646 id=1646 data-nosnippet>1646</a>{
+<a href=#1647 id=1647 data-nosnippet>1647</a>    <span class="kw">let </span>entry = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>(ptr <span class="kw">as </span><span class="kw-2">*mut </span>SubBufferedViewEntry&lt;B, F&gt;) };
+<a href=#1648 id=1648 data-nosnippet>1648</a>
+<a href=#1649 id=1649 data-nosnippet>1649</a>    <span class="comment">// Borrowed subscriptions are triple-buffer only (enforced at registration).
+<a href=#1650 id=1650 data-nosnippet>1650</a>    </span><span class="kw">let </span>tb = <span class="kw">match </span><span class="kw-2">&amp;</span>entry.buffer {
+<a href=#1651 id=1651 data-nosnippet>1651</a>        BufferStrategy::Triple(tb) =&gt; tb,
+<a href=#1652 id=1652 data-nosnippet>1652</a>        <span class="comment">// Unreachable: registration rejects depth &gt; 1. Treat as no work.
+<a href=#1653 id=1653 data-nosnippet>1653</a>        </span>BufferStrategy::Ring(<span class="kw">_</span>) =&gt; <span class="kw">return </span><span class="prelude-val">Ok</span>(<span class="bool-val">false</span>),
+<a href=#1654 id=1654 data-nosnippet>1654</a>    };
+<a href=#1655 id=1655 data-nosnippet>1655</a>
+<a href=#1656 id=1656 data-nosnippet>1656</a>    <span class="comment">// Phase 1: drain RMW subscriber → triple buffer write slot.
+<a href=#1657 id=1657 data-nosnippet>1657</a>    //
+<a href=#1658 id=1658 data-nosnippet>1658</a>    // Issue 0757 — the FOURTH copy of this drain (the borrowed/zero-copy path)
+<a href=#1659 id=1659 data-nosnippet>1659</a>    // and it swallowed non-OK takes like the others. Same remedy as issue 0737's
+<a href=#1660 id=1660 data-nosnippet>1660</a>    // C copy: report the actionable size, then let the error out.
+<a href=#1661 id=1661 data-nosnippet>1661</a>    </span>{
+<a href=#1662 id=1662 data-nosnippet>1662</a>        <span class="kw">let </span>slot = tb.write_slot();
+<a href=#1663 id=1663 data-nosnippet>1663</a>        <span class="kw">if let </span><span class="prelude-val">Some</span>(len) = take_reporting_drop(<span class="kw-2">&amp;mut </span>entry.handle, slot)<span class="question-mark">? </span>{
 <a href=#1664 id=1664 data-nosnippet>1664</a>            tb.writer_publish(len);
 <a href=#1665 id=1665 data-nosnippet>1665</a>        }
 <a href=#1666 id=1666 data-nosnippet>1666</a>    }
@@ -4378,4 +4378,81 @@
 <a href=#4378 id=4378 data-nosnippet>4378</a>        }
 <a href=#4379 id=4379 data-nosnippet>4379</a>    }
 <a href=#4380 id=4380 data-nosnippet>4380</a>}
+<a href=#4381 id=4381 data-nosnippet>4381</a>
+<a href=#4382 id=4382 data-nosnippet>4382</a><span class="doccomment">/// Issue 1632 — the Rust arena's drop log prints the size the sample needed
+<a href=#4383 id=4383 data-nosnippet>4383</a>/// beside the buffer, as the C++ one has since issue 1612.
+<a href=#4384 id=4384 data-nosnippet>4384</a>///
+<a href=#4385 id=4385 data-nosnippet>4385</a>/// The sink keeps what was logged, so the test reads what a human would see.
+<a href=#4386 id=4386 data-nosnippet>4386</a>/// Process-global counter and sink, so the cells serialise and reset.
+<a href=#4387 id=4387 data-nosnippet>4387</a></span><span class="attr">#[cfg(test)]
+<a href=#4388 id=4388 data-nosnippet>4388</a></span><span class="kw">mod </span>dropped_take_log_tests {
+<a href=#4389 id=4389 data-nosnippet>4389</a>    <span class="kw">use super</span>::{DROPPED_TAKES, report_dropped_take};
+<a href=#4390 id=4390 data-nosnippet>4390</a>    <span class="kw">use </span>nros_rmw::TransportError;
+<a href=#4391 id=4391 data-nosnippet>4391</a>
+<a href=#4392 id=4392 data-nosnippet>4392</a>    <span class="kw">struct </span>CapturingSink {
+<a href=#4393 id=4393 data-nosnippet>4393</a>        lines: std::sync::Mutex&lt;std::vec::Vec&lt;std::string::String&gt;&gt;,
+<a href=#4394 id=4394 data-nosnippet>4394</a>    }
+<a href=#4395 id=4395 data-nosnippet>4395</a>
+<a href=#4396 id=4396 data-nosnippet>4396</a>    <span class="kw">impl </span>nros_log::LogSink <span class="kw">for </span>CapturingSink {
+<a href=#4397 id=4397 data-nosnippet>4397</a>        <span class="kw">fn </span>log(<span class="kw-2">&amp;</span><span class="self">self</span>, record: <span class="kw-2">&amp;</span>nros_log::Record&lt;<span class="lifetime">'_</span>&gt;) {
+<a href=#4398 id=4398 data-nosnippet>4398</a>            <span class="kw">if </span>record.message.contains(<span class="string">"subscription take DROPPED"</span>) {
+<a href=#4399 id=4399 data-nosnippet>4399</a>                <span class="self">self</span>.lines
+<a href=#4400 id=4400 data-nosnippet>4400</a>                    .lock()
+<a href=#4401 id=4401 data-nosnippet>4401</a>                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+<a href=#4402 id=4402 data-nosnippet>4402</a>                    .push(record.message.into());
+<a href=#4403 id=4403 data-nosnippet>4403</a>            }
+<a href=#4404 id=4404 data-nosnippet>4404</a>        }
+<a href=#4405 id=4405 data-nosnippet>4405</a>    }
+<a href=#4406 id=4406 data-nosnippet>4406</a>
+<a href=#4407 id=4407 data-nosnippet>4407</a>    <span class="kw">static </span>CAPTURE: std::sync::OnceLock&lt;<span class="kw-2">&amp;</span><span class="lifetime">'static </span>CapturingSink&gt; = std::sync::OnceLock::new();
+<a href=#4408 id=4408 data-nosnippet>4408</a>    <span class="kw">static </span>SERIAL: std::sync::Mutex&lt;()&gt; = std::sync::Mutex::new(());
+<a href=#4409 id=4409 data-nosnippet>4409</a>
+<a href=#4410 id=4410 data-nosnippet>4410</a>    <span class="kw">fn </span>logged_one(err: TransportError, cap: usize, recorded: <span class="prelude-ty">Option</span>&lt;usize&gt;) -&gt; std::string::String {
+<a href=#4411 id=4411 data-nosnippet>4411</a>        <span class="kw">let </span>_g = SERIAL
+<a href=#4412 id=4412 data-nosnippet>4412</a>            .lock()
+<a href=#4413 id=4413 data-nosnippet>4413</a>            .unwrap_or_else(std::sync::PoisonError::into_inner);
+<a href=#4414 id=4414 data-nosnippet>4414</a>        <span class="kw">let </span>sink = CAPTURE.get_or_init(|| {
+<a href=#4415 id=4415 data-nosnippet>4415</a>            <span class="kw">let </span>sink: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>CapturingSink =
+<a href=#4416 id=4416 data-nosnippet>4416</a>                std::boxed::Box::leak(std::boxed::Box::new(CapturingSink {
+<a href=#4417 id=4417 data-nosnippet>4417</a>                    lines: std::sync::Mutex::new(std::vec::Vec::new()),
+<a href=#4418 id=4418 data-nosnippet>4418</a>                }));
+<a href=#4419 id=4419 data-nosnippet>4419</a>            <span class="macro">assert!</span>(nros_log::add_sink(sink), <span class="string">"no sink slot left"</span>);
+<a href=#4420 id=4420 data-nosnippet>4420</a>            sink
+<a href=#4421 id=4421 data-nosnippet>4421</a>        });
+<a href=#4422 id=4422 data-nosnippet>4422</a>        <span class="comment">// The FIRST drop is always reported; a cell that inherited another
+<a href=#4423 id=4423 data-nosnippet>4423</a>        // cell's count would be asserting about drop number N instead.
+<a href=#4424 id=4424 data-nosnippet>4424</a>        </span>DROPPED_TAKES.store(<span class="number">0</span>, portable_atomic::Ordering::Relaxed);
+<a href=#4425 id=4425 data-nosnippet>4425</a>        sink.lines
+<a href=#4426 id=4426 data-nosnippet>4426</a>            .lock()
+<a href=#4427 id=4427 data-nosnippet>4427</a>            .unwrap_or_else(std::sync::PoisonError::into_inner)
+<a href=#4428 id=4428 data-nosnippet>4428</a>            .clear();
+<a href=#4429 id=4429 data-nosnippet>4429</a>        report_dropped_take(<span class="kw-2">&amp;</span>err, cap, recorded);
+<a href=#4430 id=4430 data-nosnippet>4430</a>        <span class="kw">let </span><span class="kw-2">mut </span>lines = sink
+<a href=#4431 id=4431 data-nosnippet>4431</a>            .lines
+<a href=#4432 id=4432 data-nosnippet>4432</a>            .lock()
+<a href=#4433 id=4433 data-nosnippet>4433</a>            .unwrap_or_else(std::sync::PoisonError::into_inner);
+<a href=#4434 id=4434 data-nosnippet>4434</a>        <span class="macro">assert_eq!</span>(lines.len(), <span class="number">1</span>, <span class="string">"the first drop must be reported: {lines:?}"</span>);
+<a href=#4435 id=4435 data-nosnippet>4435</a>        lines.remove(<span class="number">0</span>)
+<a href=#4436 id=4436 data-nosnippet>4436</a>    }
+<a href=#4437 id=4437 data-nosnippet>4437</a>
+<a href=#4438 id=4438 data-nosnippet>4438</a>    <span class="attr">#[test]
+<a href=#4439 id=4439 data-nosnippet>4439</a>    </span><span class="kw">fn </span>the_drop_log_names_the_sample_size_beside_the_buffer() {
+<a href=#4440 id=4440 data-nosnippet>4440</a>        <span class="kw">let </span>line = logged_one(TransportError::BufferTooSmall, <span class="number">16</span>, <span class="prelude-val">Some</span>(<span class="number">1000</span>));
+<a href=#4441 id=4441 data-nosnippet>4441</a>        <span class="macro">assert!</span>(line.contains(<span class="string">"1000-byte sample"</span>), <span class="string">"no sample size: {line}"</span>);
+<a href=#4442 id=4442 data-nosnippet>4442</a>        <span class="macro">assert!</span>(line.contains(<span class="string">"16-byte buffer"</span>), <span class="string">"no buffer size: {line}"</span>);
+<a href=#4443 id=4443 data-nosnippet>4443</a>        <span class="comment">// nros_log's buffer is all-or-nothing; the issue number is the tail.
+<a href=#4444 id=4444 data-nosnippet>4444</a>        </span><span class="macro">assert!</span>(line.contains(<span class="string">"(issue 0757)"</span>), <span class="string">"truncated: {line}"</span>);
+<a href=#4445 id=4445 data-nosnippet>4445</a>    }
+<a href=#4446 id=4446 data-nosnippet>4446</a>
+<a href=#4447 id=4447 data-nosnippet>4447</a>    <span class="attr">#[test]
+<a href=#4448 id=4448 data-nosnippet>4448</a>    </span><span class="kw">fn </span>an_unknown_size_and_a_staging_refusal_print_as_unknown() {
+<a href=#4449 id=4449 data-nosnippet>4449</a>        <span class="kw">let </span>unknown = logged_one(TransportError::BufferTooSmall, <span class="number">64</span>, <span class="prelude-val">None</span>);
+<a href=#4450 id=4450 data-nosnippet>4450</a>        <span class="macro">assert!</span>(unknown.contains(<span class="string">"?-byte sample"</span>), <span class="string">"{unknown}"</span>);
+<a href=#4451 id=4451 data-nosnippet>4451</a>        <span class="comment">// `MessageTooLarge` is the backend's staging buffer, refused before a
+<a href=#4452 id=4452 data-nosnippet>4452</a>        // take measured anything: an earlier take's size must not be printed.
+<a href=#4453 id=4453 data-nosnippet>4453</a>        </span><span class="kw">let </span>staging = logged_one(TransportError::MessageTooLarge, <span class="number">64</span>, <span class="prelude-val">Some</span>(<span class="number">1000</span>));
+<a href=#4454 id=4454 data-nosnippet>4454</a>        <span class="macro">assert!</span>(staging.contains(<span class="string">"?-byte sample"</span>), <span class="string">"{staging}"</span>);
+<a href=#4455 id=4455 data-nosnippet>4455</a>        <span class="macro">assert!</span>(!staging.contains(<span class="string">"1000"</span>), <span class="string">"{staging}"</span>);
+<a href=#4456 id=4456 data-nosnippet>4456</a>    }
+<a href=#4457 id=4457 data-nosnippet>4457</a>}
 </code></pre></div></section></main></body></html>
