@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["RosArgsError"],"fn":["argv_fallback","install_argv_remaps","parse_remap_rule","parse_ros_args"],"struct":["RemapArg"]};
+window.SIDEBAR_ITEMS = {"enum":["ApplyError","RosArgsError"],"fn":["apply_ros_args","argv_fallback","install_argv_remaps","parse_remap_rule","parse_ros_args"],"struct":["RemapArg"]};
