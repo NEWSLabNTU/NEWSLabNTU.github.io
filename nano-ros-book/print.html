@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d55a1e71.js";
+            window.path_to_searchindex_js = "searchindex-f51d5cb7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-529fefcc.js"></script>
@@ -9575,7 +9575,12 @@ with the same <code>Logger</code> + severity surface as <code>rclcpp::Logger</co
 (<code>PlatformSink</code>) that delegates to whichever
 <code>nros-platform-&lt;rtos&gt;</code> is linked into the binary.</p>
 <h2 id="severity-ladder"><a class="header" href="#severity-ladder">Severity ladder</a></h2>
-<p>REP-2012 style, matching <code>rcutils_log_severity_t</code>:</p>
+<p>REP-2012 style: rcutils’s five levels in rcutils’s order, plus <code>Trace</code>. The
+numbers are NOT <code>rcutils_log_severity_t</code>’s (<code>UNSET=0, DEBUG=10 … FATAL=50</code>)
+and there is no <code>Unset</code> level — in Rust a logger’s “no level of its own” state
+is <code>Logger::unset_level()</code>, and <code>Logger::set_default_level</code> takes a <code>Severity</code>
+(pass <code>Info</code> where rclrs passes <code>Unset</code>). The C surface’s <code>nros_log_severity_t</code>
+does use rcutils’s numbers, <code>UNSET</code> included.</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -12770,12 +12775,41 @@ discovery. Existing in-tree examples will migrate as part of Phase
 <tr><td><code>executor.spin_once() / client-&gt;wait_for_service() / action_client-&gt;wait_for_action_server()</code></td><td><strong>the budget is required</strong></td><td>Upstream defaults all three to “block forever”, which nano-ros has no form of; the no-argument call is a compile error naming the alternative rather than a silently substituted 10 ms / 5 s budget. Write <code>spin_once(10)</code>, <code>wait_for_service(10000)</code>.</td></tr>
 <tr><td><code>rclcpp::QoS / KeepLast(n) / SystemDefaultsQoS()</code></td><td>subclass of <code>nros::QoS</code> with the <code>(depth)</code> ctor</td><td>Chainable setters inherited.</td></tr>
 <tr><td><code>diagnostic_updater::Updater</code> + <code>DiagnosticStatusWrapper</code></td><td><code>nros-diagnostic-updater</code> shim</td><td>Publishes <code>/diagnostics</code>.</td></tr>
-<tr><td><code>rclcpp_action::Server&lt;A&gt; / Client&lt;A&gt;</code></td><td>aliases for <code>nros::ActionServer/Client&lt;A&gt;</code></td><td>The action call shapes (send_goal_async etc.) match.</td></tr>
+<tr><td><code>rclcpp_action::Server&lt;A&gt; / Client&lt;A&gt;</code></td><td>ours, under upstream’s names (<code>nros::ActionServer/Client&lt;A&gt;</code> are aliases for them)</td><td>Same entities, smaller shapes: no goal handles and no futures. See <a href="#actions-no-goal-handles-no-futures">Actions</a> below.</td></tr>
 <tr><td><code>RCLCPP_COMPONENTS_REGISTER_NODE(class)</code></td><td>no-op macro + cmake-side <code>rclcpp_components_register_node()</code> emits a thin <code>int main()</code> per registration</td><td>Single-binary embedded.</td></tr>
 <tr><td><code>find_package(ament_cmake_auto / rclcpp / rclcpp_components / diagnostic_updater / std_msgs / …)</code></td><td>Find-stubs at <code>cmake/compat/stubs/</code></td><td>~24 of the most-cited ROS 2 packages stubbed; add your own under <code>cmake/compat/stubs/Find&lt;pkg&gt;.cmake</code> for more.</td></tr>
 </tbody>
 </table>
 </div>
+<h2 id="actions-no-goal-handles-no-futures"><a class="header" href="#actions-no-goal-handles-no-futures">Actions: no goal handles, no futures</a></h2>
+<p>The action types keep upstream’s names and concepts, and <code>GoalResponse</code> /
+<code>CancelResponse</code> keep upstream’s enumerators and values. The SHAPES around
+them are smaller, because there is no allocator to hand out a goal handle and
+no async runtime to complete a future (RFC-0021). Every difference below is a
+compile error in a ported file, so the list is what to rewrite, not what to
+debug:</p>
+<ul>
+<li><strong>Server: no <code>ServerGoalHandle</code>.</strong> The goal and accepted callbacks receive the
+16-byte goal id. Feedback and termination are calls on the SERVER keyed by that
+id — <code>server.publish_feedback(id, fb)</code>, <code>server.succeed(id, result)</code>,
+<code>abort</code>, <code>canceled</code> — taking the message by const reference, not a <code>shared_ptr</code>.</li>
+<li><strong>Server: created in place.</strong> There is no <code>rclcpp_action::create_server</code>
+returning a <code>SharedPtr</code>; declare the <code>Server&lt;A&gt;</code> and initialise it with
+<code>node.create_action_server(srv, name)</code>. It is not a <code>Waitable</code> (no
+<code>execute</code> / <code>is_ready</code> / <code>set_on_ready_callback</code>): the executor drives it
+directly.</li>
+<li><strong>Callbacks are stateless function pointers</strong> (empty-capture lambdas), or the
+<code>_with_ctx</code> setters with a <code>void*</code> context.</li>
+<li><strong>Client: <code>send_goal</code> blocks and fills an out-param goal id</strong>, returning
+<code>Result</code>, where upstream’s <code>async_send_goal</code> returns a <code>shared_future</code> of a
+goal handle. <code>send_goal_future</code> is the future-shaped spelling.</li>
+<li><strong>Client: callbacks bind to the CLIENT.</strong> Upstream passes <code>SendGoalOptions</code>
+to each <code>async_send_goal</code>; here <code>client.set_callbacks(opts)</code> installs them
+once for every goal the client sends. They are read when a reply is
+dispatched, so install them before the spin that delivers it.</li>
+<li><strong><code>wait_for_action_server</code> takes milliseconds and returns <code>Result</code></strong> — and
+the budget is required (see the table above).</li>
+</ul>
 <h2 id="two-things-the-compiler-will-not-tell-you"><a class="header" href="#two-things-the-compiler-will-not-tell-you">Two things the compiler will not tell you</a></h2>
 <p>Everything else on this page either works or fails to compile. These two
 compile and behave slightly differently, so they are written down rather than
@@ -13065,8 +13099,10 @@ have to bound by hand. Offering both means the application picks.</p>
 <h3 id="3-async-pubsubserviceaction"><a class="header" href="#3-async-pubsubserviceaction">3. Async pub/sub/service/action</a></h3>
 <p><code>rclcpp</code> has no real <code>async/await</code>. <code>rclrs</code> 0.7+ added async but it
 sits next to the synchronous executor, not in it. <code>rclc</code> has none.</p>
-<p>nano-ros has it as a first-class path: <code>Executor::spin_async()</code> wakes
-on RMW I/O, <code>Subscription::recv().await</code>, <code>Client::call().await</code>,
+<p>nano-ros has it as a first-class path: <code>Executor::spin_async()</code> drives
+the executor from inside a <code>Future</code> (it does not park on RMW I/O: each
+cycle is a 1 ms <code>spin_once</code> and an immediate self-wake, so it keeps a core
+busy — see its rustdoc), <code>Subscription::recv().await</code>, <code>Client::call().await</code>,
 <code>ActionClient::send_goal().await</code>, etc. Runs on tokio (POSIX),
 Embassy (FreeRTOS / RTIC), or any external <code>Future</code>-driver.</p>
 <p><strong>Why.</strong> Robotic control loops are stitched together from many
@@ -13263,7 +13299,7 @@ declared parameters are visible to <code>ros2 param list /&lt;node&gt;</code> an
 <tr><td><code>add_pre_set_parameters_callback</code> / <code>add_on_set_parameters_callback</code> / <code>add_post_set_parameters_callback</code></td><td>one combined <code>nros_parameter_callback_t</code> (server-wide, fires after set)</td><td>three callbacks → three indirection slots × N subscribers; one callback covers the safety-island validation use case (<code>reject if out of range</code>)</td></tr>
 <tr><td><code>set_parameter</code> returning <code>SetParametersResult</code> (<code>successful: bool</code>, <code>reason: string</code>)</td><td>returns <code>nros_ret_t</code></td><td>string <code>reason</code> would force heap or fixed-buffer; ret code captures the binary outcome</td></tr>
 <tr><td><code>set_parameters_atomically</code></td><td>not exposed</td><td>atomic multi-set requires transaction log; not justified by current embedded use</td></tr>
-<tr><td><code>declare_parameters</code> (multi-declare with namespace)</td><td>not exposed</td><td>one-by-one declare is fine for compile-time-known parameter sets</td></tr>
+<tr><td><code>declare_parameters</code> (multi-declare with namespace)</td><td>C++ only, hosted only: <code>rclcpp::Node::declare_parameters&lt;T&gt;(prefix, map)</code></td><td>upstream’s argument is a <code>std::map</code>, so it needs an allocator; returns <code>Result</code>, not the <code>std::vector&lt;T&gt;</code> of values in effect (read back with <code>get_parameter&lt;T&gt;</code>). Rust and C declare one at a time</td></tr>
 <tr><td>Parameter overrides from CLI / launch / yaml</td><td>not exposed</td><td>embedded apps configure via Kconfig / <code>Config</code> struct; runtime overrides come over the wire via <code>~/set_parameters</code> (when <code>param-services</code> is on)</td></tr>
 <tr><td>Storage allocation policy</td><td>one executor-owned table, <code>NROS_MAX_PARAMETERS</code> slots, keyed by node</td><td>no per-node heap; capacity is a build knob, sized once like the executor arena rather than multiplied by the node count</td></tr>
 </tbody>

@@ -6,7 +6,7 @@ var searchData=
   ['rclcpp_3a_3adetail_3',['detail',['../namespacerclcpp_1_1detail.html',1,'rclcpp']]],
   ['rclcpp_5faction_4',['rclcpp_action',['../namespacerclcpp__action.html',1,'']]],
   ['reentrant_5',['Reentrant',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19ea49816c033d9f3ad7e81fdb953fe3251f',1,'nros']]],
-  ['reject_6',['reject',['../namespacenros.html#a51d87be07e953c680a96f89bbbf0b2f4ad98ac12774fca5c3cbaffe276840c55f',1,'nros::Reject'],['../namespacenros.html#a30b4d54125f06e9ceff2a0e1169c21e5ad98ac12774fca5c3cbaffe276840c55f',1,'nros::Reject']]],
+  ['reject_6',['reject',['../namespacenros.html#a7536d85f1f7270ea7983768620b1c8d8a59b228d9fec9b88833bfe5d812ed8ad4',1,'nros::REJECT'],['../namespacenros.html#a3329bf50e2868f4fa99f26e72a3eff28a59b228d9fec9b88833bfe5d812ed8ad4',1,'nros::REJECT']]],
   ['rejected_7',['rejected',['../namespacenros.html#adf7554b676c92eb5c552e72e588ef19ead37b1f6c0512e2118cee17fea015b699',1,'nros::Rejected'],['../namespacenros.html#ae2356dc0967fe83da7c3711828ae3a87ad37b1f6c0512e2118cee17fea015b699',1,'nros::Rejected']]],
   ['reliability_8',['reliability',['../structnros__cpp__qos__t.html#aaf391f1228ad2cd77afa0d9220e0df79',1,'nros_cpp_qos_t::reliability'],['../classnros_1_1QoS.html#a3f97df99162854805a6fb0283ed531e4',1,'nros::QoS::reliability() const']]],
   ['reliability_5fraw_9',['reliability_raw',['../classnros_1_1QoS.html#aa94c0ff0a342f7fc340a8316e77eab30',1,'nros::QoS']]],
