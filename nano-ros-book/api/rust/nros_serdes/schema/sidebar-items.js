@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["FieldType"],"struct":["Field","NestedType"],"trait":["Message"]};
+window.SIDEBAR_ITEMS = {"constant":["EMPTY_STRUCT_FIELDS","EMPTY_STRUCT_MEMBER"],"enum":["FieldType"],"struct":["Field","NestedType"],"trait":["Message"]};
