@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-90a87a33.js";
+            window.path_to_searchindex_js = "../searchindex-851a59c3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-529fefcc.js"></script>
@@ -301,25 +301,29 @@ fn register_log_writer() {
 <span class="boring">}</span></code></pre>
 <h2 id="filtering"><a class="header" href="#filtering">Filtering</a></h2>
 <h3 id="compile-time-ceiling"><a class="header" href="#compile-time-ceiling">Compile-time ceiling</a></h3>
-<p>Cargo features on <code>nros-log</code> (pick at most one; default
-<code>max-level-trace</code>):</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Macros above ceiling that emit</th></tr>
-</thead>
-<tbody>
-<tr><td><code>max-level-trace</code></td><td>trace / debug / info / warn / error / fatal</td></tr>
-<tr><td><code>max-level-debug</code></td><td>debug / info / warn / error / fatal</td></tr>
-<tr><td><code>max-level-info</code></td><td>info / warn / error / fatal</td></tr>
-<tr><td><code>max-level-warn</code></td><td>warn / error / fatal</td></tr>
-<tr><td><code>max-level-error</code></td><td>error / fatal</td></tr>
-<tr><td><code>max-level-off</code></td><td>(none)</td></tr>
-</tbody>
-</table>
-</div>
-<p>Below-ceiling macros expand to <code>()</code>; the format call is
-dead-code-eliminated.</p>
+<p>The <code>NROS_LOG_MAX_LEVEL</code> knob: <code>trace</code> (the default), <code>debug</code>, <code>info</code>, <code>warn</code>,
+<code>error</code>, <code>fatal</code> or <code>off</code> — or <code>0</code>–<code>6</code>, which is how Zephyr’s
+<code>CONFIG_NROS_LOG_MAX_LEVEL</code> states it, as Zephyr’s own <code>LOG_MAX_LEVEL</code> does.
+State it per image or per board, like every other knob:</p>
+<pre><code class="language-toml"># system.toml — this image only
+[image.native]
+env = { NROS_LOG_MAX_LEVEL = "info" }
+
+# nros-board.toml — every image on the board
+[board.knobs.log]
+max_level = "info"
+</code></pre>
+<p>Environment / <code>[image.&lt;id&gt;] env</code> beats Kconfig beats the board; <code>nros config explain</code> prints which rung decided it. A Rust <code>nros_*!</code> call below the ceiling
+folds to a constant-false branch and its format call is dead-code-eliminated.
+C and C++ records — formatted on the C side — are refused by the same check
+in the facade (<code>nros_logger_is_enabled</code> answers <code>false</code> below the ceiling).</p>
+<p>The ceiling is a BOUND, not the runtime level: the per-logger threshold below
+still moves freely above it, and a threshold below it is unreachable. rcutils
+has the same pair (<code>RCUTILS_LOG_MIN_SEVERITY_*</code> at compile time,
+<code>rcutils_logging_set_logger_level</code> at run time).</p>
+<p>The <code>max-level-*</code> Cargo features this replaced are deprecated for one release
+(issue 1037): honoured with a build warning when no knob is stated, a build
+error when they disagree with one.</p>
 <h3 id="runtime-per-logger-threshold"><a class="header" href="#runtime-per-logger-threshold">Runtime per-logger threshold</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -374,24 +378,30 @@ parent</strong> (records carry the parent’s name and level) and <strong>refuse
 <code>set_level</code></strong>, so it can never move the parent’s threshold. <code>get_name()</code>
 still answers the name you asked for.</li>
 </ul>
-<h2 id="buffer-size"><a class="header" href="#buffer-size">Buffer size</a></h2>
-<p><code>nros-log</code> formats each record into a stack-resident
-<code>heapless::String&lt;N&gt;</code>. <code>N</code> is picked at compile time by the
-<code>buffer-size-&lt;N&gt;</code> feature family (default 256). Overflow truncates
-and appends <code>…</code>; the macro never panics on a long format string.</p>
+<h2 id="sizes"><a class="header" href="#sizes">Sizes</a></h2>
+<p><code>nros-log</code> formats each record into a stack-resident <code>heapless::String&lt;N&gt;</code>.
+Overflow truncates and appends <code>…</code>; the macro never panics on a long format
+string. That <code>N</code>, and the two static rings, are knobs on the same ladder as
+the ceiling (<code>[board.knobs.log] &lt;key&gt;</code>, <code>[image.&lt;id&gt;] env</code>, Kconfig
+<code>CONFIG_&lt;knob&gt;</code>):</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Feature</th><th>Per-call-site stack frame</th></tr>
+<tr><th>Knob</th><th>Key</th><th>Default</th><th>What it sizes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>buffer-size-128</code></td><td>128 B</td></tr>
-<tr><td><code>buffer-size-256</code></td><td>256 B (default)</td></tr>
-<tr><td><code>buffer-size-512</code></td><td>512 B</td></tr>
-<tr><td><code>buffer-size-1024</code></td><td>1024 B</td></tr>
+<tr><td><code>NROS_LOG_BUFFER_SIZE</code></td><td><code>buffer_size</code></td><td>256 (128–4096)</td><td>the per-call formatting buffer, and the message in each early/<code>/rosout</code> slot</td></tr>
+<tr><td><code>NROS_LOG_EARLY_RECORDS</code></td><td><code>early_records</code></td><td>4 (0 = drop, counted)</td><td>records held before <code>init</code> installs the sinks</td></tr>
+<tr><td><code>NROS_LOG_ROSOUT_RECORDS</code></td><td><code>rosout_records</code></td><td>16</td><td>the <code>/rosout</code> queue (below)</td></tr>
+<tr><td><code>NROS_LOG_DYNAMIC_LOGGERS</code></td><td><code>dynamic_loggers</code></td><td>16, Linux hosts 32 (0 = lookup only)</td><td>loggers created at run time</td></tr>
 </tbody>
 </table>
 </div>
+<p>The C/C++ <code>NROS_LOG_*</code> macros format into their own 256-byte frame in the
+calling translation unit, so a C record is bounded by the smaller of that and
+<code>NROS_LOG_BUFFER_SIZE</code>. The <code>buffer-size-&lt;N&gt;</code>, <code>early-records-&lt;N&gt;</code>,
+<code>rosout-records-&lt;N&gt;</code> and <code>dynamic-loggers-&lt;N&gt;</code> features are deprecated, like
+<code>max-level-*</code>.</p>
 <h2 id="interop-with-the-log-crate"><a class="header" href="#interop-with-the-log-crate">Interop with the <code>log</code> crate</a></h2>
 <p>Enable <code>nros-log/log-compat</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -504,10 +514,12 @@ LATE sees no boot story. A stock <code>ros2 topic echo</code> still matches — 
 VOLATILE and downgrades across a mixed publisher set.</p>
 <p><strong>The stamp is the platform monotonic clock</strong>, not wall time, because an RTOS
 image has none to offer: <code>rqt_console</code> will display an uptime as a time of day.
-Without <code>nros-log/platform-clock</code> it is a constant zero.</p>
+Without the platform clock it is a constant zero — the clock is compiled in when
+the image’s platform declares <code>[capabilities] clock = true</code> (every in-tree port
+does) or <code>nros-log</code>’s <code>platform-clock</code> feature pulls a port in.</p>
 <p><strong>It costs <code>.bss</code>.</strong> 5 760 bytes on the defaults (16 queued records x 360 B),
-down to 1 856 B with <code>rosout-records-8</code> + <code>buffer-size-128</code> and up to 72 192 B
-with <code>rosout-records-64</code> + <code>buffer-size-1024</code>. An image that does not enable
+down to 1 856 B with <code>NROS_LOG_ROSOUT_RECORDS=8</code> + <code>NROS_LOG_BUFFER_SIZE=128</code>
+and up to 72 192 B with <code>=64</code> + <code>=1024</code>. An image that does not enable
 the feature pays nothing — the module is compiled out whole.</p>
 <h3 id="the-sink-does-not-publish-and-that-is-the-point"><a class="header" href="#the-sink-does-not-publish-and-that-is-the-point">The sink does not publish, and that is the point</a></h3>
 <p><code>nros_log</code>’s <code>/rosout</code> sink copies each record into a bounded static ring and

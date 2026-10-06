@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-90a87a33.js";
+            window.path_to_searchindex_js = "searchindex-851a59c3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-529fefcc.js"></script>
@@ -9691,25 +9691,29 @@ fn register_log_writer() {
 <span class="boring">}</span></code></pre>
 <h2 id="filtering"><a class="header" href="#filtering">Filtering</a></h2>
 <h3 id="compile-time-ceiling"><a class="header" href="#compile-time-ceiling">Compile-time ceiling</a></h3>
-<p>Cargo features on <code>nros-log</code> (pick at most one; default
-<code>max-level-trace</code>):</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>Macros above ceiling that emit</th></tr>
-</thead>
-<tbody>
-<tr><td><code>max-level-trace</code></td><td>trace / debug / info / warn / error / fatal</td></tr>
-<tr><td><code>max-level-debug</code></td><td>debug / info / warn / error / fatal</td></tr>
-<tr><td><code>max-level-info</code></td><td>info / warn / error / fatal</td></tr>
-<tr><td><code>max-level-warn</code></td><td>warn / error / fatal</td></tr>
-<tr><td><code>max-level-error</code></td><td>error / fatal</td></tr>
-<tr><td><code>max-level-off</code></td><td>(none)</td></tr>
-</tbody>
-</table>
-</div>
-<p>Below-ceiling macros expand to <code>()</code>; the format call is
-dead-code-eliminated.</p>
+<p>The <code>NROS_LOG_MAX_LEVEL</code> knob: <code>trace</code> (the default), <code>debug</code>, <code>info</code>, <code>warn</code>,
+<code>error</code>, <code>fatal</code> or <code>off</code> — or <code>0</code>–<code>6</code>, which is how Zephyr’s
+<code>CONFIG_NROS_LOG_MAX_LEVEL</code> states it, as Zephyr’s own <code>LOG_MAX_LEVEL</code> does.
+State it per image or per board, like every other knob:</p>
+<pre><code class="language-toml"># system.toml — this image only
+[image.native]
+env = { NROS_LOG_MAX_LEVEL = "info" }
+
+# nros-board.toml — every image on the board
+[board.knobs.log]
+max_level = "info"
+</code></pre>
+<p>Environment / <code>[image.&lt;id&gt;] env</code> beats Kconfig beats the board; <code>nros config explain</code> prints which rung decided it. A Rust <code>nros_*!</code> call below the ceiling
+folds to a constant-false branch and its format call is dead-code-eliminated.
+C and C++ records — formatted on the C side — are refused by the same check
+in the facade (<code>nros_logger_is_enabled</code> answers <code>false</code> below the ceiling).</p>
+<p>The ceiling is a BOUND, not the runtime level: the per-logger threshold below
+still moves freely above it, and a threshold below it is unreachable. rcutils
+has the same pair (<code>RCUTILS_LOG_MIN_SEVERITY_*</code> at compile time,
+<code>rcutils_logging_set_logger_level</code> at run time).</p>
+<p>The <code>max-level-*</code> Cargo features this replaced are deprecated for one release
+(issue 1037): honoured with a build warning when no knob is stated, a build
+error when they disagree with one.</p>
 <h3 id="runtime-per-logger-threshold"><a class="header" href="#runtime-per-logger-threshold">Runtime per-logger threshold</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -9764,24 +9768,30 @@ parent</strong> (records carry the parent’s name and level) and <strong>refuse
 <code>set_level</code></strong>, so it can never move the parent’s threshold. <code>get_name()</code>
 still answers the name you asked for.</li>
 </ul>
-<h2 id="buffer-size"><a class="header" href="#buffer-size">Buffer size</a></h2>
-<p><code>nros-log</code> formats each record into a stack-resident
-<code>heapless::String&lt;N&gt;</code>. <code>N</code> is picked at compile time by the
-<code>buffer-size-&lt;N&gt;</code> feature family (default 256). Overflow truncates
-and appends <code>…</code>; the macro never panics on a long format string.</p>
+<h2 id="sizes"><a class="header" href="#sizes">Sizes</a></h2>
+<p><code>nros-log</code> formats each record into a stack-resident <code>heapless::String&lt;N&gt;</code>.
+Overflow truncates and appends <code>…</code>; the macro never panics on a long format
+string. That <code>N</code>, and the two static rings, are knobs on the same ladder as
+the ceiling (<code>[board.knobs.log] &lt;key&gt;</code>, <code>[image.&lt;id&gt;] env</code>, Kconfig
+<code>CONFIG_&lt;knob&gt;</code>):</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Feature</th><th>Per-call-site stack frame</th></tr>
+<tr><th>Knob</th><th>Key</th><th>Default</th><th>What it sizes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>buffer-size-128</code></td><td>128 B</td></tr>
-<tr><td><code>buffer-size-256</code></td><td>256 B (default)</td></tr>
-<tr><td><code>buffer-size-512</code></td><td>512 B</td></tr>
-<tr><td><code>buffer-size-1024</code></td><td>1024 B</td></tr>
+<tr><td><code>NROS_LOG_BUFFER_SIZE</code></td><td><code>buffer_size</code></td><td>256 (128–4096)</td><td>the per-call formatting buffer, and the message in each early/<code>/rosout</code> slot</td></tr>
+<tr><td><code>NROS_LOG_EARLY_RECORDS</code></td><td><code>early_records</code></td><td>4 (0 = drop, counted)</td><td>records held before <code>init</code> installs the sinks</td></tr>
+<tr><td><code>NROS_LOG_ROSOUT_RECORDS</code></td><td><code>rosout_records</code></td><td>16</td><td>the <code>/rosout</code> queue (below)</td></tr>
+<tr><td><code>NROS_LOG_DYNAMIC_LOGGERS</code></td><td><code>dynamic_loggers</code></td><td>16, Linux hosts 32 (0 = lookup only)</td><td>loggers created at run time</td></tr>
 </tbody>
 </table>
 </div>
+<p>The C/C++ <code>NROS_LOG_*</code> macros format into their own 256-byte frame in the
+calling translation unit, so a C record is bounded by the smaller of that and
+<code>NROS_LOG_BUFFER_SIZE</code>. The <code>buffer-size-&lt;N&gt;</code>, <code>early-records-&lt;N&gt;</code>,
+<code>rosout-records-&lt;N&gt;</code> and <code>dynamic-loggers-&lt;N&gt;</code> features are deprecated, like
+<code>max-level-*</code>.</p>
 <h2 id="interop-with-the-log-crate"><a class="header" href="#interop-with-the-log-crate">Interop with the <code>log</code> crate</a></h2>
 <p>Enable <code>nros-log/log-compat</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -9894,10 +9904,12 @@ LATE sees no boot story. A stock <code>ros2 topic echo</code> still matches — 
 VOLATILE and downgrades across a mixed publisher set.</p>
 <p><strong>The stamp is the platform monotonic clock</strong>, not wall time, because an RTOS
 image has none to offer: <code>rqt_console</code> will display an uptime as a time of day.
-Without <code>nros-log/platform-clock</code> it is a constant zero.</p>
+Without the platform clock it is a constant zero — the clock is compiled in when
+the image’s platform declares <code>[capabilities] clock = true</code> (every in-tree port
+does) or <code>nros-log</code>’s <code>platform-clock</code> feature pulls a port in.</p>
 <p><strong>It costs <code>.bss</code>.</strong> 5 760 bytes on the defaults (16 queued records x 360 B),
-down to 1 856 B with <code>rosout-records-8</code> + <code>buffer-size-128</code> and up to 72 192 B
-with <code>rosout-records-64</code> + <code>buffer-size-1024</code>. An image that does not enable
+down to 1 856 B with <code>NROS_LOG_ROSOUT_RECORDS=8</code> + <code>NROS_LOG_BUFFER_SIZE=128</code>
+and up to 72 192 B with <code>=64</code> + <code>=1024</code>. An image that does not enable
 the feature pays nothing — the module is compiled out whole.</p>
 <h3 id="the-sink-does-not-publish-and-that-is-the-point"><a class="header" href="#the-sink-does-not-publish-and-that-is-the-point">The sink does not publish, and that is the point</a></h3>
 <p><code>nros_log</code>’s <code>/rosout</code> sink copies each record into a bounded static ring and
@@ -27207,8 +27219,10 @@ in the image you built, beside the knobs listed here.</p>
 </thead>
 <tbody>
 <tr><td><code>g_sessions</code></td><td>pool</td><td><code>ZPICO_GRAPH_CACHE_SIZE</code>, <code>ZPICO_MAX_LIVELINESS</code>, <code>ZPICO_MAX_PENDING_GETS</code>, <code>ZPICO_MAX_PUBLISHERS</code>, <code>ZPICO_MAX_QUERYABLES</code>, <code>ZPICO_MAX_SESSIONS</code>, <code>ZPICO_MAX_SUBSCRIBERS</code></td></tr>
+<tr><td><code>nros_log::early::SLOTS</code></td><td>pool</td><td><code>NROS_LOG_EARLY_RECORDS</code></td></tr>
 <tr><td><code>nros_log::pool::NAMES</code></td><td>pool</td><td><code>NROS_LOG_DYNAMIC_LOGGERS</code></td></tr>
 <tr><td><code>nros_log::pool::POOL</code></td><td>pool</td><td><code>NROS_LOG_DYNAMIC_LOGGERS</code></td></tr>
+<tr><td><code>nros_log::rosout::SLOTS</code></td><td>pool</td><td><code>NROS_LOG_ROSOUT_RECORDS</code></td></tr>
 <tr><td><code>nros_node::boot_report::NROS_BOOT_REPORT</code></td><td>pool</td><td><code>NROS_BOOT_REPORT</code></td></tr>
 <tr><td><code>nros_node::parameter_services::PARAM_INBOX</code></td><td>pool</td><td><code>NROS_PARAM_SERVICE_INBOX_BYTES</code>, <code>NROS_PARAM_SERVICE_INBOX_DEPTH</code></td></tr>
 <tr><td><code>nros_platform::zephyr_heap::HEAP</code></td><td>heap</td><td><code>NROS_ZEPHYR_HEAP_SIZE</code></td></tr>
@@ -27244,26 +27258,30 @@ this column is blank, and nothing here is free unless it says so.</p>
 <tr><td><code>NROS_ACTION_INBOX_BYTES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:158</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::service::ACTION_INBOX</code>: slot bytes of each action-family inbox ring; the element is an <code>InboxStorage</code> struct (ring header + slots), so only the compiler knows the product</td></tr>
 <tr><td><code>NROS_ACTION_INBOX_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:164</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::service::ACTION_INBOX</code>: ring depth of each action-family inbox; same <code>InboxStorage</code> element</td></tr>
 <tr><td><code>NROS_BOOT_REPORT</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:379</code></td><td><code>packages/core/nros-node</code></td><td><strong>pool</strong> <code>nros_node::boot_report::NROS_BOOT_REPORT</code>: a switch, not a count: on (the native_sim default since issue 1424, and wherever CONFIG_NROS_BOOT_REPORT=y) it links the one boot-record static, measured per image by <code>mem-report</code>; off, it links nothing</td></tr>
-<tr><td><code>NROS_EXECUTOR_ACTION_CLIENTS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:831</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: action-client entries the executor arena is sized for</td></tr>
+<tr><td><code>NROS_EXECUTOR_ACTION_CLIENTS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:847</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: action-client entries the executor arena is sized for</td></tr>
 <tr><td><code>NROS_EXECUTOR_ARENA_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:1084</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: the executor arena itself; the backing is <code>EXECUTOR_BACKING</code> (Rust) or the entry’s <code>__nros_executor_storage</code> / tier table (C/C++)</td></tr>
-<tr><td><code>NROS_EXECUTOR_BACKING_U64S</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:835</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: STATES the boot executor’s backing size in words; <code>EXECUTOR_BACKING</code> is exactly 8x this</td></tr>
-<tr><td><code>NROS_EXECUTOR_MAX_CBS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:827</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: callback slots inside the executor</td></tr>
+<tr><td><code>NROS_EXECUTOR_BACKING_U64S</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:851</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: STATES the boot executor’s backing size in words; <code>EXECUTOR_BACKING</code> is exactly 8x this</td></tr>
+<tr><td><code>NROS_EXECUTOR_MAX_CBS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:843</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: callback slots inside the executor</td></tr>
 <tr><td><code>NROS_EXECUTOR_MAX_NODES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:310</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>executor</strong>: node slots inside the executor; the zenoh backend also sizes its per-node liveliness cap from it</td></tr>
-<tr><td><code>NROS_EXECUTOR_MAX_SC</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:828</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: sched-context slots inside the executor</td></tr>
+<tr><td><code>NROS_EXECUTOR_MAX_SC</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:844</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: sched-context slots inside the executor</td></tr>
 <tr><td><code>NROS_EXECUTOR_MAX_SHUTDOWN_CBS</code></td><td style="text-align: right">2</td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: shutdown-callback slots inside the executor</td></tr>
-<tr><td><code>NROS_FREERTOS_APP_STACK_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1293</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>stack</strong>: the application task’s stack, which FreeRTOS allocates out of <code>ucHeap</code> — it is inside that heap’s figure, never a symbol of its own</td></tr>
-<tr><td><code>NROS_FREERTOS_HEAP_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1292</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>heap</strong> <code>ucHeap</code>: FreeRTOS heap_4’s <code>ucHeap[configTOTAL_HEAP_SIZE]</code>; the symbol IS the region, measured per image</td></tr>
+<tr><td><code>NROS_FREERTOS_APP_STACK_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1414</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>stack</strong>: the application task’s stack, which FreeRTOS allocates out of <code>ucHeap</code> — it is inside that heap’s figure, never a symbol of its own</td></tr>
+<tr><td><code>NROS_FREERTOS_HEAP_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1413</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>heap</strong> <code>ucHeap</code>: FreeRTOS heap_4’s <code>ucHeap[configTOTAL_HEAP_SIZE]</code>; the symbol IS the region, measured per image</td></tr>
 <tr><td><code>NROS_GRAPH_MAX_ENTITIES</code></td><td style="text-align: right">0</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>input</strong>: the entity count <code>ZPICO_GRAPH_CACHE_SIZE</code> is derived from; storage is that knob’s</td></tr>
 <tr><td><code>NROS_KEYEXPR_STRING_SIZE</code></td><td style="text-align: right">256</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>element</strong>: the key-expression buffer inside each subscriber/service shim entry; lands in <code>SUBSCRIBER_BUFFERS</code>/<code>SERVICE_BUFFERS</code></td></tr>
 <tr><td><code>NROS_LET_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-build-helpers/src/c.rs:119</code></td><td><code>packages/tooling/nros-build-helpers</code></td><td><strong>element</strong>: the per-handle LET buffer inside each C/C++ API handle, which lives in the CALLER’s storage</td></tr>
-<tr><td><code>NROS_LOG_DYNAMIC_LOGGERS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-log/build.rs:69</code></td><td><code>packages/core/nros-log</code></td><td><strong>pool</strong> <code>nros_log::pool::POOL</code>, <code>nros_log::pool::NAMES</code>: runtime-logger slots (phase-479 W5): <code>POOL</code> holds a <code>Logger</code> per slot, a struct whose size moves with its fields; <code>NAMES</code> is exactly 24 bytes per slot, so <code>mem-report</code> reads the image’s CAPACITY back out of its size</td></tr>
-<tr><td><code>NROS_MAX_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1133</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>element</strong>: bounds an array parameter value; paid by every <code>ParameterValue</code>, i.e. every slot</td></tr>
-<tr><td><code>NROS_MAX_BYTE_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1134</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>element</strong>: bounds a byte-array parameter value; paid by every <code>ParameterValue</code>, i.e. every slot</td></tr>
+<tr><td><code>NROS_LOG_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-log/build.rs:106</code></td><td><code>packages/core/nros-log</code></td><td><strong>stack</strong>: the per-call Rust <code>FormatBuffer</code> is a stack frame in the logging caller (issue 1037); it is also the message element of <code>nros_log::early::SLOTS</code> and <code>nros_log::rosout::SLOTS</code></td></tr>
+<tr><td><code>NROS_LOG_DYNAMIC_LOGGERS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-log/build.rs:100</code></td><td><code>packages/core/nros-log</code></td><td><strong>pool</strong> <code>nros_log::pool::POOL</code>, <code>nros_log::pool::NAMES</code>: runtime-logger slots (phase-479 W5): <code>POOL</code> holds a <code>Logger</code> per slot, a struct whose size moves with its fields; <code>NAMES</code> is exactly 24 bytes per slot, so <code>mem-report</code> reads the image’s CAPACITY back out of its size</td></tr>
+<tr><td><code>NROS_LOG_EARLY_RECORDS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-log/build.rs:113</code></td><td><code>packages/core/nros-log</code></td><td><strong>pool</strong> <code>nros_log::early::SLOTS</code>: records held before <code>init</code> (issue 1037): each slot holds a formatted message of <code>NROS_LOG_BUFFER_SIZE</code> bytes plus a logger name, so <code>SLOTS</code> moves with both knobs; 0 declines the ring</td></tr>
+<tr><td><code>NROS_LOG_MAX_LEVEL</code></td><td style="text-align: right">computed — see <code>packages/core/nros-log/build.rs:129</code></td><td><code>packages/core/nros-log</code></td><td><strong>not-a-size</strong>: the compile-time severity CEILING (issue 1037): a threshold, not a count; a lower ceiling can only REMOVE code (Rust call sites below it fold away), never add storage</td></tr>
+<tr><td><code>NROS_LOG_ROSOUT_RECORDS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-log/build.rs:120</code></td><td><code>packages/core/nros-log</code></td><td><strong>pool</strong> <code>nros_log::rosout::SLOTS</code>: the <code>/rosout</code> queue (issue 1037), linked only with <code>nros-node/rosout</code>: each slot holds a message of <code>NROS_LOG_BUFFER_SIZE</code> bytes plus a logger name</td></tr>
+<tr><td><code>NROS_MAX_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1254</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>element</strong>: bounds an array parameter value; paid by every <code>ParameterValue</code>, i.e. every slot</td></tr>
+<tr><td><code>NROS_MAX_BYTE_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1255</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>element</strong>: bounds a byte-array parameter value; paid by every <code>ParameterValue</code>, i.e. every slot</td></tr>
 <tr><td><code>NROS_MAX_PARAMETERS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:51</code></td><td><code>packages/core/nros-params</code></td><td><strong>heap</strong>: slots of <code>ParameterStorage</code>, which <code>ensure_parameter_store</code> boxes on the heap once per executor (issue 0756) — no static symbol, so <code>mem-report</code> cannot see it</td></tr>
 <tr><td><code>NROS_MAX_PARAM_CONSTRAINTS_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:131</code></td><td><code>packages/core/nros-params</code></td><td><strong>element</strong>: bounds a parameter descriptor’s constraints text inside every <code>ParameterStorage</code> slot</td></tr>
 <tr><td><code>NROS_MAX_PARAM_DESCRIPTION_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:105</code></td><td><code>packages/core/nros-params</code></td><td><strong>element</strong>: bounds a parameter descriptor’s description inside every <code>ParameterStorage</code> slot</td></tr>
 <tr><td><code>NROS_MAX_PARAM_NAME_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:59</code></td><td><code>packages/core/nros-params</code></td><td><strong>element</strong>: bounds a parameter NAME inside every <code>ParameterStorage</code> slot (heap, see <code>NROS_MAX_PARAMETERS</code>)</td></tr>
-<tr><td><code>NROS_MAX_STRING_VALUE_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1132</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>element</strong>: bounds a string parameter VALUE — <code>ParameterValue</code> is sized by its largest variant, so this is paid by every slot</td></tr>
+<tr><td><code>NROS_MAX_STRING_VALUE_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1253</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>element</strong>: bounds a string parameter VALUE — <code>ParameterValue</code> is sized by its largest variant, so this is paid by every slot</td></tr>
 <tr><td><code>NROS_MULTIGOAL_GOALS</code></td><td style="text-align: right">computed — see <code>packages/testing/nros-tests/bins/action-client-multigoal/src/main.rs:133</code></td><td><code>packages/testing/nros-tests/bins/action-client-multigoal</code></td><td><strong>test-only</strong>: <code>action-client-multigoal</code> test binary</td></tr>
 <tr><td><code>NROS_MULTIGOAL_SOAK_MS</code></td><td style="text-align: right">0</td><td><code>packages/testing/nros-tests/bins/action-client-multigoal</code></td><td><strong>test-only</strong>: <code>action-client-multigoal</code> test binary</td></tr>
 <tr><td><code>NROS_PARAM_SERVICE_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:532</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: request/reply buffers of the builtin parameter and lifecycle services, held in the executor’s value</td></tr>
@@ -27288,7 +27306,7 @@ this column is blank, and nothing here is free unless it says so.</p>
 <tr><td><code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:52</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td><td>sizes <code>UDP_SOCKET_RX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code> has a computed default); sizes <code>UDP_SOCKET_TX_BUFFERS</code> — not priceable at defaults (knob <code>NROS_SMOLTCP_MAX_UDP_SOCKETS</code> has a computed default); <strong>pool</strong> <code>nros_smoltcp::bridge::UDP_SOCKET_RX_BUFFERS</code>, <code>nros_smoltcp::bridge::UDP_SOCKET_TX_BUFFERS</code>, <code>nros_smoltcp::bridge::UDP_SOCKET_TABLE</code>: UDP socket count; byte buffers formula-priced, the table’s element is a struct</td></tr>
 <tr><td><code>NROS_SMOLTCP_SOCKET_TIMEOUT_MS</code></td><td style="text-align: right">computed — see <code>packages/drivers/net/nros-smoltcp/build.rs:67</code></td><td><code>packages/drivers/net/nros-smoltcp</code></td><td><strong>not-a-size</strong>: milliseconds</td></tr>
 <tr><td><code>NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:811</code></td><td><code>packages/core/nros-node</code> <strong>(conflicting defaults — see below)</strong></td><td>sizes <code>SMALL_PAYLOADS</code> — not priceable at defaults (knob <code>ZPICO_MAX_SUBSCRIBERS</code> has a computed default); <strong>pool</strong> <code>nros_rmw_zenoh::shim::subscriber::SMALL_PAYLOADS</code>: the small payload class (formula-priced); read by two crates with two defaults — the page flags that; default DERIVED per image when it declares its entities</td></tr>
-<tr><td><code>NROS_SUBSCRIPTION_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:833</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: each subscription’s receive buffer inside the executor arena (<code>DEFAULT_RX_BUF_SIZE</code>)</td></tr>
+<tr><td><code>NROS_SUBSCRIPTION_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:849</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>executor</strong>: each subscription’s receive buffer inside the executor arena (<code>DEFAULT_RX_BUF_SIZE</code>)</td></tr>
 <tr><td><code>NROS_XRCE_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: the default the three XRCE buffer sizes above alias to</td></tr>
 <tr><td><code>NROS_XRCE_CUSTOM_TRANSPORT_MTU</code></td><td style="text-align: right">4096</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: the custom-transport twin of <code>NROS_XRCE_TRANSPORT_MTU</code></td></tr>
 <tr><td><code>NROS_XRCE_MAX_SERVICE_CLIENTS</code></td><td style="text-align: right">4</td><td><code>packages/rmw/xrce</code></td><td><strong>heap</strong>: service-client slots inside <code>xrce_session_state_t</code></td></tr>
@@ -27303,11 +27321,11 @@ this column is blank, and nothing here is free unless it says so.</p>
 <tr><td><code>NROS_ZEPHYR_HEAP_SIZE</code></td><td style="text-align: right">computed — see <code>packages/platform/nros-platform/build.rs:66</code></td><td><code>packages/platform/nros-platform</code></td><td><strong>heap</strong> <code>nros_platform::zephyr_heap::HEAP</code>: the rlsf arena both zenoh-pico’s <code>z_malloc</code> and Rust’s allocator draw from on Zephyr; the symbol IS the region, measured per image</td></tr>
 <tr><td><code>ROSOUT_PROBE_PERIOD_MS</code></td><td style="text-align: right">250</td><td><code>packages/testing/nros-tests/bins/rosout-talker</code></td><td><strong>test-only</strong>: <code>rosout-talker</code> test binary</td></tr>
 <tr><td><code>ROSOUT_PROBE_RECORDS</code></td><td style="text-align: right">60</td><td><code>packages/testing/nros-tests/bins/rosout-talker</code></td><td><strong>test-only</strong>: <code>rosout-talker</code> test binary</td></tr>
-<tr><td><code>ZPICO_BATCH_MULTICAST_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1481</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>heap</strong>: the multicast twin of the unicast batch buffers — heap at session open, no symbol</td></tr>
-<tr><td><code>ZPICO_BATCH_UNICAST_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1480</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>heap</strong>: zenoh-pico allocates its unicast TX/RX batch buffers (<code>_z_wbuf_make</code>/<code>_z_zbuf_make</code>) when a session opens — heap bytes, no symbol</td></tr>
-<tr><td><code>ZPICO_FRAG_MAX_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1482</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>heap</strong>: zenoh-pico’s defragmentation buffer, <code>_z_wbuf_make(Z_FRAG_MAX_SIZE)</code> on first fragment — heap, no symbol</td></tr>
-<tr><td><code>ZPICO_GET_POLL_INTERVAL_MS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1484</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>not-a-size</strong>: milliseconds</td></tr>
-<tr><td><code>ZPICO_GET_REPLY_BUF_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1483</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>stack</strong>: the blocking <code>z_get</code> reply context is stack-allocated per call (<code>zpico.c</code>), so it costs stack in the caller, never static RAM</td></tr>
+<tr><td><code>ZPICO_BATCH_MULTICAST_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1602</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>heap</strong>: the multicast twin of the unicast batch buffers — heap at session open, no symbol</td></tr>
+<tr><td><code>ZPICO_BATCH_UNICAST_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1601</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>heap</strong>: zenoh-pico allocates its unicast TX/RX batch buffers (<code>_z_wbuf_make</code>/<code>_z_zbuf_make</code>) when a session opens — heap bytes, no symbol</td></tr>
+<tr><td><code>ZPICO_FRAG_MAX_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1603</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>heap</strong>: zenoh-pico’s defragmentation buffer, <code>_z_wbuf_make(Z_FRAG_MAX_SIZE)</code> on first fragment — heap, no symbol</td></tr>
+<tr><td><code>ZPICO_GET_POLL_INTERVAL_MS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1605</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>not-a-size</strong>: milliseconds</td></tr>
+<tr><td><code>ZPICO_GET_REPLY_BUF_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1604</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>stack</strong>: the blocking <code>z_get</code> reply context is stack-allocated per call (<code>zpico.c</code>), so it costs stack in the caller, never static RAM</td></tr>
 <tr><td><code>ZPICO_GRAPH_CACHE_SIZE</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1178</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>: the graph cache’s byte buffer, embedded in each <code>struct zpico_session</code> beside its mutex and subscriber handle</td></tr>
 <tr><td><code>ZPICO_GRAPH_DISCOVERY</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1190</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>not-a-size</strong>: switches the graph cache on; its bytes are <code>ZPICO_GRAPH_CACHE_SIZE</code></td></tr>
 <tr><td><code>ZPICO_LEASE_TASK_PRIORITY</code></td><td style="text-align: right">16</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>not-a-size</strong>: a task priority</td></tr>
@@ -27355,7 +27373,7 @@ hand bypasses the question Kconfig asked.</p>
 <p>The <code>evidence</code> column is where each value is consumed, so a symbol with no
 reader stands out: a prompt asking a question whose answer is discarded is
 worse than no prompt.</p>
-<p>114 Kconfig symbols — <strong>113 settable</strong>, 1 provided for application code, 0 derived, 0 dead.</p>
+<p>118 Kconfig symbols — <strong>117 settable</strong>, 1 provided for application code, 0 derived, 0 dead.</p>
 <h2 id="facts-with-more-than-one-spelling"><a class="header" href="#facts-with-more-than-one-spelling">Facts with more than one spelling</a></h2>
 <p>Where a decision has an authority OUTSIDE Kconfig, that authority is the
 place to set it and these symbols carry it.</p>
@@ -27461,7 +27479,11 @@ place to set it and these symbols carry it.</p>
 <tr><td><code>CONFIG_NROS_GRAPH_CACHE_SIZE</code></td><td><code>65536</code></td><td>cmake, rust-source</td></tr>
 <tr><td><code>CONFIG_NROS_GRAPH_MAX_ENTITIES</code></td><td><code>0</code></td><td>rust-source</td></tr>
 <tr><td><code>CONFIG_NROS_HEAP_EXHAUSTION_IS_FATAL</code></td><td><code>y if NROS_BOOT_REPORT</code></td><td>c-source, rust-source</td></tr>
+<tr><td><code>CONFIG_NROS_LOG_BUFFER_SIZE</code></td><td><code>256</code></td><td>forwarded-to-cargo, cmake</td></tr>
 <tr><td><code>CONFIG_NROS_LOG_DYNAMIC_LOGGERS</code></td><td><code>16</code></td><td>forwarded-to-cargo, cmake, rust-source</td></tr>
+<tr><td><code>CONFIG_NROS_LOG_EARLY_RECORDS</code></td><td><code>4</code></td><td>forwarded-to-cargo, cmake</td></tr>
+<tr><td><code>CONFIG_NROS_LOG_MAX_LEVEL</code></td><td><code>0</code></td><td>forwarded-to-cargo, cmake</td></tr>
+<tr><td><code>CONFIG_NROS_LOG_ROSOUT_RECORDS</code></td><td><code>16</code></td><td>forwarded-to-cargo, cmake</td></tr>
 <tr><td><code>CONFIG_NROS_MAX_LARGE_SUBSCRIBERS</code></td><td><code>-1</code></td><td>forwarded-to-cargo, cmake, rust-source</td></tr>
 <tr><td><code>CONFIG_NROS_MAX_LIVELINESS</code></td><td><code>-1</code></td><td>forwarded-to-cargo, cmake, rust-source</td></tr>
 <tr><td><code>CONFIG_NROS_MAX_PENDING_GETS</code></td><td><code>4</code></td><td>forwarded-to-cargo, cmake, rust-source</td></tr>
