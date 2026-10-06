@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["try_box","try_zeroed_bytes"]};
+window.SIDEBAR_ITEMS = {"fn":["try_box","try_box_uninit","try_zeroed_bytes"]};
