@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['goaltype_0',['goaltype',['../classrclcpp__action_1_1Server.html#adb9bae227feca87226ade3374fed409f',1,'rclcpp_action::Server::GoalType'],['../classrclcpp__action_1_1Client.html#ae7272f4f540ecb3ab1001f0af7368f90',1,'rclcpp_action::Client::GoalType']]]
+  ['feedbacktype_0',['feedbacktype',['../classrclcpp__action_1_1Server.html#a5450e63987fbe9bf2e47efda7ff7ec86',1,'rclcpp_action::Server::FeedbackType'],['../classrclcpp__action_1_1Client.html#a77907a8a543d7fba46334623ca3c5304',1,'rclcpp_action::Client::FeedbackType']]]
 ];

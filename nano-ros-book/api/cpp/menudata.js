@@ -143,6 +143,7 @@ var menudata={children:[
 {text:"v",url:"functions_vars.html#index_v"}]},
 {text:"Typedefs",url:"functions_type.html",children:[
 {text:"c",url:"functions_type.html#index_c"},
+{text:"e",url:"functions_type.html#index_e"},
 {text:"f",url:"functions_type.html#index_f"},
 {text:"g",url:"functions_type.html#index_g"},
 {text:"l",url:"functions_type.html#index_l"},
@@ -150,7 +151,11 @@ var menudata={children:[
 {text:"s",url:"functions_type.html#index_s"},
 {text:"t",url:"functions_type.html#index_t"},
 {text:"u",url:"functions_type.html#index_u"}]},
-{text:"Related Symbols",url:"functions_rela.html"}]}]},
+{text:"Related Symbols",url:"functions_rela.html",children:[
+{text:":",url:"functions_rela.html#index_:"},
+{text:"d",url:"functions_rela.html#index_d"},
+{text:"n",url:"functions_rela.html#index_n"},
+{text:"o",url:"functions_rela.html#index_o"}]}]}]},
 {text:"Files",url:"files.html",children:[
 {text:"File List",url:"files.html"},
 {text:"File Members",url:"globals.html",children:[

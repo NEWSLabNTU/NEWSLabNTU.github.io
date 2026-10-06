@@ -27,8 +27,9 @@ var searchData=
   ['api_20buffer_20tuning_20nros_5f_24',['C++ API Buffer Tuning (NROS_*)',['../configuration.html#autotoc_md15',1,'']]],
   ['api_20modules_25',['API Modules',['../index.html#autotoc_md1',1,'']]],
   ['argv_5fhas_5fros_5fargs_26',['argv_has_ros_args',['../namespacerclcpp_1_1detail.html#afc5cbca583e3734a2470d94cab0c8bd7',1,'rclcpp::detail']]],
-  ['assert_5fliveliness_27',['assert_liveliness',['../classrclcpp_1_1Publisher.html#a01baee3f0df00adebf5c3940d86aaf28',1,'rclcpp::Publisher']]],
-  ['async_5fsend_5frequest_28',['async_send_request',['../classrclcpp_1_1Client.html#a38f31656846534865a53e095cac3f846',1,'rclcpp::Client']]],
-  ['attach_5fclosure_5fblock_29',['attach_closure_block',['../classnros_1_1Timer.html#a9b4fe01d0183ebbdfd67d400c56be6a3',1,'nros::Timer::attach_closure_block()'],['../classnros_1_1GuardCondition.html#aafeda081f8db6195ad5c54f371d557b2',1,'nros::GuardCondition::attach_closure_block()']]],
-  ['avoid_5fros_5fnamespace_5fconventions_30',['avoid_ros_namespace_conventions',['../structnros__cpp__qos__t.html#ab342de97418984350c69693828c66383',1,'nros_cpp_qos_t::avoid_ros_namespace_conventions'],['../classnros_1_1QoS.html#a42a7610b2a6d3c0485cccc3f5de1a339',1,'nros::QoS::avoid_ros_namespace_conventions(bool on)'],['../classnros_1_1QoS.html#a148a2ee45271a01bb8edc0404526e381',1,'nros::QoS::avoid_ros_namespace_conventions() const']]]
+  ['as_5fnode_5fref_27',['as_node_ref',['../namespacerclcpp_1_1detail.html#aa20a28ca91e9daf75f05c1600a4b33b5',1,'rclcpp::detail::as_node_ref(::rclcpp::Node *n)'],['../namespacerclcpp_1_1detail.html#a000b5403cc5c8b72edb038402d677bea',1,'rclcpp::detail::as_node_ref(::rclcpp::Node &amp;n)']]],
+  ['assert_5fliveliness_28',['assert_liveliness',['../classrclcpp_1_1Publisher.html#a01baee3f0df00adebf5c3940d86aaf28',1,'rclcpp::Publisher']]],
+  ['async_5fsend_5frequest_29',['async_send_request',['../classrclcpp_1_1Client.html#a38f31656846534865a53e095cac3f846',1,'rclcpp::Client']]],
+  ['attach_5fclosure_5fblock_30',['attach_closure_block',['../classnros_1_1Timer.html#a9b4fe01d0183ebbdfd67d400c56be6a3',1,'nros::Timer::attach_closure_block()'],['../classnros_1_1GuardCondition.html#aafeda081f8db6195ad5c54f371d557b2',1,'nros::GuardCondition::attach_closure_block()']]],
+  ['avoid_5fros_5fnamespace_5fconventions_31',['avoid_ros_namespace_conventions',['../classnros_1_1QoS.html#a148a2ee45271a01bb8edc0404526e381',1,'nros::QoS::avoid_ros_namespace_conventions()'],['../structnros__cpp__qos__t.html#ab342de97418984350c69693828c66383',1,'nros_cpp_qos_t::avoid_ros_namespace_conventions'],['../classnros_1_1QoS.html#a42a7610b2a6d3c0485cccc3f5de1a339',1,'nros::QoS::avoid_ros_namespace_conventions()']]]
 ];
