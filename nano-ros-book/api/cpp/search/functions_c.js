@@ -1,7 +1,7 @@
 var searchData=
 [
   ['namespace_5f_0',['namespace_',['../classnros_1_1NodeBuilder.html#aab06675a666c80ff2c88b878dc2f6319',1,'nros::NodeBuilder']]],
-  ['node_1',['node',['../classrclcpp_1_1Node.html#ac3f6ffd81dd0eb4fd16ac1b0c2cc181d',1,'rclcpp::Node::Node()'],['../classrclcpp_1_1Node.html#a8a1639cb687f2caa50461fa27f327eac',1,'rclcpp::Node::Node(const char *name, const char *ns=nullptr)'],['../classrclcpp_1_1Node.html#a8c2d0c64b70b0b8c8644e9da343b733b',1,'rclcpp::Node::Node(::nros::NodeHandle handle, const char *name, const char *ns=nullptr)'],['../classrclcpp_1_1Node.html#a71c213997487e6c8822b5340bc871c03',1,'rclcpp::Node::Node(Node &amp;&amp;other)']]],
+  ['node_1',['node',['../classrclcpp_1_1Node.html#ac3f6ffd81dd0eb4fd16ac1b0c2cc181d',1,'rclcpp::Node::Node()'],['../classrclcpp_1_1Node.html#a8a1639cb687f2caa50461fa27f327eac',1,'rclcpp::Node::Node(const char *name, const char *ns=nullptr)'],['../classrclcpp_1_1Node.html#a8c2d0c64b70b0b8c8644e9da343b733b',1,'rclcpp::Node::Node(::nros::NodeHandle handle, const char *name, const char *ns=nullptr)'],['../classrclcpp_1_1Node.html#a73b7add670bd93e169a9442ba4609ee3',1,'rclcpp::Node::Node(const char *name, const ::rclcpp::NodeOptions &amp;options)'],['../classrclcpp_1_1Node.html#a3434b0a5de4f5c89700cca0aa8c6a3e3',1,'rclcpp::Node::Node(const char *name, const char *ns, const ::rclcpp::NodeOptions &amp;options)'],['../classrclcpp_1_1Node.html#a71c213997487e6c8822b5340bc871c03',1,'rclcpp::Node::Node(Node &amp;&amp;other)']]],
   ['node_5fbuilder_2',['node_builder',['../classnros_1_1Executor.html#a168a207f53470633694ba492e694cec3',1,'nros::Executor']]],
   ['nodebuilder_3',['NodeBuilder',['../classnros_1_1NodeBuilder.html#a3addc54027ca56283e5b70db6670cf9b',1,'nros::NodeBuilder']]],
   ['nodehandle_4',['nodehandle',['../structnros_1_1NodeHandle.html#a7c87aa831ad61f36e835eb7ade4bda29',1,'nros::NodeHandle::NodeHandle()'],['../structnros_1_1NodeHandle.html#a21f14d45d7b530e1c59db5c1f97a2a08',1,'nros::NodeHandle::NodeHandle(void *exec)'],['../structnros_1_1NodeHandle.html#aeac409b4418da5fb05a787362ce97d6e',1,'nros::NodeHandle::NodeHandle(void *exec, const char *name, const char *ns)']]],
@@ -16,5 +16,6 @@ var searchData=
   ['nros_5fcpp_5fsubscription_5fregister_5fcapturing_13',['nros_cpp_subscription_register_capturing',['../subscription_8hpp.html#a5c916aceb0abbb704f2afda44ca7264e',1,'subscription.hpp']]],
   ['nros_5fcpp_5fsubscription_5fregister_5fwith_5finfo_14',['nros_cpp_subscription_register_with_info',['../subscription_8hpp.html#a94a5e786faa0d725d52bfe1e947e0a3b',1,'subscription.hpp']]],
   ['nros_5fcpp_5ftime_5fns_15',['nros_cpp_time_ns',['../future_8hpp.html#abf4799c6d4d352c4d93e57fa83fdb902',1,'nros_cpp_time_ns(void):&#160;future.hpp'],['../stream_8hpp.html#abf4799c6d4d352c4d93e57fa83fdb902',1,'nros_cpp_time_ns(void):&#160;stream.hpp']]],
-  ['nros_5fqos_5fpolicy_5fkind_5fto_5fcstr_16',['nros_qos_policy_kind_to_cstr',['../namespacenros.html#a59953775f0e0b853096344f29f5dbdde',1,'nros']]]
+  ['nros_5fnode_16',['nros_node',['../classrclcpp_1_1Node.html#ab0b6881d1912a4936e2029363a8722f0',1,'rclcpp::Node::nros_node() const'],['../classrclcpp_1_1Node.html#a772daff9ea07875f29b2743ad86f1855',1,'rclcpp::Node::nros_node()']]],
+  ['nros_5fqos_5fpolicy_5fkind_5fto_5fcstr_17',['nros_qos_policy_kind_to_cstr',['../namespacenros.html#a59953775f0e0b853096344f29f5dbdde',1,'nros']]]
 ];
