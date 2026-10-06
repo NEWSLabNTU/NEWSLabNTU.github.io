@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["DIAG_TOPIC"],"fn":["install_contract_monitors"],"struct":["ContractReporter","DiagSink"]};
+window.SIDEBAR_ITEMS = {"constant":["DIAG_TOPIC"],"fn":["arm_reporter","install_contract_monitors"],"struct":["ContractReporter","DiagSink"]};
