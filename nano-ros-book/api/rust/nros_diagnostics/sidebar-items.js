@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["RULE_MAX_AGE","RULE_MAX_LATENCY","RULE_RATE_HIERARCHY","RULE_SILENCE"],"enum":["ContractKind","Severity"],"fn":["kind_for_rule"],"struct":["DiagnosticArray","DiagnosticReporter","DiagnosticStatus","KeyValue"]};
+window.SIDEBAR_ITEMS = {"constant":["RULE_MAX_AGE","RULE_MAX_LATENCY","RULE_RATE_HIERARCHY","RULE_SILENCE"],"enum":["ContractKind","Severity"],"fn":["kind_for_rule","write_violation_report"],"struct":["DiagnosticArray","DiagnosticReporter","DiagnosticStatus","KeyValue"]};
