@@ -28,7 +28,7 @@ var searchData=
   ['api_20modules_25',['API Modules',['../index.html#autotoc_md1',1,'']]],
   ['argv_5fhas_5fros_5fargs_26',['argv_has_ros_args',['../namespacerclcpp_1_1detail.html#afc5cbca583e3734a2470d94cab0c8bd7',1,'rclcpp::detail']]],
   ['arm_5fmonitors_27',['arm_monitors',['../namespacenros.html#aeb911f7d5cfb8c54877ceee14bce3997',1,'nros']]],
-  ['as_5fnode_5fref_28',['as_node_ref',['../namespacerclcpp_1_1detail.html#aa20a28ca91e9daf75f05c1600a4b33b5',1,'rclcpp::detail::as_node_ref(::rclcpp::Node *n)'],['../namespacerclcpp_1_1detail.html#a000b5403cc5c8b72edb038402d677bea',1,'rclcpp::detail::as_node_ref(::rclcpp::Node &amp;n)']]],
+  ['as_5fnode_5fref_28',['as_node_ref',['../namespacerclcpp_1_1detail.html#a000b5403cc5c8b72edb038402d677bea',1,'rclcpp::detail::as_node_ref(::rclcpp::Node &amp;n)'],['../namespacerclcpp_1_1detail.html#aa20a28ca91e9daf75f05c1600a4b33b5',1,'rclcpp::detail::as_node_ref(::rclcpp::Node *n)'],['../namespacerclcpp_1_1detail.html#a9f02268296f2ddac019d012fef47fd1b',1,'rclcpp::detail::as_node_ref(const ::rclcpp::Node::SharedPtr &amp;n)']]],
   ['assert_5fliveliness_29',['assert_liveliness',['../classrclcpp_1_1Publisher.html#a01baee3f0df00adebf5c3940d86aaf28',1,'rclcpp::Publisher']]],
   ['async_5fsend_5frequest_30',['async_send_request',['../classrclcpp_1_1Client.html#a38f31656846534865a53e095cac3f846',1,'rclcpp::Client']]],
   ['attach_5fclosure_5fblock_31',['attach_closure_block',['../classnros_1_1Timer.html#a9b4fe01d0183ebbdfd67d400c56be6a3',1,'nros::Timer::attach_closure_block()'],['../classnros_1_1GuardCondition.html#aafeda081f8db6195ad5c54f371d557b2',1,'nros::GuardCondition::attach_closure_block()']]],

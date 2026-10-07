@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-be6960f8.js";
+            window.path_to_searchindex_js = "searchindex-e92f33a8.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8de85cac.js"></script>
@@ -12846,7 +12846,7 @@ discovery. Existing in-tree examples will migrate as part of Phase
 </thead>
 <tbody>
 <tr><td><code>class MyNode : public rclcpp::Node</code></td><td><code>rclcpp::Node</code> — ours, and the same name. (<code>nros::Node</code> is a deprecated alias for it; write <code>rclcpp::</code>.)</td><td>Ctor takes <code>(name)</code>, <code>(name, options)</code> or <code>(name, ns, options)</code>.</td></tr>
-<tr><td><code>std::make_shared&lt;MyNode&gt;()</code></td><td>works</td><td><code>shared_from_this()</code> works too, with one caveat — see “Two things the compiler will not tell you” below.</td></tr>
+<tr><td><code>std::make_shared&lt;MyNode&gt;()</code></td><td>works</td><td><code>auto node = std::make_shared&lt;MyNode&gt;()</code> and <code>rclcpp::spin(std::make_shared&lt;MyNode&gt;())</code> are unchanged. <code>rclcpp::Node::SharedPtr node = std::make_shared&lt;…&gt;(…)</code> does not compile — write <code>auto</code>; see “<code>Node::SharedPtr</code> observes, it does not own” below. <code>shared_from_this()</code> works too, with the same caveat.</td></tr>
 <tr><td><code>create_publisher&lt;M&gt;(topic, qos)</code></td><td>shared_ptr-returning wrapper</td><td><code>qos</code> can be <code>rclcpp::QoS(10)</code> or an int.</td></tr>
 <tr><td><code>create_subscription&lt;M&gt;(topic, qos, callback)</code></td><td>registered on the executor arena; dispatched by <strong>any</strong> spin verb</td><td><strong>Capturing lambdas + <code>std::function</code> all work</strong>.</td></tr>
 <tr><td><code>create_wall_timer(period, callback)</code></td><td>registered on the executor arena; dispatched by <strong>any</strong> spin verb</td><td><code>std::chrono::duration</code> arg, capturing-lambda callback. Returns <code>rclcpp::TimerBase::SharedPtr</code>, which is <code>rclcpp::Timer::SharedPtr</code> — one flat type, two names. See below.</td></tr>
@@ -12915,17 +12915,28 @@ if (!node.init("talker").ok()) return 1;
 </code></pre>
 <p><code>Result</code> carries <code>[[nodiscard]]</code> on C++17 and later, so <em>that</em> one the compiler
 does warn about.</p>
-<h3 id="shared_from_this-does-not-extend-the-nodes-lifetime"><a class="header" href="#shared_from_this-does-not-extend-the-nodes-lifetime"><code>shared_from_this()</code> does not extend the node’s lifetime</a></h3>
-<p>Upstream gets it from <code>std::enable_shared_from_this&lt;Node&gt;</code> and the returned
-pointer is a co-OWNER. nano-ros cannot derive from that base — it carries a
-<code>std::weak_ptr</code> member that exists only where <code>&lt;memory&gt;</code> does, which would make
-<code>sizeof(rclcpp::Node)</code> depend on a capability probe and let two translation
-units of one firmware image disagree about the object’s layout.</p>
-<p>So <code>shared_from_this()</code> here returns a pointer that ALIASES the node with an
-empty owner: it is safe to pass to anything that holds it for less than the
-node’s lifetime (<code>diagnostic_updater::Updater(shared_from_this(), 1.0)</code> is the
-common case and is fine), and it is NOT safe to store somewhere that outlives
-the node. It also never throws where upstream would raise <code>bad_weak_ptr</code>.</p>
+<h3 id="nodesharedptr-observes-it-does-not-own"><a class="header" href="#nodesharedptr-observes-it-does-not-own"><code>Node::SharedPtr</code> observes, it does not own</a></h3>
+<p><code>rclcpp::Node::SharedPtr</code> is <code>nros::Handle&lt;rclcpp::Node&gt;</code> on every target,
+embedded included: a copyable reference that does not keep the node alive. A
+node is constructed by your <code>main</code> (or the generated entry) and outlives
+everything it is handed to, so storing and copying it works as upstream’s does.
+Two consequences:</p>
+<ul>
+<li><strong><code>shared_from_this()</code></strong> returns that handle. It is safe to pass to anything
+that holds it for less than the node’s lifetime
+(<code>diagnostic_updater::Updater(shared_from_this(), 1.0)</code> is the common case),
+and NOT safe to store somewhere that outlives the node. It never throws where
+upstream would raise <code>bad_weak_ptr</code>. nano-ros cannot derive from
+<code>std::enable_shared_from_this&lt;Node&gt;</code>: its <code>std::weak_ptr</code> member exists only
+where <code>&lt;memory&gt;</code> does, so two translation units of one firmware image could
+disagree about the object’s layout.</li>
+<li><strong><code>rclcpp::Node::SharedPtr node = std::make_shared&lt;MyNode&gt;();</code> is a compile
+error.</strong> The <code>shared_ptr</code> there is a temporary, and a handle to it would
+dangle at the end of the line; the compiler names the deleted conversion.
+Write <code>auto node = std::make_shared&lt;MyNode&gt;();</code> instead. A <code>shared_ptr</code> you
+keep converts to <code>Node::SharedPtr</code> freely, and <code>rclcpp::spin(…)</code> accepts the
+temporary directly.</li>
+</ul>
 <h3 id="rclcpptimerbase-is-a-name-here-not-a-hierarchy"><a class="header" href="#rclcpptimerbase-is-a-name-here-not-a-hierarchy"><code>rclcpp::TimerBase</code> is a NAME here, not a hierarchy</a></h3>
 <p><code>rclcpp::TimerBase::SharedPtr timer_;</code> compiles unchanged, and you should keep
 writing it — it is the only spelling that works against real ROS 2 as well as
