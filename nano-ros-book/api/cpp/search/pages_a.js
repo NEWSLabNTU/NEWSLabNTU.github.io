@@ -1,4 +1,6 @@
 var searchData=
 [
-  ['ros_202_20interoperability_0',['ROS 2 Interoperability',['../ros2_interop.html',1,'index']]]
+  ['the_20message_20type_20concept_0',['The Message-Type Concept',['../message_concept.html',1,'index']]],
+  ['troubleshooting_1',['Troubleshooting',['../troubleshooting.html',1,'index']]],
+  ['type_20concept_2',['The Message-Type Concept',['../message_concept.html',1,'index']]]
 ];

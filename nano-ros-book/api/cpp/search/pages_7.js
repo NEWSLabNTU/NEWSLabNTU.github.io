@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['list_0',['Deprecated List',['../deprecated.html',1,'']]]
+  ['nros_20c_20api_0',['nros C++ API',['../index.html',1,'']]]
 ];
