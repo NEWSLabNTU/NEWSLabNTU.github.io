@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-6e4cc9b3.js";
+            window.path_to_searchindex_js = "searchindex-46b0a123.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8de85cac.js"></script>
@@ -441,7 +441,7 @@ Boards</a></strong>.</li>
 — what stays familiar (package.xml, launch XML, <code>find_package</code>)
 and what changes (no install prefix, compile-time RMW).</li>
 <li><strong><a href="#porting-a-ros-2-c-node-to-nano-ros">Porting a ROS 2 C++ node</a></strong>
-— the rclcpp-compat shim and its limits.</li>
+— what builds unchanged, and its limits.</li>
 <li><strong><a href="#c--c-multi-node-workspaces">C / C++ multi-node workspaces</a></strong>
 — the colcon-shaped workspace flow.</li>
 <li><strong><a href="#ros-2-interop">ROS 2 Interoperability</a></strong> —
@@ -1254,7 +1254,7 @@ builds under both:</p>
 <li>a nano-ros build — <code>rosidl_generate_interfaces(...)</code> is intercepted by
 nano-ros’s wrapper and routed through nano-ros codegen. <strong>No ROS 2
 install needed</strong> — even the <code>rclcpp</code>-shaped consumer below compiles
-against nano-ros’s source-compat layer.</li>
+against nano-ros’s own <code>rclcpp</code> CMake package.</li>
 <li><code>colcon build</code> — upstream <code>rosidl_default_generators</code> produces the
 upstream-ROS bindings (this half, and only this half, needs a ROS 2
 install; it is the optional cross-build proof at the end).</li>
@@ -1388,12 +1388,12 @@ set(NROS_RMW "zenoh" CACHE STRING "Active RMW.")
 set(NANO_ROS_RMW "${NROS_RMW}")
 add_subdirectory(/path/to/nano-ros nano_ros)
 
-# Point the smart Find-stub at this workspace (must precede the compat
-# include so the workspace Find&lt;pkg&gt;.cmake auto-emit picks it up).
+# Point the message-package resolver at this workspace (must precede the
+# ament-surface include so the workspace Find&lt;pkg&gt;.cmake auto-emit picks it up).
 set(NROS_INTERFACE_SEARCH_PATH "${CMAKE_SOURCE_DIR}/src")
 
-# Pull the rclcpp source-compat layer (find_package(rclcpp) etc.).
-include(/path/to/nano-ros/cmake/compat/NrosRclcppCompat.cmake)
+# nano-ros's ament / rclcpp surface (find_package(rclcpp), ament_* verbs).
+include(/path/to/nano-ros/cmake/NanoRosAmentSurface.cmake)
 
 # Bulk-build every workspace msg pkg in topo order. One line, no
 # add_subdirectory(src/&lt;pkg&gt;) per pkg.
@@ -1450,8 +1450,8 @@ layer wins</strong> — silently and deterministically. Concretely:</p>
 <ol>
 <li>
 <p><strong><code>NROS_INTERFACE_SEARCH_PATH</code> &gt; <code>AMENT_PREFIX_PATH</code> &gt; bundled.</strong>
-The smart Find-stub
-(<code>cmake/compat/stubs/_NrosFindRosMsgPackage.cmake</code>) walks the
+The message-package resolver
+(<code>cmake/find/_NrosFindRosMsgPackage.cmake</code>) walks the
 three layers in order; the first hit wins. Lower layers are
 skipped entirely.</p>
 </li>
@@ -12732,12 +12732,12 @@ example before moving to a platform-specific guide.</p>
 <p>Goal: take a normal ROS 2 C++ node (one that compiles + runs under
 <code>colcon build</code> against <code>ros-humble-*</code>) and run it under nano-ros — without
 rewriting the source. The <code>rclcpp::</code> names are declared by nano-ros’s own C++
-headers — <code>#include &lt;rclcpp/rclcpp.hpp&gt;</code> resolves through
-<code>cmake/compat/include/rclcpp/rclcpp.hpp</code> straight to <code>&lt;nros/nros.hpp&gt;</code>, with no
-compat header in between (phase-417 stage 6 deleted <code>nros/rclcpp_compat.hpp</code>).
-What remains of the compat layer is build glue —
-<code>cmake/compat/NrosRclcppCompat.cmake</code> plus <code>nros-diagnostic-updater</code> — so the
-only delta is <strong>build-script glue</strong>.</p>
+headers — <code>&lt;rclcpp/rclcpp.hpp&gt;</code> is an nros-cpp header that includes
+<code>&lt;nros/nros.hpp&gt;</code>, and there is no compat layer between them (RFC-0096 D4). The
+CMake side is part of nano-ros’s own package: <code>cmake/NanoRosAmentSurface.cmake</code>
+defines the <code>ament_*</code> verbs, <code>cmake/find/</code> holds the <code>Find&lt;pkg&gt;.cmake</code> modules,
+and <code>diagnostic_updater</code> is <code>packages/api/nros-diagnostic-updater</code>. So the only
+delta is <strong>build-script glue</strong>.</p>
 <p>The canonical proof lives at
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/cpp-port-minimal-publisher"><code>examples/templates/cpp-port-minimal-publisher/</code></a> —
 the ROS 2 tutorial’s <code>minimal_publisher.cpp</code> vendored unmodified, building
@@ -12748,10 +12748,11 @@ against nano-ros via the three glue lines below.</p>
 in <code>std::shared_ptr</code> and <code>std::string</code>, and nano-ros compiles that surface only
 when a build <strong>asks</strong> for it by defining <code>NROS_CPP_STD</code>. It is never inferred
 from what your compiler happens to have on its include path.</p>
-<p><strong><code>cmake/compat/NrosRclcppCompat.cmake</code> sets it for you</strong>, on every target it
-applies the compat shim to, so a project following the two layers of glue below
+<p><strong>nano-ros’s ament surface sets it for you</strong>: every target created through
+<code>ament_auto_add_*</code> / <code>rclcpp_components_register_node</code>, and every target linking
+<code>rclcpp::rclcpp</code>, gets it. A project following the two layers of glue below
 needs nothing extra. You type it yourself only when you build a ported
-translation unit <em>outside</em> the compat path:</p>
+translation unit some other way:</p>
 <pre><code class="language-cmake">target_compile_definitions(my_ported_node PRIVATE NROS_CPP_STD=1)
 </code></pre>
 <p>Two things worth knowing before you reach for it:</p>
@@ -12785,13 +12786,16 @@ ament_target_dependencies(my_node rclcpp std_msgs)
 
 ament_package()
 </code></pre>
-<p><code>find_package(rclcpp)</code> resolves through the rclcpp Find-stub (which puts
-<code>cmake/compat/include/</code> on the include path so <code>&lt;rclcpp/rclcpp.hpp&gt;</code> lands on
-nano-ros’s headers, and force-includes <code>nros/rclcpp_components_compat.hpp</code> for
-the components macros); <code>find_package(std_msgs)</code>
-resolves through the smart Find-stub (it walks
-<code>NROS_INTERFACE_SEARCH_PATH &gt; AMENT_PREFIX_PATH &gt; bundled</code>); the
-<code>ament_target_dependencies</code> compat shim wires both link targets.</p>
+<p><code>find_package(rclcpp)</code> resolves through nano-ros’s <code>Findrclcpp.cmake</code>, which
+defines <code>rclcpp::rclcpp</code> over the nros-cpp runtime — and with it the include
+path on which <code>&lt;rclcpp/rclcpp.hpp&gt;</code> and
+<code>&lt;rclcpp_components/register_node_macro.hpp&gt;</code> are nano-ros’s own headers;
+<code>find_package(std_msgs)</code> resolves through the message-package resolver (it
+walks <code>NROS_INTERFACE_SEARCH_PATH &gt; AMENT_PREFIX_PATH &gt; bundled</code>); nano-ros’s
+<code>ament_target_dependencies</code> wires both link targets.</p>
+<p>These are find MODULES rather than <code>&lt;pkg&gt;Config.cmake</code> files on purpose:
+<code>find_package()</code> tries module mode first, so nano-ros’s <code>rclcpp</code> wins over an
+installed ROS 2 even when <code>/opt/ros/&lt;distro&gt;/setup.bash</code> has been sourced.</p>
 <h3 id="workspace-umbrella-cmakeliststxt--one-nano-ros-include"><a class="header" href="#workspace-umbrella-cmakeliststxt--one-nano-ros-include">Workspace umbrella CMakeLists.txt — <strong>one nano-ros include</strong></a></h3>
 <p>The umbrella <code>CMakeLists.txt</code> (sits at the workspace root, next to
 <code>src/</code>) is the <strong>only</strong> nano-ros-aware file:</p>
@@ -12805,13 +12809,13 @@ set(NROS_RMW "zenoh" CACHE STRING "Active RMW.")
 set(NANO_ROS_RMW "${NROS_RMW}")
 add_subdirectory("/path/to/nano-ros" nano_ros)
 
-# 2) Point the smart Find-stub at this workspace's src/ (must precede the
-#    NrosRclcppCompat include so workspace-pkg Find&lt;pkg&gt;.cmake auto-emit
-#    picks it up).
+# 2) Point the message-package resolver at this workspace's src/ (must
+#    precede the ament-surface include so workspace-pkg Find&lt;pkg&gt;.cmake
+#    auto-emit picks it up).
 set(NROS_INTERFACE_SEARCH_PATH "${CMAKE_SOURCE_DIR}/src")
 
-# 3) Drop-in source-compat surface.
-include("/path/to/nano-ros/cmake/compat/NrosRclcppCompat.cmake")
+# 3) nano-ros's ament / rclcpp surface.
+include("/path/to/nano-ros/cmake/NanoRosAmentSurface.cmake")
 
 # 4) Bulk-build every workspace msg pkg in topo order (one line instead of
 #    N add_subdirectory(src/&lt;pkg&gt;) lines).
@@ -12838,7 +12842,7 @@ code</strong> — they bypass the ROS-convention smart Find-stub + workspace
 discovery. Existing in-tree examples will migrate as part of Phase
 210.E.3.</p>
 <h2 id="what-just-works-without-source-edits"><a class="header" href="#what-just-works-without-source-edits">What “just works” without source edits</a></h2>
-<p>The compat surface covers the patterns a typical ROS 2 C++ node uses:</p>
+<p>nano-ros covers the patterns a typical ROS 2 C++ node uses:</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -12856,10 +12860,10 @@ discovery. Existing in-tree examples will migrate as part of Phase
 <tr><td><code>get_logger().get_child("sub")</code></td><td>a real child logger, <code>&lt;parent&gt;.sub</code> (RFC-0102)</td><td>Its level, when unset, follows the nearest ancestor’s, so <code>set_level</code> on the node logger reaches it. A full name over 48 bytes or a full runtime-logger arena emits through the PARENT and <code>set_level</code> on it is refused — never a silent move of the parent’s threshold. Iron/Jazzy images publish children on <code>/rosout</code>; Humble ones, as upstream, do not.</td></tr>
 <tr><td><code>executor.spin_once() / client-&gt;wait_for_service() / action_client-&gt;wait_for_action_server()</code></td><td><strong>the budget is required</strong></td><td>Upstream defaults all three to “block forever”, which nano-ros has no form of; the no-argument call is a compile error naming the alternative rather than a silently substituted 10 ms / 5 s budget. Write <code>spin_once(10)</code>, <code>wait_for_service(10000)</code>.</td></tr>
 <tr><td><code>rclcpp::QoS / KeepLast(n) / SystemDefaultsQoS()</code></td><td>subclass of <code>nros::QoS</code> with the <code>(depth)</code> ctor</td><td>Chainable setters inherited.</td></tr>
-<tr><td><code>diagnostic_updater::Updater</code> + <code>DiagnosticStatusWrapper</code></td><td><code>nros-diagnostic-updater</code> shim</td><td>Publishes <code>/diagnostics</code>.</td></tr>
+<tr><td><code>diagnostic_updater::Updater</code> + <code>DiagnosticStatusWrapper</code></td><td><code>packages/api/nros-diagnostic-updater</code></td><td>Publishes <code>/diagnostics</code>.</td></tr>
 <tr><td><code>rclcpp_action::Server&lt;A&gt; / Client&lt;A&gt;</code></td><td>ours, under upstream’s names (<code>nros::ActionServer/Client&lt;A&gt;</code> are aliases for them)</td><td>Same entities, smaller shapes: no goal handles and no futures. See <a href="#actions-no-goal-handles-no-futures">Actions</a> below.</td></tr>
 <tr><td><code>RCLCPP_COMPONENTS_REGISTER_NODE(class)</code></td><td>no-op macro + cmake-side <code>rclcpp_components_register_node()</code> emits a thin <code>int main()</code> per registration</td><td>Single-binary embedded.</td></tr>
-<tr><td><code>find_package(ament_cmake_auto / rclcpp / rclcpp_components / diagnostic_updater / std_msgs / …)</code></td><td>Find-stubs at <code>cmake/compat/stubs/</code></td><td>~24 of the most-cited ROS 2 packages stubbed; add your own under <code>cmake/compat/stubs/Find&lt;pkg&gt;.cmake</code> for more.</td></tr>
+<tr><td><code>find_package(ament_cmake_auto / rclcpp / rclcpp_components / diagnostic_updater / std_msgs / …)</code></td><td>find modules at <code>cmake/find/</code></td><td>~28 of the most-cited ROS 2 packages; a message package not among them is found by the resolver from <code>NROS_INTERFACE_SEARCH_PATH</code> / <code>AMENT_PREFIX_PATH</code>.</td></tr>
 </tbody>
 </table>
 </div>
@@ -12986,7 +12990,7 @@ headers): nano-ros codegen emits BOTH the per-message form
 </ul>
 <h2 id="whats-out-of-scope-will-need-code-adapt-or-a-follow-up-phase"><a class="header" href="#whats-out-of-scope-will-need-code-adapt-or-a-follow-up-phase">What’s out of scope (will need code adapt or a follow-up phase)</a></h2>
 <ul>
-<li><strong><code>rclcpp_lifecycle::LifecycleNode</code></strong> — the compat shim does not map it.
+<li><strong><code>rclcpp_lifecycle::LifecycleNode</code></strong> — not mapped yet (phase-482 W4).
 But nano-ros ships its own REP-2002 lifecycle surface (<code>nros/lifecycle.h</code>
 in C, <code>lifecycle-services</code> feature, state machine + lifecycle services —
 see the <a href="#c-api-1">C API reference</a> and
@@ -13008,9 +13012,9 @@ sites with raw <code>nros-cpp</code> ones.</li>
 <p>Known open follow-ups: yaml-loaded parameter baking, <code>LifecycleNode</code>
 compat, and the in-tree migration of legacy
 <code>nros_generate_interfaces(&lt;pkg&gt;)</code> call sites. If your port surfaces a
-<em>new</em> gap not covered by the compat header, file an issue — a fix
-lands either tree-side (in <code>cmake/compat/</code> or
-<code>packages/api/nros-cpp/</code>) or as a codegen change.</p>
+<em>new</em> gap, file an issue — a fix lands either tree-side (in
+<code>packages/api/nros-cpp/</code>, <code>cmake/NanoRosAmentSurface.cmake</code> or <code>cmake/find/</code>)
+or as a codegen change.</p>
 <p>In-tree regression fixtures:</p>
 <ul>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/local-msg-package"><code>local-msg-package</code></a>
@@ -13631,7 +13635,7 @@ existing <code>rclcpp</code>, <code>rclc</code>, or <code>rclrs</code> node towa
 <tr><td><code>RMW_IMPLEMENTATION=…</code> at runtime</td><td>compile-time backend, one line: <code>[system] rmw = "…"</code> in <code>system.toml</code>, then <code>nros sync</code></td><td><a href="#switching-rmw-backends">Switching RMW</a></td></tr>
 <tr><td>generated msg packages (ament index)</td><td><code>nros sync</code> writes <code>generated/</code> crates; the cargo patch table goes in the generated settings under <code>build/</code>, not in your package</td><td><a href="#message-binding-generation">Message Generation</a></td></tr>
 <tr><td><code>find_package(rclcpp)</code></td><td><code>find_package(nano_ros)</code> — ament-shaped, source-backed</td><td><a href="#porting-a-ros-2-c-node-to-nano-ros">Porting a C++ node</a></td></tr>
-<tr><td><code>ament_target_dependencies(t std_msgs)</code></td><td>kept, verbatim (compat shim + Find-stubs)</td><td>same page</td></tr>
+<tr><td><code>ament_target_dependencies(t std_msgs)</code></td><td>kept, verbatim (nano-ros’s ament verbs + find modules)</td><td>same page</td></tr>
 </tbody>
 </table>
 </div>
@@ -24278,9 +24282,9 @@ disagreement is reachable in practice — <code>examples/px4/cpp/bridge/</code> 
 on one module of a larger image deliberately — so keep the definition at
 target granularity and give every TU of a target the same answer.</p>
 <p><strong>A ported project usually needs none of this.</strong>
-<code>cmake/compat/NrosRclcppCompat.cmake</code> sets <code>NROS_CPP_STD=1</code> on every target it
-touches. Anything reaching <code>&lt;rclcpp/rclcpp.hpp&gt;</code> through the compat shim already
-has the surface it needs; see
+<code>cmake/NanoRosAmentSurface.cmake</code> sets <code>NROS_CPP_STD=1</code> on every target its
+<code>ament_*</code> verbs create, and <code>find_package(rclcpp)</code> sets it on whatever links
+<code>rclcpp::rclcpp</code>, so a ported package already has the surface it needs; see
 <a href="#porting-a-ros-2-c-node-to-nano-ros">Porting a ROS 2 C++ node</a>.</p>
 <h3 id="why-it-is-not-detected-for-you"><a class="header" href="#why-it-is-not-detected-for-you">Why it is not detected for you</a></h3>
 <p>It used to be. Until phase-438 the capability macros were <em>discovered</em> from the
