@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-1e252f11.js";
+            window.path_to_searchindex_js = "searchindex-8b75ebbf.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8de85cac.js"></script>
@@ -12841,6 +12841,42 @@ calls still work (back-compat preserved) but are <strong>deprecated for new
 code</strong> — they bypass the ROS-convention smart Find-stub + workspace
 discovery. Existing in-tree examples will migrate as part of Phase
 210.E.3.</p>
+<h2 id="running-the-ported-node-on-a-microcontroller"><a class="header" href="#running-the-ported-node-on-a-microcontroller">Running the ported node on a microcontroller</a></h2>
+<p>The same source runs on an RTOS, <code>main</code> included. Build glue for each platform
+sits beside the source, and the source itself does not change.
+<code>examples/templates/cpp-port-minimal-publisher/</code> carries two such directories,
+<code>mps2-an385-freertos/</code> and <code>zephyr/</code>, each with a <code>CMakeLists.txt</code> built
+around one line:</p>
+<pre><code class="language-cmake">find_package(nano_ros REQUIRED)
+nano_ros_add_executable(minimal_publisher ../src/minimal_publisher.cpp ROS2_MAIN)
+</code></pre>
+<p>The board comes from the directory’s <code>system.toml</code>, as for any nano-ros image.
+<code>ROS2_MAIN</code> does three things a microcontroller needs:</p>
+<ul>
+<li><strong>It reaches your <code>main</code>.</strong> No C runtime calls <code>int main(int argc, char** argv)</code> on a board: the board’s startup calls <code>nros_app_main</code>. The build
+renames <code>main</code> in the ported sources only (never in the board’s own
+startup) and generates the <code>nros_app_main</code> that calls it, with
+<code>argc == 0</code>.</li>
+<li><strong>It gives the ported code the C++ standard library.</strong> A ported node uses
+<code>std::string</code>, <code>std::to_string</code> and <code>&lt;chrono&gt;</code> literals.
+<ul>
+<li>On FreeRTOS the toolchain compiles C++ <code>-ffreestanding</code>, which makes
+<code>&lt;string&gt;</code> an <code>#error</code>, so the flag is removed for this package’s
+directory. nano-ros’s own code stays freestanding.</li>
+<li>On Zephyr, select the full library in <code>prj.conf</code>:
+<code>CONFIG_REQUIRES_FULL_LIBCPP=y</code> and <code>CONFIG_GLIBCXX_LIBCPP=y</code>.</li>
+</ul>
+</li>
+<li><strong>It asks for the std-shaped API</strong> (<code>NROS_CPP_STD</code>), the same one the ament
+verbs give a ported package on a host.</li>
+</ul>
+<p>Where the node connects is decided when the image is built, because a board has
+no environment to read it from: the <code>NROS_ENTRY_LOCATOR</code> cache variable on
+FreeRTOS, <code>CONFIG_NROS_ZENOH_LOCATOR</code> on Zephyr. <code>rclcpp::init(argc, argv)</code>
+reads it in every source file that includes <code>&lt;rclcpp/rclcpp.hpp&gt;</code>.</p>
+<p>Zephyr’s <code>native_sim</code> cannot run a ported node. There Zephyr links its own C
+library, and the host’s libstdc++ cannot run on top of it. Use a Cortex-M
+board such as <code>mps2/an385</code> in QEMU, which is what the template targets.</p>
 <h2 id="what-just-works-without-source-edits"><a class="header" href="#what-just-works-without-source-edits">What “just works” without source edits</a></h2>
 <p>nano-ros covers the patterns a typical ROS 2 C++ node uses:</p>
 <div class="table-wrapper">
