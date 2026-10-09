@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['goalresponse_0',['GoalResponse',['../namespacenros.html#a3329bf50e2868f4fa99f26e72a3eff28',1,'nros']]],
-  ['goalstatus_1',['GoalStatus',['../namespacenros.html#a824c95a7f291e516552584a26eb63c04',1,'nros']]]
+  ['goalresponse_0',['GoalResponse',['../namespacerclcpp__action.html#ababbbebf29fec7c541687c724fc82ba7',1,'rclcpp_action']]],
+  ['goalstatus_1',['GoalStatus',['../namespacerclcpp__action.html#a3878b7d63c0d80e31572d5227d9ba344',1,'rclcpp_action']]]
 ];

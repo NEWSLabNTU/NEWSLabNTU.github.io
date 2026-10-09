@@ -1,7 +1,5 @@
 var searchData=
 [
-  ['requesttype_0',['requesttype',['../classrclcpp_1_1Service.html#a8bb8dfb87e01fd970869e60e4eb968e0',1,'rclcpp::Service::RequestType'],['../classrclcpp_1_1Client.html#a56ab5fafa1643b00c9d593a7e4db351a',1,'rclcpp::Client::RequestType']]],
-  ['responsetype_1',['responsetype',['../classrclcpp_1_1Service.html#ad76fc15849ea9bf59894ce8fbaf49794',1,'rclcpp::Service::ResponseType'],['../classrclcpp_1_1Client.html#af5e0bea86268571481a0faf1a68ed6d3',1,'rclcpp::Client::ResponseType']]],
-  ['result_2',['Result',['../namespacenros.html#a721e15df5545822f36ca7ca9c549042e',1,'nros']]],
-  ['resulttype_3',['resulttype',['../classrclcpp__action_1_1Server.html#aeb774a9a3b9076f8f4b1b208aeeeb181',1,'rclcpp_action::Server::ResultType'],['../classrclcpp__action_1_1Client.html#a17e4b3ffe3ef94598f07b6d2b2596aa5',1,'rclcpp_action::Client::ResultType']]]
+  ['sharedptr_0',['sharedptr',['../classrclcpp_1_1Node.html#a6b86f6bbd391d9fdb876f544370a4656',1,'rclcpp::Node::SharedPtr'],['../classrclcpp_1_1Publisher.html#a0b32f1baf5ff7ef56242043c33fa74ee',1,'rclcpp::Publisher::SharedPtr'],['../classrclcpp_1_1Subscription.html#a74f12138417798e0756b71d254edc90e',1,'rclcpp::Subscription::SharedPtr'],['../classrclcpp_1_1Service.html#ad9460d1b4a4e9fed6354cd8adf6961d4',1,'rclcpp::Service::SharedPtr'],['../classrclcpp_1_1Client.html#ab60766b6a768eba42d7c41f2600bc2ca',1,'rclcpp::Client::SharedPtr'],['../classrclcpp_1_1Timer.html#ab5655ee1b110c25d958f6cfb5a4a2354',1,'rclcpp::Timer::SharedPtr']]],
+  ['shutdowncallback_1',['ShutdownCallback',['../namespacerclcpp.html#a34986f1590daa50d5576c6100cff5d0c',1,'rclcpp']]]
 ];
