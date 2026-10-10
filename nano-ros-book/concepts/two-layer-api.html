@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-66343abe.js";
+            window.path_to_searchindex_js = "../searchindex-d0f2c525.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-8de85cac.js"></script>
@@ -185,7 +185,7 @@
 <tr><th></th><th>Layer 1 — caller polls</th><th>Layer 2 — executor dispatches</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>Verb</strong></td><td><code>Node::create_*</code></td><td><code>Executor::register_*</code></td></tr>
+<tr><td><strong>Verb</strong></td><td><code>Node::create_polling_*</code> (receive side), <code>Node::create_publisher</code> / <code>create_client</code></td><td><code>Executor::register_*</code>, or rclrs’s <code>Node::create_subscription(topic, callback)</code> / <code>create_service(name, callback)</code></td></tr>
 <tr><td><strong>Returns</strong></td><td>Owned handle</td><td>Handle ID + dispatched closure</td></tr>
 <tr><td><strong>Receive shape</strong></td><td><code>take()</code> / <code>call()</code> → <code>Promise&lt;T&gt;</code> / <code>try_accept_goal(...)</code></td><td>Closure runs on rx / reply / timer fire</td></tr>
 <tr><td><strong>Scheduler</strong></td><td>Caller (RTIC, embassy, app loop)</td><td><code>Executor::spin_once</code></td></tr>
@@ -198,9 +198,15 @@
 <p>But a posix app that handles a dozen topics + a couple of services + an action server wants L2 — write one closure per entity and let <code>spin_once()</code> route events. Forcing it through L1 means writing a manual dispatcher.</p>
 <p>The two layers are deliberately <strong>separate verb sets</strong> so the choice is explicit in source:</p>
 <ul>
-<li><code>node.create_subscription::&lt;M&gt;("/topic")</code> — caller polls. No executor magic.</li>
-<li><code>executor.register_subscription::&lt;M, _&gt;("/topic", |m| { ... })</code> — executor dispatches.</li>
+<li><code>node.create_polling_subscription::&lt;M&gt;("/topic")</code> — caller polls. No executor magic.</li>
+<li><code>executor.register_subscription::&lt;M, _&gt;("/topic", |m| { ... })</code>, or rclrs’s
+spelling <code>node.create_subscription::&lt;M, _&gt;("/topic", |m| { ... })</code> — executor
+dispatches.</li>
 </ul>
+<p>phase-483 W2 gave the polled receive-side constructors their <code>create_polling_*</code>
+names: on <code>nros::Node</code>, rclrs’s <code>create_subscription</code> and <code>create_service</code> take
+a callback, and a polled form under the same name would compile a ported line
+into a different contract.</p>
 <p>The C / C++ FFI mirrors this split: <code>nros_subscription_init_polling</code> + <code>nros_subscription_take_serialized</code> (L1, inline storage — the caller takes from the entity) vs <code>rclc_subscription_init_default</code> + <code>nros_executor_add_subscription*</code> (L2, executor arena, callback supplied at registration).</p>
 <h2 id="what-goes-where"><a class="header" href="#what-goes-where">What goes where</a></h2>
 <pre class="mermaid">graph LR
@@ -218,8 +224,8 @@
     subgraph "L1 — create_*"
       direction LR
       NODE --&gt; C_P["create_publisher"]
-      NODE --&gt; C_S["create_subscription"]
-      NODE --&gt; C_SS["create_service"]
+      NODE --&gt; C_S["create_polling_subscription"]
+      NODE --&gt; C_SS["create_polling_service"]
       NODE --&gt; C_SC["create_client"]
       NODE --&gt; C_AS["create_action_server"]
       NODE --&gt; C_AC["create_action_client"]

@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-66343abe.js";
+            window.path_to_searchindex_js = "searchindex-d0f2c525.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8de85cac.js"></script>
@@ -3187,7 +3187,7 @@ member.)</p>
 <pre><code>src/talker_pkg/
 ├── package.xml          # ROS 2 manifest — &lt;exec_depend&gt; per message package
 ├── Cargo.toml           # [lib] + dependencies — Rust-toolchain facts only
-└── src/lib.rs           # impl Node + ExecutableNode; ends with nros::node!(Talker);
+└── src/lib.rs           # impl Component + ExecutableNode; ends with nros::node!(Talker);
 </code></pre>
 <p>No <code>fn main()</code> here — a Node pkg is a library linked into the entry that
 <code>nros build</code> generates for an image. That entry’s macro-generated runtime owns
@@ -3241,16 +3241,25 @@ host and a Cortex-M board without a fork — the difference between them is an
 <code>[image.*]</code> row, not a second copy of anything.</p>
 <hr>
 <h2 id="srclibrs--the-node-implementation"><a class="header" href="#srclibrs--the-node-implementation"><code>src/lib.rs</code> — the node implementation</a></h2>
-<p>A Node pkg implements two traits: <code>Node</code> (declarative registration) and
+<p>A Node pkg implements two traits: <code>Component</code> (declarative registration) and
 <code>ExecutableNode</code> (per-callback body), then calls <code>nros::node!</code> to export the
 trampolines the entry macro expects.</p>
+<p><strong>The node is the same type everywhere.</strong> <code>ctx.create_node(...)</code> returns an
+<code>nros::Node</code>, the type a standalone program gets from
+<code>executor.create_node(name)</code>, with rclrs’s methods: <code>create_publisher</code>,
+<code>create_subscription(topic, callback)</code>, timers, <code>name()</code>, <code>logger()</code>, the graph
+queries. A function written against <code>&amp;mut nros::Node</code> serves both. What a
+component adds is the <code>DeclarativeNode</code> extension (bring it into scope with
+<code>use nros::DeclarativeNode;</code>): constructors that declare an entity by stable id
+and bind its callback by NAME, which is what lets the board dispatch callbacks
+from its own tasks and lets <code>nros sync</code> measure the component without running it.</p>
 <p>Here is the essential shape, drawn from
 <a href="../../examples/workspaces/rust/src/talker_pkg/src/lib.rs"><code>examples/workspaces/rust/src/talker_pkg/src/lib.rs</code></a>
 (see that file for the full worked version):</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use nros::{
-    CallbackCtx, ExecutableNode, Component, NodeContext, NodeOptions, NodeResult,
+    CallbackCtx, ExecutableNode, Component, NodeContext, DeclarativeNode, NodeOptions, NodeResult,
     TimerDuration,
 };
 
@@ -3286,7 +3295,7 @@ nros::node!(Talker);   // &lt;-- exports the trampolines; this is the last line
 <span class="boring">}</span></code></pre>
 <p>Key points:</p>
 <ul>
-<li><code>Node::register</code> is <strong>declarative</strong> — it runs once at startup to declare
+<li><code>Component::register</code> is <strong>declarative</strong> — it runs once at startup to declare
 publishers, subscriptions, timers, and callback edges. No message bytes
 flow here.</li>
 <li><code>ExecutableNode::on_callback</code> is the <strong>body</strong> — called by the image’s
@@ -3328,7 +3337,7 @@ omitted.</p>
 <hr>
 <h2 id="services--clients"><a class="header" href="#services--clients">Services &amp; clients</a></h2>
 <h3 id="server-responds-to-requests"><a class="header" href="#server-responds-to-requests">Server (responds to requests)</a></h3>
-<p>Declare the service in <code>Node::register</code> and handle requests in the node body.</p>
+<p>Declare the service in <code>Component::register</code> and handle requests in the node body.</p>
 <ul>
 <li>
 <p><strong>Rust</strong> — declare a service edge in <code>register</code>; requests dispatch into
@@ -10864,7 +10873,7 @@ event.</p>
 </span><span class="boring">fn main() {
 </span>use core::time::Duration;
 
-let mut sub = node.create_subscription::&lt;SensorReading&gt;("/sensor")?;
+let mut sub = node.create_polling_subscription::&lt;SensorReading&gt;("/sensor")?;
 
 // Liveliness — fires when the publisher comes / goes
 sub.on_liveliness_changed(|status| {
@@ -11007,7 +11016,7 @@ at creation. No runtime event.</p>
 <h3 id="drone-bridge-fail-over-on-liveliness-loss"><a class="header" href="#drone-bridge-fail-over-on-liveliness-loss">Drone-bridge fail-over on liveliness loss</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let mut sub = node.create_subscription::&lt;VehicleAttitude&gt;("/vehicle_attitude")?;
+</span>let mut sub = node.create_polling_subscription::&lt;VehicleAttitude&gt;("/vehicle_attitude")?;
 sub.on_liveliness_changed(|status| {
     if status.alive_count == 0 {
         // PX4 commander.cpp went silent — trigger MRM
@@ -11022,7 +11031,7 @@ sub.on_liveliness_changed(|status| {
 <h3 id="100-hz-sensor-with-deadline-alarm"><a class="header" href="#100-hz-sensor-with-deadline-alarm">100 Hz sensor with deadline alarm</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let mut sub = node.create_subscription::&lt;SensorReading&gt;("/imu")?;
+</span>let mut sub = node.create_polling_subscription::&lt;SensorReading&gt;("/imu")?;
 sub.on_requested_deadline_missed(
     Duration::from_millis(15),    // expected 100 Hz, allow 15 ms deadline
     |status| {
@@ -11036,7 +11045,7 @@ sub.on_requested_deadline_missed(
 <h3 id="slow-consumer-logging"><a class="header" href="#slow-consumer-logging">Slow-consumer logging</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let mut sub = node.create_subscription::&lt;Pointcloud&gt;("/lidar")?;
+</span>let mut sub = node.create_polling_subscription::&lt;Pointcloud&gt;("/lidar")?;
 sub.on_message_lost(|status| {
     log::warn!("dropped {} pointcloud frames (total: {})",
                status.total_count_change, status.total_count);
@@ -13847,7 +13856,7 @@ types work across Rust, C, and C++ APIs.</p>
 <tr><th></th><th>Layer 1 — caller polls</th><th>Layer 2 — executor dispatches</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>Verb</strong></td><td><code>Node::create_*</code></td><td><code>Executor::register_*</code></td></tr>
+<tr><td><strong>Verb</strong></td><td><code>Node::create_polling_*</code> (receive side), <code>Node::create_publisher</code> / <code>create_client</code></td><td><code>Executor::register_*</code>, or rclrs’s <code>Node::create_subscription(topic, callback)</code> / <code>create_service(name, callback)</code></td></tr>
 <tr><td><strong>Returns</strong></td><td>Owned handle</td><td>Handle ID + dispatched closure</td></tr>
 <tr><td><strong>Receive shape</strong></td><td><code>take()</code> / <code>call()</code> → <code>Promise&lt;T&gt;</code> / <code>try_accept_goal(...)</code></td><td>Closure runs on rx / reply / timer fire</td></tr>
 <tr><td><strong>Scheduler</strong></td><td>Caller (RTIC, embassy, app loop)</td><td><code>Executor::spin_once</code></td></tr>
@@ -13860,9 +13869,15 @@ types work across Rust, C, and C++ APIs.</p>
 <p>But a posix app that handles a dozen topics + a couple of services + an action server wants L2 — write one closure per entity and let <code>spin_once()</code> route events. Forcing it through L1 means writing a manual dispatcher.</p>
 <p>The two layers are deliberately <strong>separate verb sets</strong> so the choice is explicit in source:</p>
 <ul>
-<li><code>node.create_subscription::&lt;M&gt;("/topic")</code> — caller polls. No executor magic.</li>
-<li><code>executor.register_subscription::&lt;M, _&gt;("/topic", |m| { ... })</code> — executor dispatches.</li>
+<li><code>node.create_polling_subscription::&lt;M&gt;("/topic")</code> — caller polls. No executor magic.</li>
+<li><code>executor.register_subscription::&lt;M, _&gt;("/topic", |m| { ... })</code>, or rclrs’s
+spelling <code>node.create_subscription::&lt;M, _&gt;("/topic", |m| { ... })</code> — executor
+dispatches.</li>
 </ul>
+<p>phase-483 W2 gave the polled receive-side constructors their <code>create_polling_*</code>
+names: on <code>nros::Node</code>, rclrs’s <code>create_subscription</code> and <code>create_service</code> take
+a callback, and a polled form under the same name would compile a ported line
+into a different contract.</p>
 <p>The C / C++ FFI mirrors this split: <code>nros_subscription_init_polling</code> + <code>nros_subscription_take_serialized</code> (L1, inline storage — the caller takes from the entity) vs <code>rclc_subscription_init_default</code> + <code>nros_executor_add_subscription*</code> (L2, executor arena, callback supplied at registration).</p>
 <h2 id="what-goes-where"><a class="header" href="#what-goes-where">What goes where</a></h2>
 <pre class="mermaid">graph LR
@@ -13880,8 +13895,8 @@ types work across Rust, C, and C++ APIs.</p>
     subgraph "L1 — create_*"
       direction LR
       NODE --&gt; C_P["create_publisher"]
-      NODE --&gt; C_S["create_subscription"]
-      NODE --&gt; C_SS["create_service"]
+      NODE --&gt; C_S["create_polling_subscription"]
+      NODE --&gt; C_SS["create_polling_service"]
       NODE --&gt; C_SC["create_client"]
       NODE --&gt; C_AS["create_action_server"]
       NODE --&gt; C_AC["create_action_client"]
@@ -14563,7 +14578,7 @@ tier/task (see <a href="#scheduling-models">Scheduling Models</a>).</p>
 handle whose <code>recv()</code> is an async fn with waker integration:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let mut sub = node.create_subscription::&lt;MyMsg&gt;("/topic")?;
+</span>let mut sub = node.create_polling_subscription::&lt;MyMsg&gt;("/topic")?;
 loop {
     let msg = sub.recv().await?;        // suspends; waker integration
     handle(msg);
@@ -21538,7 +21553,7 @@ baselines needs physical hardware (e.g. STM32F4 @ 168 MHz).</p>
 <tr><th>Function</th><th>Notes</th></tr>
 </thead>
 <tbody>
-<tr><td><code>Node::new()</code></td><td>StandaloneNode creation</td></tr>
+<tr><td><code>Node::new()</code></td><td>standalone node creation (<code>nros_node::StandaloneNode</code>)</td></tr>
 <tr><td><code>create_publisher()</code></td><td>Register Int32 publisher</td></tr>
 <tr><td><code>serialize_message()</code></td><td>Node-level serialize to buffer</td></tr>
 </tbody>
