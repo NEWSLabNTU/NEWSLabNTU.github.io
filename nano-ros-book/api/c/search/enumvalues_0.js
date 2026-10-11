@@ -99,14 +99,13 @@ var searchData=
   ['nros_5fservice_5fstate_5fshutdown_96',['NROS_SERVICE_STATE_SHUTDOWN',['../nros__generated_8h.html#a6fb5d20cb9ad87261b92d6fad7b1894ba0caed7600b1bbf225b13ce6fde6bb21c',1,'nros_generated.h']]],
   ['nros_5fservice_5fstate_5funinitialized_97',['NROS_SERVICE_STATE_UNINITIALIZED',['../nros__generated_8h.html#a6fb5d20cb9ad87261b92d6fad7b1894baded0c108e9bf9d87c771f86fcdfaf539',1,'nros_generated.h']]],
   ['nros_5fsubscription_5fstate_5finitialized_98',['NROS_SUBSCRIPTION_STATE_INITIALIZED',['../nros__generated_8h.html#aa718c4426c87324c6d221b459ce155ceacf4d2be71a6d54589c07cb2a2d92d151',1,'nros_generated.h']]],
-  ['nros_5fsubscription_5fstate_5fpolling_99',['NROS_SUBSCRIPTION_STATE_POLLING',['../nros__generated_8h.html#aa718c4426c87324c6d221b459ce155ceacbd1b7540cea8866bb473de46cee0abd',1,'nros_generated.h']]],
-  ['nros_5fsubscription_5fstate_5fshutdown_100',['NROS_SUBSCRIPTION_STATE_SHUTDOWN',['../nros__generated_8h.html#aa718c4426c87324c6d221b459ce155cea0ef80dbdc33442fbf6dcf6c5be6aecec',1,'nros_generated.h']]],
-  ['nros_5fsubscription_5fstate_5funinitialized_101',['NROS_SUBSCRIPTION_STATE_UNINITIALIZED',['../nros__generated_8h.html#aa718c4426c87324c6d221b459ce155ceaf6027f888312b35590314462fcd4b6fe',1,'nros_generated.h']]],
-  ['nros_5fsupport_5fstate_5finitialized_102',['NROS_SUPPORT_STATE_INITIALIZED',['../nros__generated_8h.html#af56f3824dbe498fd6c977262e1d8cd46a396a4fc56807f83c8e77e93d42405ac5',1,'nros_generated.h']]],
-  ['nros_5fsupport_5fstate_5fshutdown_103',['NROS_SUPPORT_STATE_SHUTDOWN',['../nros__generated_8h.html#af56f3824dbe498fd6c977262e1d8cd46a52d3747ff98743b54b900b09b2bf3843',1,'nros_generated.h']]],
-  ['nros_5fsupport_5fstate_5funinitialized_104',['NROS_SUPPORT_STATE_UNINITIALIZED',['../nros__generated_8h.html#af56f3824dbe498fd6c977262e1d8cd46a97506f3b3345cbfc5a260899509acaff',1,'nros_generated.h']]],
-  ['nros_5ftimer_5fstate_5fcanceled_105',['NROS_TIMER_STATE_CANCELED',['../nros__generated_8h.html#a8d94b2bceceba82db5fd3998214c10d1ae31662d89af7aaa89a604b9c114b5b94',1,'nros_generated.h']]],
-  ['nros_5ftimer_5fstate_5frunning_106',['NROS_TIMER_STATE_RUNNING',['../nros__generated_8h.html#a8d94b2bceceba82db5fd3998214c10d1aed53ecd070ba8a99c24bb5162e2e9300',1,'nros_generated.h']]],
-  ['nros_5ftimer_5fstate_5fshutdown_107',['NROS_TIMER_STATE_SHUTDOWN',['../nros__generated_8h.html#a8d94b2bceceba82db5fd3998214c10d1a165051e909b47b5e2965716be3942b57',1,'nros_generated.h']]],
-  ['nros_5ftimer_5fstate_5funinitialized_108',['NROS_TIMER_STATE_UNINITIALIZED',['../nros__generated_8h.html#a8d94b2bceceba82db5fd3998214c10d1a4cb6a472aff5714b6e0ad22bb9def441',1,'nros_generated.h']]]
+  ['nros_5fsubscription_5fstate_5fshutdown_99',['NROS_SUBSCRIPTION_STATE_SHUTDOWN',['../nros__generated_8h.html#aa718c4426c87324c6d221b459ce155cea0ef80dbdc33442fbf6dcf6c5be6aecec',1,'nros_generated.h']]],
+  ['nros_5fsubscription_5fstate_5funinitialized_100',['NROS_SUBSCRIPTION_STATE_UNINITIALIZED',['../nros__generated_8h.html#aa718c4426c87324c6d221b459ce155ceaf6027f888312b35590314462fcd4b6fe',1,'nros_generated.h']]],
+  ['nros_5fsupport_5fstate_5finitialized_101',['NROS_SUPPORT_STATE_INITIALIZED',['../nros__generated_8h.html#af56f3824dbe498fd6c977262e1d8cd46a396a4fc56807f83c8e77e93d42405ac5',1,'nros_generated.h']]],
+  ['nros_5fsupport_5fstate_5fshutdown_102',['NROS_SUPPORT_STATE_SHUTDOWN',['../nros__generated_8h.html#af56f3824dbe498fd6c977262e1d8cd46a52d3747ff98743b54b900b09b2bf3843',1,'nros_generated.h']]],
+  ['nros_5fsupport_5fstate_5funinitialized_103',['NROS_SUPPORT_STATE_UNINITIALIZED',['../nros__generated_8h.html#af56f3824dbe498fd6c977262e1d8cd46a97506f3b3345cbfc5a260899509acaff',1,'nros_generated.h']]],
+  ['nros_5ftimer_5fstate_5fcanceled_104',['NROS_TIMER_STATE_CANCELED',['../nros__generated_8h.html#a8d94b2bceceba82db5fd3998214c10d1ae31662d89af7aaa89a604b9c114b5b94',1,'nros_generated.h']]],
+  ['nros_5ftimer_5fstate_5frunning_105',['NROS_TIMER_STATE_RUNNING',['../nros__generated_8h.html#a8d94b2bceceba82db5fd3998214c10d1aed53ecd070ba8a99c24bb5162e2e9300',1,'nros_generated.h']]],
+  ['nros_5ftimer_5fstate_5fshutdown_106',['NROS_TIMER_STATE_SHUTDOWN',['../nros__generated_8h.html#a8d94b2bceceba82db5fd3998214c10d1a165051e909b47b5e2965716be3942b57',1,'nros_generated.h']]],
+  ['nros_5ftimer_5fstate_5funinitialized_107',['NROS_TIMER_STATE_UNINITIALIZED',['../nros__generated_8h.html#a8d94b2bceceba82db5fd3998214c10d1a4cb6a472aff5714b6e0ad22bb9def441',1,'nros_generated.h']]]
 ];
