@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-0af39326.js";
+            window.path_to_searchindex_js = "../searchindex-862fd6f9.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-8de85cac.js"></script>
@@ -364,6 +364,29 @@ names the entry package it wrote as it goes:</p>
 <p>The generated cmake root lists <strong>every</strong> image on that coordinate, not just the
 one being built: what a coordinate contains is a property of the workspace, and
 making it depend on which image you asked for would reconfigure on every switch.</p>
+<h3 id="an-image-with-its-own-configuration-gets-its-own-configure"><a class="header" href="#an-image-with-its-own-configuration-gets-its-own-configure">An image with its own configuration gets its own configure</a></h3>
+<p>One cmake configure builds the nano-ros runtime (<code>nros-c</code> / <code>nros-cpp</code> and the
+RMW) <strong>once</strong> for every image on it, so a knob only one image states — a
+<code>[image.&lt;id&gt;] env</code> row such as <code>NROS_LOG_MAX_LEVEL = "warn"</code> — would have no
+build to land in. So an image whose resolved configuration differs gets its own
+configure, keyed by a hash of that configuration (RFC-0098 D12, phase-481 W4):</p>
+<pre><code class="language-toml">[image.plain]            # states nothing -&gt; build/posix-zenoh-native/
+board = "native"
+
+[image.warn]             # -&gt; build/posix-zenoh-native-cfga50aa93c83/
+board = "native"
+env = { NROS_LOG_MAX_LEVEL = "warn", NROS_EXECUTOR_MAX_CBS = "13" }
+</code></pre>
+<p>(<code>packages/testing/nros-tests/fixtures/image_config_ws</code>; each binary prints
+what its runtime compiled in.) Images whose configuration is the SAME share one
+configure, <code>-cfg</code> suffix and all, and a workspace whose images state nothing
+keeps today’s <code>build/&lt;coordinate&gt;/</code> paths exactly. The cost is one more
+configure and one more runtime build per distinct configuration — the reason to
+put a knob that every image on a board shares in the board’s <code>[board.knobs]</code>
+instead, where it changes no image’s hash. <code>nros image-facts</code> prints each
+image’s <code>cmake_build_dir</code>; never derive it by hand.</p>
+<p>On Zephyr the same <code>env</code> rows are rendered into the image’s Kconfig fragment
+instead (see <a href="zephyr.html#configuring-an-image-systemtoml-not-prjconf">Configuring an image</a>).</p>
 <p>The generated entry is the same few lines you would have written. RFC-0065 D4
 measured them before deciding to derive them: every Rust entry in the tree was
 <strong>≤ 6 non-comment lines</strong>, every embedded C/C++ entry had <strong>zero</strong> source
@@ -405,10 +428,12 @@ lives with the bringup:</p>
 </code></pre>
 <p>That directory is what <code>[image.&lt;id&gt;] board</code> selects, and switching boards
 selects a different one rather than editing a package. Every Zephyr image in
-<code>examples/workspaces/{rust,c,cpp,mixed,derived-tiers-cpp,realtime-cpp}</code> is
-built this way; <code>realtime-c</code> still carries a hand-written <code>src/zephyr_entry</code>,
-because its one package serves an <code>[image.zephyr]</code> in <em>two</em> bringups and the
-generated directory is keyed on (platform, RMW) alone.</p>
+<code>examples/workspaces/{rust,c,cpp,mixed,derived-tiers-cpp,realtime-c,realtime-cpp}</code>
+is built this way. <code>realtime-c</code> shows the two-bringup case: <code>demo_bringup</code>
+declares <code>[image.zephyr]</code> (native_sim) and <code>smp_bringup</code> declares
+<code>[image.zephyr_smp]</code> (<code>qemu-cortex-a53</code>), so each image names its own bringup
+and gets its own generated application and its own <code>boards/&lt;board&gt;/</code>
+directory.</p>
 <p>For a Rust workspace whose image needs a hand-written application after all —
 Kconfig <code>nros build</code> cannot express, a <code>nano_ros_use_board()</code> preamble — the
 scaffold is still there:</p>

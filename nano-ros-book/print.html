@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-0af39326.js";
+            window.path_to_searchindex_js = "searchindex-862fd6f9.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-8de85cac.js"></script>
@@ -1046,7 +1046,7 @@ scaffold a two-node workspace and run it (no ROS 2 needed)</li>
 <li><a href="#first-node--c-linux">First Node — C</a> — build + run a C talker on Linux</li>
 <li><a href="#first-node--c-linux-1">First Node — C++</a> — build + run a C++ talker on Linux</li>
 <li><a href="#build-as-a-cmake-subdirectory">Build as Subdirectory</a> — CMake consumption walkthrough</li>
-<li><a href="#c-api-1">C API</a> — API entry points and CMake integration</li>
+<li><a href="#c-api">C API</a> — API entry points and CMake integration</li>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/multi-package-workspace"><code>examples/templates/multi-package-workspace/</code></a> — full mixed C / C++ / Rust example</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -2599,9 +2599,10 @@ is lowered to cargo features and CMake cache variables — is specified in
 <p>On embedded platforms the backend is fixed at <strong>compile time</strong> like
 everything else — there is nothing to switch on the device. Each
 platform surfaces the same choice through its own configuration
-mechanism; on Zephyr, for instance, it is a Kconfig choice
-(<code>CONFIG_NROS_RMW_ZENOH</code> / <code>CONFIG_NROS_RMW_XRCE</code> /
-<code>CONFIG_NROS_RMW_CYCLONEDDS</code>, exactly one selected).</p>
+mechanism; on Zephyr, for instance, the image’s <code>rmw</code> in <code>system.toml</code> is
+rendered into a Kconfig choice (<code>CONFIG_NROS_RMW_ZENOH</code> /
+<code>CONFIG_NROS_RMW_XRCE</code> / <code>CONFIG_NROS_RMW_CYCLONEDDS</code>, exactly one), never
+written in a conf file (phase-481).</p>
 <p>See the platform guides for the concrete per-platform workflow:</p>
 <ul>
 <li><a href="#zephyr-contributor--in-tree-workflow">Zephyr</a></li>
@@ -2703,7 +2704,7 @@ waiting on it). Wire-level interop with stock <code>rmw_cyclonedds_cpp</code>
 <p><strong>Build:</strong></p>
 <blockquote>
 <p><strong>Contributors:</strong> the in-tree Cyclone DDS build/test lanes are in
-<a href="#cyclone-dds-1">Per-Platform Contributor Lanes</a>.</p>
+<a href="#cyclone-dds">Per-Platform Contributor Lanes</a>.</p>
 </blockquote>
 <p>Each example picks its RMW via <code>-DNANO_ROS_RMW=cyclonedds</code> at
 configure time; the root <code>CMakeLists.txt</code> add_subdirectory’s
@@ -2834,17 +2835,22 @@ For C++ consumers, the declared RMW lowers to the CMake cache var:
 ```bash
 cmake -S . -B build -DNANO_ROS_RMW=cyclonedds  # zenoh / xrce / cyclonedds
 </code></pre>
-<h3 id="kconfig-zephyr"><a class="header" href="#kconfig-zephyr">Kconfig (Zephyr)</a></h3>
-<pre><code class="language-kconfig"># Zenoh backend
-CONFIG_NROS_RMW_ZENOH=y
+<h3 id="zephyr"><a class="header" href="#zephyr">Zephyr</a></h3>
+<p>The image’s <code>rmw</code> in <code>system.toml</code>, like every other platform. The nano-ros
+module renders it into the Kconfig choice (<code>CONFIG_NROS_RMW_ZENOH</code> /
+<code>_XRCE</code> / <code>_CYCLONEDDS</code>, exactly one), so it is never written in <code>prj.conf</code>
+(phase-481). One image per backend, picked with <code>-DNROS_IMAGE</code>:</p>
+<pre><code class="language-toml">[image.zephyr_zenoh]
+board = "zephyr"
+rmw = "zenoh"
+conf = ["prj-zenoh.conf"]       # Zephyr-native settings that backend needs
 
-# XRCE-DDS backend
-CONFIG_NROS_RMW_XRCE=y
-
-# Cyclone DDS backend (Cortex-A/R Zephyr targets)
-CONFIG_NROS_RMW_CYCLONEDDS=y
+[image.zephyr_cyclonedds]       # Cyclone: Cortex-A/R and native_sim targets
+board = "zephyr"
+rmw = "cyclonedds"
+conf = ["prj-cyclonedds.conf"]
 </code></pre>
-<p>Enabling more than one simultaneously produces a <code>compile_error!()</code>.</p>
+<p>See <a href="#configuring-an-image-systemtoml-not-prjconf">Configuring an image</a>.</p>
 <h2 id="cyclone-dds--per-platform-configuration-profile"><a class="header" href="#cyclone-dds--per-platform-configuration-profile">Cyclone DDS — per-platform configuration profile</a></h2>
 <p>The Cyclone DDS backend speaks raw RTPS over UDP multicast and unicast. The
 host networking stack on every RTOS needs IGMP enabled, adequate net-
@@ -3906,6 +3912,29 @@ names the entry package it wrote as it goes:</p>
 <p>The generated cmake root lists <strong>every</strong> image on that coordinate, not just the
 one being built: what a coordinate contains is a property of the workspace, and
 making it depend on which image you asked for would reconfigure on every switch.</p>
+<h3 id="an-image-with-its-own-configuration-gets-its-own-configure"><a class="header" href="#an-image-with-its-own-configuration-gets-its-own-configure">An image with its own configuration gets its own configure</a></h3>
+<p>One cmake configure builds the nano-ros runtime (<code>nros-c</code> / <code>nros-cpp</code> and the
+RMW) <strong>once</strong> for every image on it, so a knob only one image states — a
+<code>[image.&lt;id&gt;] env</code> row such as <code>NROS_LOG_MAX_LEVEL = "warn"</code> — would have no
+build to land in. So an image whose resolved configuration differs gets its own
+configure, keyed by a hash of that configuration (RFC-0098 D12, phase-481 W4):</p>
+<pre><code class="language-toml">[image.plain]            # states nothing -&gt; build/posix-zenoh-native/
+board = "native"
+
+[image.warn]             # -&gt; build/posix-zenoh-native-cfga50aa93c83/
+board = "native"
+env = { NROS_LOG_MAX_LEVEL = "warn", NROS_EXECUTOR_MAX_CBS = "13" }
+</code></pre>
+<p>(<code>packages/testing/nros-tests/fixtures/image_config_ws</code>; each binary prints
+what its runtime compiled in.) Images whose configuration is the SAME share one
+configure, <code>-cfg</code> suffix and all, and a workspace whose images state nothing
+keeps today’s <code>build/&lt;coordinate&gt;/</code> paths exactly. The cost is one more
+configure and one more runtime build per distinct configuration — the reason to
+put a knob that every image on a board shares in the board’s <code>[board.knobs]</code>
+instead, where it changes no image’s hash. <code>nros image-facts</code> prints each
+image’s <code>cmake_build_dir</code>; never derive it by hand.</p>
+<p>On Zephyr the same <code>env</code> rows are rendered into the image’s Kconfig fragment
+instead (see <a href="#configuring-an-image-systemtoml-not-prjconf">Configuring an image</a>).</p>
 <p>The generated entry is the same few lines you would have written. RFC-0065 D4
 measured them before deciding to derive them: every Rust entry in the tree was
 <strong>≤ 6 non-comment lines</strong>, every embedded C/C++ entry had <strong>zero</strong> source
@@ -3947,10 +3976,12 @@ lives with the bringup:</p>
 </code></pre>
 <p>That directory is what <code>[image.&lt;id&gt;] board</code> selects, and switching boards
 selects a different one rather than editing a package. Every Zephyr image in
-<code>examples/workspaces/{rust,c,cpp,mixed,derived-tiers-cpp,realtime-cpp}</code> is
-built this way; <code>realtime-c</code> still carries a hand-written <code>src/zephyr_entry</code>,
-because its one package serves an <code>[image.zephyr]</code> in <em>two</em> bringups and the
-generated directory is keyed on (platform, RMW) alone.</p>
+<code>examples/workspaces/{rust,c,cpp,mixed,derived-tiers-cpp,realtime-c,realtime-cpp}</code>
+is built this way. <code>realtime-c</code> shows the two-bringup case: <code>demo_bringup</code>
+declares <code>[image.zephyr]</code> (native_sim) and <code>smp_bringup</code> declares
+<code>[image.zephyr_smp]</code> (<code>qemu-cortex-a53</code>), so each image names its own bringup
+and gets its own generated application and its own <code>boards/&lt;board&gt;/</code>
+directory.</p>
 <p>For a Rust workspace whose image needs a hand-written application after all —
 Kconfig <code>nros build</code> cannot express, a <code>nano_ros_use_board()</code> preamble — the
 scaffold is still there:</p>
@@ -5450,7 +5481,7 @@ apply nano-ros’s Zephyr patches:</p>
 </thead>
 <tbody>
 <tr><td>Min Python</td><td>3.10</td><td><strong>3.12</strong> (<code>find_package(Python3)</code>)</td></tr>
-<tr><td>RMW selection</td><td><code>prj-&lt;rmw&gt;.conf</code> overlay (<code>-DCONF_FILE=...</code>)</td><td><strong><code>-S nros-&lt;rmw&gt;</code> snippet</strong> (or the overlay)</td></tr>
+<tr><td>RMW selection</td><td>the image’s <code>rmw</code> in <code>system.toml</code></td><td>the image’s <code>rmw</code> in <code>system.toml</code> (an app with no <code>system.toml</code>: the <code>-S nros-&lt;rmw&gt;</code> snippet)</td></tr>
 <tr><td>nano-ros patches</td><td>applied during <code>nros setup zephyr</code> provisioning</td><td>applied during <code>nros setup zephyr</code> provisioning</td></tr>
 <tr><td>Examples as samples / Twister</td><td>—</td><td><strong><code>samples:</code> + Twister</strong> (<code>sample.nano-ros.*</code>)</td></tr>
 <tr><td>zenoh (native_sim)</td><td>✅ build + e2e</td><td>✅ build + e2e</td></tr>
@@ -5475,7 +5506,8 @@ application sits beside both:</p>
 └── apps/
     └── my_app/                        # your application
         ├── CMakeLists.txt
-        ├── prj.conf                   # Kconfig — selects nros + RMW
+        ├── system.toml                # nano-ros config: RMW, endpoint, knobs
+        ├── prj.conf                   # Zephyr's own Kconfig (+ CONFIG_NROS=y)
         ├── west.yml                   # (optional) per-app manifest
         └── src/
             └── main.c                 # nros user code
@@ -5569,11 +5601,10 @@ Note the <code>nros_cpp_*</code> symbol prefix: those are C-ABI
 functions from <code>nros-cpp</code> (the <code>cpp</code> is a namespace prefix, not C++
 linkage) — a C component links against them directly, and shares the same
 executor + node as a C++ component would.</p>
-<p><code>prj.conf</code> is the one shown in <a href="#configure-4">Configure</a> below — note it needs
-<strong>both</strong> <code>CONFIG_NROS_C_API=y</code> and <code>CONFIG_NROS_CPP_API=y</code>: the typed
-Zephyr carrier that drives this component’s <code>configure</code> is C++, so the
-<code>nros-cpp</code> header surface must be on the app include path even though
-<code>Talker.c</code> itself is C.</p>
+<p>Its configuration is in <a href="#configure-4">Configure</a> below. You do not choose the
+language API: the module renders it from the app, and the typed Zephyr carrier
+that drives this component’s <code>configure</code> is C++, so the <code>nros-cpp</code> header
+surface is on the app include path even though <code>Talker.c</code> itself is C.</p>
 <h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
 <p><code>nros setup</code> provisions the parts nano-ros owns — the <strong>RMW host daemon</strong>
 (<code>zenohd</code> / Micro-XRCE-DDS agent) and the <strong>RMW transport submodules</strong>
@@ -5627,18 +5658,37 @@ it does <strong>not</strong> pull Zephyr itself) to your workspace <code>west.ym
       import:
         file: zephyr/west.yml    # pulls nano-ros's transport deps
 </code></pre>
-<p>Then per-application <code>prj.conf</code>:</p>
-<pre><code>CONFIG_NROS=y
-CONFIG_NROS_C_API=y
-CONFIG_NROS_RMW_ZENOH=y                 # bool per RMW: NROS_RMW_{ZENOH,XRCE,CYCLONEDDS}
-# (ROS edition is a build-time Cargo feature, NOT a Kconfig symbol — do not set
-#  CONFIG_NROS_ROS_EDITION; Zephyr aborts on the undefined symbol.)
+<p>Then, per application, nano-ros’s half of the configuration goes in a
+<code>system.toml</code> beside the <code>CMakeLists.txt</code> (RFC-0098 D10, phase-481), and
+Zephyr’s own half in <code>prj.conf</code>:</p>
+<pre><code class="language-toml"># system.toml
+[system]
+name = "my_app"
+rmw = "zenoh"
+domain_id = 0
 
-# Required for any networked RMW on QEMU / native_sim:
+[image.zephyr]
+board = "zephyr"            # the concrete board is west's `-b`
+rmw = "zenoh"               # zenoh | xrce | cyclonedds
+# locator = "tcp/192.0.2.10:7447"
+# env = { NROS_MAX_PUBLISHERS = "4" }
+</code></pre>
+<pre><code># prj.conf — Zephyr settings only; never a CONFIG_NROS_* knob here
+CONFIG_NROS=y               # enables the module; everything else is the image's
 CONFIG_NETWORKING=y
 CONFIG_NET_IPV4=y
 CONFIG_NET_TCP=y
 </code></pre>
+<p>The module renders the image into a Kconfig fragment merged after <code>prj.conf</code>:
+the RMW from <code>rmw</code>, the language API from your app, the endpoint from
+<code>locator</code>, the domain from <code>domain_id</code>, and every <code>env</code> knob (any symbol in the
+<a href="#kconfig-reference">Kconfig reference</a>, spelled without
+<code>CONFIG_</code>). A <code>CONFIG_NROS_*</code> line in <code>prj.conf</code> would be overridden by it, so
+it is at best dead. Several images in one file — one per RMW — are picked with
+<code>west build … -- -DNROS_IMAGE=&lt;id&gt;</code>; see
+<a href="#configuring-an-image-systemtoml-not-prjconf">Configuring an image</a>.
+An app with NO <code>system.toml</code> gets no rendering and is configured by Kconfig
+defaults and the RMW snippets alone.</p>
 <p><code>CONFIG_NROS=y</code> activates the shell, which maps Kconfig values to
 <code>NANO_ROS_*</code> CMake cache vars and <code>add_subdirectory()</code>s the root
 nano-ros CMake. <code>NanoRos::NanoRos</code> is linked into your <code>app</code>
@@ -5774,7 +5824,7 @@ zenoh-pico is a client, so with no router the image gets</p>
 </code></pre>
 <p>which names no port. Both sides default to <code>tcp/127.0.0.1:7447</code> — the port
 <code>rmw_zenohd</code> listens on and a <code>rmw_zenoh_cpp</code> node connects to. Override with
-<code>CONFIG_NROS_ZENOH_LOCATOR</code> on the image side (via a <code>conf</code> fragment) and
+the image’s <code>locator = "tcp/…"</code> in <code>system.toml</code> and
 <code>ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:&lt;port&gt;"]'</code> on the
 router, and change <strong>both</strong>.</p>
 <h4 id="what-an-image-declares"><a class="header" href="#what-an-image-declares">What an image declares</a></h4>
@@ -6005,9 +6055,9 @@ repo-relative, so it is no more copyable than the old file was.</p>
 </ol>
 <h2 id="run-5"><a class="header" href="#run-5">Run</a></h2>
 <pre><code class="language-bash"># 1. Start the router (ROS's `rmw_zenohd` — nano-ros ships no router
-#    of its own) on port 7447, the port your app's Kconfig default
-#    picks up (CONFIG_NROS_ZENOH_LOCATOR defaults to
-#    "tcp/127.0.0.1:7447"; change either side to match):
+#    of its own) on port 7447, the port your app dials by default
+#    (an image with no `locator` gets "tcp/127.0.0.1:7447"; change
+#    either side to match):
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:7447"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
@@ -6032,7 +6082,7 @@ ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort   # i
 <blockquote>
 <p><strong>Contributors:</strong> nano-ros’s own zephyr talker has a matching in-tree
 recipe for the canonical <code>native_sim</code> build path — see
-<a href="#zephyr-2">Per-Platform Contributor Lanes</a>.</p>
+<a href="#zephyr-3">Per-Platform Contributor Lanes</a>.</p>
 </blockquote>
 <p>The Zephyr boot banner runs first, then the talker fires: the
 canonical in-tree talker prints <code>Publishing: 'Hello World: 1'</code>,
@@ -6071,7 +6121,10 @@ build line instead of hand-writing the overlay:</p>
 #                                   ^^^^^^^^^^^^^^^^^^^  nros-zenoh | nros-cyclonedds | nros-xrce
 </code></pre>
 <p>The snippet (shipped via the module’s <code>snippet_root</code>) carries the
-RMW-common Kconfig — equivalent to merging <code>prj-&lt;rmw&gt;.conf</code>. The
+RMW-common Kconfig — equivalent to merging <code>prj-&lt;rmw&gt;.conf</code>. It is for an
+app with NO <code>system.toml</code>: with one, the image’s <code>rmw</code> decides and merges
+after the snippet, so a snippet that agrees is redundant and one that names a
+different RMW is refused at configure time (phase-481). The
 <code>prj-&lt;rmw&gt;.conf</code> / <code>-DCONF_FILE</code> path still works (and is the only option
 on 3.7).</p>
 <h2 id="nano-ros-patches-into-your-workspace"><a class="header" href="#nano-ros-patches-into-your-workspace">nano-ros patches into your workspace</a></h2>
@@ -6258,66 +6311,112 @@ west build -b native_sim/native/64 ../examples/zephyr/rust/talker
 # Run (no sudo needed)
 ./build/zephyr/zephyr.exe
 </code></pre>
-<h2 id="rmw-backend-selection"><a class="header" href="#rmw-backend-selection">RMW Backend Selection</a></h2>
-<p>nros supports three RMW backends on Zephyr, selected via <code>prj.conf</code>:</p>
-<h3 id="zenoh-default"><a class="header" href="#zenoh-default">Zenoh (default)</a></h3>
-<p>Connects to a zenoh router. Requires POSIX API for zenoh-pico threads.</p>
-<pre><code class="language-ini">CONFIG_NROS=y
-# CONFIG_NROS_RMW_ZENOH=y  # default, can be omitted
-CONFIG_NROS_ZENOH_LOCATOR="tcp/127.0.0.1:7447"
-CONFIG_POSIX_API=y
-CONFIG_MAX_PTHREAD_MUTEX_COUNT=32
-CONFIG_MAX_PTHREAD_COND_COUNT=16
+<h2 id="configuring-an-image-systemtoml-not-prjconf"><a class="header" href="#configuring-an-image-systemtoml-not-prjconf">Configuring an image: <code>system.toml</code>, not <code>prj.conf</code></a></h2>
+<p>An application’s nano-ros configuration lives in ONE place, its
+<code>system.toml</code> (RFC-0098 D10, phase-481). The nano-ros Zephyr module renders
+the selected image into a Kconfig fragment and merges it <strong>last</strong>, after every
+conf file. So the <code>prj*.conf</code> files hold Zephyr’s own settings only (networking,
+POSIX, stacks, heaps) and <strong>never a <code>CONFIG_NROS_*</code> line</strong>: one there is either
+dead (the image overrides it) or a second source that can disagree with the
+first. A gate (<code>check-leaf-conf-nros-knobs</code>) refuses one in the tree.</p>
+<p>What the module renders, and from where:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>You write in <code>system.toml</code></th><th>The build gets</th></tr>
+</thead>
+<tbody>
+<tr><td><code>[image.&lt;id&gt;] rmw = "xrce"</code></td><td><code>CONFIG_NROS_RMW_XRCE=y</code></td></tr>
+<tr><td>(nothing — the package’s language)</td><td><code>CONFIG_NROS_{C,CPP,RUST}_API=y</code></td></tr>
+<tr><td><code>locator = "tcp/…"</code> (zenoh)</td><td><code>CONFIG_NROS_ZENOH_LOCATOR</code></td></tr>
+<tr><td><code>locator = "udp/&lt;host&gt;:&lt;port&gt;"</code> (XRCE)</td><td><code>CONFIG_NROS_XRCE_AGENT_ADDR</code> + <code>_PORT</code></td></tr>
+<tr><td><code>domain_id = 7</code> (image, <code>[defaults]</code> or <code>[system]</code>)</td><td><code>CONFIG_NROS_DOMAIN_ID</code></td></tr>
+<tr><td><code>env = { NROS_MAX_QUERYABLES = "12" }</code></td><td><code>CONFIG_NROS_MAX_QUERYABLES=12</code> — any knob in the reference below, spelled without <code>CONFIG_</code></td></tr>
+<tr><td><code>conf = ["prj-xrce.conf"]</code></td><td>that Zephyr-native fragment, added ahead of your own <code>EXTRA_CONF_FILE</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>An <code>env</code> row with no Kconfig symbol is not lost: it reaches the image’s cargo
+builds as an <code>[env]</code> row instead (issue 1712). A row whose type does not fit
+its symbol, or that only exists under another RMW, is refused at configure
+time, naming the <code>system.toml</code> line.</p>
+<h3 id="one-image-per-rmw"><a class="header" href="#one-image-per-rmw">One image per RMW</a></h3>
+<p>An application built for several backends states one image per RMW, and
+picks one at build time. From <code>examples/zephyr/c/talker/system.toml</code>:</p>
+<pre><code class="language-toml">[system]
+name = "nros_zephyr_talker_c"
+rmw = "zenoh"
+domain_id = 0
+default_images = ["zephyr_zenoh"]
+
+[image.zephyr_zenoh]
+board = "zephyr"
+rmw = "zenoh"
+conf = ["prj-zenoh.conf"]
+
+[image.zephyr_xrce]
+board = "zephyr"
+rmw = "xrce"
+conf = ["prj-xrce.conf"]
+locator = "udp/127.0.0.1:2018"
+env = { NROS_XRCE_MAX_SUBSCRIBERS = "0", NROS_XRCE_MAX_SERVICE_SERVERS = "0", NROS_XRCE_MAX_SERVICE_CLIENTS = "0" }
+
+[image.zephyr_cyclonedds]
+board = "zephyr"
+rmw = "cyclonedds"
+conf = ["prj-cyclonedds.conf"]
 </code></pre>
-<h3 id="xrce-dds"><a class="header" href="#xrce-dds">XRCE-DDS</a></h3>
-<p>Connects to a Micro-XRCE-DDS Agent over UDP. Requires BSD sockets.</p>
-<pre><code class="language-ini">CONFIG_NROS=y
-CONFIG_NROS_RMW_XRCE=y
-CONFIG_NROS_XRCE_AGENT_ADDR="127.0.0.1"
-CONFIG_NROS_XRCE_AGENT_PORT=2018
-CONFIG_NET_SOCKETS=y
+<pre><code class="language-bash">west build -b native_sim/native/64 ../examples/zephyr/c/talker                       # default_images: zenoh
+west build -b native_sim/native/64 ../examples/zephyr/c/talker -- -DNROS_IMAGE=zephyr_xrce
 </code></pre>
-<h3 id="cyclone-dds"><a class="header" href="#cyclone-dds">Cyclone DDS</a></h3>
-<p>Brokerless RTPS, wire-compatible with stock ROS 2 (<code>rmw_cyclonedds_cpp</code>).
-Cyclone’s source is C++, so <code>CONFIG_CPP=y</code> is required even for Rust
-callers. Cyclone is resource-heavy — it needs a large heap and pthread
-pools. Its <code>ddsrt_malloc</code> goes through the nano-ros platform heap
-(<code>CONFIG_NROS_ZEPHYR_HEAP_SIZE</code>, 1 MiB by default when Cyclone is selected),
-not picolibc’s malloc arena, which keeps a 256 KiB Cyclone default. The bool prerequisites (thread-local storage,
-dynamic threads, <code>NET_TCP</code>, …) are <code>select</code>ed automatically by
-<code>CONFIG_NROS_RMW_CYCLONEDDS</code> in <code>zephyr/Kconfig</code>; the size knobs stay in
-<code>prj.conf</code>:</p>
-<pre><code class="language-ini">CONFIG_NROS=y
-CONFIG_NROS_RMW_CYCLONEDDS=y
-CONFIG_CPP=y
-CONFIG_POSIX_API=y
-CONFIG_NET_IPV4_IGMP=y                  # RTPS SPDP uses UDP multicast
-CONFIG_MAIN_STACK_SIZE=524288
-CONFIG_HEAP_MEM_POOL_SIZE=4194304
-CONFIG_NROS_ZEPHYR_HEAP_SIZE=1048576     # ddsrt's heap (the default; raise for big graphs)
-CONFIG_DYNAMIC_THREAD_STACK_SIZE=32768
-</code></pre>
+<p><code>-DNROS_IMAGE</code> is a CMake cache variable like any <code>-D</code>: re-running <code>west build</code>
+on the same build directory WITHOUT it keeps the image it last built, exactly
+as <code>-b</code> keeps the board. Pass it every time, or use <code>-p</code> when switching. A name
+the <code>system.toml</code> does not declare is refused, listing the ones it does.</p>
+<p>Precedence, last wins: the conf files, then a 4.x <code>-S nros-&lt;rmw&gt;</code> snippet,
+then the image’s rendering, then any <code>-DCONFIG_…</code> on the command line (how a
+test harness passes a per-run port). A snippet naming a DIFFERENT RMW than the
+image is refused rather than silently overridden; one that agrees is
+redundant. An application with no <code>system.toml</code> gets no rendering, so for it
+the snippets and Kconfig defaults still choose.</p>
+<h3 id="what-each-rmws-zephyr-native-fragment-needs"><a class="header" href="#what-each-rmws-zephyr-native-fragment-needs">What each RMW’s Zephyr-native fragment needs</a></h3>
+<p>The image’s <code>conf</code> file carries what the backend needs from Zephyr itself:</p>
+<ul>
+<li><strong>Zenoh</strong> (the Kconfig default): TCP and POSIX threads for zenoh-pico —
+<code>CONFIG_NET_TCP=y</code>, <code>CONFIG_POSIX_API=y</code>, and pthread pools big enough for
+it (<code>examples/zephyr/rust/talker/prj-zenoh.conf</code> uses
+<code>CONFIG_MAX_PTHREAD_MUTEX_COUNT=64</code>, <code>CONFIG_MAX_PTHREAD_COND_COUNT=16</code>).</li>
+<li><strong>XRCE-DDS</strong>: <code>CONFIG_NET_TCP=y</code>, on top of the BSD sockets
+(<code>CONFIG_NET_SOCKETS=y</code>) every image’s shared <code>prj.conf</code> enables. The agent
+endpoint is the image’s <code>locator</code>.</li>
+<li><strong>Cyclone DDS</strong>: brokerless RTPS, wire-compatible with stock ROS 2
+(<code>rmw_cyclonedds_cpp</code>). Its source is C++, so <code>CONFIG_CPP=y</code> even for Rust
+callers; it needs a large stack (<code>CONFIG_MAIN_STACK_SIZE=524288</code>), pthread
+pools, and <code>CONFIG_NET_IPV4_IGMP=y</code> for SPDP multicast. The bool
+prerequisites (thread-local storage, dynamic threads, <code>NET_TCP</code>, …) are
+<code>select</code>ed by <code>CONFIG_NROS_RMW_CYCLONEDDS</code>. Its <code>ddsrt_malloc</code> draws on the
+nano-ros platform heap, 1 MiB by default under Cyclone — raise it with
+<code>env = { NROS_ZEPHYR_HEAP_SIZE = "…" }</code> on the image, not in the conf.</li>
+</ul>
 <p>On <code>native_sim</code>, add the NSOS host-socket offload
-(<code>CONFIG_NET_SOCKETS_OFFLOAD=y</code> + <code>CONFIG_NET_NATIVE_OFFLOADED_SOCKETS=y</code>)
-so discovery uses host BSD sockets instead of zeth/TAP. See
-<code>examples/zephyr/rust/talker/prj-cyclonedds.conf</code> for the full overlay.</p>
+(<code>CONFIG_NET_SOCKETS_OFFLOAD=y</code> + <code>CONFIG_NET_NATIVE_OFFLOADED_SOCKETS=y</code>) so
+discovery uses host BSD sockets instead of zeth/TAP. See
+<code>examples/zephyr/rust/talker/prj-cyclonedds.conf</code> for the full fragment.</p>
 <h2 id="api-selection"><a class="header" href="#api-selection">API Selection</a></h2>
-<p>Choose between Rust and C APIs via <code>prj.conf</code>:</p>
-<h3 id="rust-api-default"><a class="header" href="#rust-api-default">Rust API (default)</a></h3>
-<pre><code class="language-ini">CONFIG_NROS_RUST_API=y
-CONFIG_RUST=y
-CONFIG_RUST_ALLOC=y
-</code></pre>
-<p>CMakeLists.txt uses <code>rust_cargo_application()</code>:</p>
+<p>The language API comes from the package itself — the module renders
+<code>CONFIG_NROS_RUST_API</code>, <code>CONFIG_NROS_C_API</code> or <code>CONFIG_NROS_CPP_API</code> from the
+package’s entry language, so you never set it. What differs is the
+<code>CMakeLists.txt</code>.</p>
+<h3 id="rust-1"><a class="header" href="#rust-1">Rust</a></h3>
+<p><code>prj.conf</code> needs Zephyr’s own Rust support (<code>CONFIG_RUST=y</code>,
+<code>CONFIG_RUST_ALLOC=y</code>), and <code>CMakeLists.txt</code> uses <code>rust_cargo_application()</code>:</p>
 <pre><code class="language-cmake">cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(my_example)
 rust_cargo_application()
 </code></pre>
-<h3 id="c-api"><a class="header" href="#c-api">C API</a></h3>
-<pre><code class="language-ini">CONFIG_NROS_C_API=y
-</code></pre>
-<p>CMakeLists.txt uses <code>nros_generate_interfaces()</code>:</p>
+<h3 id="c-1"><a class="header" href="#c-1">C</a></h3>
+<p><code>CMakeLists.txt</code> uses <code>nros_generate_interfaces()</code>:</p>
 <pre><code class="language-cmake">cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(my_example)
@@ -6325,7 +6424,11 @@ nros_generate_interfaces(std_msgs "msg/Int32.msg")
 target_sources(app PRIVATE src/main.c)
 </code></pre>
 <h2 id="kconfig-reference"><a class="header" href="#kconfig-reference">Kconfig Reference</a></h2>
-<p>All options are under <code>menuconfig NROS</code> in <code>zephyr/Kconfig</code>.</p>
+<p>All options are under <code>menuconfig NROS</code> in <code>zephyr/Kconfig</code>. They are what the
+module RENDERS from <code>system.toml</code>: set one as an image <code>env</code> row with the
+<code>CONFIG_</code> dropped (<code>env = { NROS_MAX_PUBLISHERS = "4" }</code>), never in a conf
+file. The RMW, API, endpoint and domain rows have their own <code>system.toml</code>
+keys (table above).</p>
 <h3 id="common-options"><a class="header" href="#common-options">Common Options</a></h3>
 <div class="table-wrapper">
 <table>
@@ -6380,7 +6483,7 @@ build composes those, and the configure prints what it concluded:</p>
 </code></pre>
 <p>Three things to know before you rely on it:</p>
 <ul>
-<li><strong>Anything you state wins.</strong> A value in your <code>prj.conf</code>, a board <code>.conf</code>, or
+<li><strong>Anything you state wins.</strong> A value in your image’s <code>env</code>, a board <code>.conf</code>, or
 an environment override outranks the derivation, silently and in both
 directions. The derived number is a default, never an override.</li>
 <li><strong>It is an UPPER BOUND.</strong> The inventory covers every type in the interface
@@ -6436,7 +6539,7 @@ that drop is silent on the C++ arena path. The remedy is a bound in the
 <h2 id="e2e-testing"><a class="header" href="#e2e-testing">E2E Testing</a></h2>
 <blockquote>
 <p><strong>Contributors:</strong> the in-tree fixture/test lanes for this platform are in
-<a href="#zephyr-2">Per-Platform Contributor Lanes</a>.</p>
+<a href="#zephyr-3">Per-Platform Contributor Lanes</a>.</p>
 </blockquote>
 <h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
 <div class="table-wrapper">
@@ -6482,7 +6585,7 @@ west update
 <p>To completely recreate the workspace:</p>
 <blockquote>
 <p><strong>Contributors:</strong> the in-tree workspace-recreate lane is in
-<a href="#zephyr-2">Per-Platform Contributor Lanes</a>.</p>
+<a href="#zephyr-3">Per-Platform Contributor Lanes</a>.</p>
 </blockquote>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="nuttx-appsexternal"><a class="header" href="#nuttx-appsexternal">NuttX (apps/external)</a></h1>
@@ -8526,7 +8629,7 @@ for <code>[system] name</code>. That is
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/1296-nros-build-c-leaf-bringup-name-mismatch.md">issue 1296</a>.)</p>
 <p>Zephyr is the carve-out: <code>west build</code> is still its build verb, with
 <code>nros sync</code> run first — see
-<a href="#zephyr">Deployment Workflow</a>.</p>
+<a href="#zephyr-1">Deployment Workflow</a>.</p>
 <pre><code class="language-bash"># Contributors: per-platform multi-example fixture build, in-tree
 # checkout only (these run `nros sync` for you):
 just freertos build-fixtures
@@ -9616,7 +9719,7 @@ does use rcutils’s numbers, <code>UNSET</code> included.</p>
 <p>The numeric representation is stable and used by the
 <code>nros_platform_log_write</code> ABI.</p>
 <h2 id="quick-start"><a class="header" href="#quick-start">Quick start</a></h2>
-<h3 id="rust-1"><a class="header" href="#rust-1">Rust</a></h3>
+<h3 id="rust-2"><a class="header" href="#rust-2">Rust</a></h3>
 <pre class="playground"><code class="language-rust">use nros_log::{Logger, Severity};
 use nros_log::{log_info, log_warn};
 
@@ -9636,7 +9739,7 @@ to the same intern’d entry when the name matches:</p>
 </span>let mut node = executor.create_node("my_node")?;
 log_info!(node.logger(), "subscribed to {}", topic);
 <span class="boring">}</span></code></pre>
-<h3 id="c-1"><a class="header" href="#c-1">C</a></h3>
+<h3 id="c-2"><a class="header" href="#c-2">C</a></h3>
 <pre><code class="language-c">#include &lt;nros/init.h&gt;
 #include &lt;nros/node.h&gt;
 #include &lt;nros/log.h&gt;
@@ -10007,11 +10110,11 @@ node.install_ros_time_source_on("/sim/clock")?;  // a remapped clock
 <p>QoS is <code>ClockQoS</code> — best effort, keep-last 1, volatile. A late subscriber wants
 the next sample, not a replay of the simulation’s history.</p>
 <h2 id="writing-a-timer-that-follows-it"><a class="header" href="#writing-a-timer-that-follows-it">Writing a timer that follows it</a></h2>
-<h3 id="c-2"><a class="header" href="#c-2">C++</a></h3>
+<h3 id="c-3"><a class="header" href="#c-3">C++</a></h3>
 <pre><code class="language-cpp">rclcpp::Timer t;
 NROS_TRY(node.create_timer(t, *node.get_clock(), 100, on_tick));
 </code></pre>
-<h3 id="rust-2"><a class="header" href="#rust-2">Rust</a></h3>
+<h3 id="rust-3"><a class="header" href="#rust-3">Rust</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>executor.register_timer_on_clock(
@@ -10499,7 +10602,7 @@ can equally drive yourself against the generated settings.</li>
 <li>run/flash command,</li>
 <li>ROS 2 interop or smoke-test command.</li>
 </ul>
-<h2 id="zephyr"><a class="header" href="#zephyr">Zephyr</a></h2>
+<h2 id="zephyr-1"><a class="header" href="#zephyr-1">Zephyr</a></h2>
 <p>Zephyr deployment uses <code>west</code>:</p>
 <pre><code class="language-bash">nros setup zephyr --rmw zenoh
 # **Contributors (in-tree checkout):** `just setup zephyr` creates
@@ -10868,7 +10971,7 @@ patterns that motivate having events at all on RTOS targets.</p>
 <p>Same shape as message callbacks. Register at construction time;
 callback fires from inside <code>spin_once</code> when the backend detects the
 event.</p>
-<h3 id="rust-3"><a class="header" href="#rust-3">Rust</a></h3>
+<h3 id="rust-4"><a class="header" href="#rust-4">Rust</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use core::time::Duration;
@@ -10899,7 +11002,7 @@ sub.on_message_lost(|status| {
 </span>let status = sub.next_liveliness_change().await?;
 let status = sub.next_deadline_miss().await?;
 <span class="boring">}</span></code></pre>
-<h3 id="c-3"><a class="header" href="#c-3">C</a></h3>
+<h3 id="c-4"><a class="header" href="#c-4">C</a></h3>
 <pre><code class="language-c">static void on_liveliness_changed(
         nros_subscription_t *sub,
         nros_liveliness_changed_status_t status,
@@ -11156,6 +11259,10 @@ latency-sensitive</strong> topics (control setpoints, e-stop), never for streams
 </tbody>
 </table>
 </div>
+<p>On Zephyr the Kconfig column names the symbol the build ends up with; you
+state it as an image <code>env</code> row in <code>system.toml</code>, without the <code>CONFIG_</code>
+prefix — <code>env = { NROS_ZENOH_TX_BATCH = "1", NROS_ZENOH_SOCKET_TIMEOUT_MS = "5" }</code> —
+never in <code>prj.conf</code> (phase-481).</p>
 <p>All of these are <strong>compile-time</strong> knobs (embedded images have no runtime
 config), and all default <strong>off</strong> — an untuned build is byte-identical to
 pre-279 behavior.</p>
@@ -12881,7 +12988,8 @@ verbs give a ported package on a host.</li>
 </ul>
 <p>Where the node connects is decided when the image is built, because a board has
 no environment to read it from: the <code>NROS_ENTRY_LOCATOR</code> cache variable on
-FreeRTOS, <code>CONFIG_NROS_ZENOH_LOCATOR</code> on Zephyr. <code>rclcpp::init(argc, argv)</code>
+FreeRTOS, the image’s <code>locator</code> in <code>system.toml</code> on Zephyr (rendered into
+<code>CONFIG_NROS_ZENOH_LOCATOR</code>). <code>rclcpp::init(argc, argv)</code>
 reads it in every source file that includes <code>&lt;rclcpp/rclcpp.hpp&gt;</code>.</p>
 <p>A node with a hand-written spin loop also works. The other two templates,
 <code>rclcpp-compat-smoke/</code> and <code>topic-state-monitor-port/</code>, have the same two
@@ -13152,8 +13260,9 @@ ros2 node list         # Shows nano-ros nodes
 <p>Both sides must use the same ROS domain ID. On the <strong>native</strong> (host) build
 nano-ros reads <code>ROS_DOMAIN_ID</code> from the environment (default: <code>0</code>). On
 <strong>embedded</strong> targets the domain ID is fixed at compile time — <code>system.toml</code>
-<code>[system] domain_id</code> (or an image’s own), a hand-written <code>config.toml</code> on a
-direct-mode app, or <code>CONFIG_NROS_DOMAIN_ID</code> on Zephyr (see
+<code>[system] domain_id</code> (or an image’s own — on Zephyr the module renders it into
+<code>CONFIG_NROS_DOMAIN_ID</code>), or a hand-written <code>config.toml</code> on a
+direct-mode app (see
 <a href="#application-workflow">Workflow</a>):</p>
 <pre><code class="language-bash">ROS_DOMAIN_ID=42 ./build/native/target/debug/talker   # nano-ros side
 ROS_DOMAIN_ID=42 ros2 topic echo /chatter ...  # ROS 2 side
@@ -13210,8 +13319,8 @@ format reference</li>
 <p>Coming from <code>rclcpp</code>, <code>rclrs</code>, or <code>rclc</code>? This page calls out where
 nano-ros looks the same, where it diverges, and the reason behind each
 choice. It is an <em>orientation</em> page — the per-language API references
-(<a href="#rust-api">Rust</a> / <a href="#c-api-1">C</a> /
-<a href="#c-api-2">C++</a>) cover the surface itself.</p>
+(<a href="#rust-api">Rust</a> / <a href="#c-api">C</a> /
+<a href="#c-api-1">C++</a>) cover the surface itself.</p>
 <p>The short version: nano-ros keeps ROS 2’s vocabulary (Node, Publisher,
 Subscription, Service, Client, ActionServer, ActionClient, Timer,
 Executor, QoS, message codegen) so existing nodes port cleanly. The
@@ -13548,14 +13657,14 @@ root). Compatible with tokio out of the box.</li>
 <code>rclc_publisher_init_default</code>, <code>rclc_subscription_init_default</code>), in
 rclc’s argument order and at rclc’s arity. Memory ownership rules are
 the same — the caller owns storage, the API initialises it.</li>
-<li>See the <a href="#c-api-1">C API reference</a> for the full
+<li>See the <a href="#c-api">C API reference</a> for the full
 surface.</li>
 </ul>
 <h2 id="going-deeper"><a class="header" href="#going-deeper">Going deeper</a></h2>
 <ul>
 <li>API surface, type by type → per-language references at
-<a href="#rust-api">Rust</a> / <a href="#c-api-1">C</a> /
-<a href="#c-api-2">C++</a>.</li>
+<a href="#rust-api">Rust</a> / <a href="#c-api">C</a> /
+<a href="#c-api-1">C++</a>.</li>
 <li>Why the executor / RMW / platform layers split this way →
 <a href="#architecture-overview">Architecture Overview</a>.</li>
 <li>Cooperative <code>no_std</code> model → <a href="#std-and-alloc-requirements">no_std Support</a>.</li>
@@ -16565,7 +16674,7 @@ abi_version mismatch is rejected. Run via:</p>
 <pre><code class="language-bash">cargo test -p nros-rmw-cffi --features c-stub-test --test c_stub_transport
 </code></pre>
 <h2 id="api"><a class="header" href="#api">API</a></h2>
-<h3 id="rust-4"><a class="header" href="#rust-4">Rust</a></h3>
+<h3 id="rust-5"><a class="header" href="#rust-5">Rust</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use core::ffi::c_void;
@@ -16594,7 +16703,7 @@ unsafe {
     })).expect("abi_version must match runtime");
 }
 <span class="boring">}</span></code></pre>
-<h3 id="c-4"><a class="header" href="#c-4">C</a></h3>
+<h3 id="c-5"><a class="header" href="#c-5">C</a></h3>
 <pre><code class="language-c">#include &lt;nros/transport.h&gt;
 
 static nros_ret_t my_open(void *ud, const void *params) {
@@ -17608,7 +17717,7 @@ cause 4-tuple collisions when the next QEMU instance reuses the same source port
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="client-library-model-nros-vs-rclc--rclcpp--rclrs"><a class="header" href="#client-library-model-nros-vs-rclc--rclcpp--rclrs">Client Library Model: nros vs rclc / rclcpp / rclrs</a></h1>
 <p>The RMW layer decouples the transport from the client library. The <em>client library</em> is the user-facing API on top of RMW: nodes, executors, publishers, subscribers, services, clients, callbacks, futures. ROS 2 ships three: <strong>rclc</strong> (C, MCU-focused), <strong>rclcpp</strong> (C++, desktop), and <strong>rclrs</strong> (Rust, experimental). nano-ros adds a fourth – the <code>nros-node</code> crate plus its <code>nros-c</code> / <code>nros-cpp</code> wrappers.</p>
-<p>This page explains the shape of nros-node and how it differs from the three official client libraries. For trait signatures see <a href="#rust-api">Rust API</a> / <a href="#c-api-1">C API</a> / <a href="#c-api-2">C++ API</a>.</p>
+<p>This page explains the shape of nros-node and how it differs from the three official client libraries. For trait signatures see <a href="#rust-api">Rust API</a> / <a href="#c-api">C API</a> / <a href="#c-api-1">C++ API</a>.</p>
 <h2 id="side-by-side-1"><a class="header" href="#side-by-side-1">Side-by-side</a></h2>
 <div class="table-wrapper">
 <table>
@@ -18778,7 +18887,7 @@ writing a new port, see <a href="#custom-platform">Custom Platform</a>.</p>
 <p>Bare-metal platforms back this with a bump allocator (<code>linked-list-allocator</code> or <code>embedded-alloc</code>). RTOS platforms back it with <code>pvPortMalloc</code> (FreeRTOS), <code>tx_byte_allocate</code> (ThreadX), <code>k_malloc</code> (Zephyr), or <code>malloc</code> (NuttX, POSIX). zenoh-pico’s working set is ~64 KB total; the allocator must have at least that much budget, ideally more.</p>
 <h3 id="threading--platformthreading"><a class="header" href="#threading--platformthreading">Threading – <code>PlatformThreading</code></a></h3>
 <p>Three sub-areas: tasks (spawn/join/exit), mutexes (regular + recursive), and condition variables. Single-threaded targets (bare-metal) provide stub implementations: <code>task_init</code> returns -1 (so zenoh-pico’s lease task spawn fails gracefully and the application drives lease-keepalive itself), and <code>mutex_lock</code>/<code>condvar_wait</code> are no-ops that always succeed.</p>
-<p>The condvar API is the load-bearing one: zenoh-pico’s blocking <code>z_get</code> and the C++ <code>Future::wait</code> both block on a condvar that the receive callback signals. On single-threaded platforms there is no thread to block, so the blocking C++ wait paths are not used (the <a href="#c-api-2">C++ action client status note</a> covers the migration to non-blocking polling).</p>
+<p>The condvar API is the load-bearing one: zenoh-pico’s blocking <code>z_get</code> and the C++ <code>Future::wait</code> both block on a condvar that the receive callback signals. On single-threaded platforms there is no thread to block, so the blocking C++ wait paths are not used (the <a href="#c-api-1">C++ action client status note</a> covers the migration to non-blocking polling).</p>
 <h3 id="sleep--random--wall-time"><a class="header" href="#sleep--random--wall-time">Sleep / Random / Wall-time</a></h3>
 <p>Three small zenoh-pico-only traits grouped for convenience:</p>
 <ul>
@@ -20715,7 +20824,7 @@ inheritance (<code>PTHREAD_PRIO_INHERIT</code>) and priority ceiling
 <p><strong>nano-ros on NuttX</strong>: Currently runs with kernel defaults (no explicit
 scheduling policy). Future work will add <code>SCHED_FIFO</code> and priority
 configuration.</p>
-<h3 id="zephyr-1"><a class="header" href="#zephyr-1">Zephyr</a></h3>
+<h3 id="zephyr-2"><a class="header" href="#zephyr-2">Zephyr</a></h3>
 <p>Zephyr provides the most flexible scheduling model, supporting cooperative
 threads, preemptive threads, and EDF in a single system.</p>
 <div class="table-wrapper">
@@ -23486,7 +23595,7 @@ wraps <code>qemu-system-arm</code> with the right wiring. <code>talker</code> th
 Rust variant; the C / C++ variants boot through the <code>make</code>-driven path
 described under “Auto-configure glue” in
 <a href="#nuttx-appsexternal">Integration: NuttX external app</a>.</p>
-<h2 id="zephyr-2"><a class="header" href="#zephyr-2">Zephyr</a></h2>
+<h2 id="zephyr-3"><a class="header" href="#zephyr-3">Zephyr</a></h2>
 <p>Lanes for <a href="#zephyr-contributor--in-tree-workflow">Zephyr (native_sim)</a> and
 <a href="#zephyr-west-module">Zephyr Integration (west module)</a>.</p>
 <p>E2E testing:</p>
@@ -23571,7 +23680,7 @@ just threadx_riscv64 build-fixtures
 fixture in <code>qemu-system-riscv64</code> with the virtio-net + Slirp wiring
 baked in. For batch testing, <code>just threadx_linux test</code> runs every
 pubsub / service / action against an in-test zenohd.</p>
-<h2 id="cyclone-dds-1"><a class="header" href="#cyclone-dds-1">Cyclone DDS</a></h2>
+<h2 id="cyclone-dds"><a class="header" href="#cyclone-dds">Cyclone DDS</a></h2>
 <p>Lanes for the Cyclone DDS backend
 (<a href="#rmw-backends-zenoh-xrce-dds-cyclone-dds">Choosing an RMW Backend</a>). These are
 contributor-only recipes — a bare <code>cmake</code> / <code>cargo</code> consumer build
@@ -24131,7 +24240,7 @@ custom RMW backend or porting to a new platform — see
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/rmw/zenoh/nros-rmw-zenoh"><code>nros-rmw-zenoh</code></a> — zenoh-pico backend internals</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="c-api-1"><a class="header" href="#c-api-1">C API</a></h1>
+<h1 id="c-api"><a class="header" href="#c-api">C API</a></h1>
 <p>The C user-facing surface lives in <strong><code>packages/api/nros-c/include/nros/*.h</code></strong>.
 Generated by Doxygen; always reflects the current <code>main</code> branch.</p>
 <h2 id="api-reference-1"><a class="header" href="#api-reference-1">API reference</a></h2>
@@ -24251,7 +24360,7 @@ the user API — they document the C vtables for porters writing a custom RMW
 backend or platform port. See <a href="#rmw-api">RMW API</a> and
 <a href="#platform-api">Platform API</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="c-api-2"><a class="header" href="#c-api-2">C++ API</a></h1>
+<h1 id="c-api-1"><a class="header" href="#c-api-1">C++ API</a></h1>
 <p>The C++ user-facing surface lives in
 <strong><code>packages/api/nros-cpp/include/nros/*.hpp</code></strong>. Generated by Doxygen;
 always reflects the current <code>main</code> branch.</p>
@@ -24379,8 +24488,8 @@ xdg-open target/doc/cpp-api/html/index.html
 <p>The RMW (ROS middleware) vtable is the porting boundary between
 nano-ros and a concrete pub/sub transport (zenoh-pico, XRCE-DDS,
 Cyclone DDS, uORB, …). RMW is <strong>internal</strong> — user
-applications use the <a href="#rust-api">Rust</a> / <a href="#c-api-1">C</a> /
-<a href="#c-api-2">C++</a> APIs, not the vtable directly.</p>
+applications use the <a href="#rust-api">Rust</a> / <a href="#c-api">C</a> /
+<a href="#c-api-1">C++</a> APIs, not the vtable directly.</p>
 <h2 id="canonical-reference"><a class="header" href="#canonical-reference">Canonical reference</a></h2>
 <p>The C vtable <code>nros_rmw_vtable_t</code> is the source of truth. Every
 function pointer’s brief, parameter docs, ownership rules
@@ -24433,7 +24542,7 @@ implementation; the source is the worked example to copy.</p>
 concrete OS / RTOS / bare-metal target. Each platform provides a
 clock, optionally a heap, optionally threading, optionally
 networking. Platform is <strong>internal</strong> — user applications use the
-<a href="#rust-api">Rust</a> / <a href="#c-api-1">C</a> / <a href="#c-api-2">C++</a> APIs, not
+<a href="#rust-api">Rust</a> / <a href="#c-api">C</a> / <a href="#c-api-1">C++</a> APIs, not
 the platform vtable directly.</p>
 <h2 id="canonical-reference-1"><a class="header" href="#canonical-reference-1">Canonical reference</a></h2>
 <p>The SSoT C headers in
@@ -28100,8 +28209,9 @@ cmake --build build
 <h2 id="rtos-specific-notes"><a class="header" href="#rtos-specific-notes">RTOS-specific notes</a></h2>
 <ul>
 <li><strong>Zephyr.</strong> Consume nano-ros via the <code>zephyr/</code>
-module — drop <code>nano-ros</code> into your <code>west.yml</code>, set
-<code>CONFIG_NROS=y</code> + <code>CONFIG_NROS_RMW="zenoh"</code> in <code>prj.conf</code>.</li>
+module — drop <code>nano-ros</code> into your <code>west.yml</code>, set <code>CONFIG_NROS=y</code> in
+<code>prj.conf</code>, and state the RMW as the image’s <code>rmw</code> in a <code>system.toml</code>
+beside it (phase-481).</li>
 <li><strong>ESP-IDF.</strong> <code>integrations/nano-ros/</code> is a component manifest —
 add it to your <code>idf_component.yml</code>.</li>
 <li><strong>NuttX.</strong> <code>integrations/nuttx/</code> is a <code>apps/external/</code> shim —

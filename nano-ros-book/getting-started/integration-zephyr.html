@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-0af39326.js";
+            window.path_to_searchindex_js = "../searchindex-862fd6f9.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-8de85cac.js"></script>
@@ -222,7 +222,7 @@ apply nano-ros’s Zephyr patches:</p>
 </thead>
 <tbody>
 <tr><td>Min Python</td><td>3.10</td><td><strong>3.12</strong> (<code>find_package(Python3)</code>)</td></tr>
-<tr><td>RMW selection</td><td><code>prj-&lt;rmw&gt;.conf</code> overlay (<code>-DCONF_FILE=...</code>)</td><td><strong><code>-S nros-&lt;rmw&gt;</code> snippet</strong> (or the overlay)</td></tr>
+<tr><td>RMW selection</td><td>the image’s <code>rmw</code> in <code>system.toml</code></td><td>the image’s <code>rmw</code> in <code>system.toml</code> (an app with no <code>system.toml</code>: the <code>-S nros-&lt;rmw&gt;</code> snippet)</td></tr>
 <tr><td>nano-ros patches</td><td>applied during <code>nros setup zephyr</code> provisioning</td><td>applied during <code>nros setup zephyr</code> provisioning</td></tr>
 <tr><td>Examples as samples / Twister</td><td>—</td><td><strong><code>samples:</code> + Twister</strong> (<code>sample.nano-ros.*</code>)</td></tr>
 <tr><td>zenoh (native_sim)</td><td>✅ build + e2e</td><td>✅ build + e2e</td></tr>
@@ -247,7 +247,8 @@ application sits beside both:</p>
 └── apps/
     └── my_app/                        # your application
         ├── CMakeLists.txt
-        ├── prj.conf                   # Kconfig — selects nros + RMW
+        ├── system.toml                # nano-ros config: RMW, endpoint, knobs
+        ├── prj.conf                   # Zephyr's own Kconfig (+ CONFIG_NROS=y)
         ├── west.yml                   # (optional) per-app manifest
         └── src/
             └── main.c                 # nros user code
@@ -341,11 +342,10 @@ Note the <code>nros_cpp_*</code> symbol prefix: those are C-ABI
 functions from <code>nros-cpp</code> (the <code>cpp</code> is a namespace prefix, not C++
 linkage) — a C component links against them directly, and shares the same
 executor + node as a C++ component would.</p>
-<p><code>prj.conf</code> is the one shown in <a href="#configure">Configure</a> below — note it needs
-<strong>both</strong> <code>CONFIG_NROS_C_API=y</code> and <code>CONFIG_NROS_CPP_API=y</code>: the typed
-Zephyr carrier that drives this component’s <code>configure</code> is C++, so the
-<code>nros-cpp</code> header surface must be on the app include path even though
-<code>Talker.c</code> itself is C.</p>
+<p>Its configuration is in <a href="#configure">Configure</a> below. You do not choose the
+language API: the module renders it from the app, and the typed Zephyr carrier
+that drives this component’s <code>configure</code> is C++, so the <code>nros-cpp</code> header
+surface is on the app include path even though <code>Talker.c</code> itself is C.</p>
 <h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
 <p><code>nros setup</code> provisions the parts nano-ros owns — the <strong>RMW host daemon</strong>
 (<code>zenohd</code> / Micro-XRCE-DDS agent) and the <strong>RMW transport submodules</strong>
@@ -399,18 +399,37 @@ it does <strong>not</strong> pull Zephyr itself) to your workspace <code>west.ym
       import:
         file: zephyr/west.yml    # pulls nano-ros's transport deps
 </code></pre>
-<p>Then per-application <code>prj.conf</code>:</p>
-<pre><code>CONFIG_NROS=y
-CONFIG_NROS_C_API=y
-CONFIG_NROS_RMW_ZENOH=y                 # bool per RMW: NROS_RMW_{ZENOH,XRCE,CYCLONEDDS}
-# (ROS edition is a build-time Cargo feature, NOT a Kconfig symbol — do not set
-#  CONFIG_NROS_ROS_EDITION; Zephyr aborts on the undefined symbol.)
+<p>Then, per application, nano-ros’s half of the configuration goes in a
+<code>system.toml</code> beside the <code>CMakeLists.txt</code> (RFC-0098 D10, phase-481), and
+Zephyr’s own half in <code>prj.conf</code>:</p>
+<pre><code class="language-toml"># system.toml
+[system]
+name = "my_app"
+rmw = "zenoh"
+domain_id = 0
 
-# Required for any networked RMW on QEMU / native_sim:
+[image.zephyr]
+board = "zephyr"            # the concrete board is west's `-b`
+rmw = "zenoh"               # zenoh | xrce | cyclonedds
+# locator = "tcp/192.0.2.10:7447"
+# env = { NROS_MAX_PUBLISHERS = "4" }
+</code></pre>
+<pre><code># prj.conf — Zephyr settings only; never a CONFIG_NROS_* knob here
+CONFIG_NROS=y               # enables the module; everything else is the image's
 CONFIG_NETWORKING=y
 CONFIG_NET_IPV4=y
 CONFIG_NET_TCP=y
 </code></pre>
+<p>The module renders the image into a Kconfig fragment merged after <code>prj.conf</code>:
+the RMW from <code>rmw</code>, the language API from your app, the endpoint from
+<code>locator</code>, the domain from <code>domain_id</code>, and every <code>env</code> knob (any symbol in the
+<a href="zephyr.html#kconfig-reference">Kconfig reference</a>, spelled without
+<code>CONFIG_</code>). A <code>CONFIG_NROS_*</code> line in <code>prj.conf</code> would be overridden by it, so
+it is at best dead. Several images in one file — one per RMW — are picked with
+<code>west build … -- -DNROS_IMAGE=&lt;id&gt;</code>; see
+<a href="zephyr.html#configuring-an-image-systemtoml-not-prjconf">Configuring an image</a>.
+An app with NO <code>system.toml</code> gets no rendering and is configured by Kconfig
+defaults and the RMW snippets alone.</p>
 <p><code>CONFIG_NROS=y</code> activates the shell, which maps Kconfig values to
 <code>NANO_ROS_*</code> CMake cache vars and <code>add_subdirectory()</code>s the root
 nano-ros CMake. <code>NanoRos::NanoRos</code> is linked into your <code>app</code>
@@ -546,7 +565,7 @@ zenoh-pico is a client, so with no router the image gets</p>
 </code></pre>
 <p>which names no port. Both sides default to <code>tcp/127.0.0.1:7447</code> — the port
 <code>rmw_zenohd</code> listens on and a <code>rmw_zenoh_cpp</code> node connects to. Override with
-<code>CONFIG_NROS_ZENOH_LOCATOR</code> on the image side (via a <code>conf</code> fragment) and
+the image’s <code>locator = "tcp/…"</code> in <code>system.toml</code> and
 <code>ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:&lt;port&gt;"]'</code> on the
 router, and change <strong>both</strong>.</p>
 <h4 id="what-an-image-declares"><a class="header" href="#what-an-image-declares">What an image declares</a></h4>
@@ -777,9 +796,9 @@ repo-relative, so it is no more copyable than the old file was.</p>
 </ol>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
 <pre><code class="language-bash"># 1. Start the router (ROS's `rmw_zenohd` — nano-ros ships no router
-#    of its own) on port 7447, the port your app's Kconfig default
-#    picks up (CONFIG_NROS_ZENOH_LOCATOR defaults to
-#    "tcp/127.0.0.1:7447"; change either side to match):
+#    of its own) on port 7447, the port your app dials by default
+#    (an image with no `locator` gets "tcp/127.0.0.1:7447"; change
+#    either side to match):
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:7447"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
@@ -843,7 +862,10 @@ build line instead of hand-writing the overlay:</p>
 #                                   ^^^^^^^^^^^^^^^^^^^  nros-zenoh | nros-cyclonedds | nros-xrce
 </code></pre>
 <p>The snippet (shipped via the module’s <code>snippet_root</code>) carries the
-RMW-common Kconfig — equivalent to merging <code>prj-&lt;rmw&gt;.conf</code>. The
+RMW-common Kconfig — equivalent to merging <code>prj-&lt;rmw&gt;.conf</code>. It is for an
+app with NO <code>system.toml</code>: with one, the image’s <code>rmw</code> decides and merges
+after the snippet, so a snippet that agrees is redundant and one that names a
+different RMW is refused at configure time (phase-481). The
 <code>prj-&lt;rmw&gt;.conf</code> / <code>-DCONF_FILE</code> path still works (and is the only option
 on 3.7).</p>
 <h2 id="nano-ros-patches-into-your-workspace"><a class="header" href="#nano-ros-patches-into-your-workspace">nano-ros patches into your workspace</a></h2>
