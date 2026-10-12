@@ -1,16 +1,15 @@
 var searchData=
 [
-  ['weaker_20question_20than_20upstream_20s_20stated_20here_20rather_20than_20discovered_0',['A WEAKER QUESTION THAN UPSTREAM&apos;S, stated here rather than discovered',['../nros__generated_8h.html#autotoc_md204',1,'']]],
-  ['what_20is_20read_20from_20the_20subscription_1',['What is read from the subscription',['../nros__generated_8h.html#autotoc_md81',1,'']]],
-  ['what_20the_20callback_20sees_20when_20decoding_20fails_2',['What the callback sees when decoding fails',['../nros__generated_8h.html#autotoc_md80',1,'']]],
-  ['when_20decoding_20fails_3',['What the callback sees when decoding fails',['../nros__generated_8h.html#autotoc_md80',1,'']]],
-  ['which_20clock_20now_20is_20read_20from_4',['Which clock &quot;now&quot; is read from',['../nros__generated_8h.html#autotoc_md343',1,'']]],
-  ['which_20upstream_20does_20not_20take_5',['The EXECUTOR parameter, which upstream does not take',['../nros__generated_8h.html#autotoc_md205',1,'']]],
-  ['why_20it_20is_20not_20upstream_20s_6',['Shape, and why it is not upstream&apos;s',['../nros__generated_8h.html#autotoc_md197',1,'']]],
-  ['why_20it_20takes_20two_20strings_20rather_20than_20a_20handle_7',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md154',1,'']]],
-  ['why_20this_20exists_20and_20why_20it_20takes_20two_20strings_20rather_20than_20a_20handle_8',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md154',1,'']]],
-  ['why_20tt_20const_20tt_20on_20a_20function_20that_20writes_9',['Why &lt;tt&gt;const&lt;/tt&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md340',1,'']]],
-  ['write_10',['write',['../structnros__transport__ops__t.html#a0c2722fc9e2d2cf55abefe09b6b10817',1,'nros_transport_ops_t']]],
-  ['write_20a_20publisher_11',['4. Write a Publisher',['../getting_started.html#autotoc_md358',1,'']]],
-  ['writes_12',['Why &lt;tt&gt;const&lt;/tt&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md340',1,'']]]
+  ['weaker_20question_20than_20upstream_20s_20stated_20here_20rather_20than_20discovered_0',['A WEAKER QUESTION THAN UPSTREAM&apos;S, stated here rather than discovered',['../nros__generated_8h.html#autotoc_md207',1,'']]],
+  ['what_20the_20callback_20sees_20when_20decoding_20fails_1',['What the callback sees when decoding fails',['../nros__generated_8h.html#autotoc_md81',1,'']]],
+  ['when_20decoding_20fails_2',['What the callback sees when decoding fails',['../nros__generated_8h.html#autotoc_md81',1,'']]],
+  ['which_20clock_20now_20is_20read_20from_3',['Which clock &quot;now&quot; is read from',['../nros__generated_8h.html#autotoc_md349',1,'']]],
+  ['which_20upstream_20does_20not_20take_4',['The EXECUTOR parameter, which upstream does not take',['../nros__generated_8h.html#autotoc_md208',1,'']]],
+  ['why_20it_20is_20not_20upstream_20s_5',['Shape, and why it is not upstream&apos;s',['../nros__generated_8h.html#autotoc_md200',1,'']]],
+  ['why_20it_20takes_20two_20strings_20rather_20than_20a_20handle_6',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md154',1,'']]],
+  ['why_20this_20exists_20and_20why_20it_20takes_20two_20strings_20rather_20than_20a_20handle_7',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md154',1,'']]],
+  ['why_20tt_20const_20tt_20on_20a_20function_20that_20writes_8',['Why &lt;tt&gt;const&lt;/tt&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md346',1,'']]],
+  ['write_9',['write',['../structnros__transport__ops__t.html#ae809a35d2f99f641e3af90ba848745f2',1,'nros_transport_ops_t']]],
+  ['write_20a_20publisher_10',['4. Write a Publisher',['../getting_started.html#autotoc_md364',1,'']]],
+  ['writes_11',['Why &lt;tt&gt;const&lt;/tt&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md346',1,'']]]
 ];

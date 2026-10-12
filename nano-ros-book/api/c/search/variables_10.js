@@ -1,10 +1,20 @@
 var searchData=
 [
-  ['read_0',['read',['../structnros__transport__ops__t.html#ad34a520c1560fe2684427f535b356055',1,'nros_transport_ops_t']]],
-  ['reliability_1',['reliability',['../structnros__qos__t.html#a20e0dfe241270529f1d22dc22a3f433d',1,'nros_qos_t']]],
-  ['result_5fcallback_2',['result_callback',['../structnros__action__client__t.html#a9fd20af318b662c5e84a137a9b653140',1,'nros_action_client_t']]],
-  ['result_5fserialized_5fsize_5fmax_3',['result_serialized_size_max',['../structnros__action__type__t.html#a571c74c831c2d85e24490f20a8cb98cd',1,'nros_action_type_t']]],
-  ['rmw_5fname_4',['rmw_name',['../structnros__node__t.html#a3ecb77db1e4f45278bfc20fffd06a20e',1,'nros_node_t::rmw_name'],['../structnros__node__options__t.html#add84dca61b83e4d124ccc5a936f70429',1,'nros_node_options_t::rmw_name']]],
-  ['rmw_5fname_5flen_5',['rmw_name_len',['../structnros__node__t.html#a3190b380ccd12acbf9cd567331fe8811',1,'nros_node_t::rmw_name_len'],['../structnros__node__options__t.html#a7d3b493263460891fd97596fb9f2eaae',1,'nros_node_options_t::rmw_name_len']]],
-  ['role_6',['role',['../structnros__qos__override__t.html#a717790de7fe7dae3c4bdd51f67c1a5af',1,'nros_qos_override_t']]]
+  ['rclc_5fqos_5fdefault_0',['RCLC_QOS_DEFAULT',['../nros__generated_8h.html#aa2db1f62adc96a303d6f514db5dbffe2',1,'nros_generated.h']]],
+  ['rclc_5fqos_5fsensor_5fdata_1',['RCLC_QOS_SENSOR_DATA',['../nros__generated_8h.html#ab57b9d700c0a9610434f7bfc5dcbf791',1,'nros_generated.h']]],
+  ['rclc_5fqos_5fservices_2',['RCLC_QOS_SERVICES',['../nros__generated_8h.html#aea1c09a2de85f5e1003f915fd50143b7',1,'nros_generated.h']]],
+  ['read_3',['read',['../structnros__transport__ops__t.html#ad34a520c1560fe2684427f535b356055',1,'nros_transport_ops_t']]],
+  ['reallocate_4',['reallocate',['../structrcl__allocator__t.html#a975b45a8f2efde4ea971f94eea1fc81b',1,'rcl_allocator_t']]],
+  ['reliability_5',['reliability',['../structrclc__qos__t.html#adfa09e81486fe325db99408ef0447c18',1,'rclc_qos_t']]],
+  ['request_5fdeserialize_6',['request_deserialize',['../structrclc__service__type__t.html#a9ae519fb99136a6bcabbf5b1a7880a50',1,'rclc_service_type_t']]],
+  ['request_5fserialize_7',['request_serialize',['../structrclc__service__type__t.html#aece6e1fa9ee13a78bc28c570905e651b',1,'rclc_service_type_t']]],
+  ['response_5fdeserialize_8',['response_deserialize',['../structrclc__service__type__t.html#abe1f1fb260c7f7336c4edf99c197ebd9',1,'rclc_service_type_t']]],
+  ['response_5fserialize_9',['response_serialize',['../structrclc__service__type__t.html#aefd11c87db67327c60d6c29c946f4784',1,'rclc_service_type_t']]],
+  ['result_5fcallback_10',['result_callback',['../structrcl__action__client__t.html#aa7364d0d577297455dc212f59c99d020',1,'rcl_action_client_t']]],
+  ['result_5fdeserialize_11',['result_deserialize',['../structrclc__action__type__t.html#abc08fafd61657c57b62aee7469b96880',1,'rclc_action_type_t']]],
+  ['result_5fserialize_12',['result_serialize',['../structrclc__action__type__t.html#a20f34ed620efee755d0a1113208c9aab',1,'rclc_action_type_t']]],
+  ['result_5fserialized_5fsize_5fmax_13',['result_serialized_size_max',['../structrclc__action__type__t.html#a53e5a7b355d822037713aa8d1e95c04e',1,'rclc_action_type_t']]],
+  ['rmw_5fname_14',['rmw_name',['../structrcl__node__t.html#a0794efd19e70b9bf296ae79dad35d049',1,'rcl_node_t::rmw_name'],['../structrcl__node__options__t.html#a53276e534f2b3620b8fdaab201d90720',1,'rcl_node_options_t::rmw_name']]],
+  ['rmw_5fname_5flen_15',['rmw_name_len',['../structrcl__node__t.html#a3be6a64c2aa19b8ea880dfe31dcedfb1',1,'rcl_node_t::rmw_name_len'],['../structrcl__node__options__t.html#a0b6a0b0c1e29589abce7cd60e762bb65',1,'rcl_node_options_t::rmw_name_len']]],
+  ['role_16',['role',['../structrclc__qos__override__t.html#ac74fa1dcf082d21180cc3b4c2325e5a3',1,'rclc_qos_override_t']]]
 ];

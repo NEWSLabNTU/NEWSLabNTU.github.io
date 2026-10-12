@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-ee63d511.js";
+            window.path_to_searchindex_js = "searchindex-2a6baa1a.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-bd0cf9ce.js"></script>
@@ -1654,14 +1654,16 @@ ships one) — start it in another terminal:</p>
 <code>tcp/10.0.2.2:7451</code> on QEMU FreeRTOS (Slirp forwards to host),
 <code>7452</code> NuttX, <code>7453</code> ThreadX-RV, <code>7454</code> ESP32, <code>7455</code>
 ThreadX-Linux, <code>7447</code> Zephyr.</p>
-<h3 id="b2-c-nros_check-failed-nros_support_init----4"><a class="header" href="#b2-c-nros_check-failed-nros_support_init----4">B2. C: <code>NROS_CHECK failed: nros_support_init(...) -&gt; -4</code></a></h3>
-<pre><code>NROS_CHECK failed at src/main.c:152: nros_support_init(&amp;app.support, locator, domain_id) -&gt; -4
+<h3 id="b2-c-rclc_check-failed-rclc_support_init_with_locator----4"><a class="header" href="#b2-c-rclc_check-failed-rclc_support_init_with_locator----4">B2. C: <code>RCLC_CHECK failed: rclc_support_init_with_locator(...) -&gt; -4</code></a></h3>
+<pre><code>RCLC_CHECK failed at src/main.c:152: rclc_support_init_with_locator(&amp;app.support, locator, domain_id) -&gt; -4
 </code></pre>
-<p>Process exits <code>1</code> (the <code>retval</code> passed to <code>NROS_CHECK_RET</code>).
-<code>-4 = NROS_RET_NOT_FOUND</code> — the locator was unreachable (zenohd
+<p>Process exits <code>1</code> (the <code>retval</code> passed to <code>RCLC_CHECK_RET</code>).
+<code>-4 = RCLC_RET_NOT_FOUND</code> — the locator was unreachable (zenohd
 not running, or wrong port). Same fix as B1 above.</p>
-<p>The C API entry point is <code>nros_support_init</code>, <strong>not</strong> <code>nros_init</code>
-or <code>nros::init</code> — those don’t exist in the C API.</p>
+<p>The C API entry point is <code>rclc_support_init</code> (rclc’s
+<code>(&amp;support, argc, argv, &amp;allocator)</code>) or, with an explicit locator,
+<code>rclc_support_init_with_locator</code> — <strong>not</strong> <code>nros_init</code> or <code>nros::init</code>,
+which don’t exist in the C API.</p>
 <h3 id="b3-c-process-exits-156-after-a-rclcppinit_in-failure"><a class="header" href="#b3-c-process-exits-156-after-a-rclcppinit_in-failure">B3. C++: process exits 156 after a <code>rclcpp::init_in</code> failure</a></h3>
 <pre><code>nros::init returned NROS_CPP_RET_TRANSPORT_ERROR (-100)
 </code></pre>
@@ -2129,16 +2131,25 @@ stub that wires signal handling and forwards to your function.</p>
 #include &lt;nros/node.h&gt;
 #include &lt;nros/publisher.h&gt;
 #include &lt;nros/timer.h&gt;
-#include "std_msgs.h"
+#include &lt;std_msgs/msg/int32.h&gt;
 
 int nros_app_main(int argc, char** argv) {
-    // 1. nros_support_init() — opens the zenoh session
-    // 2. nros_executor_init() / rclc_node_init_default()
-    // 3. std_msgs_msg_int32_publisher_init() — typed publisher
-    // 4. nros_timer_init() with a 1 Hz period + publish callback
+    // 1. rclc_support_init() — opens the zenoh session
+    // 2. rclc_executor_init() / rclc_node_init_default()
+    // 3. rclc_publisher_init_default(&amp;pub, &amp;node,
+    //        ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32), "/chatter")
+    // 4. rclc_timer_init_with_context() with a 1 Hz period; the callback calls
+    //        rcl_publish(&amp;pub, &amp;msg, NULL)
     // 5. rclc_executor_spin() until SIGINT
 }
 </code></pre>
+<p>Generated messages take rosidl’s C names and member shape
+(<code>std_msgs__msg__String</code> in <code>&lt;std_msgs/msg/string.h&gt;</code>, <code>msg.data.data</code> /
+<code>.size</code> / <code>.capacity</code>). Their strings and sequences point at memory <strong>you</strong>
+own: wire them with the generated <code>&lt;Msg&gt;__init_in(&amp;msg, &amp;storage)</code> over a
+<code>&lt;Msg&gt;__Storage</code>, or point <code>data</code> at your own buffer as micro-ROS code does.
+Nothing on this path allocates, so rosidl’s allocating <code>&lt;Msg&gt;__init</code> /
+<code>__fini</code> are not declared.</p>
 <h2 id="configure-1"><a class="header" href="#configure-1">Configure</a></h2>
 <p>Three runtime knobs:</p>
 <div class="table-wrapper">
@@ -2210,8 +2221,8 @@ the count at 1, matching the official ROS 2 demo talker. If no
 <code>Publishing:</code> line in 30 seconds:</p>
 <ol>
 <li>Confirm the router is running (terminal 1). Without it,
-<code>nros_support_init</code> returns immediately with <code>-4</code>
-(<code>NROS_RET_NOT_FOUND</code> — connection refused).</li>
+<code>rclc_support_init</code> returns immediately with <code>-4</code>
+(<code>RCLC_RET_NOT_FOUND</code> — connection refused).</li>
 <li>Wrong locator / unreachable host → same <code>-4</code> signature in stderr.
 Reachable host but mismatched port → talker hangs on session-open
 handshake rather than returning a code.</li>
@@ -4238,7 +4249,7 @@ changes language-side is the cmake-fn / macro surface.</p>
 <tr><th>Role</th><th>Rust</th><th>C / C++</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>Node pkg</strong></td><td><code>lib.rs</code> with <code>nros::node!(MyNode)</code>, declared by a <code>[[component]]</code> row in the bringup’s <code>system.toml</code></td><td><code>Talker.{hpp,cpp}</code> with a <code>configure(::rclcpp::Node&amp;)</code> component method (C++) / <code>NROS_C_COMPONENT</code> (C); <code>CMakeLists.txt</code> calling <code>nano_ros_auto_add_library</code> + <code>nros_components_register_node</code> (RFC-0057)</td></tr>
+<tr><td><strong>Node pkg</strong></td><td><code>lib.rs</code> with <code>nros::node!(MyNode)</code>, declared by a <code>[[component]]</code> row in the bringup’s <code>system.toml</code></td><td><code>Talker.{hpp,cpp}</code> with a <code>configure(::rclcpp::Node&amp;)</code> component method (C++) / <code>RCLC_C_COMPONENT</code> (C); <code>CMakeLists.txt</code> calling <code>nano_ros_auto_add_library</code> + <code>nros_components_register_node</code> (RFC-0057)</td></tr>
 <tr><td><strong>Bringup pkg</strong></td><td><code>package.xml</code> + <code>system.toml</code> + <code>launch/*.launch.xml</code> (no <code>Cargo.toml</code>)</td><td>identical (language-agnostic)</td></tr>
 <tr><td><strong>Image</strong></td><td><code>[image.native] board = "native"</code> in the bringup’s <code>system.toml</code></td><td>identical (language-agnostic)</td></tr>
 <tr><td><strong>The entry</strong></td><td>GENERATED into <code>build/&lt;coord&gt;/native_entry/</code> — a <code>Cargo.toml</code> and a <code>nros::main!(launch = "demo_bringup")</code></td><td>GENERATED into <code>build/&lt;coord&gt;/CMakeLists.txt</code> — a <code>nano_ros_add_executable(native_entry BOARD … BRINGUP … LAUNCH … LANG cpp TYPED DEPLOY native)</code> call, plus the <code>main</code> TU the verb emits</td></tr>
@@ -4464,7 +4475,7 @@ void Talker::on_tick() {
 </code></pre>
 <p>The generated entry constructs <code>Talker</code> in static storage and calls
 <code>configure(node)</code> on the real executor — the same component model the Rust <code>nros::node!(Talker)</code> +
-the C <code>NROS_C_COMPONENT</code> paths use, so C++, C, and Rust Node pkgs interoperate in
+the C <code>RCLC_C_COMPONENT</code> paths use, so C++, C, and Rust Node pkgs interoperate in
 one launch graph.</p>
 <p>Scaffold a C++ Node pkg with:</p>
 <pre><code class="language-bash">$ nros new --component my-talker --lang cpp --use-case talker
@@ -4647,10 +4658,14 @@ root nor the entry is yours to write.</p>
 <h2 id="c-node-pkg"><a class="header" href="#c-node-pkg">C Node pkg</a></h2>
 <p>A C Node pkg is a <strong>typed component</strong> (RFC-0043): no <code>main()</code>. It defines a
 state struct + a <code>configure(node, executor, self)</code> function and exports the
-C-ABI factory/configure seam via <code>NROS_C_COMPONENT(StateT, configure_fn)</code> — the
-typed Entry creates the node and runs <code>configure</code> on the real executor.</p>
-<pre><code class="language-cmake"># Raw `/chatter` publisher carries the type name as a string → no generated C
-# bindings needed (so no nros_find_interfaces for this pkg).
+C-ABI factory/configure seam via <code>RCLC_C_COMPONENT(StateT, configure_fn)</code> — the
+typed Entry creates the node and runs <code>configure</code> on the real executor. The
+component is written against the <strong>C API</strong>: <code>configure</code> receives an
+<code>rcl_node_t *</code> and an <code>rclc_executor_t *</code> over the entry’s own node and
+executor, so a C and a C++ component in one image share both.</p>
+<pre><code class="language-cmake"># std_msgs is declared in package.xml (`&lt;depend&gt;std_msgs&lt;/depend&gt;`), which
+# generates its C bindings for this package.
+find_package(std_msgs REQUIRED)
 nano_ros_auto_add_library(talker_lib STATIC src/Talker.c)
 
 nros_components_register_node(talker_lib
@@ -4662,34 +4677,39 @@ nros_components_register_node(talker_lib
 </code></pre>
 <pre><code class="language-c">#include &lt;stdint.h&gt;
 #include &lt;nros/component.h&gt;
+#include &lt;std_msgs/msg/int32.h&gt;
 
 typedef struct {
-    _Alignas(8) uint8_t pub[NROS_C_PUBLISHER_STORAGE_SIZE];
+    rcl_publisher_t pub;
+    rcl_timer_t timer;
     int32_t count;
 } c_talker_pkg_t;
 
-static void on_tick(void* ctx) {
+static void on_tick(rcl_timer_t* timer, void* ctx) {
+    (void)timer;
     c_talker_pkg_t* self = (c_talker_pkg_t*)ctx;
-    uint8_t buf[8] = {0x00, 0x01, 0x00, 0x00};  /* CDR_LE header + LE int32 */
-    buf[4] = (uint8_t)self-&gt;count;
-    (void)nros_cpp_publish_raw(self-&gt;pub, buf, sizeof(buf));
+    std_msgs__msg__Int32 msg = {.data = self-&gt;count};
+    (void)rcl_publish(&amp;self-&gt;pub, &amp;msg, NULL);
     self-&gt;count++;
 }
 
-static nros_ret_t talker_configure(const nros_cpp_node_t* node, void* executor,
-                                   c_talker_pkg_t* self) {
+static rcl_ret_t talker_configure(rcl_node_t* node, rclc_executor_t* executor,
+                                  c_talker_pkg_t* self) {
     self-&gt;count = 0;
-    int32_t rc = nros_cpp_publisher_create(node, "/chatter",
-        "std_msgs::msg::dds_::Int32_", "", nros_c_qos_default(), self-&gt;pub);
-    if (rc != 0) return rc;
-    size_t timer;
-    return nros_cpp_timer_create(executor, /*period_ms=*/1000, on_tick, self, &amp;timer);
+    self-&gt;pub = rcl_get_zero_initialized_publisher();
+    rcl_ret_t rc = rclc_publisher_init_default(
+        &amp;self-&gt;pub, node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32), "/chatter");
+    if (rc != RCL_RET_OK) return rc;
+    self-&gt;timer = rcl_get_zero_initialized_timer();
+    rc = rclc_timer_init_with_context(&amp;self-&gt;timer, 1000000000ULL, on_tick, self);
+    if (rc != RCL_RET_OK) return rc;
+    return rclc_executor_add_timer(executor, &amp;self-&gt;timer);
 }
 
-NROS_C_COMPONENT(c_talker_pkg_t, talker_configure)
+RCLC_C_COMPONENT(c_talker_pkg_t, talker_configure)
 </code></pre>
 <p><code>nano_ros_auto_add_library</code> injects <code>NROS_PKG_NAME</code> (language inferred from the sources), so
-<code>NROS_C_COMPONENT</code> exports the <code>__nros_c_component_&lt;pkg&gt;_{create,configure}</code>
+<code>RCLC_C_COMPONENT</code> exports the <code>__nros_c_component_&lt;pkg&gt;_{create,configure}</code>
 seam the typed Entry calls — interoperable with C++ <code>configure(Node&amp;)</code> and Rust
 <code>nros::node!</code> components in one launch graph.</p>
 <h2 id="the-image"><a class="header" href="#the-image">The image</a></h2>
@@ -4849,7 +4869,7 @@ Codegen owns the spin loop — your code only describes what the node
 <ul>
 <li><strong>No <code>fn main()</code>.</strong> A Node pkg builds as <code>rlib + staticlib</code> and is <em>linked into</em> the entry the build generates. Codegen synthesises the spin driver; you never hand-write one.</li>
 <li><strong><code>class</code> must be a namespace-qualified C++ name.</strong> The old 212.L.4 prefix rule (<code>class</code> starting with the pkg dir name) is retired by RFC-0057 — <code>pkg</code> on the <code>[[component]]</code> row is the identity authority, so upstream namespaces (<code>autoware::x::Node</code>) port verbatim. <code>nros check</code> still rejects an unqualified <code>class</code>.</li>
-<li><strong>C++ / C analogue:</strong> <code>nano_ros_auto_add_library(&lt;lib&gt; STATIC &lt;srcs&gt;)</code> + <code>nros_components_register_node(&lt;lib&gt; PLUGIN … EXECUTABLE …)</code> (RFC-0057, rclcpp_components keyword parity) + a typed component in the source — C++ a <code>configure(::rclcpp::Node&amp;)</code> method, C a <code>NROS_C_COMPONENT(StateT, configure_fn)</code> seam (RFC-0043). Same conceptual shape, no Cargo.toml.</li>
+<li><strong>C++ / C analogue:</strong> <code>nano_ros_auto_add_library(&lt;lib&gt; STATIC &lt;srcs&gt;)</code> + <code>nros_components_register_node(&lt;lib&gt; PLUGIN … EXECUTABLE …)</code> (RFC-0057, rclcpp_components keyword parity) + a typed component in the source — C++ a <code>configure(::rclcpp::Node&amp;)</code> method, C a <code>RCLC_C_COMPONENT(StateT, configure_fn)</code> seam (RFC-0043). Same conceptual shape, no Cargo.toml.</li>
 <li><strong><code>package.xml</code> is mandatory.</strong> Even pure-Rust Node pkgs ship one — <code>&lt;exec_depend&gt;</code> lines drive ROS 2 launch discovery when the system runs through <code>ros2 launch</code> outside the nano-ros toolchain.</li>
 </ul>
 <h2 id="bringup-pkg-1"><a class="header" href="#bringup-pkg-1">Bringup pkg</a></h2>
@@ -5578,64 +5598,57 @@ nros_components_register_node(talker_lib
     DEPLOY zephyr)
 </code></pre>
 <pre><code class="language-c">// apps/my_app/src/Talker.c
-// `talker_configure` creates a raw publisher on `/chatter` + a timer that
-// publishes a CDR-encoded Int32 counter each tick. `NROS_C_COMPONENT` emits
-// the C-ABI factory/configure the Zephyr typed Entry carrier calls.
+// `talker_configure` creates a publisher on `/chatter` + a timer that
+// publishes an Int32 counter each tick, with the C API. `RCLC_C_COMPONENT`
+// emits the C-ABI factory/configure the Zephyr typed Entry carrier calls.
 #include &lt;stddef.h&gt;
 #include &lt;stdint.h&gt;
 #include &lt;stdio.h&gt;
 
 #include &lt;nros/component.h&gt;
+#include &lt;std_msgs/msg/int32.h&gt;
 
 typedef struct {
-    _Alignas(8) uint8_t pub[NROS_C_PUBLISHER_STORAGE_SIZE];
+    rcl_publisher_t pub;
+    rcl_timer_t timer;
     int32_t count;
 } talker_t;
 
-static void write_u32_le(uint8_t* p, uint32_t v) {
-    p[0] = (uint8_t)v;
-    p[1] = (uint8_t)(v &gt;&gt; 8);
-    p[2] = (uint8_t)(v &gt;&gt; 16);
-    p[3] = (uint8_t)(v &gt;&gt; 24);
-}
-
-static void on_tick(void* ctx) {
+static void on_tick(rcl_timer_t* timer, void* ctx) {
+    (void)timer;
     talker_t* self = (talker_t*)ctx;
-    /* std_msgs/Int32 CDR: 4-byte encapsulation header (CDR_LE) + int32 data. */
-    uint8_t buf[8];
-    buf[0] = 0x00;
-    buf[1] = 0x01;
-    buf[2] = 0x00;
-    buf[3] = 0x00;
-    write_u32_le(buf + 4, (uint32_t)self-&gt;count);
-    if (nros_cpp_publish_raw(self-&gt;pub, buf, sizeof(buf)) == 0) {
+    std_msgs__msg__Int32 msg = {.data = self-&gt;count};
+    if (rcl_publish(&amp;self-&gt;pub, &amp;msg, NULL) == RCL_RET_OK) {
         printf("Published: %d\n", (int)self-&gt;count);
     }
     self-&gt;count++;
 }
 
-static nros_ret_t talker_configure(const nros_cpp_node_t* node, void* executor, talker_t* self) {
+static rcl_ret_t talker_configure(rcl_node_t* node, rclc_executor_t* executor, talker_t* self) {
     self-&gt;count = 0;
-    int32_t rc = nros_cpp_publisher_create(node, "/chatter", "std_msgs::msg::dds_::Int32_", "",
-                                           nros_c_qos_default(), self-&gt;pub);
-    if (rc != 0) {
+    self-&gt;pub = rcl_get_zero_initialized_publisher();
+    rcl_ret_t rc = rclc_publisher_init_default(
+        &amp;self-&gt;pub, node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32), "/chatter");
+    if (rc != RCL_RET_OK) {
         return rc;
     }
-    size_t timer_handle;
-    return nros_cpp_timer_create(executor, /*period_ms=*/500, on_tick, self, &amp;timer_handle);
+    self-&gt;timer = rcl_get_zero_initialized_timer();
+    rc = rclc_timer_init_with_context(&amp;self-&gt;timer, 500000000ULL, on_tick, self);
+    if (rc != RCL_RET_OK) {
+        return rc;
+    }
+    return rclc_executor_add_timer(executor, &amp;self-&gt;timer);
 }
 
-NROS_C_COMPONENT(talker_t, talker_configure)
+RCLC_C_COMPONENT(talker_t, talker_configure)
 </code></pre>
 <p>See <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/templates/zephyr-byo/app/src/Talker.c"><code>examples/templates/zephyr-byo/app/src/Talker.c</code></a>
 for the up-to-date source (this is that BYO starter’s talker, only stripped
 of its file header comment; the canonical in-tree
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/zephyr/c/talker"><code>examples/zephyr/c/talker/</code></a>
-uses the generated <strong>typed</strong> <code>std_msgs/String</code> bindings instead of raw CDR).
-Note the <code>nros_cpp_*</code> symbol prefix: those are C-ABI
-functions from <code>nros-cpp</code> (the <code>cpp</code> is a namespace prefix, not C++
-linkage) — a C component links against them directly, and shares the same
-executor + node as a C++ component would.</p>
+publishes <code>std_msgs/String</code> the same way). The component uses the C API only:
+<code>configure</code> is handed an <code>rcl_node_t *</code> and an <code>rclc_executor_t *</code> over the
+carrier’s own node and executor, so it shares both with a C++ component.</p>
 <p>Its configuration is in <a href="#configure-4">Configure</a> below. You do not choose the
 language API: the module renders it from the app, and the typed Zephyr carrier
 that drives this component’s <code>configure</code> is C++, so the <code>nros-cpp</code> header
@@ -6818,7 +6831,7 @@ count at 1, matching the official ROS 2 demo talker. If no
 With the virtio-net + Slirp wiring above, <code>eth0</code> comes up at
 <code>10.0.2.15</code> (the board’s default on QEMU’s network; an image’s <code>ip</code> overrides it).</li>
 <li>Confirm <code>zenohd</code> reachable; the image’s <code>locator</code> (or the
-<code>nros_support_init</code> arguments) must match the router’s listen port.</li>
+<code>rclc_support_init</code> arguments) must match the router’s listen port.</li>
 <li>See <a href="#troubleshooting--first-10-minutes">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
 <h3 id="auto-configure-glue-nsh-built-in-registration"><a class="header" href="#auto-configure-glue-nsh-built-in-registration">Auto-configure glue (NSH built-in registration)</a></h3>
@@ -9754,7 +9767,7 @@ with the same <code>Logger</code> + severity surface as <code>rclcpp::Logger</co
 numbers are NOT <code>rcutils_log_severity_t</code>’s (<code>UNSET=0, DEBUG=10 … FATAL=50</code>)
 and there is no <code>Unset</code> level — in Rust a logger’s “no level of its own” state
 is <code>Logger::unset_level()</code>, and <code>Logger::set_default_level</code> takes a <code>Severity</code>
-(pass <code>Info</code> where rclrs passes <code>Unset</code>). The C surface’s <code>nros_log_severity_t</code>
+(pass <code>Info</code> where rclrs passes <code>Unset</code>). The C surface’s <code>rcl_log_severity_t</code>
 does use rcutils’s numbers, <code>UNSET</code> included.</p>
 <div class="table-wrapper">
 <table>
@@ -9800,15 +9813,15 @@ log_info!(node.logger(), "subscribed to {}", topic);
 #include &lt;nros/log.h&gt;
 
 int main(void) {
-    nros_support_t support = nros_support_get_zero_initialized();
-    nros_support_init(&amp;support, "tcp/127.0.0.1:7447", 0);
+    rclc_support_t support = rclc_support_get_zero_initialized();
+    rclc_support_init_with_locator(&amp;support, "tcp/127.0.0.1:7447", 0);
 
-    nros_node_t node = rcl_get_zero_initialized_node();
+    rcl_node_t node = rcl_get_zero_initialized_node();
     rclc_node_init_default(&amp;node, "my_node", "/", &amp;support);
 
-    nros_logger_t logger = nros_node_get_logger(&amp;node);
-    NROS_LOG_INFO(logger, "started; domain=%u", 42);
-    NROS_LOG_WARN(logger, "queue depth %u exceeds soft limit", 5);
+    rclc_logger_t logger = rclc_node_get_logger(&amp;node);
+    RCLC_LOG_INFO(logger, "started; domain=%u", 42);
+    RCLC_LOG_WARN(logger, "queue depth %u exceeds soft limit", 5);
 
     rcl_node_fini(&amp;node);
     rclc_support_fini(&amp;support);
@@ -9826,8 +9839,8 @@ int main() {
     rclcpp::create_node(node, "my_node");
 
     auto logger = node.get_logger();
-    NROS_LOG_INFO(logger, "started; domain=%u", 42);
-    NROS_LOG_WARN(logger, "queue depth %u exceeds soft limit", 5);
+    RCLC_LOG_INFO(logger, "started; domain=%u", 42);
+    RCLC_LOG_WARN(logger, "queue depth %u exceeds soft limit", 5);
 
     rclcpp::shutdown_in();
     return 0;
@@ -9881,7 +9894,7 @@ max_level = "info"
 <p>Environment / <code>[image.&lt;id&gt;] env</code> beats Kconfig beats the board; <code>nros config explain</code> prints which rung decided it. A Rust <code>nros_*!</code> call below the ceiling
 folds to a constant-false branch and its format call is dead-code-eliminated.
 C and C++ records — formatted on the C side — are refused by the same check
-in the facade (<code>nros_logger_is_enabled</code> answers <code>false</code> below the ceiling).</p>
+in the facade (<code>rclc_logger_is_enabled</code> answers <code>false</code> below the ceiling).</p>
 <p>The ceiling is a BOUND, not the runtime level: the per-logger threshold below
 still moves freely above it, and a threshold below it is unreachable. rcutils
 has the same pair (<code>RCUTILS_LOG_MIN_SEVERITY_*</code> at compile time,
@@ -9908,8 +9921,8 @@ logger.unset_level();                         // ...and follows the default agai
 <span class="boring">}</span></code></pre>
 <p><code>set_default_level</code> is retroactive — a <code>static LOGGER: Logger = Logger::new("my_node")</code> compiled into the image follows it — and it never
 overrides a logger that states its own level, so <code>Logger::with_level(name, Severity::Info)</code> keeps <code>Info</code> whatever the default becomes.</p>
-<p>From C, the same three verbs are <code>nros_log_set_default_level</code>,
-<code>nros_log_get_default_level</code>, and <code>nros_logger_set_level(logger, NROS_LOG_SEVERITY_UNSET)</code> — which UNSETS the level rather than selecting a
+<p>From C, the same three verbs are <code>rclc_log_set_default_level</code>,
+<code>rclc_log_get_default_level</code>, and <code>rclc_logger_set_level(logger, RCLC_LOG_SEVERITY_UNSET)</code> — which UNSETS the level rather than selecting a
 value, exactly as <code>rcutils_logging_set_logger_level(name, RCUTILS_LOG_SEVERITY_UNSET)</code> does. C++ spells the last one
 <code>logger.set_level(rclcpp::Logger::Level::Unset)</code>.</p>
 <h3 id="child-loggers-and-what-an-unset-level-inherits"><a class="header" href="#child-loggers-and-what-an-unset-level-inherits">Child loggers, and what an unset level inherits</a></h3>
@@ -9925,7 +9938,7 @@ nros_log::nros_debug!(planner, "replanning");       // emitted
 <span class="boring">}</span></code></pre>
 <pre><code class="language-cpp">auto planner = node-&gt;get_logger().get_child("planner");   // C++
 </code></pre>
-<pre><code class="language-c">nros_logger_t planner = nros_logger_get_child(node_log, "planner");   /* C */
+<pre><code class="language-c">rclc_logger_t planner = rclc_logger_get_child(node_log, "planner");   /* C */
 </code></pre>
 <p>A child with its own level keeps it; <code>unset_level()</code> hands it back to the
 parent. The same name always answers the same logger. The catch-all’s children
@@ -9937,7 +9950,7 @@ Logger names are capped at <strong>48 bytes</strong>, and runtime-created logger
 a bounded arena. When a child cannot be made:</p>
 <ul>
 <li>Rust’s <code>create_child</code> returns <code>Err(ChildError::{NameTooLong, EmptyName, ArenaFull})</code>, as rclrs’s is fallible too;</li>
-<li>C’s <code>nros_logger_get_child</code> returns <code>NULL</code> and warns once;</li>
+<li>C’s <code>rclc_logger_get_child</code> returns <code>NULL</code> and warns once;</li>
 <li>C++’s <code>get_child</code>, whose upstream shape cannot fail, <strong>emits through the
 parent</strong> (records carry the parent’s name and level) and <strong>refuses
 <code>set_level</code></strong>, so it can never move the parent’s threshold. <code>get_name()</code>
@@ -10001,7 +10014,7 @@ filter.</p>
 <code>nros_platform_log_write</code> / <code>nros_platform_log_flush</code> /
 <code>nros_platform_register_log_writer</code> ABI.</li>
 <li><code>packages/api/nros-c/include/nros/log.h</code> — C API surface
-(<code>NROS_LOG_*</code> macros + <code>nros_log_emit_fmt</code>).</li>
+(<code>NROS_LOG_*</code> macros + <code>rclc_log_emit_fmt</code>).</li>
 <li><code>packages/api/nros-cpp/include/nros/log.hpp</code> — C++ macros (the
 legacy <code>NROS_INFO</code> / etc. file:line printf surface stays
 alongside the new <code>NROS_LOG_*</code> macros).</li>
@@ -10029,12 +10042,12 @@ loop {
 }
 <span class="boring">}</span></code></pre>
 <p>C (<code>&lt;nros/rosout.h&gt;</code>):</p>
-<pre><code class="language-c">nros_publisher_t rosout = rcl_get_zero_initialized_publisher();
-nros_rosout_publisher_init(&amp;rosout, &amp;node, NULL);   /* NULL = bounded QoS */
-nros_rosout_enable();
+<pre><code class="language-c">rcl_publisher_t rosout = rcl_get_zero_initialized_publisher();
+rclc_rosout_publisher_init(&amp;rosout, &amp;node, NULL);   /* NULL = bounded QoS */
+rclc_rosout_enable();
 for (;;) {
     rclc_executor_spin_some(&amp;executor, 10000000);
-    nros_rosout_pump(&amp;rosout, NULL);
+    rclc_rosout_pump(&amp;rosout, NULL);
 }
 </code></pre>
 <p>C++ (<code>&lt;nros/rosout.hpp&gt;</code>):</p>
@@ -10047,7 +10060,7 @@ for (;;) {
 }
 </code></pre>
 <p>All three share one encoder, so the records are identical. Without the
-capability the C and C++ entry points still link: <code>nros_logging_rosout_enabled()</code>
+capability the C and C++ entry points still link: <code>rcl_logging_rosout_enabled()</code>
 / <code>nros::rosout::enabled()</code> answer <code>false</code> and the rest answer UNSUPPORTED.
 <code>rclcpp::NodeOptions::enable_rosout(true)</code> still refuses to compile; “It is
 not automatic” below says why the publisher is yours to create.</p>
@@ -10810,11 +10823,11 @@ extern int8_t nros_rmw_zenoh_register(void);
 int nros_app_main(int argc, char** argv) {
     if (nros_rmw_xrce_register() != 0)  return 1;
     if (nros_rmw_zenoh_register() != 0) return 1;
-    // ... nros_support_init / nros_executor_init / nros_executor_node_init
+    // ... rclc_support_init / rclc_executor_init / rclc_executor_node_init
 }
 </code></pre>
-<p><code>nros_executor_node_init</code> honours per-Node <code>rmw_name</code> +
-<code>locator</code> via the <code>nros_node_options_t</code> struct; the executor
+<p><code>rclc_executor_node_init</code> honours per-Node <code>rmw_name</code> +
+<code>locator</code> via the <code>rcl_node_options_t</code> struct; the executor
 sets <code>node.executor</code> so subsequent <code>nros_*_init</code> calls
 (publisher, subscription, service, action) route to the right
 session.</p>
@@ -10834,7 +10847,7 @@ exec.register_subscription_on&lt;std_msgs::String&gt;(ingress, "/chatter",
 pin the primary</strong> before <code>open()</code>:</p>
 <pre><code class="language-sh">NROS_RMW=zenoh ./my_bridge
 </code></pre>
-<p>The C-side <code>nros_support_init</code> reads it and routes
+<p>The C-side <code>rclc_support_init</code> reads it and routes
 <code>Executor::open</code> through <code>open_with_rmw(name, ...)</code>. Without
 this, the linkme walker returns whichever backend’s ctor
 fired first, which is non-deterministic across link
@@ -10969,7 +10982,7 @@ spans RMW backends by nature, so RMW is not a directory axis.</p>
 <tbody>
 <tr><td><code>Transport(ConnectionFailed)</code> on <code>open_with_rmw("X", ...)</code></td><td>Backend X’s rlib not pulled into the link line. Rust: add a <code>register()</code> call. C / C++: confirm <code>--whole-archive</code> wraps the staticlib.</td></tr>
 <tr><td>Second node’s <code>.rmw("zenoh")</code> returns <code>Transport(...)</code></td><td>Both nodes try to open against the same singleton-state backend. Set <code>NROS_RMW=zenoh</code> so the primary lands on zenoh + the second Node hits the session-cache (slot 0) instead of double-opening.</td></tr>
-<tr><td><code>rclc_publisher_init_default -&gt; -7</code> after <code>nros_executor_node_init</code></td><td>Stale build — the C-side multi-Session dispatch predates nros-v0.5.0; rebuild <code>nros-c</code> after updating.</td></tr>
+<tr><td><code>rclc_publisher_init_default -&gt; -7</code> after <code>rclc_executor_node_init</code></td><td>Stale build — the C-side multi-Session dispatch predates nros-v0.5.0; rebuild <code>nros-c</code> after updating.</td></tr>
 <tr><td><code>Bridge spinning</code> marker never reaches piped test harness</td><td>Add <code>setvbuf(stdout, NULL, _IOLBF, 0)</code> at the top of <code>nros_app_main</code>. glibc full-buffers piped stdout; line-buffering surfaces readiness markers before the long-lived <code>spin_period</code> loop.</td></tr>
 </tbody>
 </table>
@@ -11064,15 +11077,15 @@ let status = sub.next_deadline_miss().await?;
 <span class="boring">}</span></code></pre>
 <h3 id="c-4"><a class="header" href="#c-4">C</a></h3>
 <pre><code class="language-c">static void on_liveliness_changed(
-        nros_subscription_t *sub,
-        nros_liveliness_changed_status_t status,
+        rcl_subscription_t *sub,
+        rclc_liveliness_changed_status_t status,
         void *user_context) {
     if (status.alive_count == 0) {
         trigger_failover();
     }
 }
 
-nros_subscription_set_liveliness_changed_callback(
+rclc_subscription_set_liveliness_changed_callback(
     sub, on_liveliness_changed, NULL);
 </code></pre>
 <p>Same shape on the four other event kinds. Each returns
@@ -11368,9 +11381,9 @@ let qos = nros::QoSProfile::RELIABLE.tx_express(true);
 let pub_ = node.create_publisher_with_qos::&lt;Twist&gt;("/cmd_vel", qos)?;
 <span class="boring">}</span></code></pre>
 <p>C:</p>
-<pre><code class="language-c">nros_qos_t qos = NROS_QOS_DEFAULT;
+<pre><code class="language-c">rclc_qos_t qos = RCLC_QOS_DEFAULT;
 qos.tx_express = 1;
-nros_publisher_init_with_qos(&amp;pub, &amp;node, "/cmd_vel", ts, &amp;qos);
+rclc_publisher_init_with_qos(&amp;pub, &amp;node, "/cmd_vel", ts, &amp;qos);
 </code></pre>
 <p>C++:</p>
 <pre><code class="language-cpp">auto pub = node.create_publisher&lt;Twist&gt;("/cmd_vel", rclcpp::QoS().tx_express(true));
@@ -12680,7 +12693,7 @@ west --version
 <p><strong>Symptom</strong>: When a Zephyr listener receives a message, the application crashes with a segfault or produces garbage values when accessing struct fields. Debug output may show valid pointers but invalid field values:</p>
 <pre><code>bsp_zephyr: sub-&gt;callback=0x60, sub-&gt;user_data=0x4  # These should be valid addresses!
 </code></pre>
-<p><strong>Root Cause</strong>: Your C glue stores a pointer to the <code>nros_subscription_t</code> struct when you hand it to a registration call. If the Rust code moves the struct after that (e.g., when returning it from a function), the C side’s pointer becomes dangling.</p>
+<p><strong>Root Cause</strong>: Your C glue stores a pointer to the <code>rcl_subscription_t</code> struct when you hand it to a registration call. If the Rust code moves the struct after that (e.g., when returning it from a function), the C side’s pointer becomes dangling.</p>
 <p>In Rust, values are moved by default:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -13086,7 +13099,7 @@ board such as <code>mps2/an385</code> in QEMU, which is what the template target
 <tr><td><code>create_publisher&lt;M&gt;(topic, qos)</code></td><td>shared_ptr-returning wrapper</td><td><code>qos</code> can be <code>rclcpp::QoS(10)</code> or an int.</td></tr>
 <tr><td><code>create_subscription&lt;M&gt;(topic, qos, callback)</code></td><td>registered on the executor arena; dispatched by <strong>any</strong> spin verb</td><td><strong>Capturing lambdas + <code>std::function</code> all work</strong>.</td></tr>
 <tr><td><code>create_wall_timer(period, callback)</code></td><td>registered on the executor arena; dispatched by <strong>any</strong> spin verb</td><td><code>std::chrono::duration</code> arg, capturing-lambda callback. Returns <code>rclcpp::TimerBase::SharedPtr</code>, which is <code>rclcpp::Timer::SharedPtr</code> — one flat type, two names. See below.</td></tr>
-<tr><td><code>rclcpp::create_timer(node, clock, period, cb)</code></td><td>the clock-taking verb; a <code>NROS_CLOCK_ROS_TIME</code> clock follows <code>/clock</code></td><td>Humble’s only form. <code>create_wall_timer</code> stays on the steady clock.</td></tr>
+<tr><td><code>rclcpp::create_timer(node, clock, period, cb)</code></td><td>the clock-taking verb; a <code>RCLC_CLOCK_ROS_TIME</code> clock follows <code>/clock</code></td><td>Humble’s only form. <code>create_wall_timer</code> stays on the steady clock.</td></tr>
 <tr><td><code>rclcpp::init(argc, argv) / shutdown() / ok() / spin(n) / spin_some(n)</code></td><td>wraps <code>rclcpp::init_in/shutdown_in/ok/spin_once</code></td><td><code>--ros-args -r from:=to</code> is honoured, beneath any remap the launch file sets for the same name. <code>-p [node:]name:=value</code> and <code>--params-file &lt;file&gt;</code> are honoured in an image with a parameter store: the value replaces the default when the node declares the parameter (scalars only from a file; a value of the wrong type is logged and the default kept). Any other ROS argument (<code>__node</code>, log flags) aborts, naming it.</td></tr>
 <tr><td><code>RCLCPP_INFO / WARN / ERROR / DEBUG / FATAL</code></td><td>dispatched through the <code>NROS_LOG_*</code> family into <code>nros_log</code></td><td>Carries the logger, so <code>get_logger("x")</code> selects a real per-logger level, and <code>FATAL</code> is a distinct severity. Reaches <code>LOG_ERR</code>/<code>printk</code> on embedded, where the legacy <code>NROS_*</code> sink is a no-op (issue 1019). <code>_THROTTLE</code> variants are REFUSE-LOUD.</td></tr>
 <tr><td><code>get_logger().get_child("sub")</code></td><td>a real child logger, <code>&lt;parent&gt;.sub</code> (RFC-0102)</td><td>Its level, when unset, follows the nearest ancestor’s, so <code>set_level</code> on the node logger reaches it. A full name over 48 bytes or a full runtime-logger arena emits through the PARENT and <code>set_level</code> on it is refused — never a silent move of the parent’s threshold. Iron/Jazzy images publish children on <code>/rosout</code>; Humble ones, as upstream, do not.</td></tr>
@@ -13643,7 +13656,7 @@ declared parameters are visible to <code>ros2 param list /&lt;node&gt;</code> an
 <tbody>
 <tr><td><code>ParameterDescriptor</code> (description, ranges, read-only, dynamic_typing)</td><td>not exposed</td><td>descriptor metadata is host-side concern; embedded server enforces type at declare-time, range checks belong in <code>set</code> callbacks (deferred — see below)</td></tr>
 <tr><td><code>add_pre_set_parameters_callback</code> / <code>add_on_set_parameters_callback</code> / <code>add_post_set_parameters_callback</code></td><td>one <code>rclc_parameter_callback_t</code> per C server — rclc’s <code>(old, new, context)</code>, fired before the write, <code>false</code> refuses</td><td>three callbacks → three indirection slots × N subscribers; one callback covers the safety-island validation use case (<code>reject if out of range</code>)</td></tr>
-<tr><td><code>set_parameter</code> returning <code>SetParametersResult</code> (<code>successful: bool</code>, <code>reason: string</code>)</td><td>returns <code>nros_ret_t</code></td><td>string <code>reason</code> would force heap or fixed-buffer; ret code captures the binary outcome</td></tr>
+<tr><td><code>set_parameter</code> returning <code>SetParametersResult</code> (<code>successful: bool</code>, <code>reason: string</code>)</td><td>returns <code>rcl_ret_t</code></td><td>string <code>reason</code> would force heap or fixed-buffer; ret code captures the binary outcome</td></tr>
 <tr><td><code>set_parameters_atomically</code></td><td>not exposed</td><td>atomic multi-set requires transaction log; not justified by current embedded use</td></tr>
 <tr><td><code>declare_parameters</code> (multi-declare with namespace)</td><td>C++ only, hosted only: <code>rclcpp::Node::declare_parameters&lt;T&gt;(prefix, map)</code></td><td>upstream’s argument is a <code>std::map</code>, so it needs an allocator; returns <code>Result</code>, not the <code>std::vector&lt;T&gt;</code> of values in effect (read back with <code>get_parameter&lt;T&gt;</code>). Rust and C declare one at a time</td></tr>
 <tr><td>Parameter overrides from CLI / launch / yaml</td><td>not exposed</td><td>embedded apps configure via Kconfig / <code>Config</code> struct; runtime overrides come over the wire via <code>~/set_parameters</code> (when <code>param-services</code> is on)</td></tr>
@@ -14060,7 +14073,7 @@ dispatches.</li>
 names: on <code>nros::Node</code>, rclrs’s <code>create_subscription</code> and <code>create_service</code> take
 a callback, and a polled form under the same name would compile a ported line
 into a different contract.</p>
-<p>The C / C++ FFI mirrors this split: <code>nros_polling_subscription_init</code> + <code>nros_polling_subscription_take_serialized</code> (L1, the type <code>nros_polling_subscription_t</code>, inline storage — the caller takes from the entity) vs <code>rclc_subscription_init_default</code> + <code>nros_executor_add_subscription*</code> (L2, executor arena, callback supplied at registration).</p>
+<p>The C / C++ FFI mirrors this split: <code>rclc_polling_subscription_init</code> + <code>rclc_polling_subscription_take_serialized</code> (L1, the type <code>rclc_polling_subscription_t</code>, inline storage — the caller takes from the entity) vs <code>rclc_subscription_init_default</code> + <code>rclc_executor_add_subscription_*</code> (L2, executor arena, callback supplied at registration).</p>
 <h2 id="what-goes-where"><a class="header" href="#what-goes-where">What goes where</a></h2>
 <pre class="mermaid">graph LR
     EX["Executor::open(&amp;config)"] --&gt; NODE["executor.create_node(name)"]
@@ -14109,14 +14122,14 @@ let publisher = {
 <h2 id="c--c-mirror"><a class="header" href="#c--c-mirror">C / C++ mirror</a></h2>
 <p>Both layers cross the FFI cleanly:</p>
 <ul>
-<li><strong>C, L1 polling</strong> — <code>nros_polling_subscription_init</code> writes a <code>RawSubscription</code> inline in <code>nros_polling_subscription_t._opaque</code>, and <code>nros_polling_subscription_take_serialized</code> reads from the inline buffer. Like C++, C splits the two layers by TYPE (phase-487): a dispatched <code>nros_subscription_t</code> has no inline storage at all. Services and clients have the same split: <code>nros_polling_service_t</code> / <code>nros_polling_client_t</code> with <code>nros_polling_service_take_request_raw</code> / <code>nros_polling_client_take_response_raw</code>, beside the dispatched <code>nros_service_t</code> / <code>nros_client_t</code>. Action servers and clients keep both roads in one type for now (phase-487 W4).</li>
-<li><strong>C, L2 callback</strong> — <code>rclc_subscription_init_default</code> creates the entity; the callback is supplied at registration (<code>nros_executor_add_subscription_typed</code> for the typed path, <code>nros_executor_add_subscription_raw</code> for the byte path), which also allocates the executor-arena entry. The arena entry owns the subscriber, the callback and its context; the struct keeps the arena handle and the description it was initialised with.</li>
+<li><strong>C, L1 polling</strong> — <code>rclc_polling_subscription_init</code> writes a <code>RawSubscription</code> inline in <code>rclc_polling_subscription_t._opaque</code>, and <code>rclc_polling_subscription_take_serialized</code> reads from the inline buffer. Like C++, C splits the two layers by TYPE (phase-487): a dispatched <code>rcl_subscription_t</code> has no inline storage at all. Services and clients have the same split: <code>rclc_polling_service_t</code> / <code>rclc_polling_client_t</code> with <code>rclc_polling_service_take_request_raw</code> / <code>rclc_polling_client_take_response_raw</code>, beside the dispatched <code>rcl_service_t</code> / <code>rcl_client_t</code>. Action servers and clients keep both roads in one type for now (phase-487 W4).</li>
+<li><strong>C, L2 callback</strong> — <code>rclc_subscription_init_default</code> creates the entity; the callback is supplied at registration (<code>rclc_executor_add_subscription_with_context</code> — rclc’s six arguments — for the typed path, <code>rclc_executor_add_subscription_raw</code> for the byte path), which also allocates the executor-arena entry. The arena entry owns the subscriber, the callback and its context; the struct keeps the arena handle and the description it was initialised with.</li>
 <li><strong>C++</strong> — typed templates wrap each FFI surface: <code>rclcpp::PollSubscription&lt;M&gt;</code> + <code>take</code>, <code>rclcpp::PollService&lt;S&gt;</code> + <code>take_request</code> and <code>rclcpp::PollClient&lt;S&gt;</code> + <code>send_request</code> for L1, <code>rclcpp::PollingActionServer&lt;A&gt;</code> for the L1 action path (122.3.d.b), the L2 executor-registered callback model via the existing <code>rclcpp::ActionServer&lt;A&gt;</code> API. The L1/L2 split is a TYPE split in C++ since phase-456: one class serving both owners offered the L1 method set on an L2 object, where the storage it reads is never filled.</li>
 </ul>
 <p>For the per-FFI-function spec, see the <a href="api/platform-cffi/index.html">Doxygen reference</a>. For the example migration tally (32 examples on L2, 16 intentionally L1), see the <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/archived/phase-122-unify-api-paths.md">unify-api-paths roadmap doc</a>.</p>
 <h2 id="event-driven-path-1223c6e"><a class="header" href="#event-driven-path-1223c6e">Event-driven path (122.3.c.6.e)</a></h2>
 <p>L1 polling assumes the caller has a spin loop. RTOS / embassy applications want the kernel to wake them when data lands. The <code>Raw*::register_waker(&amp;Waker)</code> Rust API and the matching <code>*_set_wake_callback(state, cb, ctx)</code> C / C++ FFI plug a wake source into the same L1 handle. RMW backends that support waking (currently zenoh-pico for subscribers, service-clients, and service-servers) fire the callback from their rx path; other backends fall back to polling silently.</p>
-<p>For the underlying primitive (<code>ServiceTrait::register_waker</code> in <code>nros-rmw</code>), see the trait doc. For the C wake-callback POD shape (<code>nros_wake_state_t { fn_ptr, ctx }</code>), see the <a href="api/platform-cffi/index.html">Doxygen reference</a> — same canonical-spec rule as the platform API.</p>
+<p>For the underlying primitive (<code>ServiceTrait::register_waker</code> in <code>nros-rmw</code>), see the trait doc. For the C wake-callback POD shape (<code>rclc_wake_state_t { fn_ptr, ctx }</code>), see the <a href="api/platform-cffi/index.html">Doxygen reference</a> — same canonical-spec rule as the platform API.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="platform-model"><a class="header" href="#platform-model">Platform Model</a></h1>
 <p>nano-ros configures the library for a specific target through
@@ -16499,7 +16512,7 @@ registration step is required at boot:</p>
     myos_init();
 
     /* nros calls nros_platform_* symbols directly */
-    nros_executor_t exec;
+    rclc_executor_t exec;
     nros_executor_open(&amp;exec, &amp;config);
     /* ... */
 }
@@ -16705,7 +16718,7 @@ interface, designed per
 </thead>
 <tbody>
 <tr><td><strong>L0 — canonical C ABI</strong></td><td><code>#[repr(C)]</code> struct + <code>abi_version: u32</code> field + four <code>unsafe extern "C" fn</code> pointers + <code>user_data: *mut c_void</code></td><td><code>nros-rmw::custom_transport</code> (Rust source); <code>&lt;nros/transport.h&gt;</code> is the cbindgen-emitted C header</td></tr>
-<tr><td><strong>L1 — language wrappers</strong></td><td>mechanical glue, no new design decisions</td><td><code>nros-rmw::set_custom_transport</code> (Rust); <code>nros_set_custom_transport</code> (C); <code>rclcpp::set_custom_transport</code> (C++)</td></tr>
+<tr><td><strong>L1 — language wrappers</strong></td><td>mechanical glue, no new design decisions</td><td><code>nros-rmw::set_custom_transport</code> (Rust); <code>rclc_set_custom_transport</code> (C); <code>rclcpp::set_custom_transport</code> (C++)</td></tr>
 <tr><td><strong>L2 — typed app API</strong></td><td>n/a — transport is platform-side</td><td>—</td></tr>
 </tbody>
 </table>
@@ -16784,12 +16797,12 @@ unsafe {
 <h3 id="c-5"><a class="header" href="#c-5">C</a></h3>
 <pre><code class="language-c">#include &lt;nros/transport.h&gt;
 
-static nros_ret_t my_open(void *ud, const void *params) {
+static rcl_ret_t my_open(void *ud, const void *params) {
     (void)params;
     return my_uart_open((my_uart_t *)ud);
 }
 static void my_close(void *ud) { my_uart_close((my_uart_t *)ud); }
-static nros_ret_t my_write(void *ud, const uint8_t *buf, size_t len) {
+static rcl_ret_t my_write(void *ud, const uint8_t *buf, size_t len) {
     return my_uart_write((my_uart_t *)ud, buf, len);
 }
 static int32_t my_read(void *ud, uint8_t *buf, size_t len, uint32_t timeout_ms) {
@@ -16806,9 +16819,9 @@ int main(void) {
         .write = my_write,
         .read = my_read,
     };
-    nros_set_custom_transport(&amp;ops);
+    rclc_set_custom_transport(&amp;ops);
 
-    // ... continue with nros_support_init, rclc_node_init_default, etc.
+    // ... continue with rclc_support_init, rclc_node_init_default, etc.
 }
 </code></pre>
 <h3 id="c-1-3"><a class="header" href="#c-1-3">C++</a></h3>
@@ -16842,17 +16855,17 @@ pointers, not <code>std::function</code>. Pass per-instance state through
 <tr><td><code>read</code> and <code>write</code> MAY be invoked concurrently from different threads on threaded backends.</td><td>The zenoh-pico backend runs a dedicated read-task thread on multi-threaded platforms (POSIX, Zephyr, FreeRTOS, NuttX), so <code>read</code> runs there while the application/tx thread drives <code>write</code>. Single-threaded platforms (bare-metal, ThreadX) instead serialise both through the spin-once / <code>drive_io</code> path. <strong>A custom transport must therefore be full-duplex safe</strong>: do not serialise <code>read</code> and <code>write</code> behind one lock held across a blocking <code>read</code>, or the read thread will starve the writer and deadlock session declaration. Most media (TCP, full-duplex UART/USB-CDC) already allow concurrent read and write; mirror that. With <code>std::net::TcpStream</code>, store the stream directly and use <code>&amp;TcpStream</code> (which implements <code>Read</code>/<code>Write</code>) from both callbacks rather than a <code>Mutex&lt;TcpStream&gt;</code>.</td></tr>
 <tr><td>Callbacks must NOT be invoked from interrupt context.</td><td>The runtime path may take internal locks; ISR context could deadlock. Wrap ISR-driven hardware in a queue + <code>read</code> poller.</td></tr>
 <tr><td><code>user_data</code> must outlive the transport’s active period.</td><td>The runtime never copies it. Lifetime is from the first callback invocation through <code>close</code> returning.</td></tr>
-<tr><td><code>set_custom_transport</code> must be called BEFORE <code>nros_support_init</code>.</td><td>The active backend reads the slot during <code>Rmw::open</code>. Calling after init is implementation-defined: the backend may already have consumed the previously-registered vtable, and no backend rejects the second call (this row promised an <code>ALREADY_INIT</code> code that neither ABI defines — issue 1126).</td></tr>
+<tr><td><code>set_custom_transport</code> must be called BEFORE <code>rclc_support_init</code>.</td><td>The active backend reads the slot during <code>Rmw::open</code>. Calling after init is implementation-defined: the backend may already have consumed the previously-registered vtable, and no backend rejects the second call (this row promised an <code>ALREADY_INIT</code> code that neither ABI defines — issue 1126).</td></tr>
 </tbody>
 </table>
 </div>
 <h2 id="return-code-conventions"><a class="header" href="#return-code-conventions">Return-code conventions</a></h2>
 <ul>
 <li><code>open</code> / <code>write</code> return <code>0</code> (<code>NROS_RMW_RET_OK</code>) on success, a
-negative <code>nros_ret_t</code> (e.g. <code>NROS_RMW_RET_TIMEOUT</code>,
+negative <code>rcl_ret_t</code> (e.g. <code>NROS_RMW_RET_TIMEOUT</code>,
 <code>NROS_RMW_RET_ERROR</code>) on failure.</li>
 <li><code>read</code> returns the non-negative byte count on success (may be less
-than <code>len</code>); a negative <code>nros_ret_t</code> on error / timeout.</li>
+than <code>len</code>); a negative <code>rcl_ret_t</code> on error / timeout.</li>
 <li><code>close</code> returns nothing — failures during teardown are best-effort.</li>
 </ul>
 <h2 id="framing"><a class="header" href="#framing">Framing</a></h2>
@@ -17844,7 +17857,7 @@ let reply = promise.wait(&amp;mut executor, 5000)?;  // blocks up to 5s, drives 
     // user can also: poll smoltcp, service interrupts, run other tasks, sleep
 }</code></pre>
 <p>Convenience wrappers exist for desktop-style use cases – <code>spin(SpinOptions)</code> (rclrs’s name and shape: run until cancelled, a timeout expires, or a callback count is reached), <code>spin_some(max)</code> (rclcpp’s drain verb: execute what is ready, return), <code>spin_forever(SpinOptions)</code> (<code>-&gt; !</code>, the body of an RTOS task) and <code>spin_period(duration)</code> (fixed-rate, drift-compensated) – but each is implemented as a <code>spin_once()</code> loop that the user could write by hand. <code>spin</code> and <code>spin_period</code> need <code>alloc</code>; <code>spin_once</code>, <code>spin_some</code> and <code>spin_forever</code> reach a <code>no_std</code> no-alloc target.</p>
-<p>This is the reason every blocking API in nros takes <code>&amp;mut Executor</code>. <code>Promise::wait</code>, <code>Stream::wait_next</code>, <code>Client::call_blocking</code>, the C++ <code>Future::wait(executor.handle(), ...)</code>, and the C <code>nros_client_call(..., timeout_ms)</code> all internally call <code>spin_once()</code> to keep I/O moving while waiting. They cannot rely on a background thread doing it for them, because there is none.</p>
+<p>This is the reason every blocking API in nros takes <code>&amp;mut Executor</code>. <code>Promise::wait</code>, <code>Stream::wait_next</code>, <code>Client::call_blocking</code>, the C++ <code>Future::wait(executor.handle(), ...)</code>, and the C <code>rclc_client_call(..., timeout_ms)</code> all internally call <code>spin_once()</code> to keep I/O moving while waiting. They cannot rely on a background thread doing it for them, because there is none.</p>
 <h2 id="executor-is-the-session-owner-not-a-singleton"><a class="header" href="#executor-is-the-session-owner-not-a-singleton">Executor is the session owner, not a singleton</a></h2>
 <p>In rclcpp, the <code>Executor</code> is a <em>separate</em> object that you attach nodes to (<code>exec.add_node(node)</code>). The node owns its own RMW context. Multiple executor classes (<code>SingleThreadedExecutor</code>, <code>MultiThreadedExecutor</code>, <code>StaticSingleThreadedExecutor</code>) exist as parallel implementations.</p>
 <p>In nano-ros, the <code>Executor</code> <em>is</em> the RMW session owner. Calling <code>Executor::open(&amp;config)</code> opens the transport; nodes are derived from the executor:</p>
@@ -17871,8 +17884,8 @@ NROS_TRY(fut.wait(executor.handle(), 5000, resp));
 nros_call_service(client, &amp;req, sizeof(req), &amp;reply, sizeof(reply), 5000);
 
 // Async: returns immediately, result via callback registered ahead of time.
-nros_action_send_goal_async(client, &amp;goal, sizeof(goal));
-nros_action_client_set_result_callback(client, on_result);
+rclc_action_send_goal_async(client, &amp;goal, sizeof(goal));
+rclc_action_client_set_result_callback(client, on_result);
 // User keeps calling nros_spin_once() to drive callbacks.
 </code></pre>
 <p>The C API has no Future/Promise type because C lacks generics, but the <em>pattern</em> is the same: an <code>_async</code> send-without-wait paired with a callback (or polled status), and a blocking call that drives the executor for you.</p>
@@ -18881,11 +18894,11 @@ with the <code>message_info()</code> builder:
         }
     })?;
 <span class="boring">}</span></code></pre>
-C mirrors this with <code>nros_executor_add_subscription_with_info</code>
+C mirrors this with <code>rclc_executor_add_subscription_with_info</code>
 (the callback receives the payload plus the attachment/metadata
 arguments directly — there is no info struct on the C side), which
-registers into a <code>nros_subscription_t</code> that
-<code>nros_executor_remove_subscription</code> takes back out (issue 1668).</li>
+registers into a <code>rcl_subscription_t</code> that
+<code>rclc_executor_remove_subscription</code> takes back out (issue 1668).</li>
 <li><strong>Two backend channels.</strong> The hot <code>take</code> vtable slot returns bytes
 only. A backend that fills the optional <code>take_with_info</code> slot reports
 <code>rmw_message_info_t</code> in caller-owned storage, and the runtime dispatches
@@ -19257,7 +19270,7 @@ itself — the type strings are composed <strong>in the pack</strong> by registe
 <ul>
 <li><code>c_type</code> / <code>c_array_suffix</code>, <code>cpp_type</code> / <code>cpp_array_suffix</code>,
 <code>cpp_repr_c_type</code> / <code>cpp_view_repr_type</code></li>
-<li><code>rust_type_rmw</code> / <code>rust_type_idiomatic</code>, <code>nros_type</code></li>
+<li><code>rust_type_rmw</code> / <code>rust_type_idiomatic</code>, <code>rclc_type</code></li>
 <li><code>snake_case</code></li>
 </ul>
 <p>The view struct carries only <strong>neutral facts</strong> (the parsed <code>field_type</code>, resolved
@@ -19867,7 +19880,7 @@ mechanisms, layered:</p>
 <ol>
 <li><strong><code>linkme</code> distributed-slice</strong> (/ 128.H.2) — each
 backend contributes an <code>RMW_INIT_ENTRIES</code> entry through the
-<code>nros_rmw_register_backend!</code> macro. <code>nros_support_init</code> /
+<code>nros_rmw_register_backend!</code> macro. <code>rclc_support_init</code> /
 <code>Executor::open</code> walks the slice and calls each entry. Canonical
 on the hosted targets whose linker sections <code>linkme</code> recognises —
 of which nano-ros builds only the <code>native</code> host board. Macro
@@ -19907,7 +19920,7 @@ Use the named entry points:</p>
 <li>Rust: <code>Executor::open_with_rmw("zenoh", &amp;cfg)</code> for the
 primary session; <code>node_builder("name").rmw("cyclonedds").build()</code>
 for additional Nodes.</li>
-<li>C: <code>nros_node_init_ex</code> with <code>nros_node_options_t.rmw_name</code>
+<li>C: <code>rclc_node_init_ex</code> with <code>rcl_node_options_t.rmw_name</code>
 set.</li>
 <li>C++: <code>rclcpp::Executor::open_with_rmw(...)</code> and
 <code>rclcpp::NodeBuilder::rmw(...)</code> mirror the Rust API (Phase
@@ -20443,10 +20456,10 @@ transitively, so every nros C header sees <code>NROS_*_SIZE</code> automatically
 </li>
 <li>
 <p><strong>C/C++ structs use the macros</strong> —</p>
-<pre><code class="language-c">typedef struct nros_publisher_t {
+<pre><code class="language-c">typedef struct rcl_publisher_t {
     /* ... */
     _Alignas(8) uint8_t _opaque[NROS_PUBLISHER_SIZE];
-} nros_publisher_t;
+} rcl_publisher_t;
 </code></pre>
 <pre><code class="language-cpp">class Publisher {
     alignas(8) uint8_t storage_[NROS_PUBLISHER_SIZE];
@@ -20466,15 +20479,15 @@ construction.</p>
 <tr><th>Symbol</th><th>Type</th><th>Used by</th></tr>
 </thead>
 <tbody>
-<tr><td><code>SESSION_SIZE</code></td><td><code>RmwSession</code></td><td><code>nros_support_t._opaque</code></td></tr>
-<tr><td><code>PUBLISHER_SIZE</code></td><td><code>RmwPublisher</code></td><td><code>nros_publisher_t._opaque</code>, <code>nros::Publisher&lt;M&gt;::storage_</code></td></tr>
+<tr><td><code>SESSION_SIZE</code></td><td><code>RmwSession</code></td><td><code>rclc_support_t._opaque</code></td></tr>
+<tr><td><code>PUBLISHER_SIZE</code></td><td><code>RmwPublisher</code></td><td><code>rcl_publisher_t._opaque</code>, <code>nros::Publisher&lt;M&gt;::storage_</code></td></tr>
 <tr><td><code>SUBSCRIBER_SIZE</code></td><td><code>RmwSubscriber</code></td><td><code>rclcpp::PollSubscription&lt;M&gt;::storage_</code></td></tr>
 <tr><td><code>SERVICE_CLIENT_SIZE</code></td><td><code>RmwServiceClient</code></td><td><code>rclcpp::PollClient&lt;S&gt;::storage_</code></td></tr>
 <tr><td><code>SERVICE_SERVER_SIZE</code></td><td><code>RmwServiceServer</code></td><td><code>rclcpp::PollService&lt;S&gt;::storage_</code></td></tr>
-<tr><td><code>EXECUTOR_SIZE</code></td><td><code>nros_node::Executor</code></td><td><code>nros_executor_t._opaque</code>, <code>nros::Executor::storage_</code></td></tr>
-<tr><td><code>GUARD_CONDITION_SIZE</code></td><td><code>nros_node::GuardCondition</code></td><td><code>nros_guard_condition_t._guard_opaque</code>, <code>nros::GuardCondition::storage_</code></td></tr>
-<tr><td><code>LIFECYCLE_CTX_SIZE</code></td><td><code>nros_node::lifecycle::LifecyclePollingNodeCtx</code></td><td><code>nros_lifecycle_state_machine_t._opaque_storage</code></td></tr>
-<tr><td><code>ACTION_SERVER_INTERNAL_SIZE</code></td><td><code>ActionServerInternalLayout</code></td><td><code>nros_action_server_t._internal</code></td></tr>
+<tr><td><code>EXECUTOR_SIZE</code></td><td><code>nros_node::Executor</code></td><td><code>rclc_executor_t._opaque</code>, <code>nros::Executor::storage_</code></td></tr>
+<tr><td><code>GUARD_CONDITION_SIZE</code></td><td><code>nros_node::GuardCondition</code></td><td><code>rcl_guard_condition_t._guard_opaque</code>, <code>nros::GuardCondition::storage_</code></td></tr>
+<tr><td><code>LIFECYCLE_CTX_SIZE</code></td><td><code>nros_node::lifecycle::LifecyclePollingNodeCtx</code></td><td><code>rcl_lifecycle_state_machine_t._opaque_storage</code></td></tr>
+<tr><td><code>ACTION_SERVER_INTERNAL_SIZE</code></td><td><code>ActionServerInternalLayout</code></td><td><code>rcl_action_server_t._internal</code></td></tr>
 <tr><td><code>CPP_ACTION_SERVER_SIZE</code></td><td><code>CppActionServerLayout</code></td><td><code>rclcpp::ActionServer&lt;A&gt;::storage_</code></td></tr>
 <tr><td><code>CPP_ACTION_CLIENT_SIZE</code></td><td><code>CppActionClientLayout</code></td><td><code>rclcpp::ActionClient&lt;A&gt;::storage_</code></td></tr>
 </tbody>
@@ -20487,7 +20500,7 @@ the C side just embeds them as typed fields, no opaque storage at all.</p>
 <h2 id="layout-mirror-trick"><a class="header" href="#layout-mirror-trick">Layout-mirror trick</a></h2>
 <p>Some downstream types — <code>nros-c::ActionServerInternal</code>,
 <code>nros-cpp::CppActionServer</code>, <code>nros-cpp::CppActionClient</code> — embed C-API
-pointer types (<code>*mut nros_action_server_t</code>, <code>*const nros_goal_handle_t</code>)
+pointer types (<code>*mut rcl_action_server_t</code>, <code>*const rclc_goal_handle_t</code>)
 that aren’t visible from the <code>nros</code> umbrella crate. They can’t be
 referenced from <code>nros::sizes</code> directly, but their byte size only
 depends on the field shape: pointers are pointers, <code>Option&lt;extern "C" fn&gt;</code> collapses to a fn-pointer-sized slot via niche optimization, etc.</p>
@@ -24378,7 +24391,7 @@ public surface a user application needs.</p>
 <h2 id="where-to-start-1"><a class="header" href="#where-to-start-1">Where to start</a></h2>
 <ul>
 <li><a href="api/c/nros_8h.html"><code>nros/nros.h</code></a> — convenience umbrella include</li>
-<li><a href="api/c/init_8h.html"><code>nros/init.h</code></a> — <code>nros_support_init</code>, <code>rclc_support_fini</code></li>
+<li><a href="api/c/init_8h.html"><code>nros/init.h</code></a> — <code>rclc_support_init</code>, <code>rclc_support_fini</code></li>
 <li><a href="api/c/node_8h.html"><code>nros/node.h</code></a> — <code>rclc_node_init_default</code>, <code>rcl_node_fini</code></li>
 <li><a href="api/c/executor_8h.html"><code>nros/executor.h</code></a> — spin loop, executor lifecycle</li>
 <li><a href="api/c/publisher_8h.html"><code>nros/publisher.h</code></a> / <a href="api/c/subscription_8h.html"><code>subscription.h</code></a> — pub/sub</li>
@@ -24403,7 +24416,7 @@ verb discipline and per-layer trade-offs.</p>
 <p><strong>Event-driven wake callbacks.</strong> Each L1 polling entity supports
 <code>nros_*_set_wake_callback(entity, &amp;state, cb, ctx)</code> for event-
 driven RTOS / embassy callers. State is a
-caller-owned <code>nros_wake_state_t</code> POD; the backend fires <code>cb(ctx)</code>
+caller-owned <code>rclc_wake_state_t</code> POD; the backend fires <code>cb(ctx)</code>
 on rx / reply / request arrival. Per-channel for actions
 (<code>set_{goal,cancel,get_result}_wake_callback</code> on the server,
 <code>set_{goal_response,cancel_response,result,feedback}_wake_callback</code>
@@ -24413,51 +24426,51 @@ on the client). See the Doxygen for signatures.</p>
 <p><code>&lt;nros/action.h&gt;</code> exposes two parallel entry-point families for sending
 goals, requesting results, and cancelling:</p>
 <ul>
-<li><strong>Async (non-blocking):</strong> <code>nros_action_send_goal_async()</code>,
-<code>nros_action_get_result_async()</code>, <code>nros_action_cancel_goal()</code>,
-<code>nros_action_try_recv_feedback()</code>. Return immediately. Replies are
+<li><strong>Async (non-blocking):</strong> <code>rclc_action_send_goal_async()</code>,
+<code>rclc_action_get_result_async()</code>, <code>rclc_action_cancel_goal()</code>,
+<code>rclc_action_try_recv_feedback()</code>. Return immediately. Replies are
 delivered through the callbacks registered with
-<code>nros_action_client_set_goal_response_callback()</code>,
-<code>nros_action_client_set_feedback_callback()</code>, and
-<code>nros_action_client_set_result_callback()</code>. The callbacks fire from
+<code>rclc_action_client_set_goal_response_callback()</code>,
+<code>rclc_action_client_set_feedback_callback()</code>, and
+<code>rclc_action_client_set_result_callback()</code>. The callbacks fire from
 <code>rclc_executor_spin_some()</code> — your spin loop is the only place
 callbacks run.</li>
-<li><strong>Blocking convenience:</strong> <code>nros_action_send_goal()</code> and
-<code>nros_action_get_result()</code>. These call the async variant and then
+<li><strong>Blocking convenience:</strong> <code>rclc_action_send_goal()</code> and
+<code>rclc_action_get_result()</code>. These call the async variant and then
 drive <code>rclc_executor_spin_some()</code> internally on a wall-clock budget
 until the reply lands (or 15 s / 30 s timeout). They take the
-<code>nros_executor_t*</code> explicitly because the action client stores its
+<code>rclc_executor_t*</code> explicitly because the action client stores its
 handle as an opaque slot inside the executor (registered via
-<code>nros_executor_add_action_client()</code>). The same applies to
-<code>nros_action_client_wait_for_action_server()</code> and
-<code>nros_action_client_action_server_is_ready()</code>. Calling any of them
-from inside a dispatch callback returns <code>NROS_RET_REENTRANT</code>.</li>
-<li><strong>Teardown:</strong> <code>nros_action_server_fini()</code> / <code>nros_action_client_fini()</code>
+<code>rclc_executor_attach_action_client()</code>). The same applies to
+<code>rclc_action_client_wait_for_action_server()</code> and
+<code>rclc_action_client_action_server_is_ready()</code>. Calling any of them
+from inside a dispatch callback returns <code>RCLC_RET_REENTRANT</code>.</li>
+<li><strong>Teardown:</strong> <code>rcl_action_server_fini()</code> / <code>rcl_action_client_fini()</code>
 reset only the struct. To take an action off an executor that keeps
-running, call <code>nros_executor_remove_action_server()</code> /
-<code>nros_executor_remove_action_client()</code> first: they drop the arena entry
+running, call <code>rclc_executor_remove_action_server()</code> /
+<code>rclc_executor_remove_action_client()</code> first: they drop the arena entry
 (the action leaves the graph), free its callback slot and arena bytes for
-reuse, and bring <code>nros_executor_get_handle_count()</code> back down. A program
+reuse, and bring <code>rclc_executor_get_handle_count()</code> back down. A program
 that tears the executor down with <code>rclc_executor_fini()</code> needs neither —
 that drops every entry (issue 1609).</li>
 <li><strong>The same holds for every other entity the executor registers</strong> (issue
-1631): <code>nros_executor_remove_subscription()</code>, <code>nros_executor_remove_timer()</code>,
-<code>nros_executor_remove_service()</code> and <code>nros_executor_remove_client()</code> — rclc’s
+1631): <code>rclc_executor_remove_subscription()</code>, <code>rclc_executor_remove_timer()</code>,
+<code>rclc_executor_remove_service()</code> and <code>rclc_executor_remove_client()</code> — rclc’s
 <code>rclc_executor_remove_*</code> shape — each drop the arena entry (receive ring
 included), free the slot and bring <code>handle_count</code> back down. Call one before
 the entity’s <code>fini</code> when the executor keeps running; a timer or client that
 is <code>fini</code>’d without it is still dispatched into. A removed client returns to
-INITIALIZED and can be re-added. All return <code>NROS_RET_NOT_FOUND</code> for an
-entity not registered on that executor and <code>NROS_RET_REENTRANT</code> from inside
+INITIALIZED and can be re-added. All return <code>RCLC_RET_NOT_FOUND</code> for an
+entity not registered on that executor and <code>RCLC_RET_REENTRANT</code> from inside
 a callback. A subscription whose callback also receives the sample’s
-attachment is registered with <code>nros_executor_add_subscription_with_info()</code>
-into a <code>nros_subscription_t</code> and removed the same way (issue 1668); the
-older direct-arg <code>nros_executor_add_subscription_raw_with_info()</code> takes no
+attachment is registered with <code>rclc_executor_add_subscription_with_info()</code>
+into a <code>rcl_subscription_t</code> and removed the same way (issue 1668); the
+older direct-arg <code>rclc_executor_add_subscription_raw_with_info()</code> takes no
 subscription object, so its entry lives until <code>rclc_executor_fini()</code>.</li>
 </ul>
-<p>The equivalent service client helper <code>nros_client_call()</code> does <strong>not</strong>
+<p>The equivalent service client helper <code>rclc_client_call()</code> does <strong>not</strong>
 take an explicit executor — the client stashes the executor pointer
-during <code>nros_executor_add_client()</code> and recovers it internally —
+during <code>rclc_executor_attach_client()</code> and recovers it internally —
 but it follows the same async-then-spin contract.</p>
 <p>Canonical pattern: declare the executor, register the client, then
 either call the blocking helper or drive <code>rclc_executor_spin_some()</code>
@@ -24465,9 +24478,9 @@ yourself between async calls until your callback flags the result. See
 the example layouts in <code>examples/native/c/action-client/</code> and
 <code>examples/mps2-an385-freertos/c/action-client/</code>.</p>
 <p>Phase 122.3 added a separate L1 polling family
-(<code>nros_polling_action_client_init</code> + the <code>_raw</code> send/recv siblings)
+(<code>rclc_polling_action_client_init</code> + the <code>_raw</code> send/recv siblings)
 that stores <code>ActionClientCore</code> inline in the separate type
-<code>nros_polling_action_client_t</code> (phase-487 W4) and skips the executor entirely;
+<code>rclc_polling_action_client_t</code> (phase-487 W4) and skips the executor entirely;
 see the Doxygen for the full L1 verb list.</p>
 <h2 id="cmake-integration"><a class="header" href="#cmake-integration">CMake integration</a></h2>
 <p>Out-of-tree projects link the <code>NanoRos::NanoRos</code> CMake target and

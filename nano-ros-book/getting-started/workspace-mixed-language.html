@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-ee63d511.js";
+            window.path_to_searchindex_js = "../searchindex-2a6baa1a.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-bd0cf9ce.js"></script>
@@ -216,10 +216,14 @@ root nor the entry is yours to write.</p>
 <h2 id="c-node-pkg"><a class="header" href="#c-node-pkg">C Node pkg</a></h2>
 <p>A C Node pkg is a <strong>typed component</strong> (RFC-0043): no <code>main()</code>. It defines a
 state struct + a <code>configure(node, executor, self)</code> function and exports the
-C-ABI factory/configure seam via <code>NROS_C_COMPONENT(StateT, configure_fn)</code> — the
-typed Entry creates the node and runs <code>configure</code> on the real executor.</p>
-<pre><code class="language-cmake"># Raw `/chatter` publisher carries the type name as a string → no generated C
-# bindings needed (so no nros_find_interfaces for this pkg).
+C-ABI factory/configure seam via <code>RCLC_C_COMPONENT(StateT, configure_fn)</code> — the
+typed Entry creates the node and runs <code>configure</code> on the real executor. The
+component is written against the <strong>C API</strong>: <code>configure</code> receives an
+<code>rcl_node_t *</code> and an <code>rclc_executor_t *</code> over the entry’s own node and
+executor, so a C and a C++ component in one image share both.</p>
+<pre><code class="language-cmake"># std_msgs is declared in package.xml (`&lt;depend&gt;std_msgs&lt;/depend&gt;`), which
+# generates its C bindings for this package.
+find_package(std_msgs REQUIRED)
 nano_ros_auto_add_library(talker_lib STATIC src/Talker.c)
 
 nros_components_register_node(talker_lib
@@ -231,34 +235,39 @@ nros_components_register_node(talker_lib
 </code></pre>
 <pre><code class="language-c">#include &lt;stdint.h&gt;
 #include &lt;nros/component.h&gt;
+#include &lt;std_msgs/msg/int32.h&gt;
 
 typedef struct {
-    _Alignas(8) uint8_t pub[NROS_C_PUBLISHER_STORAGE_SIZE];
+    rcl_publisher_t pub;
+    rcl_timer_t timer;
     int32_t count;
 } c_talker_pkg_t;
 
-static void on_tick(void* ctx) {
+static void on_tick(rcl_timer_t* timer, void* ctx) {
+    (void)timer;
     c_talker_pkg_t* self = (c_talker_pkg_t*)ctx;
-    uint8_t buf[8] = {0x00, 0x01, 0x00, 0x00};  /* CDR_LE header + LE int32 */
-    buf[4] = (uint8_t)self-&gt;count;
-    (void)nros_cpp_publish_raw(self-&gt;pub, buf, sizeof(buf));
+    std_msgs__msg__Int32 msg = {.data = self-&gt;count};
+    (void)rcl_publish(&amp;self-&gt;pub, &amp;msg, NULL);
     self-&gt;count++;
 }
 
-static nros_ret_t talker_configure(const nros_cpp_node_t* node, void* executor,
-                                   c_talker_pkg_t* self) {
+static rcl_ret_t talker_configure(rcl_node_t* node, rclc_executor_t* executor,
+                                  c_talker_pkg_t* self) {
     self-&gt;count = 0;
-    int32_t rc = nros_cpp_publisher_create(node, "/chatter",
-        "std_msgs::msg::dds_::Int32_", "", nros_c_qos_default(), self-&gt;pub);
-    if (rc != 0) return rc;
-    size_t timer;
-    return nros_cpp_timer_create(executor, /*period_ms=*/1000, on_tick, self, &amp;timer);
+    self-&gt;pub = rcl_get_zero_initialized_publisher();
+    rcl_ret_t rc = rclc_publisher_init_default(
+        &amp;self-&gt;pub, node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32), "/chatter");
+    if (rc != RCL_RET_OK) return rc;
+    self-&gt;timer = rcl_get_zero_initialized_timer();
+    rc = rclc_timer_init_with_context(&amp;self-&gt;timer, 1000000000ULL, on_tick, self);
+    if (rc != RCL_RET_OK) return rc;
+    return rclc_executor_add_timer(executor, &amp;self-&gt;timer);
 }
 
-NROS_C_COMPONENT(c_talker_pkg_t, talker_configure)
+RCLC_C_COMPONENT(c_talker_pkg_t, talker_configure)
 </code></pre>
 <p><code>nano_ros_auto_add_library</code> injects <code>NROS_PKG_NAME</code> (language inferred from the sources), so
-<code>NROS_C_COMPONENT</code> exports the <code>__nros_c_component_&lt;pkg&gt;_{create,configure}</code>
+<code>RCLC_C_COMPONENT</code> exports the <code>__nros_c_component_&lt;pkg&gt;_{create,configure}</code>
 seam the typed Entry calls — interoperable with C++ <code>configure(Node&amp;)</code> and Rust
 <code>nros::node!</code> components in one launch graph.</p>
 <h2 id="the-image"><a class="header" href="#the-image">The image</a></h2>
