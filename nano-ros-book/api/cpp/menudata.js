@@ -130,6 +130,7 @@ var menudata={children:[
 {text:"h",url:"functions_vars.html#index_h"},
 {text:"l",url:"functions_vars.html#index_l"},
 {text:"p",url:"functions_vars.html#index_p"},
+{text:"q",url:"functions_vars.html#index_q"},
 {text:"r",url:"functions_vars.html#index_r"},
 {text:"s",url:"functions_vars.html#index_s"},
 {text:"t",url:"functions_vars.html#index_t"},
