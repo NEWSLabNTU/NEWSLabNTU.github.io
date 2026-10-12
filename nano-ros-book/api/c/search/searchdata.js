@@ -1,14 +1,14 @@
 var indexSectionsWithContent =
 {
   0: "012345_abcdefghilmnopqrstuvwxz—",
-  1: "ans",
+  1: "anrs",
   2: "acegilmnprstv",
   3: "nr",
   4: "_abcdefghilmnopqrstuvw",
-  5: "n",
-  6: "n",
-  7: "n",
-  8: "mn",
+  5: "npr",
+  6: "nr",
+  7: "nr",
+  8: "mnr",
   9: "aceilnpqst",
   10: "2aceginrst"
 };

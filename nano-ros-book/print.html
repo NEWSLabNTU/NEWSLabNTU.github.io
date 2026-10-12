@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d46dbd0d.js";
+            window.path_to_searchindex_js = "searchindex-ae891b51.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-bd0cf9ce.js"></script>
@@ -883,8 +883,8 @@ source ./activate.fish        # fish, one-shot per shell
 present (used by the rmw_zenoh interop tests, and it lets codegen
 resolve message packages from the ament index; building with any RMW —
 Cyclone included — does NOT require ROS 2, only the pip-installable
-<code>rosidl_adapter</code> Python packages from the prerequisites) and exports
-<code>NROS_REPO_DIR</code>.</p>
+<code>rosidl_adapter</code> Python packages from the prerequisites). It exports no
+checkout root: the in-tree <code>nros</code> knows the checkout it was built in.</p>
 <h3 id="3-provision-a-board--rmw"><a class="header" href="#3-provision-a-board--rmw">3. Provision a board (+ RMW)</a></h3>
 <pre><code class="language-bash probe=25 track=installed">nros setup &lt;board&gt; --rmw &lt;zenoh|xrce|cyclonedds&gt;
 </code></pre>
@@ -967,8 +967,9 @@ crates.io snapshot and in-repo HEAD.</p>
 <ul>
 <li><strong>Registry-style names + patch redirection</strong> (what every shipped
 example uses): declare <code>nros = { version = "*" }</code> (+ msg crates) and
-let <code>nros sync</code> resolve the names into the checkout
-(<code>NROS_REPO_DIR</code> names it). The <code>[patch.crates-io]</code> block it writes
+let <code>nros sync</code> resolve the names into the SDK root (the checkout the
+project sits in, else the <code>nros</code> binary’s own; <code>--nano-ros-path</code> names
+one). The <code>[patch.crates-io]</code> block it writes
 goes into the generated settings file under <code>build/</code>, not into your
 package — <code>nros build</code> hands that file to cargo with <code>--config</code>, and
 a cargo command you drive yourself passes the same path. Copy the
@@ -1079,10 +1080,12 @@ nros build
 <p><code>nros sync</code> resolves the launch file into the system model; <code>nros build</code>
 generates the entry for each <code>[image.*]</code> in <code>system.toml</code> and drives
 CMake under <code>build/</code>. The first build compiles nano-ros’s runtime into
-the build tree (~3 minutes); rebuilds are seconds. Outside a nano-ros
-checkout, <code>nros</code> finds the SDK itself; inside one, <code>direnv</code>/<code>activate.sh</code>
-exports <code>NROS_REPO_DIR</code> and that is used. <code>nros sdk-root --explain</code>
-prints the root it would use and where that came from.</p>
+the build tree (~3 minutes); rebuilds are seconds. Inside a nano-ros
+checkout that checkout is used; anywhere else <code>nros</code> uses its own SDK
+(a release’s <code>share/nano-ros</code>, or the checkout an in-tree <code>nros</code> was
+built in), and <code>--nano-ros-path &lt;dir&gt;</code> names one explicitly. Nothing is
+exported. <code>nros sdk-root --explain</code> prints the root it would use and
+where that came from.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
 <pre><code class="language-bash">./build/posix-cyclonedds-native/cmake/native_entry
 </code></pre>
@@ -1529,13 +1532,14 @@ means that file has not been written yet, or its relative paths no
 longer reach a checkout (typical right after copying the example
 somewhere else). Fix:</p>
 <pre><code class="language-bash">cd &lt;the example dir&gt;
-NROS_REPO_DIR=/path/to/nano-ros nros sync
+nros sync        # or: nros sync --nano-ros-path /path/to/nano-ros
 </code></pre>
 <p>Driving cargo directly skips that refusal and gets cargo’s own version of it
 instead — <code>no matching package named 'nros' found</code>, or an unresolved import.
 Same cause, same fix: sync, then pass the generated file with <code>--config</code>.
-<code>NROS_REPO_DIR</code> is what ties a copied-out example to a checkout, so re-run sync
-after moving the directory.</p>
+<code>nros sync</code> is what ties a copied-out example to an SDK (the <code>nros</code> binary’s
+own, or the one <code>--nano-ros-path</code> names), so re-run it after moving the
+directory.</p>
 <p>This is <strong>not</strong> an <code>nros setup</code> issue — <code>nros setup</code> only fetches
 the SDK / source-package payload (zenoh-pico, mbedtls, cyclonedds,
 …); it does not synthesise missing Cargo dependencies.</p>
@@ -1599,7 +1603,7 @@ backends are chosen: <code>[system] rmw</code> in the leaf’s <code>system.toml
 rmw = "cyclonedds"
 </code></pre>
 <pre><code class="language-bash">cd examples/native/c/talker        # (or cpp)
-cmake -B build-cyclone
+cmake -B build-cyclone -Dnano_ros_ROOT="$(nros sdk-root)"
 cmake --build build-cyclone
 </code></pre>
 <p>A single-package C / C++ leaf needs no <code>nros sync</code> — its message bindings are
@@ -1901,13 +1905,15 @@ deps resolve through a generated <code>[patch.crates-io]</code> block, and
 board settings the copied <code>system.toml</code> still names) for wherever the
 directory lives now:</p>
 <pre><code class="language-bash">cp -r examples/native/rust/talker ~/my-talker &amp;&amp; cd ~/my-talker
-NROS_REPO_DIR=/path/to/nano-ros nros sync
-NROS_REPO_DIR=/path/to/nano-ros nros build
+nros sync
+nros build
 RUST_LOG=info ./build/native/target/debug/talker
 </code></pre>
 <p>Nothing in the copied directory names a path into the checkout, so the
-copy is a checkout-independent starter: <code>NROS_REPO_DIR</code> is the only
-thing tying it to one, and it is on the command line, not in a file.</p>
+copy is a checkout-independent starter: <code>nros</code> finds the SDK it belongs
+to (the checkout an in-tree <code>nros</code> was built in, or a release’s own
+<code>share/nano-ros</code>), and <code>--nano-ros-path &lt;dir&gt;</code> names another on the
+command line, never in a file.</p>
 <p>Prefer vendoring instead? <code>examples/templates/multi-package-workspace/</code>
 documents the path-dep workspace layout.</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
@@ -1999,8 +2005,7 @@ failed” — usually a wrong locator or wrong port.</li>
 <h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>
 <p>Canonical, copy-out:
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/native/rust/talker"><code>examples/native/rust/talker/</code></a></p>
-<p>Copy the directory, run <code>NROS_REPO_DIR=&lt;nano-ros checkout&gt; nros sync</code>
-inside it, rename the package, and your starter is ready to modify.
+<p>Copy the directory, run <code>nros sync</code> inside it, rename the package, and your starter is ready to modify.
 To aim it at a board, change <code>[image.native] board</code> in <code>system.toml</code> to
 that board’s name (<code>nros board list</code> prints them), swap the board crate
 in <code>[dependencies]</code> to match (issue 1305), and re-run <code>nros sync</code>.</p>
@@ -2144,7 +2149,7 @@ int nros_app_main(int argc, char** argv) {
 <a href="#configuration-guide">Configuration</a>).</p>
 <h2 id="build-2"><a class="header" href="#build-2">Build</a></h2>
 <pre><code class="language-bash probe=40">cd examples/native/c/talker
-cmake -B build
+cmake -B build -Dnano_ros_ROOT="$(nros sdk-root)"
 cmake --build build
 </code></pre>
 <p><strong>No <code>nros sync</code> here, and that is a property of the language, not an
@@ -2159,9 +2164,11 @@ at all. See
 the same two <code>cmake</code> lines, into <code>build/&lt;image&gt;/cmake</code>, with the toolchain
 file the board names (<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/archived/1296-nros-build-c-leaf-bringup-name-mismatch.md">issue 1296</a>). In a
 <a href="#c--c-multi-node-workspaces">multi-node workspace</a> it is the only build verb.</p>
-<p>Outside a sourced checkout, tell cmake where nano-ros is —
-<code>cmake -B build -Dnano_ros_ROOT=/path/to/nano-ros</code>, or export
-<code>NROS_REPO_DIR</code> once.</p>
+<p>A raw <code>cmake</code> must be told where nano-ros is, as above —
+<code>-Dnano_ros_ROOT=/path/to/nano-ros</code>, or <code>"$(nros sdk-root)"</code>, which prints
+the SDK root the <code>nros</code> on PATH resolves. <code>nros build</code> (and the
+CMakePresets <code>nros init</code> writes) passes it for you; <code>activate.sh</code> does not
+export it.</p>
 <p>The first configure pulls and builds nano-ros’s Rust staticlibs
 (~3 minutes). Re-builds finish in seconds.</p>
 <h2 id="run-2"><a class="header" href="#run-2">Run</a></h2>
@@ -2367,9 +2374,9 @@ node</a>.</p>
 same <code>rclcpp::init_in</code> call — see the GitHub source for the full pattern.</p>
 <h2 id="build-3"><a class="header" href="#build-3">Build</a></h2>
 <pre><code class="language-bash">cd examples/native/cpp/talker
-cmake -B build          # with ./activate.sh sourced, nano_ros_ROOT is
-                        # exported; a copy-out passes
-                        # -Dnano_ros_ROOT=&lt;path-to-nano-ros&gt; explicitly
+cmake -B build -Dnano_ros_ROOT="$(nros sdk-root)"
+                        # raw cmake names the root; `nros build` (or the
+                        # CMakePresets `nros init` writes) passes it for you
 cmake --build build
 </code></pre>
 <p>No <code>nros sync</code> here: a C++ leaf’s message bindings are generated inside
@@ -2576,10 +2583,12 @@ such feature, and C/C++ images are not affected.</p>
 <p>A standalone package that consumes nano-ros in source form — either
 <code>find_package(nano_ros REQUIRED)</code> (the ament-shape entry point,
 <code>nano_rosConfig.cmake</code> at the checkout root, located via
-<code>nano_ros_ROOT</code>; RFC-0048) or a raw <code>add_subdirectory</code> — for
+<code>-Dnano_ros_ROOT</code>, which <code>nros build</code> passes; RFC-0048) or a raw
+<code>add_subdirectory</code> — for
 example a copied-out leaf like <code>examples/native/c/talker/</code> — picks its
 backend on the configure line:</p>
-<pre><code class="language-bash">cmake -S . -B build -DNROS_RMW=cyclonedds   # zenoh | xrce | cyclonedds
+<pre><code class="language-bash">cmake -S . -B build -Dnano_ros_ROOT="$(nros sdk-root)" \
+    -DNROS_RMW=cyclonedds   # zenoh | xrce | cyclonedds
 cmake --build build
 </code></pre>
 <p>Use one build directory per backend (<code>build-zenoh/</code>, <code>build-cyclonedds/</code>,
@@ -2830,7 +2839,8 @@ instead.
 For C++ consumers, the declared RMW lowers to the CMake cache var:
 
 ```bash
-cmake -S . -B build -DNROS_RMW=cyclonedds  # zenoh / xrce / cyclonedds
+cmake -S . -B build -Dnano_ros_ROOT="$(nros sdk-root)" \
+    -DNROS_RMW=cyclonedds  # zenoh / xrce / cyclonedds
 </code></pre>
 <h3 id="zephyr"><a class="header" href="#zephyr">Zephyr</a></h3>
 <p>The image’s <code>rmw</code> in <code>system.toml</code>, like every other platform. The nano-ros
@@ -5074,7 +5084,7 @@ same file works for a QEMU board — the board’s runner is in the generated fi
 <p>A single-package <strong>C or C++</strong> leaf is simpler still: its own CMake is unchanged,
 and it needs no sync, because its message bindings are a CMake-time output.</p>
 <pre><code class="language-bash">cd &lt;leaf&gt;
-cmake -B build
+cmake -B build -Dnano_ros_ROOT="$(nros sdk-root)"
 cmake --build build
 </code></pre>
 <p>What changed for it is where the facts come from: the board, RMW, domain and
@@ -5339,10 +5349,12 @@ nros build          # or: cargo build --config build/&lt;image&gt;/nros-cargo.to
 # C / C++ — the leaf's own CMake, with the cross-toolchain file (the `nros`
 # CLI on PATH auto-resolves the codegen tool — no `-D_NANO_ROS_CODEGEN_TOOL=`
 # needed, and no `-DNROS_BOARD=` / `-DNROS_RMW=`: both come from
-# system.toml). The toolchain file path is relative to the nano-ros checkout:
-toolchain="$NROS_REPO_DIR/cmake/toolchain/arm-freertos-armcm3.cmake"
+# system.toml). The toolchain file path is relative to the nano-ros SDK root,
+# which `nros sdk-root` prints:
+toolchain="$(nros sdk-root)/cmake/toolchain/arm-freertos-armcm3.cmake"
 cd examples/mps2-an385-freertos/c/talker
 cmake -B build -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
+              -Dnano_ros_ROOT="$(nros sdk-root)" \
               -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 </code></pre>
@@ -6049,7 +6061,7 @@ links <code>librustapp.a</code>. The Cargo <em>package</em> name is free.</p>
 <p><strong>Generate the interface crates and the dependency wiring for YOUR
 layout.</strong> From your app dir, run (after the <a href="#prerequisites">Prerequisites</a>
 <code>nros setup</code>, which provides the codegen toolchain + message sources):</p>
-<pre><code class="language-bash">NROS_REPO_DIR=&lt;path-to-your-nano-ros-module&gt; nros sync
+<pre><code class="language-bash">nros sync --nano-ros-path &lt;path-to-your-nano-ros-module&gt;
 </code></pre>
 <p>This writes <code>generated/&lt;pkg&gt;/</code> (the message crates) and a <code>.cargo/config.toml</code>
 whose <code>[patch.crates-io]</code> points the <code>nros-*</code> crates at your
@@ -7421,7 +7433,8 @@ entity this node never creates is stack it cannot use.</p>
 and pack the flash image:</p>
 <pre><code class="language-bash"># once per checkout location — message bindings + the generated
 # build/esp32-c3-baremetal/nros-cargo.toml:
-NROS_REPO_DIR=&lt;path-to-nano-ros&gt; nros sync
+# (`nros` finds the SDK it belongs to; `--nano-ros-path &lt;dir&gt;` names another)
+nros sync
 
 # nros build hands cargo the generated settings file. That file asks for
 # `[unstable] build-std`, so a nightly carrying `rust-src` must be the ACTIVE
@@ -7857,19 +7870,14 @@ modules.</p>
 <p><strong>Contributors (in-tree checkout):</strong> <code>just px4 doctor</code> reports the
 provisioning gap on a fresh clone.</p>
 <p>Vendor the template into your firmware repo, then point PX4 at its
-parent directory + tell the template where nano-ros lives via
-<code>NANO_ROS_DIR</code>. The template accepts either form — a CMake cache
-variable (<code>-DNANO_ROS_DIR=&lt;path&gt;</code>) takes precedence over an
-environment variable (<code>NANO_ROS_DIR=…</code>), then the in-tree default:</p>
+parent directory. The template finds nano-ros itself: an explicit
+<code>-DNROS_REPO_DIR=&lt;path&gt;</code> cache variable wins, otherwise it asks the
+<code>nros</code> on PATH (<code>nros sdk-root</code>), which answers with the SDK that binary
+belongs to. No environment variable is read (RFC-0103 D6):</p>
 <pre><code class="language-bash">cmake -B build -S PX4-Autopilot \
       -DCONFIG=px4_fmu-v5_default \
       -DEXTERNAL_MODULES_LOCATION=$PWD/px4-modules/nano-ros \
-      -DNANO_ROS_DIR=$PWD/../nano-ros            # point at your nano-ros clone
-
-# Or via environment, if you prefer:
-NANO_ROS_DIR=$PWD/../nano-ros cmake -B build -S PX4-Autopilot \
-      -DCONFIG=px4_fmu-v5_default \
-      -DEXTERNAL_MODULES_LOCATION=$PWD/px4-modules/nano-ros
+      -DNROS_REPO_DIR=$PWD/../nano-ros           # optional: name your clone
 </code></pre>
 <p>(<code>EXTERNAL_MODULES_LOCATION</code> must point at the dir containing
 the template’s <code>src/</code> — that’s <code>px4-modules/nano-ros</code>, not its parent.
@@ -7888,7 +7896,6 @@ via CMake cache vars rather than menuconfig:</p>
 <pre><code class="language-bash">cmake -B build -S PX4-Autopilot \
       -DCONFIG=px4_fmu-v5_default \
       -DEXTERNAL_MODULES_LOCATION=$PWD/px4-modules/nano-ros \
-      -DNANO_ROS_DIR=$PWD/../nano-ros \
       -DNROS_RMW=zenoh
 </code></pre>
 <p>(Adding a Kconfig overlay so the module appears under
@@ -8224,9 +8231,10 @@ board.</p>
 </code></pre>
 <p>Examples are copy-out ready, and nothing in a copied one names a path back
 into the checkout. For Rust, <code>cp -r</code> the example, then
-<code>NROS_REPO_DIR=&lt;nano-ros checkout&gt; nros sync</code> and <code>nros build</code>. For C/C++,
-<code>cp -r</code> and configure with <code>-Dnano_ros_ROOT=&lt;nano-ros checkout&gt;</code> (or export
-<code>NROS_REPO_DIR</code>) — a single-package C/C++ leaf needs no <code>nros sync</code>, because
+<code>nros sync</code> and <code>nros build</code> (<code>nros</code> finds its own SDK; <code>--nano-ros-path</code>
+names another). For C/C++, <code>cp -r</code> and run <code>nros build</code>, or configure a raw
+<code>cmake</code> with <code>-Dnano_ros_ROOT=&lt;nano-ros checkout&gt;</code> — a single-package C/C++
+leaf needs no <code>nros sync</code>, because
 its message bindings are a CMake-time output.</p>
 <h2 id="code-example"><a class="header" href="#code-example">Code Example</a></h2>
 <p>Rust publisher skeleton:</p>
@@ -8420,7 +8428,8 @@ source ./activate.sh
 nros setup &lt;board&gt; --rmw zenoh
 
 cd &lt;leaf&gt;
-cmake -B build -DCMAKE_TOOLCHAIN_FILE=&lt;toolchain&gt; -DCMAKE_BUILD_TYPE=Release
+cmake -B build -Dnano_ros_ROOT="$(nros sdk-root)" \
+    -DCMAKE_TOOLCHAIN_FILE=&lt;toolchain&gt; -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 </code></pre>
 <p>No <code>nros sync</code>, and no <code>-DNROS_BOARD</code> / <code>-DNROS_RMW</code> either:
@@ -8448,8 +8457,9 @@ under the leaf, because the generated settings file names that
 <code>target-dir</code> — so an in-tree build leaves no <code>target/</code> beside the
 sources for the repo’s own gate to reject
 (<code>check-example-leaf-target-dirs</code>). A copied-out example carries no path
-into the checkout at all: <code>NROS_REPO_DIR</code> is the only thing tying it to
-one, and it is on the command line rather than in a file.</p>
+into the checkout at all: <code>nros</code> ties it to the SDK the binary belongs
+to, and <code>--nano-ros-path</code> names another on the command line rather than
+in a file.</p>
 <p>So: exploring in the checkout, <code>cd &lt;leaf&gt; &amp;&amp; nros sync &amp;&amp; nros build</code>.
 Building your own thing, copy the example out and run the same two
 commands there.</p>
@@ -8629,7 +8639,7 @@ nros build
 <p>A single C/C++ package keeps its own CMake, and needs no sync — its
 message bindings are a CMake-time output:</p>
 <pre><code class="language-bash">cd examples/native/c/talker
-cmake -B build
+cmake -B build -Dnano_ros_ROOT="$(nros sdk-root)"   # raw cmake names the SDK root
 cmake --build build
 </code></pre>
 <p>(<code>nros build</code> in the leaf runs the same pair into <code>build/&lt;image&gt;/cmake</code>,
@@ -8682,8 +8692,10 @@ the root it generates.</p>
 <p>The repo’s top-level <code>CMakeLists.txt</code> exposes everything via
 <code>add_subdirectory(...)</code>. The higher-level, ament-shaped alternative is
 <code>find_package(nano_ros REQUIRED)</code> — <code>nano_rosConfig.cmake</code> at the
-checkout root, located via <code>nano_ros_ROOT</code> (RFC-0048) — which every
-in-tree example reaches through the workspace helpers. Either way there
+checkout root, located via <code>-Dnano_ros_ROOT=&lt;root&gt;</code> (RFC-0048), which
+<code>nros build</code> and the CMakePresets <code>nros init</code> writes pass for you (a raw
+<code>cmake</code> names it; no shell exports it) — which every in-tree example
+reaches through the workspace helpers. Either way there
 is NO install step: phase-140 removed the install prefix and the old
 <code>find_package(NanoRos)</code> (capital) config pipeline. Vendoring the repo
 into a company tree (pinning, offline CI, upgrade workflow) has its own
@@ -8776,8 +8788,9 @@ ament_target_dependencies(c_talker std_msgs)
 that file — they are in the <code>system.toml</code> beside it, and the build
 reads them from there. A single-package C/C++ leaf like this one
 configures and builds with plain CMake, no sync step required, because
-its message bindings are a CMake-time output:</p>
-<pre><code class="language-bash">cmake -B build
+its message bindings are a CMake-time output. A raw <code>cmake</code> names the
+SDK root (<code>nros sdk-root</code> prints it; nothing exports it):</p>
+<pre><code class="language-bash">cmake -B build -Dnano_ros_ROOT="$(nros sdk-root)"
 cmake --build build
 </code></pre>
 <p>(<code>nros build</code> in the leaf runs these same two commands for you, into
@@ -8830,17 +8843,18 @@ builds <code>packages/cli/target/release/nros</code>. Nothing else works
 without it.</li>
 <li><strong>An activated environment</strong> for interactive use:
 <code>source third_party/nano-ros/activate.sh</code> wires <code>nros</code> and the
-SDK-store tools onto <code>PATH</code> and exports <code>nano_ros_ROOT</code>. CI can
-skip this and pass paths explicitly (<code>-Dnano_ros_ROOT=…</code>, absolute
-CLI path).</li>
+SDK-store tools onto <code>PATH</code>. It exports no root: <code>nros</code> knows the
+checkout it was built in. CI can skip this and use an absolute CLI
+path (a raw <code>cmake</code> passes <code>-Dnano_ros_ROOT=…</code>).</li>
 <li><strong>Provisioned toolchains.</strong> <code>nros setup &lt;board&gt; --rmw &lt;rmw&gt;</code>
 fetches the cross-compiler, emulator, and SDK sources for exactly
 that pair into the shared store at <code>${NROS_HOME:-~/.nros}/sdk</code>.
 <code>--dry-run</code> prints the plan first. (The zenoh <em>router</em> is
 deliberately not provisioned — it comes from a ROS 2 install,
 <code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>.)</li>
-<li><strong><code>nros sync</code>.</strong> <code>NROS_REPO_DIR=&lt;checkout&gt; nros sync</code> from your
-workspace root. It produces the message bindings <em>and</em> the build
+<li><strong><code>nros sync</code>.</strong> <code>nros sync</code> from your workspace root (the vendored
+<code>nros</code> answers with its own checkout; <code>--nano-ros-path &lt;checkout&gt;</code>
+names it explicitly). It produces the message bindings <em>and</em> the build
 settings each <code>[image.*]</code> implies — see the next section for why
 this is not optional.</li>
 </ol>
@@ -8893,8 +8907,8 @@ against the public crates.io.</p>
 <ul>
 <li><strong><code>find_package(nano_ros REQUIRED)</code></strong> — the ament-shaped entry
 (<code>nano_rosConfig.cmake</code> at the checkout root). Located via
-<code>nano_ros_ROOT</code>, which <code>activate.sh</code> exports; CI passes
-<code>-Dnano_ros_ROOT=&lt;checkout&gt;</code> explicitly.</li>
+<code>-Dnano_ros_ROOT=&lt;checkout&gt;</code>, which <code>nros build</code> and the CMakePresets
+<code>nros init</code> writes pass; a raw <code>cmake</code> names it (no shell exports it).</li>
 <li><strong><code>add_subdirectory(third_party/nano-ros)</code></strong> — the lower-level
 shape. See <a href="#build-as-a-cmake-subdirectory">Build as a CMake subdirectory</a>
 for the cache-variable table.</li>
@@ -8968,8 +8982,8 @@ missing packages, not like staleness.</p>
 <ul>
 <li><input disabled="" type="checkbox"> Submodule pinned to an <code>nros-v</code> tag, forward-only</li>
 <li><input disabled="" type="checkbox"> <code>play_launch</code> submodule initialized non-recursively</li>
-<li><input disabled="" type="checkbox"> CI passes <code>-Dnano_ros_ROOT=</code> / <code>NROS_REPO_DIR=</code> explicitly (no
-reliance on an activated shell)</li>
+<li><input disabled="" type="checkbox"> CI drives <code>nros build</code> (or passes <code>-Dnano_ros_ROOT=</code> to a raw
+<code>cmake</code>) — no reliance on an activated shell</li>
 <li><input disabled="" type="checkbox"> <code>nros sync</code> runs in CI before any Rust build — before <code>nros build</code>,
 and before any cargo line that passes <code>--config     build/&lt;image-id&gt;/nros-cargo.toml</code>; no build setting hand-written
 into a package</li>
@@ -9105,10 +9119,11 @@ code is required.</p>
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/archived/phase-212-ux-cargo-native-and-file-consolidation.md"><code>docs/roadmap/archived/phase-212-ux-cargo-native-and-file-consolidation.md</code></a>
 section 212.K.7.</p>
 <h2 id="outside-the-nano-ros-checkout"><a class="header" href="#outside-the-nano-ros-checkout">Outside the nano-ros checkout</a></h2>
-<p>A project that lives somewhere else needs to tell <code>nros sync</code> where the
-nano-ros source tree is — that is the only extra step:</p>
-<pre><code class="language-bash">export NROS_REPO_DIR=/path/to/nano-ros
-nros sync
+<p>A project that lives somewhere else uses the SDK the <code>nros</code> binary
+belongs to — a release’s own <code>share/nano-ros</code>, or the checkout an
+in-tree <code>nros</code> was built in — so a plain <code>nros sync</code> works. To name a
+different tree, pass it:</p>
+<pre><code class="language-bash">nros sync --nano-ros-path /path/to/nano-ros
 </code></pre>
 <p><code>nros sync</code> then writes the <code>[patch.crates-io]</code> rows into that image’s
 generated settings file, pointing each <code>nros*</code> requirement at a directory
@@ -10208,7 +10223,9 @@ single-package project), along with everything else the board choice
 implies.</p>
 <h2 id="from-a-cmake-build-type"><a class="header" href="#from-a-cmake-build-type">From a CMake build type</a></h2>
 <p>When you drive CMake yourself — a single-package C or C++ project builds
-with its own <code>cmake -B build</code>, and needs no sync — set <code>CMAKE_BUILD_TYPE</code>
+with its own <code>cmake -B build</code> (naming the SDK root with
+<code>-Dnano_ros_ROOT="$(nros sdk-root)"</code>, which <code>nros build</code> passes for you),
+and needs no sync — set <code>CMAKE_BUILD_TYPE</code>
 as you would in any CMake project. nano-ros derives the cargo profile for
 the Rust it builds underneath from it:</p>
 <div class="table-wrapper">
@@ -10225,7 +10242,7 @@ the Rust it builds underneath from it:</p>
 </tbody>
 </table>
 </div>
-<pre><code class="language-bash">cmake -B build -DCMAKE_BUILD_TYPE=MinSizeRel
+<pre><code class="language-bash">cmake -B build -Dnano_ros_ROOT="$(nros sdk-root)" -DCMAKE_BUILD_TYPE=MinSizeRel
 cmake --build build
 </code></pre>
 <p>Your C/C++ sources get <code>-Os</code> from CMake as usual, and the Rust nano-ros builds
@@ -10237,7 +10254,8 @@ never silently produces an optimization level you did not ask for.</p>
 <h2 id="choosing-the-rust-profile-separately"><a class="header" href="#choosing-the-rust-profile-separately">Choosing the Rust profile separately</a></h2>
 <p><code>NROS_CARGO_PROFILE</code> overrides the mapping when you want the two halves to
 differ — for example a small C/C++ image with debuggable Rust:</p>
-<pre><code class="language-bash">cmake -B build -DCMAKE_BUILD_TYPE=MinSizeRel -DNROS_CARGO_PROFILE=nros-relwithdebinfo
+<pre><code class="language-bash">cmake -B build -Dnano_ros_ROOT="$(nros sdk-root)" \
+    -DCMAKE_BUILD_TYPE=MinSizeRel -DNROS_CARGO_PROFILE=nros-relwithdebinfo
 </code></pre>
 <h2 id="using-your-own-profile"><a class="header" href="#using-your-own-profile">Using your own profile</a></h2>
 <p>Name any profile you like. When the name is not one of nano-ros’s <code>nros-*</code>
@@ -10257,7 +10275,8 @@ is the generated entry under <code>build/</code>, which is regenerated on every 
 exactly how the <code>nros-*</code> presets reach cargo. An undefined name still fails
 the way it always did — <code>error: profile 'prod' is not defined</code> — while a
 name the generated settings file defines resolves and builds.</p>
-<pre><code class="language-bash">cmake -B build -DCMAKE_BUILD_TYPE=Release -DNROS_CARGO_PROFILE=prod
+<pre><code class="language-bash">cmake -B build -Dnano_ros_ROOT="$(nros sdk-root)" \
+    -DCMAKE_BUILD_TYPE=Release -DNROS_CARGO_PROFILE=prod
 </code></pre>
 <h2 id="which-profile-is-active"><a class="header" href="#which-profile-is-active">Which profile is active?</a></h2>
 <pre><code class="language-bash">nros profile resolve --build-type MinSizeRel   # -&gt; nros-minsizerel
@@ -10567,8 +10586,9 @@ makes them cross-compile:</p>
 nros sync
 nros build                     # or: nros build &lt;image-id&gt;
 
-# C / C++ single package — its own CMake, no sync needed:
-cmake -B build &amp;&amp; cmake --build build
+# C / C++ single package — no sync needed; `nros build` drives its CMake:
+nros build
+# (or raw CMake, naming the SDK root: cmake -B build -Dnano_ros_ROOT="$(nros sdk-root)")
 </code></pre>
 <blockquote>
 <p><strong>Contributors:</strong> the in-tree fixture build/test lanes are in
@@ -13542,23 +13562,23 @@ launch file or CLI, and a service-backed remote-introspection surface
 surface for embedded use. There is ONE store, and it is in Rust: the
 <code>nros_params::ParameterServer</code> the executor owns, which is also what the six
 <code>rcl_interfaces/srv/*</code> servers read. C++ reaches it through methods on
-<code>rclcpp::Node</code>; C through <code>nros_executor_*_param_*</code> (the <code>_on</code> spellings name a
-node when an image composes several); Rust through <code>Executor::declare_parameter</code>
-and <code>Node::parameter</code>.</p>
+<code>rclcpp::Node</code>; C through rclc’s own parameter-server API,
+<code>&lt;rclc_parameter/rclc_parameter.h&gt;</code> (<code>rclc_parameter_server_t</code>, one per node);
+Rust through <code>Executor::declare_parameter</code> and <code>Node::parameter</code>.</p>
 <blockquote>
 <p><strong>If you have older nano-ros code:</strong> <code>rclcpp::ParameterServer&lt;Cap&gt;</code> is gone
 (phase-426 W4), and so is the caller-storage store it wrapped as a thing to
 reach for. Both were node-LOCAL: the parameter services read a different
 object, so <code>ros2 param list</code> never saw what you declared. The C
-<code>nros_parameter_server_t</code> family still exists for a caller who genuinely wants
-a private store, but no example uses it and its contents do not reach the ROS
-graph.</p>
+caller-storage family and the <code>nros_executor_*_param*</code> functions are gone too
+(phase-491): C uses rclc’s <code>rclc_parameter_server_t</code>, which declares into the
+same executor-owned store.</p>
 </blockquote>
 <p><strong>What we keep</strong></p>
 <ul>
 <li>Same five scalar types: <code>bool</code>, <code>int64_t</code>, <code>double</code>, string, plus the
 <code>bool</code> / <code>int64_t</code> / <code>double</code> / <code>byte</code> / <code>string</code> array variants on the
-C side (<code>nros_parameter_*_array</code>).</li>
+C side (<code>rclc_parameter_{declare,get,set}_*_array</code>; string arrays not yet).</li>
 <li>Same lifecycle: declare → get → set, with declare-once-then-typed-get
 semantics.</li>
 <li>Optional service-backed exposure (<code>~/get_parameters</code> /
@@ -13575,7 +13595,7 @@ declared parameters are visible to <code>ros2 param list /&lt;node&gt;</code> an
 </thead>
 <tbody>
 <tr><td><code>ParameterDescriptor</code> (description, ranges, read-only, dynamic_typing)</td><td>not exposed</td><td>descriptor metadata is host-side concern; embedded server enforces type at declare-time, range checks belong in <code>set</code> callbacks (deferred — see below)</td></tr>
-<tr><td><code>add_pre_set_parameters_callback</code> / <code>add_on_set_parameters_callback</code> / <code>add_post_set_parameters_callback</code></td><td>one combined <code>nros_parameter_callback_t</code> (server-wide, fires after set)</td><td>three callbacks → three indirection slots × N subscribers; one callback covers the safety-island validation use case (<code>reject if out of range</code>)</td></tr>
+<tr><td><code>add_pre_set_parameters_callback</code> / <code>add_on_set_parameters_callback</code> / <code>add_post_set_parameters_callback</code></td><td>one <code>rclc_parameter_callback_t</code> per C server — rclc’s <code>(old, new, context)</code>, fired before the write, <code>false</code> refuses</td><td>three callbacks → three indirection slots × N subscribers; one callback covers the safety-island validation use case (<code>reject if out of range</code>)</td></tr>
 <tr><td><code>set_parameter</code> returning <code>SetParametersResult</code> (<code>successful: bool</code>, <code>reason: string</code>)</td><td>returns <code>nros_ret_t</code></td><td>string <code>reason</code> would force heap or fixed-buffer; ret code captures the binary outcome</td></tr>
 <tr><td><code>set_parameters_atomically</code></td><td>not exposed</td><td>atomic multi-set requires transaction log; not justified by current embedded use</td></tr>
 <tr><td><code>declare_parameters</code> (multi-declare with namespace)</td><td>C++ only, hosted only: <code>rclcpp::Node::declare_parameters&lt;T&gt;(prefix, map)</code></td><td>upstream’s argument is a <code>std::map</code>, so it needs an allocator; returns <code>Result</code>, not the <code>std::vector&lt;T&gt;</code> of values in effect (read back with <code>get_parameter&lt;T&gt;</code>). Rust and C declare one at a time</td></tr>
@@ -15383,10 +15403,11 @@ rung 3 is for, and nothing else in nano-ros changes.</p>
 sibling crates with <code>../../</code> walks
 (<code>manifest.parent().join("nros-board-freertos/config")</code>, drivers,
 <code>nros-c</code> includes) — those only resolve inside <code>packages/boards/</code>. An
-out-of-tree board crate resolves the nano-ros root ONCE from an env
-var instead (<code>NROS_REPO_DIR</code>, the same variable <code>nros sync</code> uses) and
-derives every include from it:
-<code>let root = PathBuf::from(env::var("NROS_REPO_DIR")?);</code>
+out-of-tree board crate resolves the nano-ros root ONCE by walking
+up from where its nros dependency was compiled — the SDK root holds
+the marker <code>packages/core/nros-core/Cargo.toml</code> — and derives every
+include from it (no environment variable names it any more,
+RFC-0103 D6):
 <code>hal.include(root.join("packages/api/nros-c/include"));</code> — same
 files, absolute anchor.</p>
 </blockquote>
@@ -19249,7 +19270,7 @@ calls <code>render::render("&lt;template-name&gt;", &amp;ctx)</code>, and its ar
 <code>nros generate</code> (<code>cmd/generate.rs</code>).</li>
 </ol>
 <h3 id="step-2--the-entry-pack-if-the-language-writes-entries"><a class="header" href="#step-2--the-entry-pack-if-the-language-writes-entries">Step 2 — the entry pack, if the language writes entries</a></h3>
-<p>An entry pack is DATA. Since phase-474 there is no per-language entry emitter:
+<p>An entry pack is DATA. Since phase-494 there is no per-language entry emitter:
 one renderer (<code>codegen/entry/emit/mod.rs</code>) lowers the plan once into
 <code>nros_entry_lower::LoweredEntry</code> and hands THAT to the pack’s template.</p>
 <ol>
@@ -19285,7 +19306,7 @@ entry and message; the name is historical (see the recipe comment). A directory
 with no manifest, a language pack missing the fields its consumer needs, a
 registry key or <code>registry_order</code> claimed twice, a template file that does not
 exist, a <code>.jinja</code> no manifest claims, a <code>Language</code> variant nothing renders, or a
-language whose bytes are recorded in no golden — and, since phase-474, a new
+language whose bytes are recorded in no golden — and, since phase-494, a new
 <code>codegen/entry/emit_&lt;x&gt;.rs</code>, because an entry language is a pack. Run it before
 you believe the pack works.</p>
 <h3 id="what-this-does-not-make-cheap"><a class="header" href="#what-this-does-not-make-cheap">What this does NOT make cheap</a></h3>
@@ -19297,8 +19318,8 @@ their filters own it, and since phase-469 W1 so do the artifact-naming suffixes
 (file and guard names). The builders still hold the per-language Rust that is a
 RULE rather than a parameter — which generator builds which context, and the ROS
 kind word, which is identical on every surface. An entry language brings no
-emitter (phase-474): its pack and, at most, a spelling filter. Implemented by
-phase-335 (RFC-0068), phase-432 (RFC-0091), phase-469 and phase-474.</p>
+emitter (phase-494): its pack and, at most, a spelling filter. Implemented by
+phase-335 (RFC-0068), phase-432 (RFC-0091), phase-469 and phase-494.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="canonical-platform-c-abi"><a class="header" href="#canonical-platform-c-abi">Canonical Platform C ABI</a></h1>
 <p>nano-ros separates the platform layer (clock, sleep, allocator,
@@ -23508,7 +23529,8 @@ plus <code>build/&lt;image&gt;/nros-cargo.toml</code>. Custom messages need thei
 this; everything else cannot, and <code>nros build</code> refuses with one line naming
 it.</li>
 <li><strong>Build standalone.</strong> <code>nros build</code> from the example directory (C/C++
-single-package leaves: <code>cmake -B build &amp;&amp; cmake --build build</code>). No
+single-package leaves can also run raw CMake:
+<code>cmake -B build -Dnano_ros_ROOT="$(nros sdk-root)" &amp;&amp; cmake --build build</code>). No
 walking-up workspace allowed.</li>
 <li><strong>Wire the test fixture (optional).</strong> If the example needs an E2E
 gate, add a row to <code>examples/fixtures.toml</code> and the matching cell in
@@ -24146,7 +24168,7 @@ nros codegen-system --bringup demo_bringup --ahead-of-vendor px4   # + PX4 modul
 <tr><td><code>--bringup &lt;pkg&gt;</code></td><td>Bringup pkg name or path. Defaults to <code>[workspace.metadata.nros].default_system</code></td></tr>
 <tr><td><code>--target &lt;id&gt;</code></td><td>The <code>[image.&lt;id&gt;]</code> / <code>[deploy.&lt;id&gt;]</code> this bake is for — it selects the domain, RMW, locator, launch and tier sub-table. A triple or platform name that matches no block selects nothing and every one of those falls back to the <code>[system]</code> default (issue 1312)</td></tr>
 <tr><td><code>--for-entry &lt;pkg&gt;</code></td><td>Name the ENTRY PACKAGE instead (a name, or a path to its directory) and the <code>[image.*]</code> that claims it supplies the target. What a framework configure can answer: west/ESP-IDF know the application directory, never the image id. Mutually exclusive with <code>--target</code></td></tr>
-<tr><td><code>--nano-ros-path &lt;dir&gt;</code></td><td>nano-ros checkout holding <code>packages/boards</code>, for the board catalog a resolved target needs. Default: <code>$NROS_REPO_DIR</code>, then a walk up from the workspace, then the toolchain’s own <code>share/nano-ros</code></td></tr>
+<tr><td><code>--nano-ros-path &lt;dir&gt;</code></td><td>nano-ros checkout holding <code>packages/boards</code>, for the board catalog a resolved target needs. Default: a walk up from the workspace, then this <code>nros</code> binary’s own SDK root (a release’s <code>share/nano-ros</code>, or the checkout an in-tree <code>nros</code> was built in)</td></tr>
 <tr><td><code>--out &lt;dir&gt;</code></td><td>Output directory; <code>nros-system/</code> subdir created inside. Default: <code>&lt;workspace&gt;/build/&lt;bringup&gt;/</code></td></tr>
 <tr><td><code>--launch &lt;file&gt;</code></td><td>Multi-launch disambiguation: pick <code>&lt;bringup&gt;/launch/&lt;file&gt;</code> (<code>--file</code> is an alias)</td></tr>
 <tr><td><code>--exec &lt;exec&gt;</code></td><td><code>&lt;node exec="…"&gt;</code> override for synthesised launches</td></tr>
@@ -27484,7 +27506,7 @@ this column is blank, and nothing here is free unless it says so.</p>
 <tr><td><code>NROS_FREERTOS_HEAP_KB</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-platform-config/src/platform_config.rs:1403</code></td><td><code>packages/tooling/nros-platform-config</code></td><td><strong>heap</strong> <code>ucHeap</code>: FreeRTOS heap_4’s <code>ucHeap[configTOTAL_HEAP_SIZE]</code>; the symbol IS the region, measured per image</td></tr>
 <tr><td><code>NROS_GRAPH_MAX_ENTITIES</code></td><td style="text-align: right">0</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>input</strong>: the entity count <code>ZPICO_GRAPH_CACHE_SIZE</code> is derived from; storage is that knob’s</td></tr>
 <tr><td><code>NROS_KEYEXPR_STRING_SIZE</code></td><td style="text-align: right">256</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>element</strong>: the key-expression buffer inside each subscriber/service shim entry; lands in <code>SUBSCRIBER_BUFFERS</code>/<code>SERVICE_BUFFERS</code></td></tr>
-<tr><td><code>NROS_LET_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-build-helpers/src/c.rs:124</code></td><td><code>packages/tooling/nros-build-helpers</code></td><td><strong>element</strong>: the per-handle LET buffer inside each C/C++ API handle, which lives in the CALLER’s storage</td></tr>
+<tr><td><code>NROS_LET_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-build-helpers/src/c.rs:125</code></td><td><code>packages/tooling/nros-build-helpers</code></td><td><strong>element</strong>: the per-handle LET buffer inside each C/C++ API handle, which lives in the CALLER’s storage</td></tr>
 <tr><td><code>NROS_LOG_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-log/build.rs:106</code></td><td><code>packages/core/nros-log</code></td><td><strong>stack</strong>: the per-call Rust <code>FormatBuffer</code> is a stack frame in the logging caller (issue 1037); it is also the message element of <code>nros_log::early::SLOTS</code> and <code>nros_log::rosout::SLOTS</code></td></tr>
 <tr><td><code>NROS_LOG_DYNAMIC_LOGGERS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-log/build.rs:100</code></td><td><code>packages/core/nros-log</code></td><td><strong>pool</strong> <code>nros_log::pool::POOL</code>, <code>nros_log::pool::NAMES</code>: runtime-logger slots (phase-479 W5): <code>POOL</code> holds a <code>Logger</code> per slot, a struct whose size moves with its fields; <code>NAMES</code> is exactly 24 bytes per slot, so <code>mem-report</code> reads the image’s CAPACITY back out of its size</td></tr>
 <tr><td><code>NROS_LOG_EARLY_RECORDS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-log/build.rs:113</code></td><td><code>packages/core/nros-log</code></td><td><strong>pool</strong> <code>nros_log::early::SLOTS</code>: records held before <code>init</code> (issue 1037): each slot holds a formatted message of <code>NROS_LOG_BUFFER_SIZE</code> bytes plus a logger name, so <code>SLOTS</code> moves with both knobs; 0 declines the ring</td></tr>

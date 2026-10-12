@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d46dbd0d.js";
+            window.path_to_searchindex_js = "../searchindex-ae891b51.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-bd0cf9ce.js"></script>
@@ -398,23 +398,23 @@ launch file or CLI, and a service-backed remote-introspection surface
 surface for embedded use. There is ONE store, and it is in Rust: the
 <code>nros_params::ParameterServer</code> the executor owns, which is also what the six
 <code>rcl_interfaces/srv/*</code> servers read. C++ reaches it through methods on
-<code>rclcpp::Node</code>; C through <code>nros_executor_*_param_*</code> (the <code>_on</code> spellings name a
-node when an image composes several); Rust through <code>Executor::declare_parameter</code>
-and <code>Node::parameter</code>.</p>
+<code>rclcpp::Node</code>; C through rclc’s own parameter-server API,
+<code>&lt;rclc_parameter/rclc_parameter.h&gt;</code> (<code>rclc_parameter_server_t</code>, one per node);
+Rust through <code>Executor::declare_parameter</code> and <code>Node::parameter</code>.</p>
 <blockquote>
 <p><strong>If you have older nano-ros code:</strong> <code>rclcpp::ParameterServer&lt;Cap&gt;</code> is gone
 (phase-426 W4), and so is the caller-storage store it wrapped as a thing to
 reach for. Both were node-LOCAL: the parameter services read a different
 object, so <code>ros2 param list</code> never saw what you declared. The C
-<code>nros_parameter_server_t</code> family still exists for a caller who genuinely wants
-a private store, but no example uses it and its contents do not reach the ROS
-graph.</p>
+caller-storage family and the <code>nros_executor_*_param*</code> functions are gone too
+(phase-491): C uses rclc’s <code>rclc_parameter_server_t</code>, which declares into the
+same executor-owned store.</p>
 </blockquote>
 <p><strong>What we keep</strong></p>
 <ul>
 <li>Same five scalar types: <code>bool</code>, <code>int64_t</code>, <code>double</code>, string, plus the
 <code>bool</code> / <code>int64_t</code> / <code>double</code> / <code>byte</code> / <code>string</code> array variants on the
-C side (<code>nros_parameter_*_array</code>).</li>
+C side (<code>rclc_parameter_{declare,get,set}_*_array</code>; string arrays not yet).</li>
 <li>Same lifecycle: declare → get → set, with declare-once-then-typed-get
 semantics.</li>
 <li>Optional service-backed exposure (<code>~/get_parameters</code> /
@@ -431,7 +431,7 @@ declared parameters are visible to <code>ros2 param list /&lt;node&gt;</code> an
 </thead>
 <tbody>
 <tr><td><code>ParameterDescriptor</code> (description, ranges, read-only, dynamic_typing)</td><td>not exposed</td><td>descriptor metadata is host-side concern; embedded server enforces type at declare-time, range checks belong in <code>set</code> callbacks (deferred — see below)</td></tr>
-<tr><td><code>add_pre_set_parameters_callback</code> / <code>add_on_set_parameters_callback</code> / <code>add_post_set_parameters_callback</code></td><td>one combined <code>nros_parameter_callback_t</code> (server-wide, fires after set)</td><td>three callbacks → three indirection slots × N subscribers; one callback covers the safety-island validation use case (<code>reject if out of range</code>)</td></tr>
+<tr><td><code>add_pre_set_parameters_callback</code> / <code>add_on_set_parameters_callback</code> / <code>add_post_set_parameters_callback</code></td><td>one <code>rclc_parameter_callback_t</code> per C server — rclc’s <code>(old, new, context)</code>, fired before the write, <code>false</code> refuses</td><td>three callbacks → three indirection slots × N subscribers; one callback covers the safety-island validation use case (<code>reject if out of range</code>)</td></tr>
 <tr><td><code>set_parameter</code> returning <code>SetParametersResult</code> (<code>successful: bool</code>, <code>reason: string</code>)</td><td>returns <code>nros_ret_t</code></td><td>string <code>reason</code> would force heap or fixed-buffer; ret code captures the binary outcome</td></tr>
 <tr><td><code>set_parameters_atomically</code></td><td>not exposed</td><td>atomic multi-set requires transaction log; not justified by current embedded use</td></tr>
 <tr><td><code>declare_parameters</code> (multi-declare with namespace)</td><td>C++ only, hosted only: <code>rclcpp::Node::declare_parameters&lt;T&gt;(prefix, map)</code></td><td>upstream’s argument is a <code>std::map</code>, so it needs an allocator; returns <code>Result</code>, not the <code>std::vector&lt;T&gt;</code> of values in effect (read back with <code>get_parameter&lt;T&gt;</code>). Rust and C declare one at a time</td></tr>
