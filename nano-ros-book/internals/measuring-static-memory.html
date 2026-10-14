@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8c26f9af.js";
+            window.path_to_searchindex_js = "../searchindex-ef533995.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-734eb8f7.js"></script>
@@ -253,6 +253,46 @@ you created would suggest, that is expected rather than a misconfiguration on
 your side — see <a href="https://github.com/nano-ros/nano-ros/blob/main/docs/issues/0827-unused-rmw-pools-dominate-static-ram.md">issue
 0827</a>.
 Turning the corresponding knobs down is the current remedy.</p>
+<h3 id="the-three-service-inboxes-zenoh"><a class="header" href="#the-three-service-inboxes-zenoh">The three service inboxes (zenoh)</a></h3>
+<p>Every service server is a zenoh queryable, and each queryable owns one inbox
+ring: requests wait there between the read task and the executor’s spin. The
+rings sit in three tables, one per family, so a family is sized for its own
+requests rather than for the largest request any service could send:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>symbol</th><th>holds</th><th>one ring is</th><th>knobs</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nros_rmw_zenoh::shim::service::USER_SERVICE_INBOX</code></td><td>your services</td><td>depth × (slot + 12 B)</td><td><code>NROS_SERVICE_INBOX_BYTES</code>, <code>NROS_SERVICE_INBOX_DEPTH</code> (4)</td></tr>
+<tr><td><code>nros_rmw_zenoh::shim::service::ACTION_INBOX</code></td><td>the four queryables of each action server</td><td>depth × (slot + 12 B)</td><td><code>NROS_ACTION_INBOX_BYTES</code>, <code>NROS_ACTION_INBOX_DEPTH</code> (4)</td></tr>
+<tr><td><code>nros_rmw_zenoh::shim::service::BUILTIN_INBOX</code></td><td>the runtime’s own parameter and lifecycle services</td><td>depth × (slot + 12 B)</td><td><code>NROS_PARAM_SERVICE_INBOX_BYTES</code>, <code>NROS_PARAM_SERVICE_INBOX_DEPTH</code> (1)</td></tr>
+</tbody>
+</table>
+</div>
+<p>The 12 B is a ring entry’s length, sequence and overflow flag (on a 32-bit
+target). Each table holds one ring per queryable of its family, for every
+session: the image’s queryable pool (<code>NROS_MAX_QUERYABLES</code>) is partitioned
+between the three. A per-queryable header, <code>SERVICE_BUFFERS</code>, is separate and
+paid whatever the ring is.</p>
+<p>Where a slot size comes from, in the order the build takes it:</p>
+<ul>
+<li>a STATED knob (environment, Kconfig, or <code>[image.&lt;id&gt;.knobs.service|action|param]</code>)
+wins;</li>
+<li>otherwise it is DERIVED: the user and action slots from the largest request
+type the image declares a server for, and the builtin slot from the largest
+<code>set_parameters</code> request the contract’s declared parameters can produce;</li>
+<li>with nothing declared, the user and action slots keep 1,024 B, and the
+builtin table is empty.</li>
+</ul>
+<p>Read the bytes off the image with <code>just mem-report</code>, not off this formula: the
+compiler sizes the table, so the report is exact. Two worked readings, from
+the Autoware safety island on an S32K344: <code>BUILTIN_INBOX</code> = 24 parameter
+queryables × 1 × (1,016 + 12) = 24,672 B, and <code>USER_SERVICE_INBOX</code> fell from
+3,744 B to 288 B when those 24 queryables left it.</p>
+<p>The parameter family costs nothing here at all when the bringup declares
+<code>params</code> instead of <code>param_services</code>: the store is built, no service is
+registered, and no queryable is claimed for it.</p>
 <h2 id="showing-a-saving"><a class="header" href="#showing-a-saving">Showing a saving</a></h2>
 <p>Take a baseline, change something, and compare:</p>
 <pre><code class="language-sh">just mem-report my-binary --json &gt; before.json
