@@ -1,6 +1,6 @@
 var searchData=
 [
-  ['nros_5fc_5fsupport_5finit_5fbaked_0',['nros_c_support_init_baked',['../nros__generated_8h.html#a88021d45edf1cf7d96ad9412e0d84f66',1,'nros_generated.h']]],
+  ['nros_5fc_5fsupport_5finit_5fbaked_0',['nros_c_support_init_baked',['../nros__generated_8h.html#aee65558852d701b6ebb49ffd914cf2b6',1,'nros_generated.h']]],
   ['nros_5fplatform_5fclock_5fns_1',['nros_platform_clock_ns',['../nros__generated_8h.html#a5ff7dc4b59dc4d20f91cfccb66936125',1,'nros_generated.h']]],
   ['nros_5fplatform_5fcritical_5fsection_5facquire_2',['nros_platform_critical_section_acquire',['../nros__generated_8h.html#aa7299aa2fc6dbda1d017cee6a23223fa',1,'nros_generated.h']]],
   ['nros_5fplatform_5fcritical_5fsection_5frelease_3',['nros_platform_critical_section_release',['../nros__generated_8h.html#a1c9474e1352a8d7dd9f3bc84899cc1d5',1,'nros_generated.h']]],

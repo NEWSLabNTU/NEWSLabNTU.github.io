@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-e3b0b74b.js";
+            window.path_to_searchindex_js = "searchindex-b65293ce.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-734eb8f7.js"></script>
@@ -1656,8 +1656,8 @@ ships one) — start it in another terminal:</p>
 <code>tcp/10.0.2.2:7451</code> on QEMU FreeRTOS (Slirp forwards to host),
 <code>7452</code> NuttX, <code>7453</code> ThreadX-RV, <code>7454</code> ESP32, <code>7455</code>
 ThreadX-Linux, <code>7447</code> Zephyr.</p>
-<h3 id="b2-c-rclc_check-failed-rclc_support_init_with_locator----4"><a class="header" href="#b2-c-rclc_check-failed-rclc_support_init_with_locator----4">B2. C: <code>RCLC_CHECK failed: rclc_support_init_with_locator(...) -&gt; -4</code></a></h3>
-<pre><code>RCLC_CHECK failed at src/main.c:152: rclc_support_init_with_locator(&amp;app.support, locator, domain_id) -&gt; -4
+<h3 id="b2-c-rclc_check-failed-rclc_support_init----4"><a class="header" href="#b2-c-rclc_check-failed-rclc_support_init----4">B2. C: <code>RCLC_CHECK failed: rclc_support_init(...) -&gt; -4</code></a></h3>
+<pre><code>RCLC_CHECK failed at src/main.c:92: rclc_support_init(&amp;app.support, argc, argv, &amp;allocator) -&gt; -4
 </code></pre>
 <p>Process exits <code>1</code> (the <code>retval</code> passed to <code>RCLC_CHECK_RET</code>).
 <code>-4 = RCLC_RET_NOT_FOUND</code> — the locator was unreachable (zenohd
@@ -1671,7 +1671,7 @@ which don’t exist in the C API.</p>
 </code></pre>
 <p>Same root cause as B1/B2 — zenohd not reachable.
 <code>NROS_CPP_RET_TRANSPORT_ERROR = -100</code> is the C++ result code that
-<code>NROS_TRY_RET</code> propagates from <code>main()</code>; on POSIX this becomes
+<code>RCLCPP_TRY_RET</code> propagates from <code>main()</code>; on POSIX this becomes
 <code>(unsigned char)-100 = 156</code> as the process exit code. Treat
 “exited 156 after starting” as the C++ equivalent of B1.</p>
 <h3 id="b4-override-the-locator-at-runtime"><a class="header" href="#b4-override-the-locator-at-runtime">B4. Override the locator at runtime</a></h3>
@@ -2122,15 +2122,17 @@ did by hand: it generates the C bindings the package declares, links
 strong <code>nros_app_register_backends()</code> stub (calling
 <code>nros_rmw_zenoh_register()</code> for the zenoh image above). Which RMW that
 is comes from <code>[system] rmw</code>, not from a <code>-D</code> on the command line.</p>
-<p>The C entry point is <strong><code>int nros_app_main(int argc, char **argv)</code></strong>
-(not <code>main</code>); <code>&lt;rclc/rclc.h&gt;</code> declares it and provides the OS-side <code>main</code>
-stub that wires signal handling and forwards to your function.</p>
+<p>The C entry point is <strong><code>int main(int argc, char **argv)</code></strong>, as in any rclc
+program. On a board the C runtime does not call <code>main</code>, so the build compiles
+yours under another name and reaches it from the platform’s own entry
+(Zephyr’s <code>main(void)</code>, an RTOS startup task); on Linux it is the process
+entry. You write <code>main</code> either way.</p>
 <pre><code class="language-c">#include &lt;rcl/rcl.h&gt;
 #include &lt;rclc/executor.h&gt;
 #include &lt;rclc/rclc.h&gt;
 #include &lt;std_msgs/msg/int32.h&gt;
 
-int nros_app_main(int argc, char** argv) {
+int main(int argc, char** argv) {
     // 1. rclc_support_init() — opens the zenoh session
     // 2. rclc_executor_init() / rclc_node_init_default()
     // 3. rclc_publisher_init_default(&amp;pub, &amp;node,
@@ -2321,35 +2323,36 @@ ament_package()
 is a C translation unit, so C must be enabled in this directory scope
 or the link fails. Backend selection is <code>[system] rmw</code> in <code>system.toml</code>,
 not CMake code and not a configure-line cache variable.</p>
-<p>The C++ entry point is <strong><code>int nros_app_main(int argc, char** argv)</code></strong>
-(same as C); <code>&lt;nros/app_main.h&gt;</code> provides the OS-side <code>main</code> stub.</p>
+<p>The C++ entry point is <strong><code>int main(int argc, char** argv)</code></strong>, as in any
+rclcpp program; the build reaches it from the platform’s entry, as for C.
+Write that exact signature: the build declares the renamed function with it,
+so another form fails at link naming <code>nros_ported_main(int, char**)</code>.</p>
 <p>The body uses typed <code>rclcpp::Publisher&lt;M&gt;</code> / <code>rclcpp::Subscription&lt;M&gt;</code>
 wrappers over the C ABI:</p>
-<pre><code class="language-cpp">#include &lt;nros/app_main.h&gt;
-#include &lt;nros/nros.hpp&gt;
+<pre><code class="language-cpp">#include &lt;rclcpp/rclcpp.hpp&gt;
 #include "std_msgs.hpp"
 
-#define NROS_TRY_LOG(file, line, expr, ret) \
+#define RCLCPP_TRY_LOG(file, line, expr, ret) \
     std::fprintf(stderr, "[nros] %s:%d %s -&gt; %d\n", file, line, expr, (int)ret)
 
-int nros_app_main(int argc, char** argv) {
-    NROS_TRY_RET(rclcpp::init_in("tcp/127.0.0.1:7447", 0), 1);
+int main(int argc, char** argv) {
+    RCLCPP_TRY_RET(rclcpp::init_in(), 1);
 
     rclcpp::Node node;
-    NROS_TRY_RET(rclcpp::create_node(node, "talker"), 1);
+    RCLCPP_TRY_RET(rclcpp::create_node(node, "talker"), 1);
 
     rclcpp::Publisher&lt;std_msgs::msg::String&gt; pub;
-    NROS_TRY_RET(node.create_publisher(pub, "/chatter"), 1);
+    RCLCPP_TRY_RET(node.create_publisher(pub, "/chatter"), 1);
 
     // ... register a timer + spin
 }
 </code></pre>
-<p><code>NROS_TRY_RET</code> short-circuits on any non-OK return code and logs the
-expression that failed. Define <code>NROS_TRY_LOG</code> once (any sink — here
+<p><code>RCLCPP_TRY_RET</code> short-circuits on any non-OK return code and logs the
+expression that failed. Define <code>RCLCPP_TRY_LOG</code> once (any sink — here
 <code>std::fprintf</code>) and reuse it across every call site.</p>
 <h2 id="if-you-write-the-rclcppnode-constructor-instead"><a class="header" href="#if-you-write-the-rclcppnode-constructor-instead">If you write the <code>rclcpp::Node</code> constructor instead</a></h2>
 <p><code>rclcpp::create_node(node, "talker")</code> above returns a <code>Result</code>, and
-<code>NROS_TRY_RET</code> checks it. The rclcpp-shaped constructor has no return value to
+<code>RCLCPP_TRY_RET</code> checks it. The rclcpp-shaped constructor has no return value to
 check — and on a <code>-fno-exceptions</code> target, which every nano-ros build is
 (RFC-0018), it cannot throw the way upstream’s does either. It records the
 failure and reports it through <code>ok()</code>:</p>
@@ -2387,8 +2390,10 @@ node</a>.</p>
 </tbody>
 </table>
 </div>
-<p>Reading from env in C++ is <code>std::getenv("NROS_LOCATOR")</code> plus the
-same <code>rclcpp::init_in</code> call — see the GitHub source for the full pattern.</p>
+<p>With no arguments, <code>rclcpp::init_in()</code> (and <code>rclcpp::init(argc, argv)</code>)
+takes the locator and domain from the build, then the <code>NROS_LOCATOR</code> and
+<code>ROS_DOMAIN_ID</code> environment variables on a hosted target, so an example
+needs neither argument.</p>
 <h2 id="build-3"><a class="header" href="#build-3">Build</a></h2>
 <pre><code class="language-bash">cd examples/linux/cpp/talker
 cmake -B build -Dnano_ros_ROOT="$(nros sdk-root)"
@@ -2441,7 +2446,7 @@ line in 30 seconds:</p>
 <ol>
 <li>Confirm the router is running (terminal 1). Without it,
 <code>rclcpp::init_in</code> returns <code>-100</code> (TransportError) — the
-<code>NROS_TRY_RET</code> macro logs the failed call to stderr.</li>
+<code>RCLCPP_TRY_RET</code> macro logs the failed call to stderr.</li>
 <li>Check stderr for <code>[nros] …/main.cpp:LINE rclcpp::init_in(...) -&gt; -N</code>
 diagnostics. <code>-3</code> / <code>-100</code> both indicate transport open failed.</li>
 <li>See <a href="#troubleshooting--first-10-minutes">Troubleshooting — First 10 Minutes</a>.</li>
@@ -4456,8 +4461,7 @@ behaviour writes <code>[census] on_missing = "warn"</code> / <code>on_stale = "w
 <code>system.toml</code>, and gets a CMake WARNING instead.</p>
 <pre><code class="language-cpp">// src/talker_pkg/include/talker_pkg/Talker.hpp
 #pragma once
-#include &lt;nros/component.hpp&gt;
-#include &lt;nros/nros.hpp&gt;
+#include &lt;rclcpp/rclcpp.hpp&gt;
 #include "std_msgs.hpp"
 
 namespace talker_pkg {
@@ -4565,13 +4569,9 @@ it with <code>nros new entry &lt;name&gt; --platform zephyr</code>.</li>
 writes the generated entry out to <code>src/&lt;image&gt;_entry/</code> and <code>nros build</code>
 then leaves it alone.</li>
 </ul>
-<p>There the user’s <code>main.cpp</code> is a single declarative line:</p>
-<pre><code class="language-cpp">// src/linux_entry/src/main.cpp
-#include &lt;nros/main.hpp&gt;
-NROS_MAIN(rclcpp::board::LinuxBoard, "demo_bringup:system.launch.xml")
-</code></pre>
-<p><code>NROS_MAIN(...)</code> is a sentinel macro — the cmake fn owns the generated
-body, the user’s TU is documentation + IDE hint.</p>
+<p>Either way the entry package needs no source file of its own: the cmake
+function generates the whole body (the <code>main</code> above), so an entry’s
+<code>CMakeLists.txt</code> names the bringup and launch file and nothing else.</p>
 <h2 id="build--boot"><a class="header" href="#build--boot">Build + boot</a></h2>
 <pre><code class="language-bash">nros sync
 nros build linux
@@ -9888,7 +9888,8 @@ log_info!(node.logger(), "subscribed to {}", topic);
 
 int main(void) {
     rclc_support_t support = rclc_support_get_zero_initialized();
-    rclc_support_init_with_locator(&amp;support, "tcp/127.0.0.1:7447", 0);
+    rcl_allocator_t allocator = rcl_get_default_allocator();
+    rclc_support_init(&amp;support, 0, NULL, &amp;allocator); /* locator: build, then NROS_LOCATOR */
 
     rcl_node_t node = rcl_get_zero_initialized_node();
     rclc_node_init_default(&amp;node, "my_node", "/", &amp;support);
@@ -9903,8 +9904,7 @@ int main(void) {
 }
 </code></pre>
 <h3 id="c-1-1"><a class="header" href="#c-1-1">C++</a></h3>
-<pre><code class="language-cpp">#include &lt;nros/nros.hpp&gt;
-#include &lt;nros/log.hpp&gt;
+<pre><code class="language-cpp">#include &lt;rclcpp/rclcpp.hpp&gt;
 
 int main() {
     rclcpp::init_in("tcp/127.0.0.1:7447", 0);
@@ -10126,8 +10126,8 @@ for (;;) {
 </code></pre>
 <p>C++ (<code>&lt;nros/rosout.hpp&gt;</code>):</p>
 <pre><code class="language-cpp">rclcpp::rosout::Publisher rosout;
-NROS_TRY(rosout.create(node));          // or create(node, rclcpp::RosoutQoS())
-NROS_TRY(rclcpp::rosout::enable());
+RCLCPP_TRY(rosout.create(node));          // or create(node, rclcpp::RosoutQoS())
+RCLCPP_TRY(rclcpp::rosout::enable());
 for (;;) {
     rclcpp::spin_once(10);
     rosout.pump();
@@ -10254,7 +10254,7 @@ the next sample, not a replay of the simulation’s history.</p>
 <h2 id="writing-a-timer-that-follows-it"><a class="header" href="#writing-a-timer-that-follows-it">Writing a timer that follows it</a></h2>
 <h3 id="c-3"><a class="header" href="#c-3">C++</a></h3>
 <pre><code class="language-cpp">rclcpp::Timer t;
-NROS_TRY(node.create_timer(t, *node.get_clock(), 100, on_tick));
+RCLCPP_TRY(node.create_timer(t, *node.get_clock(), 100, on_tick));
 </code></pre>
 <h3 id="rust-3"><a class="header" href="#rust-3">Rust</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -10890,11 +10890,11 @@ target_link_libraries(my_bridge PRIVATE
     -Wl,--no-whole-archive)
 </code></pre>
 <p>Then declare + call the register functions early in
-<code>nros_app_main</code>:</p>
+<code>main</code>:</p>
 <pre><code class="language-c">extern int8_t nros_rmw_xrce_register(void);
 extern int8_t nros_rmw_zenoh_register(void);
 
-int nros_app_main(int argc, char** argv) {
+int main(int argc, char** argv) {
     if (nros_rmw_xrce_register() != 0)  return 1;
     if (nros_rmw_zenoh_register() != 0) return 1;
     // ... rclc_support_init / rclc_executor_init / rclc_executor_node_init
@@ -11057,7 +11057,7 @@ spans RMW backends by nature, so RMW is not a directory axis.</p>
 <tr><td><code>Transport(ConnectionFailed)</code> on <code>open_with_rmw("X", ...)</code></td><td>Backend X’s rlib not pulled into the link line. Rust: add a <code>register()</code> call. C / C++: confirm <code>--whole-archive</code> wraps the staticlib.</td></tr>
 <tr><td>Second node’s <code>.rmw("zenoh")</code> returns <code>Transport(...)</code></td><td>Both nodes try to open against the same singleton-state backend. Set <code>NROS_RMW=zenoh</code> so the primary lands on zenoh + the second Node hits the session-cache (slot 0) instead of double-opening.</td></tr>
 <tr><td><code>rclc_publisher_init_default -&gt; -7</code> after <code>rclc_executor_node_init</code></td><td>Stale build — the C-side multi-Session dispatch predates nros-v0.5.0; rebuild <code>nros-c</code> after updating.</td></tr>
-<tr><td><code>Bridge spinning</code> marker never reaches piped test harness</td><td>Add <code>setvbuf(stdout, NULL, _IOLBF, 0)</code> at the top of <code>nros_app_main</code>. glibc full-buffers piped stdout; line-buffering surfaces readiness markers before the long-lived <code>spin_period</code> loop.</td></tr>
+<tr><td><code>Bridge spinning</code> marker never reaches piped test harness</td><td>Add <code>setvbuf(stdout, NULL, _IOLBF, 0)</code> at the top of <code>main</code>. glibc full-buffers piped stdout; line-buffering surfaces readiness markers before the long-lived <code>spin_period</code> loop.</td></tr>
 </tbody>
 </table>
 </div>
@@ -13119,12 +13119,12 @@ around one line:</p>
 nano_ros_add_executable(minimal_publisher ../src/minimal_publisher.cpp ROS2_MAIN)
 </code></pre>
 <p>The board comes from the directory’s <code>system.toml</code>, as for any nano-ros image.
-<code>ROS2_MAIN</code> does three things a microcontroller needs:</p>
+Every <code>nano_ros_add_executable</code> reaches your <code>main</code> (phase-499): no C runtime
+calls <code>int main(int argc, char** argv)</code> on a board, so the build renames
+<code>main</code> in your sources only (never in the board’s own startup) and calls it
+from the platform’s entry, with <code>argc == 0</code>. <code>ROS2_MAIN</code> adds what a ported
+program needs on top of that:</p>
 <ul>
-<li><strong>It reaches your <code>main</code>.</strong> No C runtime calls <code>int main(int argc, char** argv)</code> on a board: the board’s startup calls <code>nros_app_main</code>. The build
-renames <code>main</code> in the ported sources only (never in the board’s own
-startup) and generates the <code>nros_app_main</code> that calls it, with
-<code>argc == 0</code>.</li>
 <li><strong>It gives the ported code the C++ standard library.</strong> A ported node uses
 <code>std::string</code>, <code>std::to_string</code> and <code>&lt;chrono&gt;</code> literals.
 <ul>
@@ -13768,7 +13768,7 @@ double v = node-&gt;get_parameter("ctrl_period").as_double();
 
 // nano-ros
 rclcpp::Node node;
-NROS_TRY(rclcpp::Node::create(node, "ctrl"));
+RCLCPP_TRY(rclcpp::Node::create(node, "ctrl"));
 double period = node.declare_parameter&lt;double&gt;("ctrl_period", 0.15);
 double v = 0.0;
 node.get_parameter&lt;double&gt;("ctrl_period", v);
@@ -16919,7 +16919,7 @@ ops.read  = [](void *ud, uint8_t *buf, std::size_t len, std::uint32_t to) -&gt; 
     return my_uart_read((MyUart*)ud, buf, len, to);
 };
 auto r = rclcpp::set_custom_transport(ops);
-NROS_TRY(r);
+RCLCPP_TRY(r);
 </code></pre>
 <blockquote>
 <p><strong>Captureless lambdas only.</strong> All four fields are raw C function
@@ -17957,7 +17957,7 @@ let pub_ = node.create_publisher::&lt;Int32&gt;("/topic")?;</code></pre>
 <p><strong>C++</strong> wraps the promise as <code>rclcpp::Future&lt;T&gt;</code>:</p>
 <pre><code class="language-cpp">auto fut = client.send_request(req);
 ResponseType resp;
-NROS_TRY(fut.wait(executor.handle(), 5000, resp));
+RCLCPP_TRY(fut.wait(executor.handle(), 5000, resp));
 </code></pre>
 <p><code>Future::wait()</code> takes <code>void* executor_handle</code> (from <code>executor.handle()</code> or <code>rclcpp::global_handle()</code>) for the same reason the Rust API takes <code>&amp;mut executor</code>. There is no global executor singleton; the handle is explicit.</p>
 <p><strong>C</strong> uses paired <code>_async</code> and blocking entry points:</p>
