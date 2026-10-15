@@ -1,8 +1,5 @@
 var searchData=
 [
-  ['node_0',['Node',['../classrclcpp_1_1Node.html',1,'rclcpp']]],
-  ['nodebuilder_1',['NodeBuilder',['../classrclcpp_1_1NodeBuilder.html',1,'rclcpp']]],
-  ['nodehandle_2',['NodeHandle',['../structrclcpp_1_1NodeHandle.html',1,'rclcpp']]],
-  ['nodewithtimers_3',['NodeWithTimers',['../classrclcpp_1_1NodeWithTimers.html',1,'rclcpp']]],
-  ['nros_5fcpp_5fqos_5ft_4',['nros_cpp_qos_t',['../structnros__cpp__qos__t.html',1,'']]]
+  ['lespan_0',['LeSpan',['../structrclcpp_1_1LeSpan.html',1,'rclcpp']]],
+  ['loan_1',['Loan',['../classrclcpp_1_1Publisher_1_1Loan.html',1,'rclcpp::Publisher']]]
 ];
