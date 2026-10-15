@@ -1,8 +1,5 @@
 var searchData=
 [
-  ['serialization_5fformat_2ehpp_0',['serialization_format.hpp',['../serialization__format_8hpp.html',1,'']]],
-  ['service_2ehpp_1',['service.hpp',['../service_8hpp.html',1,'']]],
-  ['span_2ehpp_2',['span.hpp',['../span_8hpp.html',1,'']]],
-  ['stream_2ehpp_3',['stream.hpp',['../stream_8hpp.html',1,'']]],
-  ['subscription_2ehpp_4',['subscription.hpp',['../subscription_8hpp.html',1,'']]]
+  ['timer_2ehpp_0',['timer.hpp',['../timer_8hpp.html',1,'']]],
+  ['troubleshooting_2emd_1',['troubleshooting.md',['../troubleshooting_8md.html',1,'']]]
 ];
