@@ -156,87 +156,90 @@
 <a href=#156 id=156 data-nosnippet>156</a>///
 <a href=#157 id=157 data-nosnippet>157</a>/// Returns `false` when it did not fit — the caller has nothing further to do,
 <a href=#158 id=158 data-nosnippet>158</a>/// but [`overflowed`] will report it.
-<a href=#159 id=159 data-nosnippet>159</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>hold(record: <span class="kw-2">&amp;</span>Record&lt;<span class="lifetime">'_</span>&gt;) -&gt; bool {
-<a href=#160 id=160 data-nosnippet>160</a>    <span class="kw">let </span>idx = CLAIMED.fetch_add(<span class="number">1</span>, Ordering::AcqRel);
-<a href=#161 id=161 data-nosnippet>161</a>    <span class="kw">if </span>idx &gt;= DEPTH {
-<a href=#162 id=162 data-nosnippet>162</a>        <span class="kw">return </span><span class="bool-val">false</span>;
-<a href=#163 id=163 data-nosnippet>163</a>    }
-<a href=#164 id=164 data-nosnippet>164</a>    <span class="kw">let </span>slot = <span class="kw-2">&amp;</span>SLOTS[idx];
-<a href=#165 id=165 data-nosnippet>165</a>    <span class="comment">// SAFETY: `idx` was handed out exactly once by the `fetch_add` above, so
-<a href=#166 id=166 data-nosnippet>166</a>    // this thread is the only writer of `slot.cell`, and no reader may touch it
-<a href=#167 id=167 data-nosnippet>167</a>    // until the `Release` store below.
-<a href=#168 id=168 data-nosnippet>168</a>    </span><span class="kw">let </span>pending = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>slot.cell.get() };
-<a href=#169 id=169 data-nosnippet>169</a>    pending.severity = record.severity;
-<a href=#170 id=170 data-nosnippet>170</a>    <span class="comment">// Truncating rather than refusing: a clipped early record is worth more
-<a href=#171 id=171 data-nosnippet>171</a>    // than none, and the alternative is deciding at boot that a long logger
-<a href=#172 id=172 data-nosnippet>172</a>    // name loses the whole line.
-<a href=#173 id=173 data-nosnippet>173</a>    </span><span class="kw">let _ </span>= pending
-<a href=#174 id=174 data-nosnippet>174</a>        .logger_name
-<a href=#175 id=175 data-nosnippet>175</a>        .push_str(clip(record.logger_name, NAME_CAP));
-<a href=#176 id=176 data-nosnippet>176</a>    <span class="kw">let _ </span>= pending.message.push_str(clip(record.message, MSG_CAP));
-<a href=#177 id=177 data-nosnippet>177</a>    pending.file = record.file;
-<a href=#178 id=178 data-nosnippet>178</a>    pending.line = record.line;
-<a href=#179 id=179 data-nosnippet>179</a>    pending.timestamp_ns = record.timestamp_ns;
-<a href=#180 id=180 data-nosnippet>180</a>    slot.ready.store(<span class="number">1</span>, Ordering::Release);
-<a href=#181 id=181 data-nosnippet>181</a>    <span class="bool-val">true
-<a href=#182 id=182 data-nosnippet>182</a></span>}
-<a href=#183 id=183 data-nosnippet>183</a>
-<a href=#184 id=184 data-nosnippet>184</a><span class="doccomment">/// Longest prefix of `s` that fits `cap` bytes without splitting a character.
-<a href=#185 id=185 data-nosnippet>185</a></span><span class="kw">fn </span>clip(s: <span class="kw-2">&amp;</span>str, cap: usize) -&gt; <span class="kw-2">&amp;</span>str {
-<a href=#186 id=186 data-nosnippet>186</a>    <span class="kw">if </span>s.len() &lt;= cap {
-<a href=#187 id=187 data-nosnippet>187</a>        <span class="kw">return </span>s;
-<a href=#188 id=188 data-nosnippet>188</a>    }
-<a href=#189 id=189 data-nosnippet>189</a>    <span class="kw">let </span><span class="kw-2">mut </span>end = cap;
-<a href=#190 id=190 data-nosnippet>190</a>    <span class="kw">while </span>end &gt; <span class="number">0 </span>&amp;&amp; !s.is_char_boundary(end) {
-<a href=#191 id=191 data-nosnippet>191</a>        end -= <span class="number">1</span>;
-<a href=#192 id=192 data-nosnippet>192</a>    }
-<a href=#193 id=193 data-nosnippet>193</a>    <span class="kw-2">&amp;</span>s[..end]
-<a href=#194 id=194 data-nosnippet>194</a>}
-<a href=#195 id=195 data-nosnippet>195</a>
-<a href=#196 id=196 data-nosnippet>196</a><span class="doccomment">/// Replay everything held, in the order it was raised, into `sinks`.
-<a href=#197 id=197 data-nosnippet>197</a>///
-<a href=#198 id=198 data-nosnippet>198</a>/// Called by [`crate::init`] AFTER the sink list is published, so a record
-<a href=#199 id=199 data-nosnippet>199</a>/// raised concurrently with the drain reaches the sinks directly rather than
-<a href=#200 id=200 data-nosnippet>200</a>/// the ring. That can interleave a live record with a replayed one; ordering
-<a href=#201 id=201 data-nosnippet>201</a>/// among the replayed records themselves is preserved, which is the property
-<a href=#202 id=202 data-nosnippet>202</a>/// worth having.
-<a href=#203 id=203 data-nosnippet>203</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>drain(sinks: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>[<span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw">dyn </span>LogSink]) {
-<a href=#204 id=204 data-nosnippet>204</a>    drain_with(<span class="kw-2">&amp;mut </span>|record| {
-<a href=#205 id=205 data-nosnippet>205</a>        <span class="kw">for </span>sink <span class="kw">in </span>sinks {
-<a href=#206 id=206 data-nosnippet>206</a>            sink.log(record);
-<a href=#207 id=207 data-nosnippet>207</a>        }
-<a href=#208 id=208 data-nosnippet>208</a>    });
-<a href=#209 id=209 data-nosnippet>209</a>}
-<a href=#210 id=210 data-nosnippet>210</a>
-<a href=#211 id=211 data-nosnippet>211</a><span class="doccomment">/// The half of [`drain`] that does not name a sink LIST.
-<a href=#212 id=212 data-nosnippet>212</a>///
-<a href=#213 id=213 data-nosnippet>213</a>/// phase-417 W4.d added [`crate::add_sink`], so "where a held record goes" is
-<a href=#214 id=214 data-nosnippet>214</a>/// no longer answered by one `&amp;'static [&amp;dyn LogSink]`. The replay walk stayed
-<a href=#215 id=215 data-nosnippet>215</a>/// one function and grew a callback rather than being copied next to the new
-<a href=#216 id=216 data-nosnippet>216</a>/// registry — a second copy is a second answer to "in what order, and what
-<a href=#217 id=217 data-nosnippet>217</a>/// happens to a slot whose writer has not published yet".
-<a href=#218 id=218 data-nosnippet>218</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>drain_with(deliver: <span class="kw-2">&amp;mut </span><span class="kw">dyn </span>FnMut(<span class="kw-2">&amp;</span>Record&lt;<span class="lifetime">'_</span>&gt;)) {
-<a href=#219 id=219 data-nosnippet>219</a>    <span class="kw">let </span>claimed = CLAIMED.load(Ordering::Acquire);
-<a href=#220 id=220 data-nosnippet>220</a>    <span class="kw">let </span>held = <span class="kw">if </span>claimed &gt; DEPTH { DEPTH } <span class="kw">else </span>{ claimed };
-<a href=#221 id=221 data-nosnippet>221</a>    <span class="kw">for </span>slot <span class="kw">in </span>SLOTS.iter().take(held) {
-<a href=#222 id=222 data-nosnippet>222</a>        <span class="kw">if </span>slot.ready.swap(<span class="number">0</span>, Ordering::AcqRel) == <span class="number">0 </span>{
-<a href=#223 id=223 data-nosnippet>223</a>            <span class="comment">// Either already drained by a concurrent `init`, or its writer has
-<a href=#224 id=224 data-nosnippet>224</a>            // not published yet. Neither is worth spinning at boot for.
-<a href=#225 id=225 data-nosnippet>225</a>            </span><span class="kw">continue</span>;
-<a href=#226 id=226 data-nosnippet>226</a>        }
-<a href=#227 id=227 data-nosnippet>227</a>        <span class="comment">// SAFETY: the `Acquire` half of the swap above pairs with the writer's
-<a href=#228 id=228 data-nosnippet>228</a>        // `Release` store, and the swap makes this the only reader.
-<a href=#229 id=229 data-nosnippet>229</a>        </span><span class="kw">let </span>pending = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>slot.cell.get() };
-<a href=#230 id=230 data-nosnippet>230</a>        <span class="kw">let </span>record = Record {
-<a href=#231 id=231 data-nosnippet>231</a>            severity: pending.severity,
-<a href=#232 id=232 data-nosnippet>232</a>            logger_name: pending.logger_name.as_str(),
-<a href=#233 id=233 data-nosnippet>233</a>            message: pending.message.as_str(),
-<a href=#234 id=234 data-nosnippet>234</a>            file: pending.file,
-<a href=#235 id=235 data-nosnippet>235</a>            line: pending.line,
-<a href=#236 id=236 data-nosnippet>236</a>            timestamp_ns: pending.timestamp_ns,
-<a href=#237 id=237 data-nosnippet>237</a>        };
-<a href=#238 id=238 data-nosnippet>238</a>        deliver(<span class="kw-2">&amp;</span>record);
-<a href=#239 id=239 data-nosnippet>239</a>    }
-<a href=#240 id=240 data-nosnippet>240</a>    CLAIMED.store(<span class="number">0</span>, Ordering::Release);
-<a href=#241 id=241 data-nosnippet>241</a>}
+<a href=#159 id=159 data-nosnippet>159</a></span><span class="comment">// `early-records-0` makes the capacity 0, a legal size: the comparison is then
+<a href=#160 id=160 data-nosnippet>160</a>// always true, which is the right answer for a pool with no slots.
+<a href=#161 id=161 data-nosnippet>161</a></span><span class="attr">#[allow(clippy::absurd_extreme_comparisons)]
+<a href=#162 id=162 data-nosnippet>162</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>hold(record: <span class="kw-2">&amp;</span>Record&lt;<span class="lifetime">'_</span>&gt;) -&gt; bool {
+<a href=#163 id=163 data-nosnippet>163</a>    <span class="kw">let </span>idx = CLAIMED.fetch_add(<span class="number">1</span>, Ordering::AcqRel);
+<a href=#164 id=164 data-nosnippet>164</a>    <span class="kw">if </span>idx &gt;= DEPTH {
+<a href=#165 id=165 data-nosnippet>165</a>        <span class="kw">return </span><span class="bool-val">false</span>;
+<a href=#166 id=166 data-nosnippet>166</a>    }
+<a href=#167 id=167 data-nosnippet>167</a>    <span class="kw">let </span>slot = <span class="kw-2">&amp;</span>SLOTS[idx];
+<a href=#168 id=168 data-nosnippet>168</a>    <span class="comment">// SAFETY: `idx` was handed out exactly once by the `fetch_add` above, so
+<a href=#169 id=169 data-nosnippet>169</a>    // this thread is the only writer of `slot.cell`, and no reader may touch it
+<a href=#170 id=170 data-nosnippet>170</a>    // until the `Release` store below.
+<a href=#171 id=171 data-nosnippet>171</a>    </span><span class="kw">let </span>pending = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>slot.cell.get() };
+<a href=#172 id=172 data-nosnippet>172</a>    pending.severity = record.severity;
+<a href=#173 id=173 data-nosnippet>173</a>    <span class="comment">// Truncating rather than refusing: a clipped early record is worth more
+<a href=#174 id=174 data-nosnippet>174</a>    // than none, and the alternative is deciding at boot that a long logger
+<a href=#175 id=175 data-nosnippet>175</a>    // name loses the whole line.
+<a href=#176 id=176 data-nosnippet>176</a>    </span><span class="kw">let _ </span>= pending
+<a href=#177 id=177 data-nosnippet>177</a>        .logger_name
+<a href=#178 id=178 data-nosnippet>178</a>        .push_str(clip(record.logger_name, NAME_CAP));
+<a href=#179 id=179 data-nosnippet>179</a>    <span class="kw">let _ </span>= pending.message.push_str(clip(record.message, MSG_CAP));
+<a href=#180 id=180 data-nosnippet>180</a>    pending.file = record.file;
+<a href=#181 id=181 data-nosnippet>181</a>    pending.line = record.line;
+<a href=#182 id=182 data-nosnippet>182</a>    pending.timestamp_ns = record.timestamp_ns;
+<a href=#183 id=183 data-nosnippet>183</a>    slot.ready.store(<span class="number">1</span>, Ordering::Release);
+<a href=#184 id=184 data-nosnippet>184</a>    <span class="bool-val">true
+<a href=#185 id=185 data-nosnippet>185</a></span>}
+<a href=#186 id=186 data-nosnippet>186</a>
+<a href=#187 id=187 data-nosnippet>187</a><span class="doccomment">/// Longest prefix of `s` that fits `cap` bytes without splitting a character.
+<a href=#188 id=188 data-nosnippet>188</a></span><span class="kw">fn </span>clip(s: <span class="kw-2">&amp;</span>str, cap: usize) -&gt; <span class="kw-2">&amp;</span>str {
+<a href=#189 id=189 data-nosnippet>189</a>    <span class="kw">if </span>s.len() &lt;= cap {
+<a href=#190 id=190 data-nosnippet>190</a>        <span class="kw">return </span>s;
+<a href=#191 id=191 data-nosnippet>191</a>    }
+<a href=#192 id=192 data-nosnippet>192</a>    <span class="kw">let </span><span class="kw-2">mut </span>end = cap;
+<a href=#193 id=193 data-nosnippet>193</a>    <span class="kw">while </span>end &gt; <span class="number">0 </span>&amp;&amp; !s.is_char_boundary(end) {
+<a href=#194 id=194 data-nosnippet>194</a>        end -= <span class="number">1</span>;
+<a href=#195 id=195 data-nosnippet>195</a>    }
+<a href=#196 id=196 data-nosnippet>196</a>    <span class="kw-2">&amp;</span>s[..end]
+<a href=#197 id=197 data-nosnippet>197</a>}
+<a href=#198 id=198 data-nosnippet>198</a>
+<a href=#199 id=199 data-nosnippet>199</a><span class="doccomment">/// Replay everything held, in the order it was raised, into `sinks`.
+<a href=#200 id=200 data-nosnippet>200</a>///
+<a href=#201 id=201 data-nosnippet>201</a>/// Called by [`crate::init`] AFTER the sink list is published, so a record
+<a href=#202 id=202 data-nosnippet>202</a>/// raised concurrently with the drain reaches the sinks directly rather than
+<a href=#203 id=203 data-nosnippet>203</a>/// the ring. That can interleave a live record with a replayed one; ordering
+<a href=#204 id=204 data-nosnippet>204</a>/// among the replayed records themselves is preserved, which is the property
+<a href=#205 id=205 data-nosnippet>205</a>/// worth having.
+<a href=#206 id=206 data-nosnippet>206</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>drain(sinks: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>[<span class="kw-2">&amp;</span><span class="lifetime">'static </span><span class="kw">dyn </span>LogSink]) {
+<a href=#207 id=207 data-nosnippet>207</a>    drain_with(<span class="kw-2">&amp;mut </span>|record| {
+<a href=#208 id=208 data-nosnippet>208</a>        <span class="kw">for </span>sink <span class="kw">in </span>sinks {
+<a href=#209 id=209 data-nosnippet>209</a>            sink.log(record);
+<a href=#210 id=210 data-nosnippet>210</a>        }
+<a href=#211 id=211 data-nosnippet>211</a>    });
+<a href=#212 id=212 data-nosnippet>212</a>}
+<a href=#213 id=213 data-nosnippet>213</a>
+<a href=#214 id=214 data-nosnippet>214</a><span class="doccomment">/// The half of [`drain`] that does not name a sink LIST.
+<a href=#215 id=215 data-nosnippet>215</a>///
+<a href=#216 id=216 data-nosnippet>216</a>/// phase-417 W4.d added [`crate::add_sink`], so "where a held record goes" is
+<a href=#217 id=217 data-nosnippet>217</a>/// no longer answered by one `&amp;'static [&amp;dyn LogSink]`. The replay walk stayed
+<a href=#218 id=218 data-nosnippet>218</a>/// one function and grew a callback rather than being copied next to the new
+<a href=#219 id=219 data-nosnippet>219</a>/// registry — a second copy is a second answer to "in what order, and what
+<a href=#220 id=220 data-nosnippet>220</a>/// happens to a slot whose writer has not published yet".
+<a href=#221 id=221 data-nosnippet>221</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>drain_with(deliver: <span class="kw-2">&amp;mut </span><span class="kw">dyn </span>FnMut(<span class="kw-2">&amp;</span>Record&lt;<span class="lifetime">'_</span>&gt;)) {
+<a href=#222 id=222 data-nosnippet>222</a>    <span class="kw">let </span>claimed = CLAIMED.load(Ordering::Acquire);
+<a href=#223 id=223 data-nosnippet>223</a>    <span class="kw">let </span>held = <span class="kw">if </span>claimed &gt; DEPTH { DEPTH } <span class="kw">else </span>{ claimed };
+<a href=#224 id=224 data-nosnippet>224</a>    <span class="kw">for </span>slot <span class="kw">in </span>SLOTS.iter().take(held) {
+<a href=#225 id=225 data-nosnippet>225</a>        <span class="kw">if </span>slot.ready.swap(<span class="number">0</span>, Ordering::AcqRel) == <span class="number">0 </span>{
+<a href=#226 id=226 data-nosnippet>226</a>            <span class="comment">// Either already drained by a concurrent `init`, or its writer has
+<a href=#227 id=227 data-nosnippet>227</a>            // not published yet. Neither is worth spinning at boot for.
+<a href=#228 id=228 data-nosnippet>228</a>            </span><span class="kw">continue</span>;
+<a href=#229 id=229 data-nosnippet>229</a>        }
+<a href=#230 id=230 data-nosnippet>230</a>        <span class="comment">// SAFETY: the `Acquire` half of the swap above pairs with the writer's
+<a href=#231 id=231 data-nosnippet>231</a>        // `Release` store, and the swap makes this the only reader.
+<a href=#232 id=232 data-nosnippet>232</a>        </span><span class="kw">let </span>pending = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>slot.cell.get() };
+<a href=#233 id=233 data-nosnippet>233</a>        <span class="kw">let </span>record = Record {
+<a href=#234 id=234 data-nosnippet>234</a>            severity: pending.severity,
+<a href=#235 id=235 data-nosnippet>235</a>            logger_name: pending.logger_name.as_str(),
+<a href=#236 id=236 data-nosnippet>236</a>            message: pending.message.as_str(),
+<a href=#237 id=237 data-nosnippet>237</a>            file: pending.file,
+<a href=#238 id=238 data-nosnippet>238</a>            line: pending.line,
+<a href=#239 id=239 data-nosnippet>239</a>            timestamp_ns: pending.timestamp_ns,
+<a href=#240 id=240 data-nosnippet>240</a>        };
+<a href=#241 id=241 data-nosnippet>241</a>        deliver(<span class="kw-2">&amp;</span>record);
+<a href=#242 id=242 data-nosnippet>242</a>    }
+<a href=#243 id=243 data-nosnippet>243</a>    CLAIMED.store(<span class="number">0</span>, Ordering::Release);
+<a href=#244 id=244 data-nosnippet>244</a>}
 </code></pre></div></section></main></body></html>
