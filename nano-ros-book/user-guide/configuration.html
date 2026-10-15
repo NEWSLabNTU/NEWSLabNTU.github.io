@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-f090c6d3.js";
+            window.path_to_searchindex_js = "../searchindex-64228dde.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-734eb8f7.js"></script>
@@ -203,7 +203,7 @@ readers refuse them rather than reading them. Design of record:
 <tr><th>File</th><th>Owns</th><th>Per</th></tr>
 </thead>
 <tbody>
-<tr><td><strong><code>system.toml</code></strong></td><td><strong>Everything about the deployment</strong> — <code>[system]</code> (RMW, domain, capability axes like <code>features = ["param_services"]</code> and the <code>[safety]</code> block, tiers), <code>[[component]]</code> (what runs, and its entities), and one <code>[image.&lt;id&gt;]</code> per target (<code>board</code>, plus the network identity <code>locator</code> / <code>ip</code> / <code>gateway</code> / <code>netmask</code>). One schema for Rust, C and C++, and the same file whether the project is one package or a workspace.</td><td>package, or bringup pkg</td></tr>
+<tr><td><strong><code>system.toml</code></strong></td><td><strong>Everything about the deployment</strong> — <code>[system]</code> (RMW, domain, capability axes like <code>features = ["param_services"]</code> and the <code>[safety]</code> block, tiers), <code>[[component]]</code> (what runs, and its entities), and one <code>[image.&lt;id&gt;]</code> per target (<code>board</code>, <code>locator</code>, and the image’s address on a network, <code>net = { eth0 = { network = "qemu", host = 10 } }</code>; a project’s own networks are <code>[network.&lt;name&gt;]</code>). One schema for Rust, C and C++, and the same file whether the project is one package or a workspace.</td><td>package, or bringup pkg</td></tr>
 <tr><td><code>Cargo.toml</code></td><td>Rust toolchain facts only: crate, language deps, the RMW <strong>feature menu</strong> (<code>rmw-zenoh</code>/<code>rmw-cyclonedds</code>/<code>rmw-xrce</code>) the generated entry selects from. No board, no target triple, no deploy block.</td><td>Rust project</td></tr>
 <tr><td><code>CMakeLists.txt</code></td><td>C/C++ toolchain facts only: targets and language deps, via <code>find_package(nano_ros)</code> + <code>nano_ros_add_executable</code> / <code>nano_ros_auto_add_library</code> + <code>nros_components_register_node</code> (RFC-0057; <code>nano_ros_node_register</code> remains as the compat spelling) / <code>nano_ros_entry</code>. No platform, board or RMW <code>set()</code>.</td><td>C/C++ project</td></tr>
 <tr><td><code>build/&lt;image&gt;/nros-cargo.toml</code></td><td><strong>GENERATED, never edited</strong> — every cargo setting the board choice implies: <code>[build] target</code>, <code>[target.*]</code> runner and rustflags, the cross compiler, the derived pool sizes as <code>[env]</code>, the nano-ros profiles, and the <code>[patch.crates-io]</code> rows that resolve nano-ros’s registry-style names into your checkout. Written by <code>nros sync</code>, passed to cargo with <code>--config</code>.</td><td>image</td></tr>
@@ -266,9 +266,7 @@ dispatch = "deferred"          # optional: callbacks hand off to a ring
 [image.mps2-an385-baremetal]
 board   = "qemu-mps2-an385"
 locator = "tcp/10.0.2.2:10500"
-ip      = "10.0.2.10"
-gateway = "10.0.2.2"
-netmask = "255.255.255.0"
+net     = { eth0 = { network = "qemu", host = 10 } }
 </code></pre>
 <p>The <code>[image.&lt;id&gt;]</code> key is the image’s name — what you pass to
 <code>nros build &lt;image&gt;</code> — and <code>board</code> is the only thing that has to change to
@@ -277,6 +275,38 @@ retarget it. <code>nros::main!()</code> bakes the image’s network fields into 
 boot <code>Config</code>; the C/C++ entry codegen bakes the same values into its
 generated glue. Nothing is written in <code>Cargo.toml</code>, in <code>package.xml</code> or on a
 <code>cmake</code> command line.</p>
+<h3 id="networks-and-addresses"><a class="header" href="#networks-and-addresses">Networks and addresses</a></h3>
+<p>A network fact has three owners (RFC-0103 D10): the <strong>board</strong> states its
+interfaces, the <strong>project</strong> states its networks, and the <strong>image</strong> states its
+address on one. The image’s half is <code>net</code>, one entry per interface:</p>
+<pre><code class="language-toml">[image.talker]
+board = "qemu-mps2-an385"
+net   = { eth0 = { network = "qemu", host = 10 } }   # 10.0.2.10 on QEMU's network
+</code></pre>
+<p><code>qemu</code> is built in: QEMU’s own user-mode (SLIRP) network, <code>10.0.2.0/24</code> with
+gateway and router host <code>10.0.2.2</code>. Any other network is the project’s, stated
+once and named by every image on it:</p>
+<pre><code class="language-toml">[network.lab]                  # e.g. a switch or a Linux bridge with boards on it
+subnet  = "192.168.50.0/24"
+gateway = "192.168.50.1"
+
+[image.sensor]
+board   = "qemu-mps2-an385"
+locator = "tcp/192.168.50.1:7447"
+net     = { eth0 = { network = "lab", address = "192.168.50.20" } }
+</code></pre>
+<p><code>host</code> is the last octet within the network’s subnet; <code>address</code> is the full
+IPv4. The gateway and netmask come from the network, so an image never states
+them. An address outside its subnet, equal to the gateway, or on a network that
+does not exist fails the build, naming the image.</p>
+<p>On a board whose network belongs to the host operating system (<code>linux</code>,
+<code>freertos-posix</code>, threadx-linux), the kernel owns addresses, and <code>net</code> is
+refused. The old flat <code>ip</code> / <code>gateway</code> / <code>netmask</code> keys on <code>[image.&lt;id&gt;]</code> are
+refused too, naming this table.</p>
+<p>Not rendered yet, and refused with a message rather than ignored: a leased
+address (<code>address = "dhcp"</code> on a network with <code>dhcp = true</code>), a per-image
+<code>mac</code>, a network’s default <code>router</code>, more than one interface, and a bridge or
+TAP <code>attach</code> for emulated images. They are phase-497 W2–W4.</p>
 <h3 id="per-image-build-knobs"><a class="header" href="#per-image-build-knobs">Per-image build knobs</a></h3>
 <p>A build knob that one image needs, and that its board does not state, goes in
 <code>[image.&lt;id&gt;.knobs.&lt;group&gt;]</code>. The table has the same shape as a board
