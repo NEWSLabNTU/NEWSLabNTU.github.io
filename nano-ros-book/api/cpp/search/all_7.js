@@ -26,12 +26,14 @@ var searchData=
   ['api_23',['nros C++ API',['../index.html',1,'']]],
   ['api_20buffer_20tuning_20nros_5f_24',['C++ API Buffer Tuning (NROS_*)',['../configuration.html#autotoc_md15',1,'']]],
   ['api_20modules_25',['API Modules',['../index.html#autotoc_md1',1,'']]],
-  ['argv_5fhas_5fros_5fargs_26',['argv_has_ros_args',['../namespacerclcpp_1_1detail.html#afc5cbca583e3734a2470d94cab0c8bd7',1,'rclcpp::detail']]],
-  ['arm_5fmonitors_27',['arm_monitors',['../namespacerclcpp.html#ac7860ba546fddff3a0046b8feb7e45e5',1,'rclcpp']]],
-  ['as_5fnode_5fref_28',['as_node_ref',['../namespacerclcpp_1_1detail.html#aa20a28ca91e9daf75f05c1600a4b33b5',1,'rclcpp::detail::as_node_ref(::rclcpp::Node *n)'],['../namespacerclcpp_1_1detail.html#a000b5403cc5c8b72edb038402d677bea',1,'rclcpp::detail::as_node_ref(::rclcpp::Node &amp;n)'],['../namespacerclcpp_1_1detail.html#a9f02268296f2ddac019d012fef47fd1b',1,'rclcpp::detail::as_node_ref(const ::rclcpp::Node::SharedPtr &amp;n)']]],
-  ['assert_5fliveliness_29',['assert_liveliness',['../classrclcpp_1_1Publisher.html#a01baee3f0df00adebf5c3940d86aaf28',1,'rclcpp::Publisher']]],
-  ['async_5fsend_5frequest_30',['async_send_request',['../classrclcpp_1_1Client.html#a38f31656846534865a53e095cac3f846',1,'rclcpp::Client']]],
-  ['attach_5fclosure_5fblock_31',['attach_closure_block',['../classrclcpp_1_1Timer.html#a02cf3910c2d9b373ace85844ba321b1c',1,'rclcpp::Timer::attach_closure_block()'],['../classrclcpp_1_1GuardCondition.html#aeb90dce625b6c6db54cdc5aa00355d7d',1,'rclcpp::GuardCondition::attach_closure_block()']]],
-  ['automatic_32',['Automatic',['../namespacerclcpp.html#a9de3336c22cf3e1469030d55e9b5108fa086247a9b57fde6eefee2a0c4752242d',1,'rclcpp']]],
-  ['avoid_5fros_5fnamespace_5fconventions_33',['avoid_ros_namespace_conventions',['../classrclcpp_1_1QoS.html#ae1f639c5f248f52343f0dbaba5a005eb',1,'rclcpp::QoS::avoid_ros_namespace_conventions()'],['../structnros__cpp__qos__t.html#ab342de97418984350c69693828c66383',1,'nros_cpp_qos_t::avoid_ros_namespace_conventions'],['../classrclcpp_1_1QoS.html#ac325f085965128b3db6246c9b357c1b0',1,'rclcpp::QoS::avoid_ros_namespace_conventions()']]]
+  ['argc_26',['argc',['../namespacerclcpp.html#a62f8452201ea9c8718e71ed99e8b164c',1,'rclcpp']]],
+  ['argv_27',['argv',['../namespacerclcpp.html#a7ced58ec17d04fc7f4141da9f9a56e00',1,'rclcpp']]],
+  ['argv_5fhas_5fros_5fargs_28',['argv_has_ros_args',['../namespacerclcpp_1_1detail.html#afc5cbca583e3734a2470d94cab0c8bd7',1,'rclcpp::detail']]],
+  ['arm_5fmonitors_29',['arm_monitors',['../namespacerclcpp.html#ac7860ba546fddff3a0046b8feb7e45e5',1,'rclcpp']]],
+  ['as_5fnode_5fref_30',['as_node_ref',['../namespacerclcpp_1_1detail.html#a000b5403cc5c8b72edb038402d677bea',1,'rclcpp::detail::as_node_ref(::rclcpp::Node &amp;n)'],['../namespacerclcpp_1_1detail.html#aa20a28ca91e9daf75f05c1600a4b33b5',1,'rclcpp::detail::as_node_ref(::rclcpp::Node *n)'],['../namespacerclcpp_1_1detail.html#a9f02268296f2ddac019d012fef47fd1b',1,'rclcpp::detail::as_node_ref(const ::rclcpp::Node::SharedPtr &amp;n)']]],
+  ['assert_5fliveliness_31',['assert_liveliness',['../classrclcpp_1_1Publisher.html#a01baee3f0df00adebf5c3940d86aaf28',1,'rclcpp::Publisher']]],
+  ['async_5fsend_5frequest_32',['async_send_request',['../classrclcpp_1_1Client.html#a38f31656846534865a53e095cac3f846',1,'rclcpp::Client']]],
+  ['attach_5fclosure_5fblock_33',['attach_closure_block',['../classrclcpp_1_1Timer.html#a02cf3910c2d9b373ace85844ba321b1c',1,'rclcpp::Timer::attach_closure_block()'],['../classrclcpp_1_1GuardCondition.html#aeb90dce625b6c6db54cdc5aa00355d7d',1,'rclcpp::GuardCondition::attach_closure_block()']]],
+  ['automatic_34',['Automatic',['../namespacerclcpp.html#a9de3336c22cf3e1469030d55e9b5108fa086247a9b57fde6eefee2a0c4752242d',1,'rclcpp']]],
+  ['avoid_5fros_5fnamespace_5fconventions_35',['avoid_ros_namespace_conventions',['../classrclcpp_1_1QoS.html#ae1f639c5f248f52343f0dbaba5a005eb',1,'rclcpp::QoS::avoid_ros_namespace_conventions()'],['../structnros__cpp__qos__t.html#ab342de97418984350c69693828c66383',1,'nros_cpp_qos_t::avoid_ros_namespace_conventions'],['../classrclcpp_1_1QoS.html#ac325f085965128b3db6246c9b357c1b0',1,'rclcpp::QoS::avoid_ros_namespace_conventions()']]]
 ];
