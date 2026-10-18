@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["drive_session_io","open_session"],"type":["RmwPublisher","RmwServiceClient","RmwServiceServer","RmwSession","RmwSubscriber"]};
+window.SIDEBAR_ITEMS = {"fn":["drive_session_io","open_session"],"struct":["ActionClientCore","ActionServerCore","ActionServerRawHandle","RawActionClientSpec","RawActionServerSpec"],"type":["RmwPublisher","RmwServiceClient","RmwServiceServer","RmwSession","RmwSubscriber"]};
