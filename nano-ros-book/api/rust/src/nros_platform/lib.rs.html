@@ -265,110 +265,218 @@
 <a href=#265 id=265 data-nosnippet>265</a>
 <a href=#266 id=266 data-nosnippet>266</a>    <span class="kw">unsafe impl </span>GlobalAlloc <span class="kw">for </span>PlatformGlobalAllocator {
 <a href=#267 id=267 data-nosnippet>267</a>        <span class="kw">unsafe fn </span>alloc(<span class="kw-2">&amp;</span><span class="self">self</span>, layout: Layout) -&gt; <span class="kw-2">*mut </span>u8 {
-<a href=#268 id=268 data-nosnippet>268</a>            <span class="comment">// phase-361 W8.c — an over-aligned request FAILS rather than
-<a href=#269 id=269 data-nosnippet>269</a>            // silently returning under-aligned memory. The ABI cannot express
-<a href=#270 id=270 data-nosnippet>270</a>            // alignment, so the honest answer to `align &gt; 8` is null, which
-<a href=#271 id=271 data-nosnippet>271</a>            // routes the caller into `handle_alloc_error`. The previous
-<a href=#272 id=272 data-nosnippet>272</a>            // `let _ = layout.align();` produced UB no build could see;
-<a href=#273 id=273 data-nosnippet>273</a>            // `zpico-alloc` already answered the same question with null.
-<a href=#274 id=274 data-nosnippet>274</a>            </span><span class="kw">if </span>layout.align() &gt; PLATFORM_ALIGN {
-<a href=#275 id=275 data-nosnippet>275</a>                <span class="kw">return </span>core::ptr::null_mut();
-<a href=#276 id=276 data-nosnippet>276</a>            }
-<a href=#277 id=277 data-nosnippet>277</a>            <span class="kw">let </span>p = &lt;ConcretePlatform <span class="kw">as </span>PlatformAlloc&gt;::alloc(layout.size()) <span class="kw">as </span><span class="kw-2">*mut </span>u8;
-<a href=#278 id=278 data-nosnippet>278</a>            <span class="attr">#[cfg(feature = <span class="string">"alloc-stats"</span>)]
-<a href=#279 id=279 data-nosnippet>279</a>            </span><span class="kw">if </span>!p.is_null() {
-<a href=#280 id=280 data-nosnippet>280</a>                <span class="kw">super</span>::heap_stats::STATS.on_alloc(layout.size());
-<a href=#281 id=281 data-nosnippet>281</a>            }
-<a href=#282 id=282 data-nosnippet>282</a>            p
-<a href=#283 id=283 data-nosnippet>283</a>        }
-<a href=#284 id=284 data-nosnippet>284</a>
-<a href=#285 id=285 data-nosnippet>285</a>        <span class="kw">unsafe fn </span>dealloc(<span class="kw-2">&amp;</span><span class="self">self</span>, ptr: <span class="kw-2">*mut </span>u8, _layout: Layout) {
-<a href=#286 id=286 data-nosnippet>286</a>            &lt;ConcretePlatform <span class="kw">as </span>PlatformAlloc&gt;::dealloc(ptr <span class="kw">as </span><span class="kw-2">*mut </span>c_void);
-<a href=#287 id=287 data-nosnippet>287</a>            <span class="attr">#[cfg(feature = <span class="string">"alloc-stats"</span>)]
-<a href=#288 id=288 data-nosnippet>288</a>            </span><span class="kw">super</span>::heap_stats::STATS.on_dealloc(_layout.size());
-<a href=#289 id=289 data-nosnippet>289</a>        }
-<a href=#290 id=290 data-nosnippet>290</a>    }
-<a href=#291 id=291 data-nosnippet>291</a>
-<a href=#292 id=292 data-nosnippet>292</a>    <span class="attr">#[global_allocator]
-<a href=#293 id=293 data-nosnippet>293</a>    </span><span class="kw">static </span>ALLOCATOR: PlatformGlobalAllocator = PlatformGlobalAllocator;
-<a href=#294 id=294 data-nosnippet>294</a>}
-<a href=#295 id=295 data-nosnippet>295</a>
-<a href=#296 id=296 data-nosnippet>296</a><span class="comment">// phase-361 W8.c — the Rust-footprint heap counter, moved here with the
-<a href=#297 id=297 data-nosnippet>297</a>// allocator it instruments. It counts only what passes through the
-<a href=#298 id=298 data-nosnippet>298</a>// `#[global_allocator]`; the C side's direct `nros_platform_alloc` traffic
-<a href=#299 id=299 data-nosnippet>299</a>// (zenoh-pico's `z_malloc` etc.) is not seen, so it under-reports true heap
-<a href=#300 id=300 data-nosnippet>300</a>// pressure. The *unified* figure is the platform's own
-<a href=#301 id=301 data-nosnippet>301</a>// `nros_platform_heap_used_bytes` (RFC-0034 D7).
-<a href=#302 id=302 data-nosnippet>302</a>//
-<a href=#303 id=303 data-nosnippet>303</a>// No `#[no_mangle]` here: the C names (`rclc_heap_used_bytes` …) belong to the
-<a href=#304 id=304 data-nosnippet>304</a>// C/C++ API surface and stay exported by `nros-c` / `nros-cpp`, which read
-<a href=#305 id=305 data-nosnippet>305</a>// these accessors. A pure-Rust image gets the counter without gaining C
-<a href=#306 id=306 data-nosnippet>306</a>// symbols it never asked for.
-<a href=#307 id=307 data-nosnippet>307</a></span><span class="attr">#[cfg(feature = <span class="string">"alloc-stats"</span>)]
-<a href=#308 id=308 data-nosnippet>308</a></span><span class="kw">pub mod </span>heap_stats {
-<a href=#309 id=309 data-nosnippet>309</a>    <span class="kw">use </span>core::sync::atomic::{AtomicUsize, Ordering};
-<a href=#310 id=310 data-nosnippet>310</a>
-<a href=#311 id=311 data-nosnippet>311</a>    <span class="doccomment">/// Bytes outstanding through the Rust global allocator, and the high-water
-<a href=#312 id=312 data-nosnippet>312</a>    /// mark since boot. `Relaxed` throughout — this is instrumentation, and no
-<a href=#313 id=313 data-nosnippet>313</a>    /// other state is ordered against it.
-<a href=#314 id=314 data-nosnippet>314</a>    </span><span class="kw">pub struct </span>HeapStats {
-<a href=#315 id=315 data-nosnippet>315</a>        used_bytes: AtomicUsize,
-<a href=#316 id=316 data-nosnippet>316</a>        peak_bytes: AtomicUsize,
-<a href=#317 id=317 data-nosnippet>317</a>    }
-<a href=#318 id=318 data-nosnippet>318</a>
-<a href=#319 id=319 data-nosnippet>319</a>    <span class="kw">impl </span>HeapStats {
-<a href=#320 id=320 data-nosnippet>320</a>        <span class="doccomment">/// Create a zeroed counter. `const` so it can back a `static`.
-<a href=#321 id=321 data-nosnippet>321</a>        </span><span class="kw">pub const fn </span>new() -&gt; <span class="self">Self </span>{
-<a href=#322 id=322 data-nosnippet>322</a>            <span class="self">Self </span>{
-<a href=#323 id=323 data-nosnippet>323</a>                used_bytes: AtomicUsize::new(<span class="number">0</span>),
-<a href=#324 id=324 data-nosnippet>324</a>                peak_bytes: AtomicUsize::new(<span class="number">0</span>),
-<a href=#325 id=325 data-nosnippet>325</a>            }
-<a href=#326 id=326 data-nosnippet>326</a>        }
-<a href=#327 id=327 data-nosnippet>327</a>
-<a href=#328 id=328 data-nosnippet>328</a>        <span class="doccomment">/// Record a successful allocation of `size` bytes and update the peak.
-<a href=#329 id=329 data-nosnippet>329</a>        </span><span class="attr">#[inline]
-<a href=#330 id=330 data-nosnippet>330</a>        </span><span class="kw">pub fn </span>on_alloc(<span class="kw-2">&amp;</span><span class="self">self</span>, size: usize) {
-<a href=#331 id=331 data-nosnippet>331</a>            <span class="kw">let </span>used = <span class="self">self</span>.used_bytes.fetch_add(size, Ordering::Relaxed) + size;
-<a href=#332 id=332 data-nosnippet>332</a>            <span class="kw">let _ </span>= <span class="self">self</span>.peak_bytes.fetch_max(used, Ordering::Relaxed);
-<a href=#333 id=333 data-nosnippet>333</a>        }
+<a href=#268 id=268 data-nosnippet>268</a>            <span class="comment">// phase-361 W8.c — never return under-aligned memory: the previous
+<a href=#269 id=269 data-nosnippet>269</a>            // `let _ = layout.align();` produced UB no build could see.
+<a href=#270 id=270 data-nosnippet>270</a>            //
+<a href=#271 id=271 data-nosnippet>271</a>            // An over-aligned request used to FAIL here (null, so
+<a href=#272 id=272 data-nosnippet>272</a>            // `handle_alloc_error`). phase-397 W2 made the executor's
+<a href=#273 id=273 data-nosnippet>273</a>            // `WakeCtx` `repr(align(64))` and put it in an `Arc`, so every
+<a href=#274 id=274 data-nosnippet>274</a>            // embedded image with an executor panicked at boot with "memory
+<a href=#275 id=275 data-nosnippet>275</a>            // allocation of 128 bytes failed" before registering a node
+<a href=#276 id=276 data-nosnippet>276</a>            // (S32K344, Zephyr 4.4). The ABI still cannot express alignment,
+<a href=#277 id=277 data-nosnippet>277</a>            // so an over-aligned block is carved out of a larger one instead
+<a href=#278 id=278 data-nosnippet>278</a>            // (`over_align`).
+<a href=#279 id=279 data-nosnippet>279</a>            </span><span class="kw">let </span>p = <span class="kw">if </span>layout.align() &gt; PLATFORM_ALIGN {
+<a href=#280 id=280 data-nosnippet>280</a>                <span class="kw">match </span><span class="kw">super</span>::over_align::raw_size(layout) {
+<a href=#281 id=281 data-nosnippet>281</a>                    <span class="comment">// SAFETY: `raw_size` sized the raw block for `place`.
+<a href=#282 id=282 data-nosnippet>282</a>                    </span><span class="prelude-val">Some</span>(raw_size) =&gt; <span class="kw">unsafe </span>{
+<a href=#283 id=283 data-nosnippet>283</a>                        <span class="kw">super</span>::over_align::place(
+<a href=#284 id=284 data-nosnippet>284</a>                            &lt;ConcretePlatform <span class="kw">as </span>PlatformAlloc&gt;::alloc(raw_size) <span class="kw">as </span><span class="kw-2">*mut </span>u8,
+<a href=#285 id=285 data-nosnippet>285</a>                            layout,
+<a href=#286 id=286 data-nosnippet>286</a>                        )
+<a href=#287 id=287 data-nosnippet>287</a>                    },
+<a href=#288 id=288 data-nosnippet>288</a>                    <span class="prelude-val">None </span>=&gt; core::ptr::null_mut(),
+<a href=#289 id=289 data-nosnippet>289</a>                }
+<a href=#290 id=290 data-nosnippet>290</a>            } <span class="kw">else </span>{
+<a href=#291 id=291 data-nosnippet>291</a>                &lt;ConcretePlatform <span class="kw">as </span>PlatformAlloc&gt;::alloc(layout.size()) <span class="kw">as </span><span class="kw-2">*mut </span>u8
+<a href=#292 id=292 data-nosnippet>292</a>            };
+<a href=#293 id=293 data-nosnippet>293</a>            <span class="attr">#[cfg(feature = <span class="string">"alloc-stats"</span>)]
+<a href=#294 id=294 data-nosnippet>294</a>            </span><span class="kw">if </span>!p.is_null() {
+<a href=#295 id=295 data-nosnippet>295</a>                <span class="kw">super</span>::heap_stats::STATS.on_alloc(layout.size());
+<a href=#296 id=296 data-nosnippet>296</a>            }
+<a href=#297 id=297 data-nosnippet>297</a>            p
+<a href=#298 id=298 data-nosnippet>298</a>        }
+<a href=#299 id=299 data-nosnippet>299</a>
+<a href=#300 id=300 data-nosnippet>300</a>        <span class="kw">unsafe fn </span>dealloc(<span class="kw-2">&amp;</span><span class="self">self</span>, ptr: <span class="kw-2">*mut </span>u8, layout: Layout) {
+<a href=#301 id=301 data-nosnippet>301</a>            <span class="kw">let </span>raw = <span class="kw">if </span>layout.align() &gt; PLATFORM_ALIGN {
+<a href=#302 id=302 data-nosnippet>302</a>                <span class="comment">// SAFETY: `ptr` came from the over-aligned branch of `alloc`
+<a href=#303 id=303 data-nosnippet>303</a>                // (same layout), which stored the raw block below it.
+<a href=#304 id=304 data-nosnippet>304</a>                </span><span class="kw">unsafe </span>{ <span class="kw">super</span>::over_align::raw_of(ptr) }
+<a href=#305 id=305 data-nosnippet>305</a>            } <span class="kw">else </span>{
+<a href=#306 id=306 data-nosnippet>306</a>                ptr
+<a href=#307 id=307 data-nosnippet>307</a>            };
+<a href=#308 id=308 data-nosnippet>308</a>            &lt;ConcretePlatform <span class="kw">as </span>PlatformAlloc&gt;::dealloc(raw <span class="kw">as </span><span class="kw-2">*mut </span>c_void);
+<a href=#309 id=309 data-nosnippet>309</a>            <span class="attr">#[cfg(feature = <span class="string">"alloc-stats"</span>)]
+<a href=#310 id=310 data-nosnippet>310</a>            </span><span class="kw">super</span>::heap_stats::STATS.on_dealloc(layout.size());
+<a href=#311 id=311 data-nosnippet>311</a>        }
+<a href=#312 id=312 data-nosnippet>312</a>    }
+<a href=#313 id=313 data-nosnippet>313</a>
+<a href=#314 id=314 data-nosnippet>314</a>    <span class="attr">#[global_allocator]
+<a href=#315 id=315 data-nosnippet>315</a>    </span><span class="kw">static </span>ALLOCATOR: PlatformGlobalAllocator = PlatformGlobalAllocator;
+<a href=#316 id=316 data-nosnippet>316</a>}
+<a href=#317 id=317 data-nosnippet>317</a>
+<a href=#318 id=318 data-nosnippet>318</a><span class="doccomment">/// An over-aligned block inside an 8-aligned one (the global allocator's
+<a href=#319 id=319 data-nosnippet>319</a>/// `align &gt; 8` path). The raw block is `size + align` bytes; the returned
+<a href=#320 id=320 data-nosnippet>320</a>/// pointer is the first `align` boundary at least one `usize` past its start,
+<a href=#321 id=321 data-nosnippet>321</a>/// and that `usize` just below it keeps the raw pointer for `dealloc`.
+<a href=#322 id=322 data-nosnippet>322</a>///
+<a href=#323 id=323 data-nosnippet>323</a>/// Room: the raw pointer is 8-aligned and `align` is a power of two above 8,
+<a href=#324 id=324 data-nosnippet>324</a>/// so the gap to the boundary is a multiple of 8 in `8..=align`: the header
+<a href=#325 id=325 data-nosnippet>325</a>/// fits in it and `gap + size &lt;= align + size`.
+<a href=#326 id=326 data-nosnippet>326</a></span><span class="attr">#[cfg_attr(
+<a href=#327 id=327 data-nosnippet>327</a>    not(all(feature = <span class="string">"global-allocator"</span>, not(feature = <span class="string">"std"</span>))),
+<a href=#328 id=328 data-nosnippet>328</a>    allow(dead_code)
+<a href=#329 id=329 data-nosnippet>329</a>)]
+<a href=#330 id=330 data-nosnippet>330</a></span><span class="kw">mod </span>over_align {
+<a href=#331 id=331 data-nosnippet>331</a>    <span class="kw">use </span>core::alloc::Layout;
+<a href=#332 id=332 data-nosnippet>332</a>
+<a href=#333 id=333 data-nosnippet>333</a>    <span class="kw">const </span>HEADER: usize = core::mem::size_of::&lt;usize&gt;();
 <a href=#334 id=334 data-nosnippet>334</a>
-<a href=#335 id=335 data-nosnippet>335</a>        <span class="doccomment">/// Record a deallocation of `size` bytes.
-<a href=#336 id=336 data-nosnippet>336</a>        </span><span class="attr">#[inline]
-<a href=#337 id=337 data-nosnippet>337</a>        </span><span class="kw">pub fn </span>on_dealloc(<span class="kw-2">&amp;</span><span class="self">self</span>, size: usize) {
-<a href=#338 id=338 data-nosnippet>338</a>            <span class="self">self</span>.used_bytes.fetch_sub(size, Ordering::Relaxed);
-<a href=#339 id=339 data-nosnippet>339</a>        }
-<a href=#340 id=340 data-nosnippet>340</a>
-<a href=#341 id=341 data-nosnippet>341</a>        <span class="doccomment">/// Bytes currently outstanding.
-<a href=#342 id=342 data-nosnippet>342</a>        </span><span class="attr">#[inline]
-<a href=#343 id=343 data-nosnippet>343</a>        </span><span class="kw">pub fn </span>used(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
-<a href=#344 id=344 data-nosnippet>344</a>            <span class="self">self</span>.used_bytes.load(Ordering::Relaxed)
-<a href=#345 id=345 data-nosnippet>345</a>        }
-<a href=#346 id=346 data-nosnippet>346</a>
-<a href=#347 id=347 data-nosnippet>347</a>        <span class="doccomment">/// Peak outstanding bytes since boot.
-<a href=#348 id=348 data-nosnippet>348</a>        </span><span class="attr">#[inline]
-<a href=#349 id=349 data-nosnippet>349</a>        </span><span class="kw">pub fn </span>peak(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
-<a href=#350 id=350 data-nosnippet>350</a>            <span class="self">self</span>.peak_bytes.load(Ordering::Relaxed)
-<a href=#351 id=351 data-nosnippet>351</a>        }
-<a href=#352 id=352 data-nosnippet>352</a>    }
-<a href=#353 id=353 data-nosnippet>353</a>
-<a href=#354 id=354 data-nosnippet>354</a>    <span class="kw">impl </span>Default <span class="kw">for </span>HeapStats {
-<a href=#355 id=355 data-nosnippet>355</a>        <span class="kw">fn </span>default() -&gt; <span class="self">Self </span>{
-<a href=#356 id=356 data-nosnippet>356</a>            <span class="self">Self</span>::new()
-<a href=#357 id=357 data-nosnippet>357</a>        }
-<a href=#358 id=358 data-nosnippet>358</a>    }
-<a href=#359 id=359 data-nosnippet>359</a>
-<a href=#360 id=360 data-nosnippet>360</a>    <span class="kw">pub static </span>STATS: HeapStats = HeapStats::new();
-<a href=#361 id=361 data-nosnippet>361</a>
-<a href=#362 id=362 data-nosnippet>362</a>    <span class="doccomment">/// Bytes currently outstanding through the Rust global allocator.
-<a href=#363 id=363 data-nosnippet>363</a>    </span><span class="attr">#[inline]
-<a href=#364 id=364 data-nosnippet>364</a>    </span><span class="kw">pub fn </span>used() -&gt; usize {
-<a href=#365 id=365 data-nosnippet>365</a>        STATS.used()
-<a href=#366 id=366 data-nosnippet>366</a>    }
-<a href=#367 id=367 data-nosnippet>367</a>
-<a href=#368 id=368 data-nosnippet>368</a>    <span class="doccomment">/// Peak outstanding bytes through the Rust global allocator since boot.
-<a href=#369 id=369 data-nosnippet>369</a>    </span><span class="attr">#[inline]
-<a href=#370 id=370 data-nosnippet>370</a>    </span><span class="kw">pub fn </span>peak() -&gt; usize {
-<a href=#371 id=371 data-nosnippet>371</a>        STATS.peak()
-<a href=#372 id=372 data-nosnippet>372</a>    }
-<a href=#373 id=373 data-nosnippet>373</a>}
+<a href=#335 id=335 data-nosnippet>335</a>    <span class="doccomment">/// The raw block's size for `layout`, or `None` on overflow.
+<a href=#336 id=336 data-nosnippet>336</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>raw_size(layout: Layout) -&gt; <span class="prelude-ty">Option</span>&lt;usize&gt; {
+<a href=#337 id=337 data-nosnippet>337</a>        layout.size().checked_add(layout.align())
+<a href=#338 id=338 data-nosnippet>338</a>    }
+<a href=#339 id=339 data-nosnippet>339</a>
+<a href=#340 id=340 data-nosnippet>340</a>    <span class="doccomment">/// The aligned pointer inside `raw` (null stays null).
+<a href=#341 id=341 data-nosnippet>341</a>    ///
+<a href=#342 id=342 data-nosnippet>342</a>    /// # Safety
+<a href=#343 id=343 data-nosnippet>343</a>    /// `raw` is null or an 8-aligned block of `raw_size(layout)` bytes, and
+<a href=#344 id=344 data-nosnippet>344</a>    /// `layout.align() &gt; 8`.
+<a href=#345 id=345 data-nosnippet>345</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>place(raw: <span class="kw-2">*mut </span>u8, layout: Layout) -&gt; <span class="kw-2">*mut </span>u8 {
+<a href=#346 id=346 data-nosnippet>346</a>        <span class="kw">if </span>raw.is_null() {
+<a href=#347 id=347 data-nosnippet>347</a>            <span class="kw">return </span>raw;
+<a href=#348 id=348 data-nosnippet>348</a>        }
+<a href=#349 id=349 data-nosnippet>349</a>        <span class="kw">let </span>align = layout.align();
+<a href=#350 id=350 data-nosnippet>350</a>        <span class="kw">let </span>start = raw <span class="kw">as </span>usize;
+<a href=#351 id=351 data-nosnippet>351</a>        <span class="kw">let </span>aligned = (start + HEADER + align - <span class="number">1</span>) &amp; !(align - <span class="number">1</span>);
+<a href=#352 id=352 data-nosnippet>352</a>        <span class="kw">let </span>p = raw.wrapping_add(aligned - start);
+<a href=#353 id=353 data-nosnippet>353</a>        <span class="comment">// SAFETY: `aligned - HEADER &gt;= start`, and it is 8-aligned (both
+<a href=#354 id=354 data-nosnippet>354</a>        // `aligned` and `start` are), inside the raw block.
+<a href=#355 id=355 data-nosnippet>355</a>        </span><span class="kw">unsafe </span>{ (p.sub(HEADER) <span class="kw">as </span><span class="kw-2">*mut </span>usize).write(start) };
+<a href=#356 id=356 data-nosnippet>356</a>        p
+<a href=#357 id=357 data-nosnippet>357</a>    }
+<a href=#358 id=358 data-nosnippet>358</a>
+<a href=#359 id=359 data-nosnippet>359</a>    <span class="doccomment">/// The raw block `place` carved `p` out of.
+<a href=#360 id=360 data-nosnippet>360</a>    ///
+<a href=#361 id=361 data-nosnippet>361</a>    /// # Safety
+<a href=#362 id=362 data-nosnippet>362</a>    /// `p` came from `place`.
+<a href=#363 id=363 data-nosnippet>363</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">unsafe fn </span>raw_of(p: <span class="kw-2">*mut </span>u8) -&gt; <span class="kw-2">*mut </span>u8 {
+<a href=#364 id=364 data-nosnippet>364</a>        <span class="comment">// SAFETY: `place` wrote the raw pointer there.
+<a href=#365 id=365 data-nosnippet>365</a>        </span><span class="kw">let </span>start = <span class="kw">unsafe </span>{ (p.sub(HEADER) <span class="kw">as </span><span class="kw-2">*const </span>usize).read() };
+<a href=#366 id=366 data-nosnippet>366</a>        p.wrapping_sub(p <span class="kw">as </span>usize - start)
+<a href=#367 id=367 data-nosnippet>367</a>    }
+<a href=#368 id=368 data-nosnippet>368</a>
+<a href=#369 id=369 data-nosnippet>369</a>    <span class="attr">#[cfg(test)]
+<a href=#370 id=370 data-nosnippet>370</a>    </span><span class="kw">mod </span>tests {
+<a href=#371 id=371 data-nosnippet>371</a>        <span class="kw">extern crate </span>std;
+<a href=#372 id=372 data-nosnippet>372</a>        <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#373 id=373 data-nosnippet>373</a>        <span class="kw">use </span>std::{vec, vec::Vec};
+<a href=#374 id=374 data-nosnippet>374</a>
+<a href=#375 id=375 data-nosnippet>375</a>        <span class="attr">#[test]
+<a href=#376 id=376 data-nosnippet>376</a>        </span><span class="kw">fn </span>every_offset_fits_and_round_trips() {
+<a href=#377 id=377 data-nosnippet>377</a>            <span class="kw">for </span>align <span class="kw">in </span>[<span class="number">16usize</span>, <span class="number">32</span>, <span class="number">64</span>, <span class="number">128</span>] {
+<a href=#378 id=378 data-nosnippet>378</a>                <span class="kw">for </span>size <span class="kw">in </span>[<span class="number">1usize</span>, <span class="number">8</span>, <span class="number">63</span>, <span class="number">64</span>, <span class="number">128</span>, <span class="number">200</span>] {
+<a href=#379 id=379 data-nosnippet>379</a>                    <span class="kw">let </span>layout = Layout::from_size_align(size, align).unwrap();
+<a href=#380 id=380 data-nosnippet>380</a>                    <span class="kw">let </span>n = raw_size(layout).unwrap();
+<a href=#381 id=381 data-nosnippet>381</a>                    <span class="comment">// Every 8-aligned start an align-period can present.
+<a href=#382 id=382 data-nosnippet>382</a>                    </span><span class="kw">let </span><span class="kw-2">mut </span>buf: Vec&lt;u64&gt; = <span class="macro">vec!</span>[<span class="number">0</span>; (n + <span class="number">2 </span>* align) / <span class="number">8 </span>+ <span class="number">1</span>];
+<a href=#383 id=383 data-nosnippet>383</a>                    <span class="kw">let </span>base = buf.as_mut_ptr() <span class="kw">as </span><span class="kw-2">*mut </span>u8;
+<a href=#384 id=384 data-nosnippet>384</a>                    <span class="kw">for </span>off <span class="kw">in </span>(<span class="number">0</span>..align).step_by(<span class="number">8</span>) {
+<a href=#385 id=385 data-nosnippet>385</a>                        <span class="kw">let </span>raw = base.wrapping_add(off);
+<a href=#386 id=386 data-nosnippet>386</a>                        <span class="kw">let </span>p = <span class="kw">unsafe </span>{ place(raw, layout) };
+<a href=#387 id=387 data-nosnippet>387</a>                        <span class="macro">assert_eq!</span>(p <span class="kw">as </span>usize % align, <span class="number">0</span>);
+<a href=#388 id=388 data-nosnippet>388</a>                        <span class="macro">assert!</span>(p <span class="kw">as </span>usize - raw <span class="kw">as </span>usize &gt;= HEADER);
+<a href=#389 id=389 data-nosnippet>389</a>                        <span class="macro">assert!</span>(p <span class="kw">as </span>usize + size &lt;= raw <span class="kw">as </span>usize + n);
+<a href=#390 id=390 data-nosnippet>390</a>                        <span class="macro">assert_eq!</span>(<span class="kw">unsafe </span>{ raw_of(p) }, raw);
+<a href=#391 id=391 data-nosnippet>391</a>                    }
+<a href=#392 id=392 data-nosnippet>392</a>                }
+<a href=#393 id=393 data-nosnippet>393</a>            }
+<a href=#394 id=394 data-nosnippet>394</a>        }
+<a href=#395 id=395 data-nosnippet>395</a>
+<a href=#396 id=396 data-nosnippet>396</a>        <span class="attr">#[test]
+<a href=#397 id=397 data-nosnippet>397</a>        </span><span class="kw">fn </span>null_stays_null() {
+<a href=#398 id=398 data-nosnippet>398</a>            <span class="kw">let </span>layout = Layout::from_size_align(<span class="number">128</span>, <span class="number">64</span>).unwrap();
+<a href=#399 id=399 data-nosnippet>399</a>            <span class="macro">assert!</span>(<span class="kw">unsafe </span>{ place(core::ptr::null_mut(), layout) }.is_null());
+<a href=#400 id=400 data-nosnippet>400</a>        }
+<a href=#401 id=401 data-nosnippet>401</a>    }
+<a href=#402 id=402 data-nosnippet>402</a>}
+<a href=#403 id=403 data-nosnippet>403</a>
+<a href=#404 id=404 data-nosnippet>404</a><span class="comment">// phase-361 W8.c — the Rust-footprint heap counter, moved here with the
+<a href=#405 id=405 data-nosnippet>405</a>// allocator it instruments. It counts only what passes through the
+<a href=#406 id=406 data-nosnippet>406</a>// `#[global_allocator]`; the C side's direct `nros_platform_alloc` traffic
+<a href=#407 id=407 data-nosnippet>407</a>// (zenoh-pico's `z_malloc` etc.) is not seen, so it under-reports true heap
+<a href=#408 id=408 data-nosnippet>408</a>// pressure. The *unified* figure is the platform's own
+<a href=#409 id=409 data-nosnippet>409</a>// `nros_platform_heap_used_bytes` (RFC-0034 D7).
+<a href=#410 id=410 data-nosnippet>410</a>//
+<a href=#411 id=411 data-nosnippet>411</a>// No `#[no_mangle]` here: the C names (`rclc_heap_used_bytes` …) belong to the
+<a href=#412 id=412 data-nosnippet>412</a>// C/C++ API surface and stay exported by `nros-c` / `nros-cpp`, which read
+<a href=#413 id=413 data-nosnippet>413</a>// these accessors. A pure-Rust image gets the counter without gaining C
+<a href=#414 id=414 data-nosnippet>414</a>// symbols it never asked for.
+<a href=#415 id=415 data-nosnippet>415</a></span><span class="attr">#[cfg(feature = <span class="string">"alloc-stats"</span>)]
+<a href=#416 id=416 data-nosnippet>416</a></span><span class="kw">pub mod </span>heap_stats {
+<a href=#417 id=417 data-nosnippet>417</a>    <span class="kw">use </span>core::sync::atomic::{AtomicUsize, Ordering};
+<a href=#418 id=418 data-nosnippet>418</a>
+<a href=#419 id=419 data-nosnippet>419</a>    <span class="doccomment">/// Bytes outstanding through the Rust global allocator, and the high-water
+<a href=#420 id=420 data-nosnippet>420</a>    /// mark since boot. `Relaxed` throughout — this is instrumentation, and no
+<a href=#421 id=421 data-nosnippet>421</a>    /// other state is ordered against it.
+<a href=#422 id=422 data-nosnippet>422</a>    </span><span class="kw">pub struct </span>HeapStats {
+<a href=#423 id=423 data-nosnippet>423</a>        used_bytes: AtomicUsize,
+<a href=#424 id=424 data-nosnippet>424</a>        peak_bytes: AtomicUsize,
+<a href=#425 id=425 data-nosnippet>425</a>    }
+<a href=#426 id=426 data-nosnippet>426</a>
+<a href=#427 id=427 data-nosnippet>427</a>    <span class="kw">impl </span>HeapStats {
+<a href=#428 id=428 data-nosnippet>428</a>        <span class="doccomment">/// Create a zeroed counter. `const` so it can back a `static`.
+<a href=#429 id=429 data-nosnippet>429</a>        </span><span class="kw">pub const fn </span>new() -&gt; <span class="self">Self </span>{
+<a href=#430 id=430 data-nosnippet>430</a>            <span class="self">Self </span>{
+<a href=#431 id=431 data-nosnippet>431</a>                used_bytes: AtomicUsize::new(<span class="number">0</span>),
+<a href=#432 id=432 data-nosnippet>432</a>                peak_bytes: AtomicUsize::new(<span class="number">0</span>),
+<a href=#433 id=433 data-nosnippet>433</a>            }
+<a href=#434 id=434 data-nosnippet>434</a>        }
+<a href=#435 id=435 data-nosnippet>435</a>
+<a href=#436 id=436 data-nosnippet>436</a>        <span class="doccomment">/// Record a successful allocation of `size` bytes and update the peak.
+<a href=#437 id=437 data-nosnippet>437</a>        </span><span class="attr">#[inline]
+<a href=#438 id=438 data-nosnippet>438</a>        </span><span class="kw">pub fn </span>on_alloc(<span class="kw-2">&amp;</span><span class="self">self</span>, size: usize) {
+<a href=#439 id=439 data-nosnippet>439</a>            <span class="kw">let </span>used = <span class="self">self</span>.used_bytes.fetch_add(size, Ordering::Relaxed) + size;
+<a href=#440 id=440 data-nosnippet>440</a>            <span class="kw">let _ </span>= <span class="self">self</span>.peak_bytes.fetch_max(used, Ordering::Relaxed);
+<a href=#441 id=441 data-nosnippet>441</a>        }
+<a href=#442 id=442 data-nosnippet>442</a>
+<a href=#443 id=443 data-nosnippet>443</a>        <span class="doccomment">/// Record a deallocation of `size` bytes.
+<a href=#444 id=444 data-nosnippet>444</a>        </span><span class="attr">#[inline]
+<a href=#445 id=445 data-nosnippet>445</a>        </span><span class="kw">pub fn </span>on_dealloc(<span class="kw-2">&amp;</span><span class="self">self</span>, size: usize) {
+<a href=#446 id=446 data-nosnippet>446</a>            <span class="self">self</span>.used_bytes.fetch_sub(size, Ordering::Relaxed);
+<a href=#447 id=447 data-nosnippet>447</a>        }
+<a href=#448 id=448 data-nosnippet>448</a>
+<a href=#449 id=449 data-nosnippet>449</a>        <span class="doccomment">/// Bytes currently outstanding.
+<a href=#450 id=450 data-nosnippet>450</a>        </span><span class="attr">#[inline]
+<a href=#451 id=451 data-nosnippet>451</a>        </span><span class="kw">pub fn </span>used(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
+<a href=#452 id=452 data-nosnippet>452</a>            <span class="self">self</span>.used_bytes.load(Ordering::Relaxed)
+<a href=#453 id=453 data-nosnippet>453</a>        }
+<a href=#454 id=454 data-nosnippet>454</a>
+<a href=#455 id=455 data-nosnippet>455</a>        <span class="doccomment">/// Peak outstanding bytes since boot.
+<a href=#456 id=456 data-nosnippet>456</a>        </span><span class="attr">#[inline]
+<a href=#457 id=457 data-nosnippet>457</a>        </span><span class="kw">pub fn </span>peak(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
+<a href=#458 id=458 data-nosnippet>458</a>            <span class="self">self</span>.peak_bytes.load(Ordering::Relaxed)
+<a href=#459 id=459 data-nosnippet>459</a>        }
+<a href=#460 id=460 data-nosnippet>460</a>    }
+<a href=#461 id=461 data-nosnippet>461</a>
+<a href=#462 id=462 data-nosnippet>462</a>    <span class="kw">impl </span>Default <span class="kw">for </span>HeapStats {
+<a href=#463 id=463 data-nosnippet>463</a>        <span class="kw">fn </span>default() -&gt; <span class="self">Self </span>{
+<a href=#464 id=464 data-nosnippet>464</a>            <span class="self">Self</span>::new()
+<a href=#465 id=465 data-nosnippet>465</a>        }
+<a href=#466 id=466 data-nosnippet>466</a>    }
+<a href=#467 id=467 data-nosnippet>467</a>
+<a href=#468 id=468 data-nosnippet>468</a>    <span class="kw">pub static </span>STATS: HeapStats = HeapStats::new();
+<a href=#469 id=469 data-nosnippet>469</a>
+<a href=#470 id=470 data-nosnippet>470</a>    <span class="doccomment">/// Bytes currently outstanding through the Rust global allocator.
+<a href=#471 id=471 data-nosnippet>471</a>    </span><span class="attr">#[inline]
+<a href=#472 id=472 data-nosnippet>472</a>    </span><span class="kw">pub fn </span>used() -&gt; usize {
+<a href=#473 id=473 data-nosnippet>473</a>        STATS.used()
+<a href=#474 id=474 data-nosnippet>474</a>    }
+<a href=#475 id=475 data-nosnippet>475</a>
+<a href=#476 id=476 data-nosnippet>476</a>    <span class="doccomment">/// Peak outstanding bytes through the Rust global allocator since boot.
+<a href=#477 id=477 data-nosnippet>477</a>    </span><span class="attr">#[inline]
+<a href=#478 id=478 data-nosnippet>478</a>    </span><span class="kw">pub fn </span>peak() -&gt; usize {
+<a href=#479 id=479 data-nosnippet>479</a>        STATS.peak()
+<a href=#480 id=480 data-nosnippet>480</a>    }
+<a href=#481 id=481 data-nosnippet>481</a>}
 </code></pre></div></section></main></body></html>

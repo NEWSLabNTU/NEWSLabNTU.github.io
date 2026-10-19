@@ -25,70 +25,71 @@
 <a href=#25 id=25 data-nosnippet>25</a>//! the owner wakes. A backend that cannot attribute (NULL slot, or
 <a href=#26 id=26 data-nosnippet>26</a>//! `UNSUPPORTED`) keeps the session wake, and the fan-out stays the fallback.
 <a href=#27 id=27 data-nosnippet>27</a>//!
-<a href=#28 id=28 data-nosnippet>28</a>//! W3 is the consumer of `ready`. Until it lands, the executor still scans;
-<a href=#29 id=29 data-nosnippet>29</a>//! the bits are accurate but unread.
-<a href=#30 id=30 data-nosnippet>30</a>
-<a href=#31 id=31 data-nosnippet>31</a></span><span class="kw">use </span>core::task::{RawWaker, RawWakerVTable, Waker};
-<a href=#32 id=32 data-nosnippet>32</a>
-<a href=#33 id=33 data-nosnippet>33</a><span class="kw">use </span>portable_atomic_util::Arc;
-<a href=#34 id=34 data-nosnippet>34</a>
-<a href=#35 id=35 data-nosnippet>35</a><span class="kw">use </span><span class="kw">super</span>::spin::WakeCtx;
-<a href=#36 id=36 data-nosnippet>36</a>
-<a href=#37 id=37 data-nosnippet>37</a><span class="doccomment">/// Slots the ready word can name: one `usize` (64 on a 64-bit target, 32 on
-<a href=#38 id=38 data-nosnippet>38</a>/// a 32-bit one, which may have no 64-bit atomics). An entry above this keeps
-<a href=#39 id=39 data-nosnippet>39</a>/// the session-scoped wake.
-<a href=#40 id=40 data-nosnippet>40</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const </span>SLOTS: usize = usize::BITS <span class="kw">as </span>usize;
-<a href=#41 id=41 data-nosnippet>41</a>
-<a href=#42 id=42 data-nosnippet>42</a><span class="kw">const </span>SLOT_MASK: usize = SLOTS - <span class="number">1</span>;
-<a href=#43 id=43 data-nosnippet>43</a>
-<a href=#44 id=44 data-nosnippet>44</a><span class="kw">const _</span>: () = <span class="macro">assert!</span>(
-<a href=#45 id=45 data-nosnippet>45</a>    core::mem::align_of::&lt;WakeCtx&gt;() &gt;= SLOTS,
-<a href=#46 id=46 data-nosnippet>46</a>    <span class="string">"the slot rides in the low bits of the WakeCtx pointer, so WakeCtx must be aligned to SLOTS"
-<a href=#47 id=47 data-nosnippet>47</a></span>);
-<a href=#48 id=48 data-nosnippet>48</a>
-<a href=#49 id=49 data-nosnippet>49</a><span class="doccomment">/// The waker for `slot` of the executor that owns `ctx`, or `None` when the
-<a href=#50 id=50 data-nosnippet>50</a>/// slot is beyond what the ready word can name.
-<a href=#51 id=51 data-nosnippet>51</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>waker(ctx: <span class="kw-2">&amp;</span>Arc&lt;WakeCtx&gt;, slot: usize) -&gt; <span class="prelude-ty">Option</span>&lt;Waker&gt; {
-<a href=#52 id=52 data-nosnippet>52</a>    <span class="kw">if </span>slot &gt;= SLOTS {
-<a href=#53 id=53 data-nosnippet>53</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
-<a href=#54 id=54 data-nosnippet>54</a>    }
-<a href=#55 id=55 data-nosnippet>55</a>    <span class="kw">let </span>base = Arc::into_raw(ctx.clone()) <span class="kw">as </span>usize;
-<a href=#56 id=56 data-nosnippet>56</a>    <span class="macro">debug_assert_eq!</span>(base &amp; SLOT_MASK, <span class="number">0</span>, <span class="string">"WakeCtx is not aligned to SLOTS"</span>);
-<a href=#57 id=57 data-nosnippet>57</a>    <span class="kw">let </span>raw = RawWaker::new((base | slot) <span class="kw">as </span><span class="kw-2">*const </span>(), <span class="kw-2">&amp;</span>VTABLE);
-<a href=#58 id=58 data-nosnippet>58</a>    <span class="comment">// SAFETY: the vtable honours the RawWaker contract: `clone` takes a strong
-<a href=#59 id=59 data-nosnippet>59</a>    // reference, `drop` releases one, and `wake` consumes the one it was given.
-<a href=#60 id=60 data-nosnippet>60</a>    </span><span class="prelude-val">Some</span>(<span class="kw">unsafe </span>{ Waker::from_raw(raw) })
-<a href=#61 id=61 data-nosnippet>61</a>}
-<a href=#62 id=62 data-nosnippet>62</a>
-<a href=#63 id=63 data-nosnippet>63</a><span class="kw">fn </span>split(data: <span class="kw-2">*const </span>()) -&gt; (<span class="kw-2">*const </span>WakeCtx, usize) {
-<a href=#64 id=64 data-nosnippet>64</a>    <span class="kw">let </span>d = data <span class="kw">as </span>usize;
-<a href=#65 id=65 data-nosnippet>65</a>    ((d &amp; !SLOT_MASK) <span class="kw">as </span><span class="kw-2">*const </span>WakeCtx, d &amp; SLOT_MASK)
-<a href=#66 id=66 data-nosnippet>66</a>}
-<a href=#67 id=67 data-nosnippet>67</a>
-<a href=#68 id=68 data-nosnippet>68</a><span class="kw">static </span>VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
-<a href=#69 id=69 data-nosnippet>69</a>
-<a href=#70 id=70 data-nosnippet>70</a><span class="kw">unsafe fn </span>clone(data: <span class="kw-2">*const </span>()) -&gt; RawWaker {
-<a href=#71 id=71 data-nosnippet>71</a>    <span class="comment">// SAFETY: `data` came from `waker()`, so its base is an `Arc::into_raw`
-<a href=#72 id=72 data-nosnippet>72</a>    // pointer whose count this waker holds one of.
-<a href=#73 id=73 data-nosnippet>73</a>    </span><span class="kw">unsafe </span>{ Arc::increment_strong_count(split(data).<span class="number">0</span>) };
-<a href=#74 id=74 data-nosnippet>74</a>    RawWaker::new(data, <span class="kw-2">&amp;</span>VTABLE)
-<a href=#75 id=75 data-nosnippet>75</a>}
-<a href=#76 id=76 data-nosnippet>76</a>
-<a href=#77 id=77 data-nosnippet>77</a><span class="kw">unsafe fn </span>wake(data: <span class="kw-2">*const </span>()) {
-<a href=#78 id=78 data-nosnippet>78</a>    <span class="kw">unsafe </span>{
-<a href=#79 id=79 data-nosnippet>79</a>        wake_by_ref(data);
-<a href=#80 id=80 data-nosnippet>80</a>        drop(data);
-<a href=#81 id=81 data-nosnippet>81</a>    }
-<a href=#82 id=82 data-nosnippet>82</a>}
-<a href=#83 id=83 data-nosnippet>83</a>
-<a href=#84 id=84 data-nosnippet>84</a><span class="kw">unsafe fn </span>wake_by_ref(data: <span class="kw-2">*const </span>()) {
-<a href=#85 id=85 data-nosnippet>85</a>    <span class="kw">let </span>(ctx, slot) = split(data);
-<a href=#86 id=86 data-nosnippet>86</a>    <span class="comment">// SAFETY: this waker holds a strong reference, so the `WakeCtx` is alive.
-<a href=#87 id=87 data-nosnippet>87</a>    </span><span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>ctx }.mark_ready(slot);
-<a href=#88 id=88 data-nosnippet>88</a>}
-<a href=#89 id=89 data-nosnippet>89</a>
-<a href=#90 id=90 data-nosnippet>90</a><span class="kw">unsafe fn </span>drop(data: <span class="kw-2">*const </span>()) {
-<a href=#91 id=91 data-nosnippet>91</a>    <span class="comment">// SAFETY: releases the strong reference this waker held.
-<a href=#92 id=92 data-nosnippet>92</a>    </span><span class="kw">unsafe </span>{ Arc::decrement_strong_count(split(data).<span class="number">0</span>) };
-<a href=#93 id=93 data-nosnippet>93</a>}
+<a href=#28 id=28 data-nosnippet>28</a>//! W3 is the consumer of `ready`: `spin_once` takes the word and reads an
+<a href=#29 id=29 data-nosnippet>29</a>//! attributed slot's readiness from its bit instead of calling its
+<a href=#30 id=30 data-nosnippet>30</a>//! `has_data` (see `Executor::entity_recheck` for the cases that still ask).
+<a href=#31 id=31 data-nosnippet>31</a>
+<a href=#32 id=32 data-nosnippet>32</a></span><span class="kw">use </span>core::task::{RawWaker, RawWakerVTable, Waker};
+<a href=#33 id=33 data-nosnippet>33</a>
+<a href=#34 id=34 data-nosnippet>34</a><span class="kw">use </span>portable_atomic_util::Arc;
+<a href=#35 id=35 data-nosnippet>35</a>
+<a href=#36 id=36 data-nosnippet>36</a><span class="kw">use </span><span class="kw">super</span>::spin::WakeCtx;
+<a href=#37 id=37 data-nosnippet>37</a>
+<a href=#38 id=38 data-nosnippet>38</a><span class="doccomment">/// Slots the ready word can name: one `usize` (64 on a 64-bit target, 32 on
+<a href=#39 id=39 data-nosnippet>39</a>/// a 32-bit one, which may have no 64-bit atomics). An entry above this keeps
+<a href=#40 id=40 data-nosnippet>40</a>/// the session-scoped wake.
+<a href=#41 id=41 data-nosnippet>41</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">const </span>SLOTS: usize = usize::BITS <span class="kw">as </span>usize;
+<a href=#42 id=42 data-nosnippet>42</a>
+<a href=#43 id=43 data-nosnippet>43</a><span class="kw">const </span>SLOT_MASK: usize = SLOTS - <span class="number">1</span>;
+<a href=#44 id=44 data-nosnippet>44</a>
+<a href=#45 id=45 data-nosnippet>45</a><span class="kw">const _</span>: () = <span class="macro">assert!</span>(
+<a href=#46 id=46 data-nosnippet>46</a>    core::mem::align_of::&lt;WakeCtx&gt;() &gt;= SLOTS,
+<a href=#47 id=47 data-nosnippet>47</a>    <span class="string">"the slot rides in the low bits of the WakeCtx pointer, so WakeCtx must be aligned to SLOTS"
+<a href=#48 id=48 data-nosnippet>48</a></span>);
+<a href=#49 id=49 data-nosnippet>49</a>
+<a href=#50 id=50 data-nosnippet>50</a><span class="doccomment">/// The waker for `slot` of the executor that owns `ctx`, or `None` when the
+<a href=#51 id=51 data-nosnippet>51</a>/// slot is beyond what the ready word can name.
+<a href=#52 id=52 data-nosnippet>52</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>waker(ctx: <span class="kw-2">&amp;</span>Arc&lt;WakeCtx&gt;, slot: usize) -&gt; <span class="prelude-ty">Option</span>&lt;Waker&gt; {
+<a href=#53 id=53 data-nosnippet>53</a>    <span class="kw">if </span>slot &gt;= SLOTS {
+<a href=#54 id=54 data-nosnippet>54</a>        <span class="kw">return </span><span class="prelude-val">None</span>;
+<a href=#55 id=55 data-nosnippet>55</a>    }
+<a href=#56 id=56 data-nosnippet>56</a>    <span class="kw">let </span>base = Arc::into_raw(ctx.clone()) <span class="kw">as </span>usize;
+<a href=#57 id=57 data-nosnippet>57</a>    <span class="macro">debug_assert_eq!</span>(base &amp; SLOT_MASK, <span class="number">0</span>, <span class="string">"WakeCtx is not aligned to SLOTS"</span>);
+<a href=#58 id=58 data-nosnippet>58</a>    <span class="kw">let </span>raw = RawWaker::new((base | slot) <span class="kw">as </span><span class="kw-2">*const </span>(), <span class="kw-2">&amp;</span>VTABLE);
+<a href=#59 id=59 data-nosnippet>59</a>    <span class="comment">// SAFETY: the vtable honours the RawWaker contract: `clone` takes a strong
+<a href=#60 id=60 data-nosnippet>60</a>    // reference, `drop` releases one, and `wake` consumes the one it was given.
+<a href=#61 id=61 data-nosnippet>61</a>    </span><span class="prelude-val">Some</span>(<span class="kw">unsafe </span>{ Waker::from_raw(raw) })
+<a href=#62 id=62 data-nosnippet>62</a>}
+<a href=#63 id=63 data-nosnippet>63</a>
+<a href=#64 id=64 data-nosnippet>64</a><span class="kw">fn </span>split(data: <span class="kw-2">*const </span>()) -&gt; (<span class="kw-2">*const </span>WakeCtx, usize) {
+<a href=#65 id=65 data-nosnippet>65</a>    <span class="kw">let </span>d = data <span class="kw">as </span>usize;
+<a href=#66 id=66 data-nosnippet>66</a>    ((d &amp; !SLOT_MASK) <span class="kw">as </span><span class="kw-2">*const </span>WakeCtx, d &amp; SLOT_MASK)
+<a href=#67 id=67 data-nosnippet>67</a>}
+<a href=#68 id=68 data-nosnippet>68</a>
+<a href=#69 id=69 data-nosnippet>69</a><span class="kw">static </span>VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
+<a href=#70 id=70 data-nosnippet>70</a>
+<a href=#71 id=71 data-nosnippet>71</a><span class="kw">unsafe fn </span>clone(data: <span class="kw-2">*const </span>()) -&gt; RawWaker {
+<a href=#72 id=72 data-nosnippet>72</a>    <span class="comment">// SAFETY: `data` came from `waker()`, so its base is an `Arc::into_raw`
+<a href=#73 id=73 data-nosnippet>73</a>    // pointer whose count this waker holds one of.
+<a href=#74 id=74 data-nosnippet>74</a>    </span><span class="kw">unsafe </span>{ Arc::increment_strong_count(split(data).<span class="number">0</span>) };
+<a href=#75 id=75 data-nosnippet>75</a>    RawWaker::new(data, <span class="kw-2">&amp;</span>VTABLE)
+<a href=#76 id=76 data-nosnippet>76</a>}
+<a href=#77 id=77 data-nosnippet>77</a>
+<a href=#78 id=78 data-nosnippet>78</a><span class="kw">unsafe fn </span>wake(data: <span class="kw-2">*const </span>()) {
+<a href=#79 id=79 data-nosnippet>79</a>    <span class="kw">unsafe </span>{
+<a href=#80 id=80 data-nosnippet>80</a>        wake_by_ref(data);
+<a href=#81 id=81 data-nosnippet>81</a>        drop(data);
+<a href=#82 id=82 data-nosnippet>82</a>    }
+<a href=#83 id=83 data-nosnippet>83</a>}
+<a href=#84 id=84 data-nosnippet>84</a>
+<a href=#85 id=85 data-nosnippet>85</a><span class="kw">unsafe fn </span>wake_by_ref(data: <span class="kw-2">*const </span>()) {
+<a href=#86 id=86 data-nosnippet>86</a>    <span class="kw">let </span>(ctx, slot) = split(data);
+<a href=#87 id=87 data-nosnippet>87</a>    <span class="comment">// SAFETY: this waker holds a strong reference, so the `WakeCtx` is alive.
+<a href=#88 id=88 data-nosnippet>88</a>    </span><span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>ctx }.mark_ready(slot);
+<a href=#89 id=89 data-nosnippet>89</a>}
+<a href=#90 id=90 data-nosnippet>90</a>
+<a href=#91 id=91 data-nosnippet>91</a><span class="kw">unsafe fn </span>drop(data: <span class="kw-2">*const </span>()) {
+<a href=#92 id=92 data-nosnippet>92</a>    <span class="comment">// SAFETY: releases the strong reference this waker held.
+<a href=#93 id=93 data-nosnippet>93</a>    </span><span class="kw">unsafe </span>{ Arc::decrement_strong_count(split(data).<span class="number">0</span>) };
+<a href=#94 id=94 data-nosnippet>94</a>}
 </code></pre></div></section></main></body></html>
