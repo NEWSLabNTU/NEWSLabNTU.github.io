@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["launch_remaps","set_launch_remaps"],"struct":["BadLaunchRemap","LaunchRemap"]};
