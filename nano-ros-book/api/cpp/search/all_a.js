@@ -17,6 +17,7 @@ var searchData=
   ['discard_14',['discard',['../classrclcpp_1_1Publisher_1_1Loan.html#a757dcc88c8a049f7086c0d6f43cf3a19',1,'rclcpp::Publisher::Loan']]],
   ['domain_5fid_15',['domain_id',['../classrclcpp_1_1NodeBuilder.html#ae2b3cafdd7425282076e008bb7dd03a8',1,'rclcpp::NodeBuilder']]],
   ['durability_16',['durability',['../structnros__cpp__qos__t.html#a221e6bce6b2426d1c6546292cb922f10',1,'nros_cpp_qos_t::durability'],['../classrclcpp_1_1QoS.html#a990bf9800b726430d0b5b16d6afe31c0',1,'rclcpp::QoS::durability() const']]],
-  ['durability_5fvolatile_17',['durability_volatile',['../classrclcpp_1_1QoS.html#ac9f19f0b9730f0dfe0958cb1dec4741c',1,'rclcpp::QoS']]],
-  ['durabilitypolicy_18',['DurabilityPolicy',['../namespacerclcpp.html#ae9843ccd28bc49a283849198ffda8833',1,'rclcpp']]]
+  ['durability_5fbest_5favailable_17',['durability_best_available',['../classrclcpp_1_1QoS.html#a15af3ecad21714204e5e23f18ca54f1b',1,'rclcpp::QoS']]],
+  ['durability_5fvolatile_18',['durability_volatile',['../classrclcpp_1_1QoS.html#ac9f19f0b9730f0dfe0958cb1dec4741c',1,'rclcpp::QoS']]],
+  ['durabilitypolicy_19',['DurabilityPolicy',['../namespacerclcpp.html#ae9843ccd28bc49a283849198ffda8833',1,'rclcpp']]]
 ];
