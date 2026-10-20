@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-0b09b6a6.js";
+            window.path_to_searchindex_js = "../searchindex-cd2db515.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-734eb8f7.js"></script>
@@ -307,22 +307,30 @@ let status = sub.next_deadline_miss().await?;
 rclc_subscription_set_liveliness_changed_callback(
     sub, on_liveliness_changed, NULL);
 </code></pre>
-<p>Same shape on the four other event kinds. Each returns
-<code>NROS_RMW_RET_UNSUPPORTED</code> if the active backend doesn’t generate
-that event.</p>
+<p>Same shape on the four other event kinds.</p>
+<blockquote>
+<p><strong>Not wired yet (issue 1993).</strong> These five C setters, and their five
+C++ twins below, currently return <code>RCL_RET_UNSUPPORTED</code> /
+<code>ErrorCode::Unsupported</code> UNCONDITIONALLY — on every backend, including
+Cyclone DDS and zenoh-pico, which do generate the events. The callback
+is never stored. Until issue 1993 lands, the Tier-1 events are reachable
+from Rust (<code>nros-node</code>’s <code>on_*</code>) only.</p>
+</blockquote>
 <h3 id="c-1"><a class="header" href="#c-1">C++</a></h3>
-<pre><code class="language-cpp">sub.on_liveliness_changed([&amp;](rclcpp::LivelinessChangedStatus status) {
+<pre><code class="language-cpp">static void on_liveliness_changed(void* storage,
+                                  nros_cpp_liveliness_changed_status_t status,
+                                  void* user_context) {
     if (status.alive_count == 0) trigger_failover();
-});
+}
 
-sub.on_requested_deadline_missed(
-    std::chrono::milliseconds(15),
-    [&amp;](rclcpp::DeadlineMissedStatus status) {
-        late_count_ += status.total_count_change;
-    });
+// On `rclcpp::PollingSubscription` / `rclcpp::Publisher`.
+sub.on_liveliness_changed(on_liveliness_changed, nullptr);
+sub.on_requested_deadline_missed(15 /* ms */, on_deadline_missed, nullptr);
 </code></pre>
-<p><code>std::function</code> overloads available with <code>NROS_CPP_STD</code>; freestanding
-mode uses C function pointers + user-context.</p>
+<p>C function pointers + <code>user_context</code> only; there are no lambda or
+<code>std::function</code> overloads. The subscription-side setters exist on
+<code>PollingSubscription</code> alone. Same caveat as C: they currently answer
+<code>ErrorCode::Unsupported</code> on every backend (issue 1993).</p>
 <h2 id="how-dispatch-works"><a class="header" href="#how-dispatch-works">How dispatch works</a></h2>
 <p>Events fire from inside <code>drive_io</code> on the executor thread, the same
 way message callbacks do:</p>
