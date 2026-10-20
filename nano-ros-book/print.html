@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-e1b37458.js";
+            window.path_to_searchindex_js = "searchindex-0b09b6a6.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-734eb8f7.js"></script>
@@ -11164,8 +11164,10 @@ exposes a Tier-1 subset useful for embedded RTOS deployments —
 liveliness changes, deadline misses, and message loss.</p>
 <p>This page describes the event surface, the dispatch model, and the
 patterns that motivate having events at all on RTOS targets.</p>
-<h2 id="the-tier-1-events"><a class="header" href="#the-tier-1-events">The Tier-1 events</a></h2>
-<p>Five event kinds. Three on subscribers, two on publishers.</p>
+<h2 id="the-event-kinds"><a class="header" href="#the-event-kinds">The event kinds</a></h2>
+<p>Nine event kinds: the five Tier-1 kinds below, plus Iron’s matched and
+incompatible-type pairs (<a href="#matched-and-incompatible-type-iron">below</a>).
+Three Tier-1 kinds on subscribers, two on publishers.</p>
 <h3 id="subscriber-events"><a class="header" href="#subscriber-events">Subscriber events</a></h3>
 <div class="table-wrapper">
 <table>
@@ -11191,6 +11193,47 @@ patterns that motivate having events at all on RTOS targets.</p>
 </tbody>
 </table>
 </div>
+<h3 id="matched-and-incompatible-type-iron"><a class="header" href="#matched-and-incompatible-type-iron">Matched and incompatible type (Iron+)</a></h3>
+<p>Issue 1972. Both pairs have one kind per side.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Kind</th><th>Side</th><th>Fires when</th><th>Payload</th></tr>
+</thead>
+<tbody>
+<tr><td><code>PublicationMatched</code></td><td>publisher</td><td>a subscription starts or stops matching it</td><td><code>MatchedStatus</code></td></tr>
+<tr><td><code>SubscriptionMatched</code></td><td>subscription</td><td>a publisher starts or stops matching it</td><td><code>MatchedStatus</code></td></tr>
+<tr><td><code>PublisherIncompatibleType</code></td><td>publisher</td><td>a subscription on the same topic name with another type appears</td><td><code>IncompatibleTypeStatus</code></td></tr>
+<tr><td><code>SubscriptionIncompatibleType</code></td><td>subscription</td><td>a publisher on the same topic name with another type appears</td><td><code>IncompatibleTypeStatus</code></td></tr>
+</tbody>
+</table>
+</div>
+<p><code>MatchedStatus</code> is upstream’s <code>rmw_matched_status_t</code> — <code>total_count</code>,
+<code>total_count_change</code>, <code>current_count</code>, <code>current_count_change</code> (signed: an
+endpoint leaving is <code>-1</code>). The typical use is “start publishing once somebody
+listens”:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub_.on_matched(|s| {
+    if s.current_count &gt; 0 { LISTENER_PRESENT.store(true, Ordering::Release); }
+})?;
+// Publisher-side events are observed on the publisher's poll points, so a
+// publisher that is not publishing yet gives it one:
+while !LISTENER_PRESENT.load(Ordering::Acquire) {
+    let _ = pub_.assert_liveliness();
+    executor.spin_once(Duration::from_millis(50));
+}
+<span class="boring">}</span></code></pre>
+<p>C: <code>rclc_publisher_set_matched_callback</code>,
+<code>rclc_publisher_set_incompatible_type_callback</code>,
+<code>rclc_subscription_set_matched_callback</code> and
+<code>rclc_subscription_set_incompatible_type_callback</code> (the subscription must
+be added to an executor first), payloads <code>rclc_matched_status_t</code> /
+<code>rclc_incompatible_type_status_t</code>. C++: <code>Publisher::on_matched</code> /
+<code>on_incompatible_type</code> and the same pair on <code>PollSubscription</code>, taking
+rclcpp’s <code>MatchedInfo</code> / <code>IncompatibleTypeInfo</code> through a function pointer
+plus <code>user_context</code>. Unlike the five Tier-1 C/C++ setters below, these
+four reach the backend today.</p>
 <h2 id="registering-callbacks"><a class="header" href="#registering-callbacks">Registering callbacks</a></h2>
 <p>Same shape as message callbacks. Register at construction time;
 callback fires from inside <code>spin_once</code> when the backend detects the
@@ -11297,6 +11340,13 @@ are cheap.</p>
 </tbody>
 </table>
 </div>
+<p>Matched / incompatible type: <strong>Cyclone DDS</strong> (its own matched status;
+builtin-topic type comparison) and <strong>zenoh-pico</strong> (the graph cache’s
+liveliness tokens, as <code>rmw_zenoh_cpp</code> does) carry both pairs; <strong>XRCE-DDS</strong>
+and <strong>uORB</strong> answer <code>Unsupported</code>. On zenoh the counts are snapshots of the
+graph cache, so <code>total_count</code> counts increases seen between polls, and an
+image built with graph discovery off (<code>ZPICO_GRAPH_DISCOVERY=0</code>) refuses the
+registration.</p>
 <p>✅ = wired. ✗ = not wired (registration answers <code>Unsupported</code>). The
 slot-level view is generated from the backend sources in the
 <a href="#per-rmw-feature-matrix">per-RMW feature matrix</a>.</p>
@@ -11325,22 +11375,13 @@ support before registering:</p>
 <p>Apps that need cross-backend portability code defensively. Apps
 pinned to one backend can call register-and-unwrap.</p>
 <h2 id="whats-deliberately-skipped"><a class="header" href="#whats-deliberately-skipped">What’s deliberately skipped</a></h2>
-<p>Three upstream event types are intentionally absent from the API:</p>
-<h3 id="_matched-publication--subscription-matched"><a class="header" href="#_matched-publication--subscription-matched"><code>*_MATCHED</code> (publication / subscription matched)</a></h3>
-<p>Fires when a remote endpoint appears or disappears. Useful for
-discovery-tracking dashboards and dynamic-topology apps. Static-
-topology embedded apps don’t benefit; if a use case appears, the
-event kind is additive.</p>
+<p>One upstream event type is intentionally absent from the API (<code>*_MATCHED</code>
+and <code>*_INCOMPATIBLE_TYPE</code> were listed here until issue 1972 adopted them):</p>
 <h3 id="_qos_incompatible"><a class="header" href="#_qos_incompatible"><code>*_QOS_INCOMPATIBLE</code></a></h3>
 <p>Fires when publisher and subscriber QoS profiles can’t be
 reconciled. nano-ros surfaces this synchronously at <code>create_publisher</code>
 / <code>create_subscription</code> time as <code>NROS_RMW_RET_INCOMPATIBLE_QOS</code>. No
 runtime event needed; the failure is visible at startup.</p>
-<h3 id="_incompatible_type"><a class="header" href="#_incompatible_type"><code>*_INCOMPATIBLE_TYPE</code></a></h3>
-<p>Type-hash mismatch. Same: surfaced synchronously as
-<code>NROS_RMW_RET_TOPIC_NAME_INVALID</code> (or a future <code>INCOMPATIBLE_TYPE</code> code,
-unprefixed here because <code>rmw_ret.h</code> does not define one yet — issue 1126)
-at creation. No runtime event.</p>
 <h2 id="patterns"><a class="header" href="#patterns">Patterns</a></h2>
 <h3 id="drone-bridge-fail-over-on-liveliness-loss"><a class="header" href="#drone-bridge-fail-over-on-liveliness-loss">Drone-bridge fail-over on liveliness loss</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -18861,9 +18902,9 @@ rmw_ret_t rmw_take_event(
 match, message-lost, type-incompatibility — all dispatched through
 the waitset.</p>
 <p><strong>nano-ros.</strong> Callback-on-entity for a Tier-1 subset (liveliness
-changes, deadline misses, message lost). Skips the waitset. Skips
-Tier-2 (<code>MATCHED</code>) and Tier-3 (<code>QOS_INCOMPATIBLE</code>,
-<code>INCOMPATIBLE_TYPE</code>) — see “What’s skipped” below.</p>
+changes, deadline misses, message lost) plus Iron’s matched and
+incompatible-type kinds (issue 1972). Skips the waitset. Skips
+<code>QOS_INCOMPATIBLE</code> — see “What’s skipped” below.</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>sub.on_liveliness_changed(|status| {
@@ -18890,20 +18931,28 @@ sub.on_message_lost(|status| log::warn!("dropped {}", status.total_count_change)
 <tr><td>Requested deadline missed</td><td>sub</td><td><code>on_requested_deadline_missed(deadline, DeadlineMissedStatus)</code></td></tr>
 <tr><td>Offered deadline missed</td><td>pub</td><td><code>on_offered_deadline_missed(deadline, DeadlineMissedStatus)</code></td></tr>
 <tr><td>Message lost</td><td>sub</td><td><code>on_message_lost(MessageLostStatus)</code></td></tr>
+<tr><td>Publication / subscription matched (Iron+)</td><td>pub / sub</td><td><code>on_matched(MatchedStatus)</code></td></tr>
+<tr><td>Publisher / subscription incompatible type (Iron+)</td><td>pub / sub</td><td><code>on_incompatible_type(IncompatibleTypeStatus)</code></td></tr>
 </tbody>
 </table>
 </div>
+<p>The matched pair and the incompatible-type pair are values 5..8 of
+<code>rmw_event_type_t</code>, APPENDED: upstream inserted them mid-enum, and ours was
+never value-compatible with upstream’s, so appending keeps every existing
+value. The payloads are upstream’s <code>rmw_matched_status_t</code> (four counts, in
+upstream’s order) and <code>rmw_incompatible_type_status_t</code>, at fixed <code>uint32_t</code>
+widths.</p>
 <h3 id="whats-skipped"><a class="header" href="#whats-skipped">What’s skipped</a></h3>
 <ul>
-<li><strong><code>MATCHED</code></strong> — embedded apps usually have static topology;
-rarely load-bearing. Add the kind if a discovery-tracking app
-shows up; additive.</li>
-<li><strong><code>QOS_INCOMPATIBLE</code></strong> / <strong><code>INCOMPATIBLE_TYPE</code></strong> — these surface
-at create time, not as runtime events. The existing
-<code>rmw_ret_t</code> codes (<code>NROS_RMW_RET_INCOMPATIBLE_QOS</code>) carry
-the diagnostic synchronously from <code>create_publisher</code> /
-<code>create_subscription</code>. No event needed.</li>
+<li><strong><code>QOS_INCOMPATIBLE</code></strong> — surfaces at create time, not as a runtime
+event: <code>NROS_RMW_RET_INCOMPATIBLE_QOS</code> carries the diagnostic
+synchronously from <code>create_publisher</code> / <code>create_subscription</code>.</li>
 </ul>
+<p><code>MATCHED</code> was skipped here until issue 1972 ruled it ADOPT: “start
+publishing once somebody listens” is the event an embedded node most often
+wants, and without it the node polls the matched count. <code>INCOMPATIBLE_TYPE</code>
+came with it — the same graph machinery, and a peer with another type on
+the same name is a runtime condition no create-time code can report.</p>
 <h3 id="dispatch--callback-on-entity-not-waitset-take"><a class="header" href="#dispatch--callback-on-entity-not-waitset-take">Dispatch — callback-on-entity, not waitset-take</a></h3>
 <p>Events fire from inside the existing <code>drive_io</code> callback-dispatch
 path. The backend’s RX worker detects an event in the same place it
@@ -18940,6 +18989,24 @@ generate every event:</p>
 </tbody>
 </table>
 </div>
+<p>Matched / incompatible type (issue 1972):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Backend</th><th>Matched</th><th>Incompatible type</th></tr>
+</thead>
+<tbody>
+<tr><td>Cyclone DDS</td><td>✅ Polled: <code>dds_get_{publication,subscription}_matched_status</code> — QoS-compatible endpoints only, as upstream counts them. The change fields are computed against what the event last reported, because other readers of the same status reset Cyclone’s own change counters</td><td>✅ Polled: endpoints on the same DDS topic name with another type name, read from the builtin <code>DCPSPublication</code> / <code>DCPSSubscription</code> topics. NOT <code>DDS_INCONSISTENT_TOPIC_STATUS</code> (what <code>rmw_cyclonedds_cpp</code> maps it to): the pinned 0.10.5 never raises it</td></tr>
+<tr><td>zenoh-pico</td><td>✅ From the session’s graph cache: liveliness tokens of the opposite kind with the same topic name and type, as <code>rmw_zenoh_cpp</code> derives it. Snapshot-based, so <code>total_count</code> counts increases seen between polls; QoS is not consulted</td><td>✅ Same walk: same name, another type</td></tr>
+<tr><td>XRCE-DDS</td><td>❌ No event slot</td><td>❌</td></tr>
+<tr><td>uORB</td><td>❌ No event slot</td><td>❌</td></tr>
+</tbody>
+</table>
+</div>
+<p>Both producers are POLLED from the entity’s data path, so a publisher
+observes a new match on its next <code>publish</code> or <code>assert_liveliness</code> — the
+latter is the poll point for a publisher that waits for a listener before
+publishing.</p>
 <p><code>assert_liveliness()</code> (manual): <strong>cyclonedds</strong> performs a real assertion
 (<code>dds_assert_liveliness</code>). <strong>zenoh-pico, XRCE-DDS and uORB</strong> have no
 per-topic lease, so under <code>MANUAL_BY_TOPIC</code> / <code>MANUAL_BY_NODE</code> they answer
@@ -25141,10 +25208,10 @@ editions discover nothing (different key expressions).</p>
 (<code>docs/reference/editions/jazzy/</code>), since it cannot be installed beside
 Humble. Iron is not compared on its own; what it added and Jazzy kept is
 covered there. Jazzy’s additions over Humble are each RULED, not each implemented:
-matched/incompatible-type events, timer call info and a few rclcpp
-accessors are open gaps (issues 1972, 1974 and 1975);
+matched/incompatible-type events (issue 1972), timer call info
+(issue 1974), the small rclcpp accessors (issue 1975),
 <code>count_clients</code>/<code>count_services</code>, the client GID and
-<code>event_type_is_supported</code> are implemented (issue 1978);
+<code>event_type_is_supported</code> (issue 1978) are implemented;
 <code>BEST_AVAILABLE</code> QoS is implemented,
 resolved at creation against the discovered graph (issue 1973);
 dynamic typesupport, service introspection and the
@@ -27209,6 +27276,7 @@ automatically as backends land implementations.</p>
 <tr><td>Service clients</td><td>wired</td><td>wired</td><td>wired</td><td>—</td></tr>
 <tr><td>Server-availability probe</td><td>wired</td><td>—</td><td>wired</td><td>—</td></tr>
 <tr><td>Status events (deadline / liveliness / lost)</td><td>wired</td><td>—</td><td>wired</td><td>—</td></tr>
+<tr><td>Matched / incompatible-type events (Iron+)</td><td>wired</td><td>—</td><td>wired</td><td>—</td></tr>
 <tr><td>Manual liveliness assert</td><td>—</td><td>—</td><td>wired</td><td>—</td></tr>
 <tr><td>Event-driven wake (<code>set_wake_callback</code>)</td><td>wired</td><td>—</td><td>wired</td><td>—</td></tr>
 <tr><td>Deadline hint (<code>next_deadline_ms</code>)</td><td>wired</td><td>—</td><td>—</td><td>—</td></tr>

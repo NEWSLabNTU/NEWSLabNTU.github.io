@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e1b37458.js";
+            window.path_to_searchindex_js = "../searchindex-0b09b6a6.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-734eb8f7.js"></script>
@@ -189,8 +189,10 @@ exposes a Tier-1 subset useful for embedded RTOS deployments —
 liveliness changes, deadline misses, and message loss.</p>
 <p>This page describes the event surface, the dispatch model, and the
 patterns that motivate having events at all on RTOS targets.</p>
-<h2 id="the-tier-1-events"><a class="header" href="#the-tier-1-events">The Tier-1 events</a></h2>
-<p>Five event kinds. Three on subscribers, two on publishers.</p>
+<h2 id="the-event-kinds"><a class="header" href="#the-event-kinds">The event kinds</a></h2>
+<p>Nine event kinds: the five Tier-1 kinds below, plus Iron’s matched and
+incompatible-type pairs (<a href="#matched-and-incompatible-type-iron">below</a>).
+Three Tier-1 kinds on subscribers, two on publishers.</p>
 <h3 id="subscriber-events"><a class="header" href="#subscriber-events">Subscriber events</a></h3>
 <div class="table-wrapper">
 <table>
@@ -216,6 +218,47 @@ patterns that motivate having events at all on RTOS targets.</p>
 </tbody>
 </table>
 </div>
+<h3 id="matched-and-incompatible-type-iron"><a class="header" href="#matched-and-incompatible-type-iron">Matched and incompatible type (Iron+)</a></h3>
+<p>Issue 1972. Both pairs have one kind per side.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Kind</th><th>Side</th><th>Fires when</th><th>Payload</th></tr>
+</thead>
+<tbody>
+<tr><td><code>PublicationMatched</code></td><td>publisher</td><td>a subscription starts or stops matching it</td><td><code>MatchedStatus</code></td></tr>
+<tr><td><code>SubscriptionMatched</code></td><td>subscription</td><td>a publisher starts or stops matching it</td><td><code>MatchedStatus</code></td></tr>
+<tr><td><code>PublisherIncompatibleType</code></td><td>publisher</td><td>a subscription on the same topic name with another type appears</td><td><code>IncompatibleTypeStatus</code></td></tr>
+<tr><td><code>SubscriptionIncompatibleType</code></td><td>subscription</td><td>a publisher on the same topic name with another type appears</td><td><code>IncompatibleTypeStatus</code></td></tr>
+</tbody>
+</table>
+</div>
+<p><code>MatchedStatus</code> is upstream’s <code>rmw_matched_status_t</code> — <code>total_count</code>,
+<code>total_count_change</code>, <code>current_count</code>, <code>current_count_change</code> (signed: an
+endpoint leaving is <code>-1</code>). The typical use is “start publishing once somebody
+listens”:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub_.on_matched(|s| {
+    if s.current_count &gt; 0 { LISTENER_PRESENT.store(true, Ordering::Release); }
+})?;
+// Publisher-side events are observed on the publisher's poll points, so a
+// publisher that is not publishing yet gives it one:
+while !LISTENER_PRESENT.load(Ordering::Acquire) {
+    let _ = pub_.assert_liveliness();
+    executor.spin_once(Duration::from_millis(50));
+}
+<span class="boring">}</span></code></pre>
+<p>C: <code>rclc_publisher_set_matched_callback</code>,
+<code>rclc_publisher_set_incompatible_type_callback</code>,
+<code>rclc_subscription_set_matched_callback</code> and
+<code>rclc_subscription_set_incompatible_type_callback</code> (the subscription must
+be added to an executor first), payloads <code>rclc_matched_status_t</code> /
+<code>rclc_incompatible_type_status_t</code>. C++: <code>Publisher::on_matched</code> /
+<code>on_incompatible_type</code> and the same pair on <code>PollSubscription</code>, taking
+rclcpp’s <code>MatchedInfo</code> / <code>IncompatibleTypeInfo</code> through a function pointer
+plus <code>user_context</code>. Unlike the five Tier-1 C/C++ setters below, these
+four reach the backend today.</p>
 <h2 id="registering-callbacks"><a class="header" href="#registering-callbacks">Registering callbacks</a></h2>
 <p>Same shape as message callbacks. Register at construction time;
 callback fires from inside <code>spin_once</code> when the backend detects the
@@ -322,6 +365,13 @@ are cheap.</p>
 </tbody>
 </table>
 </div>
+<p>Matched / incompatible type: <strong>Cyclone DDS</strong> (its own matched status;
+builtin-topic type comparison) and <strong>zenoh-pico</strong> (the graph cache’s
+liveliness tokens, as <code>rmw_zenoh_cpp</code> does) carry both pairs; <strong>XRCE-DDS</strong>
+and <strong>uORB</strong> answer <code>Unsupported</code>. On zenoh the counts are snapshots of the
+graph cache, so <code>total_count</code> counts increases seen between polls, and an
+image built with graph discovery off (<code>ZPICO_GRAPH_DISCOVERY=0</code>) refuses the
+registration.</p>
 <p>✅ = wired. ✗ = not wired (registration answers <code>Unsupported</code>). The
 slot-level view is generated from the backend sources in the
 <a href="../reference/rmw-feature-matrix.html">per-RMW feature matrix</a>.</p>
@@ -350,22 +400,13 @@ support before registering:</p>
 <p>Apps that need cross-backend portability code defensively. Apps
 pinned to one backend can call register-and-unwrap.</p>
 <h2 id="whats-deliberately-skipped"><a class="header" href="#whats-deliberately-skipped">What’s deliberately skipped</a></h2>
-<p>Three upstream event types are intentionally absent from the API:</p>
-<h3 id="_matched-publication--subscription-matched"><a class="header" href="#_matched-publication--subscription-matched"><code>*_MATCHED</code> (publication / subscription matched)</a></h3>
-<p>Fires when a remote endpoint appears or disappears. Useful for
-discovery-tracking dashboards and dynamic-topology apps. Static-
-topology embedded apps don’t benefit; if a use case appears, the
-event kind is additive.</p>
+<p>One upstream event type is intentionally absent from the API (<code>*_MATCHED</code>
+and <code>*_INCOMPATIBLE_TYPE</code> were listed here until issue 1972 adopted them):</p>
 <h3 id="_qos_incompatible"><a class="header" href="#_qos_incompatible"><code>*_QOS_INCOMPATIBLE</code></a></h3>
 <p>Fires when publisher and subscriber QoS profiles can’t be
 reconciled. nano-ros surfaces this synchronously at <code>create_publisher</code>
 / <code>create_subscription</code> time as <code>NROS_RMW_RET_INCOMPATIBLE_QOS</code>. No
 runtime event needed; the failure is visible at startup.</p>
-<h3 id="_incompatible_type"><a class="header" href="#_incompatible_type"><code>*_INCOMPATIBLE_TYPE</code></a></h3>
-<p>Type-hash mismatch. Same: surfaced synchronously as
-<code>NROS_RMW_RET_TOPIC_NAME_INVALID</code> (or a future <code>INCOMPATIBLE_TYPE</code> code,
-unprefixed here because <code>rmw_ret.h</code> does not define one yet — issue 1126)
-at creation. No runtime event.</p>
 <h2 id="patterns"><a class="header" href="#patterns">Patterns</a></h2>
 <h3 id="drone-bridge-fail-over-on-liveliness-loss"><a class="header" href="#drone-bridge-fail-over-on-liveliness-loss">Drone-bridge fail-over on liveliness loss</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
