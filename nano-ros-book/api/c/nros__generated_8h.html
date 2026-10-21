@@ -15836,20 +15836,21 @@ Safety</h1>
         </tr>
       </table>
 </div><div class="memdoc">
-<p>Phase 124.A.6 — loan a writable slot from the publisher's outbound buffer (zero-copy publish path).</p>
+<p>Phase 124.A.6 — loan a writable slot from the publisher's outbound buffer. Zero-copy on a backend that lends (zenoh: measured, no payload copy on the stack); refused on one that does not (issue 0814).</p>
 <h1><a class="anchor" id="autotoc_md202"></a>
 AVAILABILITY — read this before calling</h1>
 <p>This symbol exists <b>only</b> in a nano-ros built with the <code>lending</code> cargo feature, and <b>no shipped configuration enables it</b>: the string <code>lending</code> appears zero times under <code>cmake/</code> and <code>zephyr/</code>, <code>nros-rmw-zenoh-staticlib</code> — the crate every C/C++ and RTOS image links — declares no forwarder for it, and the only crate in the tree that turns it on is the <code>nros-tests</code> test harness.</p>
 <p>Its presence in this header is therefore <b>not evidence that it can be linked.</b> cbindgen emits every declaration unconditionally here, by deliberate repo-wide policy (<code>packages/api/nros-c/cbindgen.toml</code> <code>[defines]</code>, empty on purpose), so a <code>#[cfg]</code>-gated Rust symbol still appears. Calling this against a default build compiles and then fails at LINK with an undefined symbol.</p>
-<p>The supported zero-copy surface is <code>rclc_publisher_publish_streamed</code> and its receive twin <code>process_raw_in_place</code>: no feature, no token, no arena, no size ceiling, and the XRCE and zenoh backends fill them natively while all three NULL the loan trio. See issue 0814.</p>
+<p>Only zenoh fills the loan slots; Cyclone, XRCE and uORB leave them NULL, and there this call refuses (below). The surface every backend serves is <code>rclc_publisher_publish_streamed</code> and its receive twin <code>process_raw_in_place</code>: no feature, no token, no arena, no size ceiling. It makes one payload copy on zenoh, as <code>rclc_publish</code> does — what it saves is the full-size staging buffer, not the copy. See issue 0814.</p>
 <p>On success, <code>*out_buf</code> points at <code>*out_cap</code> writable bytes the caller fills in place. Pass <code>*out_token</code> back to [<code>rclc_publisher_commit</code>] (to send) or [<code>rclc_publisher_discard</code>] (to abandon). The slot's bytes are valid until commit / discard runs OR the publisher is finalised — whichever comes first. The caller is responsible for matching every loan with exactly one commit OR discard.</p>
-<p>Falls back to a heap-allocated staging buffer when the active backend's vtable doesn't expose a native loan slot — the wire payload still takes a single memcpy at commit time. <code>requested_len</code> is the minimum capacity; <code>*out_cap</code> may exceed it. That fallback needs a heap: in a build without <code>alloc</code> there is nothing to hand out, and the answer is <code>RCLC_RET_NOT_ALLOWED</code> (see below).</p>
+<p><code>requested_len</code> is the minimum capacity; <code>*out_cap</code> may exceed it.</p>
+<p>There is no fallback for a backend without a loan slot. One used to stage the bytes in a heap buffer and <code>publish</code> them at commit, which removed no copy and added an allocation pair per message; since issue 0814 such a backend answers <code>RCLC_RET_NOT_ALLOWED</code>, the same in every build.</p>
 <h1><a class="anchor" id="autotoc_md203"></a>
 Returns</h1>
 <ul>
 <li><code>RCL_RET_OK</code> — slot reserved.</li>
 <li><code>RCLC_RET_TRY_AGAIN</code> (<code>-14</code>) — no slot available <em>right now</em>. TRANSIENT: retry later, or use a non-loan publish path.</li>
-<li><code>RCLC_RET_NOT_ALLOWED</code> (<code>-12</code>) — this publisher cannot loan at all. PERMANENT (issue 0814): the backend's vtable exposes no loan slot and this build has no heap for the staging fallback, and neither fact can change while the publisher lives. Do NOT retry — take a non-loan path. <code>rclc_publisher_publish_streamed</code> is the better one: it needs no token, no arena and no heap, and the XRCE and zenoh backends fill it natively.</li>
+<li><code>RCLC_RET_NOT_ALLOWED</code> (<code>-12</code>) — this publisher cannot loan at all. PERMANENT (issue 0814): the backend's vtable exposes no loan slot, which cannot change while the publisher lives. Do NOT retry — take a non-loan path: <code>rclc_publish</code>, or <code>rclc_publisher_publish_streamed</code>, which needs no token, no arena and no heap.</li>
 <li><code>RCL_RET_INVALID_ARGUMENT</code> on NULL pointers or zero <code>requested_len</code>.</li>
 <li><code>RCL_RET_NOT_INIT</code> if publisher isn't initialised.</li>
 </ul>
