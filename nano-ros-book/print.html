@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-5f2dfee6.js";
+            window.path_to_searchindex_js = "searchindex-c3293de6.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-734eb8f7.js"></script>
@@ -13314,10 +13314,17 @@ board such as <code>mps2/an385</code> in QEMU, which is what the template target
 <tbody>
 <tr><td><code>class MyNode : public rclcpp::Node</code></td><td><code>rclcpp::Node</code> — ours, and the same name.</td><td>Ctor takes <code>(name)</code>, <code>(name, options)</code> or <code>(name, ns, options)</code>.</td></tr>
 <tr><td><code>std::make_shared&lt;MyNode&gt;()</code></td><td>works</td><td><code>auto node = std::make_shared&lt;MyNode&gt;()</code> and <code>rclcpp::spin(std::make_shared&lt;MyNode&gt;())</code> are unchanged. <code>rclcpp::Node::SharedPtr node = std::make_shared&lt;…&gt;(…)</code> does not compile — write <code>auto</code>; see “<code>Node::SharedPtr</code> observes, it does not own” below. <code>shared_from_this()</code> works too, with the same caveat.</td></tr>
+<tr><td><code>rclcpp::Node::make_shared("name")</code></td><td><code>std::make_shared&lt;rclcpp::Node&gt;(…)</code>, the owning <code>std::shared_ptr</code></td><td>Hosted builds. <code>auto node = rclcpp::Node::make_shared("x");</code> is unchanged; assigning the temporary straight to a global <code>rclcpp::Node::SharedPtr</code> is not — keep it in a local first (<code>auto node = …; g_node = node;</code>).</td></tr>
 <tr><td><code>create_publisher&lt;M&gt;(topic, qos)</code></td><td>shared_ptr-returning wrapper</td><td><code>qos</code> can be <code>rclcpp::QoS(10)</code> or an int.</td></tr>
 <tr><td><code>create_subscription&lt;M&gt;(topic, qos, callback)</code></td><td>registered on the executor arena; dispatched by <strong>any</strong> spin verb</td><td><strong>Capturing lambdas + <code>std::function</code> all work</strong>.</td></tr>
 <tr><td><code>create_wall_timer(period, callback)</code></td><td>registered on the executor arena; dispatched by <strong>any</strong> spin verb</td><td><code>std::chrono::duration</code> arg, capturing-lambda callback. Returns <code>rclcpp::TimerBase::SharedPtr</code>, which is <code>rclcpp::Timer::SharedPtr</code> — one flat type, two names. See below.</td></tr>
 <tr><td><code>rclcpp::create_timer(node, clock, period, cb)</code></td><td>the clock-taking verb; a <code>RCL_ROS_TIME</code> clock follows <code>/clock</code></td><td>Humble’s only form. <code>create_wall_timer</code> stays on the steady clock.</td></tr>
+<tr><td><code>create_service&lt;S&gt;(name, handler)</code> with upstream’s <code>std::shared_ptr&lt;Request&gt;</code> / <code>std::shared_ptr&lt;Response&gt;</code> handler (optionally with <code>std::shared_ptr&lt;rmw_request_id_t&gt;</code> first)</td><td>lent from the dispatch: the handler gets pointers to the request and response the dispatch decoded</td><td>Hosted builds; a plain function or a capture-less lambda. The handler must not KEEP a pointer past its call: that aborts, naming why. The request header is zero-filled. A capturing lambda is refused (use <code>rclcpp::bind_service</code>).</td></tr>
+<tr><td><code>rclcpp::executors::SingleThreadedExecutor</code> + <code>add_node</code> + <code>spin</code></td><td>the process executor every node already lives on</td><td><code>add_node</code> checks rather than attaches. <code>MultiThreadedExecutor</code> is a compile error naming the alternative: an executor dispatches on one task, and parallelism is a tier, not a callback group.</td></tr>
+<tr><td><code>executor.spin_some()</code> / <code>rclcpp::spin_some(node)</code></td><td>drain what is ready, without waiting</td><td>The bound is milliseconds (<code>spin_some(5)</code>), not a <code>std::chrono</code> duration.</td></tr>
+<tr><td><code>client-&gt;wait_for_service(1s)</code> / <code>wait_for_action_server(10s)</code></td><td>the millisecond wait, converted</td><td>Hosted builds. The budget is still required; a negative duration is refused at the call.</td></tr>
+<tr><td><code>rclcpp::spin_until_future_complete(node, client-&gt;send_request(req))</code></td><td>spins until the reply arrives</td><td>The timeout is milliseconds.</td></tr>
+<tr><td><code>#include "rclcpp_action/rclcpp_action.hpp"</code></td><td>an umbrella over <code>Server&lt;A&gt;</code> / <code>Client&lt;A&gt;</code></td><td>The action shapes still differ; see below.</td></tr>
 <tr><td><code>rclcpp::init(argc, argv) / shutdown() / ok() / spin(n) / spin_some(n)</code></td><td>wraps <code>rclcpp::init_in/shutdown_in/ok/spin_once</code></td><td><code>--ros-args -r from:=to</code> is honoured, beneath any remap the launch file sets for the same name. <code>-p [node:]name:=value</code> and <code>--params-file &lt;file&gt;</code> are honoured in an image with a parameter store: the value replaces the default when the node declares the parameter (scalars only from a file; a value of the wrong type is logged and the default kept). Any other ROS argument (<code>__node</code>, log flags) aborts, naming it.</td></tr>
 <tr><td><code>RCLCPP_INFO / WARN / ERROR / DEBUG / FATAL</code></td><td>dispatched through the <code>NROS_LOG_*</code> family into <code>nros_log</code></td><td>Carries the logger, so <code>get_logger("x")</code> selects a real per-logger level, and <code>FATAL</code> is a distinct severity. Reaches <code>LOG_ERR</code>/<code>printk</code> on embedded, where the legacy <code>NROS_*</code> sink is a no-op (issue 1019). <code>_THROTTLE</code> variants are REFUSE-LOUD.</td></tr>
 <tr><td><code>get_logger().get_child("sub")</code></td><td>a real child logger, <code>&lt;parent&gt;.sub</code> (RFC-0102)</td><td>Its level, when unset, follows the nearest ancestor’s, so <code>set_level</code> on the node logger reaches it. A full name over 48 bytes or a full runtime-logger arena emits through the PARENT and <code>set_level</code> on it is refused — never a silent move of the parent’s threshold. Iron/Jazzy images publish children on <code>/rosout</code>; Humble ones, as upstream, do not.</td></tr>
@@ -13331,6 +13338,46 @@ board such as <code>mps2/an385</code> in QEMU, which is what the template target
 </tbody>
 </table>
 </div>
+<h2 id="measured-the-stock-rclcpp-examples"><a class="header" href="#measured-the-stock-rclcpp-examples">Measured: the stock rclcpp examples</a></h2>
+<p><code>packages/api/nros-cpp/tests/compile/rclcpp-examples/</code> holds 13 files from
+<a href="https://github.com/ros2/examples">ros2/examples</a> (humble and jazzy) verbatim,
+each beside its port. The repository’s C++ check compiles and links every port
+against nros-cpp, boots it on a stub middleware, and fails if the number of edited
+lines changes in either direction (<code>edits.json</code>). Today:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>example</th><th>edited lines</th><th>what the edits are</th></tr>
+</thead>
+<tbody>
+<tr><td><code>minimal_publisher</code> lambda / member_function</td><td>0</td><td>—</td></tr>
+<tr><td><code>minimal_subscriber</code> member_function</td><td>0</td><td>—</td></tr>
+<tr><td><code>minimal_timer</code> lambda / member_function</td><td>0</td><td>—</td></tr>
+<tr><td><code>minimal_service</code></td><td>3</td><td>global <code>Node::SharedPtr</code> from a temporary</td></tr>
+<tr><td><code>minimal_subscriber</code> not_composable</td><td>3</td><td>global <code>Node::SharedPtr</code> from a temporary</td></tr>
+<tr><td><code>minimal_subscriber</code> lambda (jazzy)</td><td>4</td><td>a <code>String::UniquePtr</code> callback becomes <code>const String&amp;</code></td></tr>
+<tr><td><code>minimal_publisher</code> not_composable</td><td>11</td><td>the <code>try</code>/<code>catch</code> goes: no exceptions</td></tr>
+<tr><td><code>minimal_client</code></td><td>15</td><td><code>async_send_request</code> / <code>future.get()</code> / <code>remove_pending_request</code> become <code>send_request</code> / <code>Future::try_take</code> / <code>Future::cancel</code></td></tr>
+<tr><td><code>multithreaded_executor</code></td><td>26</td><td><code>MultiThreadedExecutor</code>, callback groups, <code>ConstSharedPtr</code> callbacks</td></tr>
+<tr><td><code>minimal_action_server</code> member_functions</td><td>77</td><td>goal handles, <code>create_server</code> over node interfaces, a thread per goal</td></tr>
+<tr><td><code>minimal_action_client</code> member_functions</td><td>87</td><td>goal handles, futures, raw-byte feedback/result callbacks</td></tr>
+</tbody>
+</table>
+</div>
+<p>The remaining causes, largest first:</p>
+<ul>
+<li><strong>Actions</strong> (164 lines). No <code>ServerGoalHandle</code> / <code>ClientGoalHandle</code> and no
+futures; see the next section. The stock server also starts a <code>std::thread</code>
+per goal, which nano-ros does not do for you.</li>
+<li><strong>Callback groups and the multi-threaded executor</strong> (most of 26 lines).</li>
+<li><strong>The client future shape</strong> (15 lines, issue 1996). <code>send_request</code> returns a
+<code>rclcpp::Future</code> you drain with <code>try_take</code>, not a <code>shared_future</code>.</li>
+<li><strong>Exceptions</strong> (11 lines). There is nothing to catch.</li>
+<li><strong>Pointer-shaped subscription callbacks</strong> (<code>Msg::UniquePtr</code>,
+<code>Msg::ConstSharedPtr</code>, issue 1995). The subscription delivers <code>const Msg&amp;</code>; generated
+messages carry no <code>SharedPtr</code> aliases.</li>
+<li><strong>A global <code>Node::SharedPtr</code> assigned from <code>make_shared</code></strong> (2 lines each).</li>
+</ul>
 <h2 id="actions-no-goal-handles-no-futures"><a class="header" href="#actions-no-goal-handles-no-futures">Actions: no goal handles, no futures</a></h2>
 <p>The action types keep upstream’s names and concepts, and <code>GoalResponse</code> /
 <code>CancelResponse</code> keep upstream’s enumerators and values. The SHAPES around
