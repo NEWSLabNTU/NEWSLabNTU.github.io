@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-42c89df9.js";
+            window.path_to_searchindex_js = "searchindex-5f2dfee6.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-734eb8f7.js"></script>
@@ -11232,8 +11232,8 @@ be added to an executor first), payloads <code>rclc_matched_status_t</code> /
 <code>rclc_incompatible_type_status_t</code>. C++: <code>Publisher::on_matched</code> /
 <code>on_incompatible_type</code> and the same pair on <code>PollSubscription</code>, taking
 rclcpp’s <code>MatchedInfo</code> / <code>IncompatibleTypeInfo</code> through a function pointer
-plus <code>user_context</code>. Unlike the five Tier-1 C/C++ setters below, these
-four reach the backend today.</p>
+plus <code>user_context</code>. Like the five Tier-1 C/C++ setters below, they keep
+the registration in one process-wide 16-slot table shared by C and C++.</p>
 <h2 id="registering-callbacks"><a class="header" href="#registering-callbacks">Registering callbacks</a></h2>
 <p>Same shape as message callbacks. Register at construction time;
 callback fires from inside <code>spin_once</code> when the backend detects the
@@ -11283,14 +11283,26 @@ rclc_subscription_set_liveliness_changed_callback(
     sub, on_liveliness_changed, NULL);
 </code></pre>
 <p>Same shape on the four other event kinds.</p>
-<blockquote>
-<p><strong>Not wired yet (issue 1993).</strong> These five C setters, and their five
-C++ twins below, currently return <code>RCL_RET_UNSUPPORTED</code> /
-<code>ErrorCode::Unsupported</code> UNCONDITIONALLY — on every backend, including
-Cyclone DDS and zenoh-pico, which do generate the events. The callback
-is never stored. Until issue 1993 lands, the Tier-1 events are reachable
-from Rust (<code>nros-node</code>’s <code>on_*</code>) only.</p>
-</blockquote>
+<p>Every setter returns <code>RCL_RET_OK</code> once the backend holds the
+registration, and <code>RCL_RET_UNSUPPORTED</code> when the backend does not generate
+that event (XRCE-DDS and uORB carry none; zenoh-pico has no
+<code>LivelinessChanged</code> on bare metal). That answer comes from the backend, never
+from the C layer. The other returns:</p>
+<ul>
+<li><code>RCL_RET_NOT_INIT</code> — for the three subscription setters, the subscription
+has not been added to an executor yet (<code>rclc_executor_add_subscription*</code>).
+The executor owns the subscriber, so before that there is nothing to
+register on. Register after the add.</li>
+<li><code>RCLC_RET_FULL</code> — the process-wide event-slot table is full. It holds 16
+registrations across every C and C++ entity; one publisher with all four of
+its kinds plus one subscription with all five take nine.</li>
+</ul>
+<p><code>deadline_ms</code> on the two deadline setters reaches the backend: zenoh uses it
+when the entity’s QoS states no deadline of its own, Cyclone DDS takes the
+deadline from the QoS profile and ignores the argument. Registering the same
+kind again replaces the earlier callback, and a callback never runs after
+<code>rcl_publisher_fini</code> / <code>rcl_subscription_fini</code> (or
+<code>rclc_executor_remove_subscription</code>), even if the backend fires late.</p>
 <h3 id="c-1-2"><a class="header" href="#c-1-2">C++</a></h3>
 <pre><code class="language-cpp">static void on_liveliness_changed(void* storage,
                                   nros_cpp_liveliness_changed_status_t status,
@@ -11304,8 +11316,10 @@ sub.on_requested_deadline_missed(15 /* ms */, on_deadline_missed, nullptr);
 </code></pre>
 <p>C function pointers + <code>user_context</code> only; there are no lambda or
 <code>std::function</code> overloads. The subscription-side setters exist on
-<code>PollingSubscription</code> alone. Same caveat as C: they currently answer
-<code>ErrorCode::Unsupported</code> on every backend (issue 1993).</p>
+<code>PollingSubscription</code> alone. The first callback argument is the entity’s
+storage, and it follows the object through a C++ move. Same answers as C:
+<code>ErrorCode::Unsupported</code> where the backend does not generate the event,
+<code>ErrorCode::Full</code> when the shared 16-slot table is full.</p>
 <h2 id="how-dispatch-works"><a class="header" href="#how-dispatch-works">How dispatch works</a></h2>
 <p>Events fire from inside <code>drive_io</code> on the executor thread, the same
 way message callbacks do:</p>
