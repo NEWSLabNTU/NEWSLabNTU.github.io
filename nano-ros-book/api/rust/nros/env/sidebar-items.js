@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["resolve_hosted","rmw_selector","try_resolve_hosted"],"trait":["ExecutorConfigEnvExt"]};
+window.SIDEBAR_ITEMS = {"fn":["exe_name","exit","read_file","rename","resolve_hosted","rmw_selector","set_var","thread_key","try_resolve_hosted","var","write_file"],"trait":["ExecutorConfigEnvExt"]};
