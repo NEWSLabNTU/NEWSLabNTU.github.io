@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['reliability_0',['reliability',['../structnros__cpp__qos__t.html#aaf391f1228ad2cd77afa0d9220e0df79',1,'nros_cpp_qos_t']]],
-  ['result_1',['result',['../structrclcpp__action_1_1Client_1_1SendGoalOptions.html#a50249ea2e7aa6d57d114b8cf01150b05',1,'rclcpp_action::Client::SendGoalOptions']]]
+  ['orphaned_0',['orphaned',['../structrclcpp_1_1detail_1_1PendingLink.html#a50406527829abf9800c24868d558507b',1,'rclcpp::detail::PendingLink']]],
+  ['orphans_1',['orphans',['../structrclcpp_1_1detail_1_1PendingList.html#a8d6bef0780a91dbc20fc910b6dc6c650',1,'rclcpp::detail::PendingList']]]
 ];

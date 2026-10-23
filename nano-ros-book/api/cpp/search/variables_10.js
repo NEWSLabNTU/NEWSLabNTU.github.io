@@ -1,4 +1,9 @@
 var searchData=
 [
-  ['value_0',['value',['../classrclcpp_1_1detail_1_1timer__takes__info.html#a9646531131acf45a70a492e73f84eeea',1,'rclcpp::detail::timer_takes_info::value'],['../structrclcpp_1_1detail_1_1timer__capture__capacity.html#aaa88d158f82758d2e71d9b28b2819982',1,'rclcpp::detail::timer_capture_capacity::value'],['../structrclcpp_1_1detail_1_1timer__capture__capacity_3_01InplaceFn_3_01Sig_00_01Cap_01_4_01_4.html#a3a4d5b380dee791052ad338a07478dd2',1,'rclcpp::detail::timer_capture_capacity&lt; InplaceFn&lt; Sig, Cap &gt; &gt;::value'],['../classrclcpp_1_1detail_1_1is__qos__arg.html#a7eeab13863a0054c08ffd93bb0adae2f',1,'rclcpp::detail::is_qos_arg::value'],['../structrclcpp_1_1format__of.html#a4cf0f670f3ba8dd52e1ba22cbbb4a525',1,'rclcpp::format_of::value']]]
+  ['seq_0',['seq',['../structrclcpp_1_1detail_1_1PendingLink.html#a319505370fdc8896d2553d79d7e6edd3',1,'rclcpp::detail::PendingLink']]],
+  ['sequence_5fid_5funknown_1',['SEQUENCE_ID_UNKNOWN',['../namespacerclcpp_1_1detail.html#af06e04f50af244e536f75e3017239eb1',1,'rclcpp::detail']]],
+  ['serialized_5fsize_5fmax_2',['SERIALIZED_SIZE_MAX',['../structrclcpp__action_1_1Client_1_1GoalAccept.html#a2fbc872ae36b2d498ea11da568805d52',1,'rclcpp_action::Client::GoalAccept']]],
+  ['size_3',['size',['../structrclcpp__action_1_1GoalUUID.html#a2617f5375d5cea707b47f953d4e55dbd',1,'rclcpp_action::GoalUUID::SIZE'],['../structrclcpp_1_1FixedSequence.html#a3709e2a2b125e1cb4a33e97c4ef1f3b7',1,'rclcpp::FixedSequence::size']]],
+  ['storage_4',['storage',['../structrclcpp_1_1detail_1_1PendingLink.html#a802d41a30e49ab54b8f3824b4246ebbe',1,'rclcpp::detail::PendingLink']]],
+  ['subscription_5ftopic_5fname_5fmax_5',['SUBSCRIPTION_TOPIC_NAME_MAX',['../namespacerclcpp.html#ad4691da12b59536df304c2947a0ba2dd',1,'rclcpp']]]
 ];

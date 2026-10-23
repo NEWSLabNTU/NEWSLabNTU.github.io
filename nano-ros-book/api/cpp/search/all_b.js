@@ -17,7 +17,7 @@ var searchData=
   ['errors_14',['errors',['../group__grp__errors.html',1,'errors'],['../error_codes.html#autotoc_md35',1,'zenoh-pico Underlying Errors']]],
   ['example_15',['Example',['../configuration.html#autotoc_md20',1,'']]],
   ['executing_16',['Executing',['../namespacerclcpp__action.html#a3878b7d63c0d80e31572d5227d9ba344a63c4cc5944eb60b1969f2333ead70fc9',1,'rclcpp_action']]],
-  ['executor_17',['executor',['../classrclcpp_1_1Executor.html#a2acf21e2cd38a230f6b19d70ffcbdf1f',1,'rclcpp::Executor::Executor()'],['../structrclcpp_1_1NodeHandle.html#a7ae3b6041d78fd5d94b854095105c775',1,'rclcpp::NodeHandle::executor'],['../classrclcpp_1_1Executor.html#a658d4d2345ef02d3daf998cdd1f53c44',1,'rclcpp::Executor::Executor()'],['../group__grp__executor.html',1,'executor'],['../classrclcpp_1_1Executor.html',1,'rclcpp::Executor']]],
+  ['executor_17',['executor',['../classrclcpp_1_1Executor.html#a658d4d2345ef02d3daf998cdd1f53c44',1,'rclcpp::Executor::Executor()'],['../classrclcpp_1_1Executor.html#a2acf21e2cd38a230f6b19d70ffcbdf1f',1,'rclcpp::Executor::Executor(Executor &amp;&amp;other)'],['../structrclcpp_1_1NodeHandle.html#a7ae3b6041d78fd5d94b854095105c775',1,'rclcpp::NodeHandle::executor'],['../group__grp__executor.html',1,'executor'],['../classrclcpp_1_1Executor.html',1,'rclcpp::Executor']]],
   ['executor_2ehpp_18',['executor.hpp',['../executor_8hpp.html',1,'']]],
   ['executor_5f_19',['executor_',['../classrclcpp_1_1TimerOps.html#abb37b8765351fe31f8a49cd41f014592',1,'rclcpp::TimerOps']]],
   ['executor_5fhandle_20',['executor_handle',['../classrclcpp_1_1Node.html#a64d56273a2c7db9154ecf42d832aadef',1,'rclcpp::Node']]]

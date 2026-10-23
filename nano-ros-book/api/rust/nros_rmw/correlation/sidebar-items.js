@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_STALE_DRAIN_PER_POLL","SEQUENCE_ID_UNKNOWN"],"enum":["SendRefusal"],"fn":["take_correlated","take_matched"],"struct":["RequestCorrelator"],"trait":["ReplyMatcher"]};

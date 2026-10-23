@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["ExecGuard","ExecLock"],"type":["ExecLockFn"]};
+window.SIDEBAR_ITEMS = {"struct":["ExecGuard","ExecLock"],"type":["ExecLockFn","ThreadIdFn"]};
