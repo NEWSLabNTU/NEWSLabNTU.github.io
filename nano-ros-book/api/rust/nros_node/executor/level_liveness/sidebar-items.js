@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_LEVELS"],"fn":["every_level_alive","level_count","level_last_spin_us","level_spins","set_level_count","take_every_level_alive","tier_level","tier_level_by"]};
