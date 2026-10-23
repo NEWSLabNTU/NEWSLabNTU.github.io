@@ -19,9 +19,10 @@ var searchData=
   ['require_5fcreated_16',['require_created',['../namespacerclcpp_1_1detail.html#a5500268c63cb40aa008814f53a1e3f87',1,'rclcpp::detail']]],
   ['reset_17',['reset',['../classrclcpp_1_1Timer.html#a74f527c32b366531460554945d43f8bd',1,'rclcpp::Timer::reset()'],['../classrclcpp_1_1TimerHandle.html#ab8d15c4ce5c79b9f8db26cc51a717abd',1,'rclcpp::TimerHandle::reset()'],['../classrclcpp_1_1TimerOps.html#adeb83990023fda10cb10039b4cf63b3b',1,'rclcpp::TimerOps::reset()'],['../classrclcpp_1_1Rate.html#a9afedc73dd1189cb0073f35de1e5887d',1,'rclcpp::Rate::reset()']]],
   ['resolve_18',['resolve',['../structrclcpp_1_1detail_1_1PendingList.html#a05303b9024857510824d8c82ff08c35d',1,'rclcpp::detail::PendingList']]],
-  ['resolve_5fname_19',['resolve_name',['../structrclcpp_1_1NodeHandle.html#ac6a50170a1bc3c296fe1470b5adb32d7',1,'rclcpp::NodeHandle']]],
-  ['resolve_5fnamespace_20',['resolve_namespace',['../structrclcpp_1_1NodeHandle.html#a360c2c6ba3b42d0ee2ce63f544534772',1,'rclcpp::NodeHandle']]],
-  ['resultof_21',['resultof',['../classrclcpp_1_1ResultOf_3_01void_01_4.html#ace28b95e026fa5479d2817ead5f06907',1,'rclcpp::ResultOf&lt; void &gt;::ResultOf(int32_t raw)'],['../classrclcpp_1_1ResultOf_3_01void_01_4.html#ae2d73cda5c602bcde984affd7b153d69',1,'rclcpp::ResultOf&lt; void &gt;::ResultOf(ErrorCode code)'],['../classrclcpp_1_1ResultOf_3_01void_01_4.html#a4751d94aa62e7509f4900f46d7a1fdf0',1,'rclcpp::ResultOf&lt; void &gt;::ResultOf()']]],
-  ['rmw_22',['rmw',['../classrclcpp_1_1NodeBuilder.html#ac673d25c340603f57d70ebc07c9f05cc',1,'rclcpp::NodeBuilder']]],
-  ['rosoutqos_23',['RosoutQoS',['../classrclcpp_1_1RosoutQoS.html#adda42f101873431baec5fb268350b1fe',1,'rclcpp::RosoutQoS']]]
+  ['resolve_5fgoal_19',['resolve_goal',['../structrclcpp_1_1detail_1_1PendingList.html#a353f00a5c707299e72528ce5e72c745f',1,'rclcpp::detail::PendingList']]],
+  ['resolve_5fname_20',['resolve_name',['../structrclcpp_1_1NodeHandle.html#ac6a50170a1bc3c296fe1470b5adb32d7',1,'rclcpp::NodeHandle']]],
+  ['resolve_5fnamespace_21',['resolve_namespace',['../structrclcpp_1_1NodeHandle.html#a360c2c6ba3b42d0ee2ce63f544534772',1,'rclcpp::NodeHandle']]],
+  ['resultof_22',['resultof',['../classrclcpp_1_1ResultOf_3_01void_01_4.html#ace28b95e026fa5479d2817ead5f06907',1,'rclcpp::ResultOf&lt; void &gt;::ResultOf(int32_t raw)'],['../classrclcpp_1_1ResultOf_3_01void_01_4.html#ae2d73cda5c602bcde984affd7b153d69',1,'rclcpp::ResultOf&lt; void &gt;::ResultOf(ErrorCode code)'],['../classrclcpp_1_1ResultOf_3_01void_01_4.html#a4751d94aa62e7509f4900f46d7a1fdf0',1,'rclcpp::ResultOf&lt; void &gt;::ResultOf()']]],
+  ['rmw_23',['rmw',['../classrclcpp_1_1NodeBuilder.html#ac673d25c340603f57d70ebc07c9f05cc',1,'rclcpp::NodeBuilder']]],
+  ['rosoutqos_24',['RosoutQoS',['../classrclcpp_1_1RosoutQoS.html#adda42f101873431baec5fb268350b1fe',1,'rclcpp::RosoutQoS']]]
 ];

@@ -42,7 +42,7 @@ var searchData=
   ['gid_5fsize_39',['GID_SIZE',['../classrclcpp_1_1Publisher.html#acba6663e72e90fe08c86fc96cfce2750',1,'rclcpp::Publisher']]],
   ['global_5fhandle_40',['global_handle',['../namespacerclcpp.html#ab0ba50ddd7810dbe61122337c43be577',1,'rclcpp']]],
   ['goal_5fexists_41',['goal_exists',['../classrclcpp__action_1_1Server.html#acdedc14cc6891cc2c3aed9d188a5891d',1,'rclcpp_action::Server::goal_exists(const uint8_t goal_id[16]) const'],['../classrclcpp__action_1_1Server.html#a484cd776556dd786d84e66a354c6aca1',1,'rclcpp_action::Server::goal_exists(const ::rclcpp_action::GoalUUID &amp;goal_id) const']]],
-  ['goal_5fid_42',['goal_id',['../structrclcpp__action_1_1Client_1_1GoalAccept.html#aa6dc3a51c3b07d5a3a8ebe21cb5ce64a',1,'rclcpp_action::Client::GoalAccept']]],
+  ['goal_5fid_42',['goal_id',['../structrclcpp__action_1_1Client_1_1GoalAccept.html#aa6dc3a51c3b07d5a3a8ebe21cb5ce64a',1,'rclcpp_action::Client::GoalAccept::goal_id'],['../structrclcpp_1_1detail_1_1PendingLink.html#a1b7348fe190d6b2baf51ab260a833cea',1,'rclcpp::detail::PendingLink::goal_id']]],
   ['goal_5fresponse_43',['goal_response',['../structrclcpp__action_1_1Client_1_1SendGoalOptions.html#a9671eab2df4252a88e447be790cf62d2',1,'rclcpp_action::Client::SendGoalOptions']]],
   ['goalaccept_44',['GoalAccept',['../structrclcpp__action_1_1Client_1_1GoalAccept.html',1,'rclcpp_action::Client']]],
   ['goalresponse_45',['GoalResponse',['../namespacerclcpp__action.html#ababbbebf29fec7c541687c724fc82ba7',1,'rclcpp_action']]],

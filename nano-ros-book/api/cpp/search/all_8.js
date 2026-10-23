@@ -14,5 +14,6 @@ var searchData=
   ['build_11',['build',['../classrclcpp_1_1NodeBuilder.html#a463472e822ecd95c31924ccafda58cc1',1,'rclcpp::NodeBuilder']]],
   ['build_20and_20run_12',['5. Build and Run',['../getting_started.html#autotoc_md10',1,'']]],
   ['build_20issues_13',['Build Issues',['../troubleshooting.html#autotoc_md27',1,'']]],
-  ['bytes_14',['bytes',['../structrclcpp_1_1LeSpan.html#ad9896cb6851c67a0d4dda1376d5a9448',1,'rclcpp::LeSpan']]]
+  ['by_5fgoal_14',['by_goal',['../structrclcpp_1_1detail_1_1PendingLink.html#a2f1fb1ab3653624d0ac3b819fb79d81b',1,'rclcpp::detail::PendingLink']]],
+  ['bytes_15',['bytes',['../structrclcpp_1_1LeSpan.html#ad9896cb6851c67a0d4dda1376d5a9448',1,'rclcpp::LeSpan']]]
 ];
