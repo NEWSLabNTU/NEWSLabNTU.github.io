@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CDR_HEADER_LEN","FEEDBACK_PAYLOAD_OFFSET","GOAL_REQUEST_PAYLOAD_OFFSET","REPLY_STATUS_OFFSET","RESULT_PAYLOAD_OFFSET"],"fn":["cancel_return_code","feedback_fields","feedback_goal_id","goal_accepted","goal_request_fields","result_fields","result_status","splice","splice_feedback","splice_goal_request","splice_result"]};
