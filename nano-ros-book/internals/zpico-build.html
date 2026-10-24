@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-a3c4b5fe.js";
+            window.path_to_searchindex_js = "../searchindex-36ba5e53.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-f34c65de.js"></script>
@@ -178,100 +178,144 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="zpico-sys-build-architecture"><a class="header" href="#zpico-sys-build-architecture">zpico-sys Build Architecture</a></h1>
-<p><code>zpico-sys</code> is nano-ros’s Rust <code>*-sys</code> crate for zenoh-pico. After (2026-05-18) the build path is a single <code>cc-rs</code> invocation
-driven entirely by a TOML manifest. Earlier phases shipped a
-CMake/cc-rs hybrid with per-RTOS Rust functions; the unified path
-collapses that surface to one consumer + one data file.</p>
-<h2 id="the-manifest"><a class="header" href="#the-manifest">The manifest</a></h2>
-<blockquote>
-<p><strong>Partly stale (issue 2031).</strong> <code>zenoh_platforms.toml</code> no longer exists, and
-the field tables below still describe it. Where the data lives now is stated
-in this section; the tables have not been re-derived yet.</p>
-</blockquote>
-<p>The per-platform data is split by owner:</p>
-<ul>
-<li><strong><code>[port.&lt;name&gt;]</code> in <code>packages/rmw/zenoh/nros-rmw-zenoh/nros-rmw.toml</code></strong> —
-zenoh-pico’s own per-port sources, defines and include paths (<code>freertos</code>,
-<code>nuttx</code>, <code>posix</code>, <code>threadx</code>, <code>zephyr</code>, <code>bare-metal</code>, <code>generic</code>). The build
-driver is <code>packages/rmw/zenoh/nros-zpico-build</code>.</li>
-<li><strong><code>[arch.&lt;name&gt;]</code> in each platform’s <code>nros-platform.toml</code></strong> — the
-target-arch compiler-flag profiles, selectable only when the file’s
-<code>arch_profiles</code> list names them (first <code>target_match</code> wins). Seven files:
-<code>config/{bare-metal,generic}/</code> and
-<code>packages/platform/nros-platform-{freertos,nuttx,posix,threadx,zephyr}/</code>.
-Profiles today: <code>cortex-m3</code>, <code>cortex-m4f</code>, <code>riscv32imc</code> (bare-metal);
-<code>cortex-m3</code>, <code>cortex-m7</code>, <code>cortex-r5</code>, <code>cortex-r52</code> (FreeRTOS);
-<code>cortex-a7</code> (NuttX); <code>riscv64gc</code> (ThreadX). <code>posix</code>, <code>zephyr</code> and
-<code>generic</code> list none. <code>just check arch-profile-resolution</code> checks every
-supported triple against these lists.</li>
-</ul>
-<h3 id="per-platform-fields"><a class="header" href="#per-platform-fields">Per-platform fields</a></h3>
+<p><code>zpico-sys</code> is nano-ros’s Rust <code>*-sys</code> crate for zenoh-pico. Its build script
+is one line; the work is in <code>packages/rmw/zenoh/nros-zpico-build</code>
+(<code>runner::run</code>), a library so its parsing and source selection can be
+unit-tested outside Cargo’s build-script harness. It compiles the vendored
+zenoh-pico C with a single <code>cc-rs</code> invocation, driven by data rather than by
+per-RTOS Rust code.</p>
+<p>Zephyr is the exception: its west/cmake lane compiles the same vendored tree
+through <code>zephyr/cmake/nros_rmw_zenoh.cmake</code>, and the cargo build of
+<code>zpico-sys</code> for a Zephyr image compiles none of it (see <code>compiled_by</code> below).</p>
+<h2 id="where-the-data-lives"><a class="header" href="#where-the-data-lives">Where the data lives</a></h2>
+<p>Three files, each owned by the thing it describes. None of them is the
+<code>zenoh_platforms.toml</code> older docs mention; that central manifest was split up
+by phase-290 and phase-349 W2b.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Field</th><th>Type</th><th>Use</th></tr>
+<tr><th>What</th><th>File</th><th>Owner</th></tr>
 </thead>
 <tbody>
-<tr><td><code>inherits</code></td><td>string</td><td>Merge from another <code>[platform.*]</code> block before applying this one.</td></tr>
-<tr><td><code>defines</code></td><td>list[str]</td><td>Unconditional <code>cc::Build::define(name, None)</code>.</td></tr>
-<tr><td><code>defines_kv</code></td><td>map</td><td><code>cc::Build::define(name, Some(value))</code>.</td></tr>
-<tr><td><code>defines_env</code></td><td>map</td><td>Value from <code>env</code>, falls back to <code>default</code>.</td></tr>
-<tr><td><code>include</code></td><td>list[str]</td><td>Glob roots under <code>zenoh-pico/src/</code>. The drift gate validates these exist.</td></tr>
-<tr><td><code>exclude</code></td><td>list[str]</td><td>Drop entries from <code>include</code> matches.</td></tr>
-<tr><td><code>extra_sources</code></td><td>list[ExtraSource]</td><td>Additional <code>.c</code> files outside <code>zenoh-pico/src/</code>. See below.</td></tr>
-<tr><td><code>required_env</code></td><td>list[RequiredEnv]</td><td>SDK paths the build needs. See below.</td></tr>
-<tr><td><code>include_paths</code></td><td>list[str]</td><td>Header search paths; interpolated.</td></tr>
-<tr><td><code>include_paths_conditional</code></td><td>list[ConditionalPath]</td><td>Header paths gated by <code>when</code>.</td></tr>
-<tr><td><code>arch</code></td><td>string | list[str]</td><td>Name(s) of <code>[arch.*]</code> block(s) to apply. Single name (TOML scalar) for single-arch platforms; list (TOML array) for multi-arch platforms like <code>bare-metal</code> (cortex-m3 + riscv32imc). build.rs walks the list in order and applies the first arch whose <code>target_match</code> hits the build target..</td></tr>
-<tr><td><code>compile</code></td><td>table</td><td><code>opt_level</code> / <code>warnings</code> / <code>cflags</code>.</td></tr>
-<tr><td><code>pic</code></td><td>bool</td><td><code>cc::Build::pic</code> override (NuttX flat builds use <code>false</code>).</td></tr>
-<tr><td><code>link.*</code></td><td>map</td><td>Per-link-feature policy. Values: <code>true</code> / <code>false</code> (force on/off) or <code>"feature"</code> (defer to <code>CARGO_FEATURE_LINK_&lt;X&gt;</code>).</td></tr>
-<tr><td><code>mbedtls</code></td><td>string</td><td><code>pkg-config</code> / <code>vendored</code> / <code>none</code>.</td></tr>
-<tr><td><code>system_libs</code></td><td>list[str]</td><td><code>cargo:rustc-link-lib=</code> entries.</td></tr>
-<tr><td><code>rerun_if_env_changed</code></td><td>list[str]</td><td><code>cargo:rerun-if-env-changed=…</code> triggers.</td></tr>
+<tr><td>The core zenoh-pico sources, every platform</td><td><code>packages/rmw/zenoh/zpico-sys/zenoh-sources.txt</code></td><td>the backend (phase-420 W9)</td></tr>
+<tr><td>zenoh-pico’s per-port defines, extra sources, include paths</td><td><code>[port.&lt;platform&gt;]</code> in <code>packages/rmw/zenoh/nros-rmw-zenoh/nros-rmw.toml</code></td><td>the backend</td></tr>
+<tr><td>CPU flag profiles, compile settings, required SDKs</td><td>each platform’s <code>nros-platform.toml</code></td><td>the platform</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="per-arch-fields"><a class="header" href="#per-arch-fields">Per-arch fields</a></h3>
+<p>A platform names no backend (RFC-0072 §9): what a platform needs from <strong>any</strong>
+vendored C build stays in its own file, and what zenoh-pico needs <strong>on</strong> that
+platform is a row in zenoh’s descriptor. A build joins the two.</p>
+<h3 id="zenoh-sourcestxt"><a class="header" href="#zenoh-sourcestxt"><code>zenoh-sources.txt</code></a></h3>
+<p>The one source list, read by both the cargo lane and the cmake lane. Records
+are <code>group &lt;name&gt; &lt;condition&gt;</code>, <code>dir &lt;group&gt; &lt;tree&gt; &lt;path&gt;</code> (every <code>.c</code> under
+<code>&lt;path&gt;</code>, recursively) and <code>src &lt;group&gt; &lt;tree&gt; &lt;path&gt;</code> (exactly one file). The
+core is nine <code>dir</code> records under <code>zenoh-pico/src/</code>, condition <code>always</code>; the
+two other groups are Zephyr-only. The file’s header explains the format and
+why it lists directories rather than files. Gate:
+<code>just check zenoh-source-manifest</code> — every <code>.c</code> under <code>zenoh-pico/src/</code> must
+be covered by a record or sit under a <code>system/&lt;platform&gt;/</code> tree some port row
+selects, so a new upstream DIRECTORY fails the gate.</p>
+<h3 id="the-platform-half--nros-platformtoml"><a class="header" href="#the-platform-half--nros-platformtoml">The platform half — <code>nros-platform.toml</code></a></h3>
+<p>Seven files: <code>config/{bare-metal,generic}/</code> and
+<code>packages/platform/nros-platform-{freertos,nuttx,posix,threadx,zephyr}/</code>.
+Most of each file is the RFC-0049 knob ladder (<code>[capabilities]</code>, <code>[knobs.*]</code>);
+the C-build keys are:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Field</th><th>Type</th><th>Use</th></tr>
+<tr><th>Key</th><th>Type</th><th>Use</th></tr>
+</thead>
+<tbody>
+<tr><td><code>names</code></td><td>list[str]</td><td>Names this platform answers to; <code>names[0]</code> is canonical (<code>config/bare-metal</code> answers <code>bare-metal</code> and <code>esp32</code>).</td></tr>
+<tr><td><code>inherits</code></td><td>string</td><td>Parent platform. Its C-build keys and its port row merge underneath this one (rules below).</td></tr>
+<tr><td><code>arch_profiles</code></td><td>str | list[str]</td><td>Which <code>[arch.*]</code> profiles apply, in order; the first whose <code>target_match</code> admits the target wins.</td></tr>
+<tr><td><code>compile</code></td><td>table</td><td><code>opt_level</code> / <code>warnings</code> / <code>cflags</code>.</td></tr>
+<tr><td><code>required_env</code></td><td>list[RequiredEnv]</td><td>SDK paths the build needs. See below.</td></tr>
+<tr><td><code>[arch.&lt;name&gt;]</code></td><td>table</td><td>A flag profile (below). A profile may appear in several files only if every copy is identical.</td></tr>
+</tbody>
+</table>
+</div>
+<p>Profiles listed today: <code>cortex-m3</code>, <code>cortex-m4f</code>, <code>riscv32imc</code> (bare-metal);
+<code>cortex-m3</code>, <code>cortex-m7</code>, <code>cortex-r5</code>, <code>cortex-r52</code> (FreeRTOS); <code>cortex-a7</code>
+(NuttX); <code>riscv64gc</code> (ThreadX). <code>posix</code>, <code>zephyr</code> and <code>generic</code> list none.
+Gate: <code>just check arch-profile-resolution</code> checks every supported triple
+against these lists.</p>
+<p>The search path is <code>$NROS_PLATFORMS_DIR</code> (colon-separated, searched first),
+then <code>packages/platform/</code>, then <code>config/</code>. An empty tree is fatal, not a
+fallback to builtins.</p>
+<h4 id="archname"><a class="header" href="#archname"><code>[arch.&lt;name&gt;]</code></a></h4>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Type</th><th>Use</th></tr>
 </thead>
 <tbody>
 <tr><td><code>target_match</code></td><td>string</td><td>Substring or <code>&lt;prefix&gt;*</code> glob the target triple must match.</td></tr>
-<tr><td><code>target_exclude</code></td><td>string</td><td>Veto when the target triple contains this substring (e.g. <code>cortex-m3</code> excludes <code>thumbv7em</code> so Cortex-M4 doesn’t pick it).</td></tr>
+<tr><td><code>target_exclude</code></td><td>string</td><td>Veto when the triple contains this substring (<code>cortex-m3</code> excludes <code>thumbv7em</code>, so a Cortex-M4 does not pick it).</td></tr>
 <tr><td><code>cflags</code></td><td>list[str]</td><td>Compiler flags.</td></tr>
-<tr><td><code>needs_picolibc</code></td><td>bool</td><td>Add picolibc sysroot’s <code>include/</code> to the search path.</td></tr>
-<tr><td><code>needs_errno_override</code></td><td>bool</td><td>Generate + prepend the errno-override shadow header (RISC-V picolibc TLS-errno workaround).</td></tr>
-<tr><td><code>needs_riscv_compiler</code></td><td>bool</td><td>Probe for a RISC-V cross-cc.</td></tr>
+<tr><td><code>needs_picolibc</code></td><td>bool</td><td>Add the picolibc sysroot’s <code>include/</code>.</td></tr>
+<tr><td><code>needs_errno_override</code></td><td>bool</td><td>Generate and prepend the errno-override shadow header (RISC-V picolibc TLS-errno workaround).</td></tr>
+<tr><td><code>needs_riscv_compiler</code></td><td>bool</td><td>Probe for a RISC-V cross <code>cc</code>.</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="interpolation-tokens"><a class="header" href="#interpolation-tokens">Interpolation tokens</a></h3>
-<p>Every <code>path</code> / <code>include_paths</code> / <code>extra_sources.path</code> /
-<code>include_paths_conditional.path</code> string is run through a small
-interpolator before being passed to <code>cc-rs</code>:</p>
+<h3 id="the-backend-half--portplatform"><a class="header" href="#the-backend-half--portplatform">The backend half — <code>[port.&lt;platform&gt;]</code></a></h3>
+<p>Rows exist for <code>freertos</code>, <code>nuttx</code>, <code>posix</code>, <code>threadx</code>, <code>zephyr</code>,
+<code>bare-metal</code> and <code>generic</code>; the key is a platform name or alias. A row is
+<code>deny_unknown_fields</code>: one that names <code>arch_profiles</code>, <code>compile</code> or
+<code>required_env</code> is a platform fact in the wrong file and fails to load. The
+schema is <code>PortRow</code> in <code>packages/tooling/nros-platform-config/src/manifest.rs</code>.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Token</th><th>Value</th></tr>
+<tr><th>Key</th><th>Type</th><th>Use</th></tr>
 </thead>
 <tbody>
-<tr><td><code>{nros}</code></td><td><code>CARGO_MANIFEST_DIR</code> (<code>zpico-sys/</code>).</td></tr>
-<tr><td><code>{out}</code></td><td><code>OUT_DIR</code>.</td></tr>
-<tr><td><code>{src}</code></td><td><code>zenoh-pico/src/</code> under <code>{nros}</code>.</td></tr>
-<tr><td><code>{env:VAR}</code></td><td>Value of env var <code>VAR</code>; build fails with a clear error if unset.</td></tr>
-<tr><td><code>{envpath:VAR}</code></td><td>A path-valued env var, resolved through the checkout-path rule (issue 1280).</td></tr>
-<tr><td><code>{source:NAME}</code></td><td>A vendored source tree by name, located through <code>nros locate</code> (RFC-0103 D4).</td></tr>
-<tr><td><code>{nuttx_include}</code></td><td>The NuttX include root for this arch’s export.</td></tr>
-<tr><td><code>{freertos_port_dir}</code></td><td>The FreeRTOS port directory <code>FREERTOS_PORT</code> names. The port is upstream’s enum (<code>GCC_ARM_CM3</code>), mapped through upstream’s <code>portable/CMakeLists.txt</code> table (phase-349 W3).</td></tr>
+<tr><td><code>defines</code></td><td>list[str]</td><td><code>define(name, None)</code>.</td></tr>
+<tr><td><code>defines_conditional</code></td><td>list[{name, when}]</td><td>A define gated by a <a href="#when-matcher"><code>when</code></a> matcher. FreeRTOS uses it to pick <code>ZENOH_FREERTOS_LWIP</code> or <code>ZENOH_ORIN_SPE</code> from the board’s <code>ip_stack</code> capability.</td></tr>
+<tr><td><code>defines_kv</code></td><td>map</td><td><code>define(name, Some(value))</code>.</td></tr>
+<tr><td><code>defines_env</code></td><td>map of {env, default}</td><td>Value from env var <code>env</code>, else the literal <code>default</code>.</td></tr>
+<tr><td><code>include</code></td><td>list[str]</td><td>Directories under <code>zenoh-pico/src/</code> this port relies on. <strong>Not</strong> a source selection — that is <code>zenoh-sources.txt</code> plus <code>extra_sources</code>. The build checks each exists and holds a <code>.c</code> file, and watches it for rebuilds: the drift check against a submodule bump.</td></tr>
+<tr><td><code>extra_sources</code></td><td>list[ExtraSource]</td><td><code>.c</code> files to compile on this port, e.g. <code>{src}/system/unix/network.c</code>. See below.</td></tr>
+<tr><td><code>include_paths</code></td><td>list[str]</td><td>Header search paths, interpolated. Order matters: first wins.</td></tr>
+<tr><td><code>include_paths_conditional</code></td><td>list[{path, when}]</td><td>Header paths gated by <code>when</code>.</td></tr>
+<tr><td><code>mbedtls</code></td><td>string</td><td><code>pkg-config</code> / <code>vendored</code> / <code>none</code>. Read only when the <code>link-tls</code> feature is on.</td></tr>
+<tr><td><code>pic</code></td><td>bool</td><td><code>cc::Build::pic</code> override (NuttX flat builds set <code>false</code>).</td></tr>
+<tr><td><code>rerun_if_env_changed</code></td><td>list[str]</td><td>Extra <code>cargo:rerun-if-env-changed</code> triggers. VALUE knobs only, never a path variable (issue 0491).</td></tr>
+<tr><td><code>compiled_by</code></td><td><code>cargo</code> | <code>platform</code></td><td><code>platform</code> means the platform’s own build compiles this C and cargo must not; the row is then descriptive, and still checked. Only <code>zephyr</code> sets it (issue 0534).</td></tr>
 </tbody>
 </table>
 </div>
+<p>The <code>system_libs</code>, <code>exclude</code> and <code>link</code> keys that older docs list were parsed
+and read by nothing. They were removed (issue 2031), so a row naming one is
+refused. <code>pthread</code> on POSIX is emitted by the runner itself.</p>
+<h2 id="how-a-build-resolves-its-platform"><a class="header" href="#how-a-build-resolves-its-platform">How a build resolves its platform</a></h2>
+<ol>
+<li><strong>Pick the name.</strong> From <code>zpico-sys</code>’s Cargo feature: <code>threadx</code>, <code>nuttx</code>,
+<code>freertos</code>, <code>zephyr</code>, <code>bare-metal</code>. With none of those, a hosted target
+(Linux, the BSDs, Android) is <code>posix</code>; macOS must pass the feature.</li>
+<li><strong>Join.</strong> <code>PlatformsTree::as_platform_manifest</code> builds one <code>PlatformEntry</code>
+per platform file: its port row (or an empty one) plus the file’s
+<code>inherits</code>, <code>arch_profiles</code>, <code>compile</code> and <code>required_env</code>. A row that names
+no platform, or two rows that name the same one, is an error.</li>
+<li><strong>Merge the <code>inherits</code> chain</strong>, parent first (<code>PlatformManifest::for_platform</code>):
+<ul>
+<li>lists append, parent’s entries first;</li>
+<li>maps (<code>defines_kv</code>, <code>defines_env</code>) take the child’s value per key;</li>
+<li><code>mbedtls</code>, <code>pic</code>, <code>compiled_by</code> and each <code>compile</code> field take the child’s
+value if set, else the parent’s, so an unset child never downgrades a
+parent;</li>
+<li><code>arch_profiles</code> is replaced, not appended, when the child sets it.</li>
+</ul>
+</li>
+<li><strong>Check every platform</strong>, not just the selected one: each must resolve, and
+each port’s <code>include</code> directories must exist. A bad row anywhere fails
+every zenoh build, which is what keeps the ports nobody is building honest.</li>
+</ol>
+<h2 id="shared-shapes"><a class="header" href="#shared-shapes">Shared shapes</a></h2>
 <h3 id="when-matcher"><a class="header" href="#when-matcher"><code>when</code> matcher</a></h3>
-<p>Conditional includes carry a <code>when</code> table. Each field is optional;
-present fields ALL must hold for the matcher to fire.</p>
+<p>Every present field must hold; an empty matcher is always true.</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -279,113 +323,106 @@ present fields ALL must hold for the matcher to fire.</p>
 </thead>
 <tbody>
 <tr><td><code>target_match</code></td><td>Substring (or <code>&lt;prefix&gt;*</code> glob) that must be in the target triple.</td></tr>
-<tr><td><code>target_not</code></td><td>Substring that must NOT be in the target triple. Special value <code>"embedded"</code> matches any of the known embedded RTOSes.</td></tr>
+<tr><td><code>target_not</code></td><td>Substring that must NOT be in the triple. The special value <code>"embedded"</code> means “the target is one of the known embedded RTOSes”.</td></tr>
 <tr><td><code>if_env</code></td><td>Env var that must be set (any value).</td></tr>
+<tr><td><code>capability</code></td><td>Map of RFC-0086 facts that must be declared with the given value, resolved through the RFC-0049 ladder (platform, then board, board winning). An undeclared fact matches neither <code>true</code> nor <code>false</code>. The one gate that can differ between two boards of one platform (issue 1143).</td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="extrasource-shape"><a class="header" href="#extrasource-shape"><code>ExtraSource</code> shape</a></h3>
+<h3 id="extrasource"><a class="header" href="#extrasource"><code>ExtraSource</code></a></h3>
 <pre><code class="language-toml">extra_sources = [
-  { path = "{nros}/c/platform/threadx/task.c" },
+  { path = "{src}/system/freertos/system.c" },
+  { path = "{src}/system/freertos/lwip/network.c",
+    when = { capability = { ip_stack = true } } },
   { path = "{nros}/c/platform/threadx/log_uart.c",
     if_env = "NROS_ZPICO_LOG_TO_UART",
     with_define = ["ZENOH_LOG_PRINT", "zpico_log_print"] },
 ]
 </code></pre>
-<p><code>if_env</code> skips the file when the env var is absent. <code>with_define</code>
-adds the matching <code>cc::Build::define(name, Some(value))</code> whenever
-the source is included (use <code>name</code> alone for unconditional <code>None</code>).</p>
-<h3 id="requiredenv-shape"><a class="header" href="#requiredenv-shape"><code>RequiredEnv</code> shape</a></h3>
+<p><code>when</code> and <code>if_env</code> both gate the file. <code>with_define</code> is <code>[name]</code> or
+<code>[name, value]</code>, defined whenever the file is compiled.</p>
+<h3 id="requiredenv"><a class="header" href="#requiredenv"><code>RequiredEnv</code></a></h3>
 <pre><code class="language-toml">required_env = [
-  { name = "THREADX_DIR",
-    help = "ThreadX kernel source. Run just setup threadx_linux or export THREADX_DIR=$PWD/third-party/threadx/kernel",
-    validate_subdir = "common/inc" },
+  { name = "THREADX_CONFIG_DIR",
+    help = "Directory containing tx_user.h. Example: packages/boards/nros-board-threadx-linux/config" },
 ]
 </code></pre>
-<p>Missing env vars panic at build time with the <code>help</code> string;
-present env vars whose value lacks the <code>validate_subdir</code> subdir
-also panic with the offending path printed. No silent fallthroughs.</p>
-<h2 id="adding-a-new-platform"><a class="header" href="#adding-a-new-platform">Adding a new platform</a></h2>
-<p>Adding a new RTOS is a TOML edit:</p>
+<p>A missing variable panics with <code>help</code>. With <code>validate_subdir</code>, a present
+variable whose value lacks that subdirectory panics naming the path. An entry
+with a <code>when</code> is required only where the matcher holds, so a FreeRTOS board
+with no network stack does not need an lwIP SDK.</p>
+<h3 id="interpolation-tokens"><a class="header" href="#interpolation-tokens">Interpolation tokens</a></h3>
+<p>Paths in <code>extra_sources</code>, <code>include_paths</code> and <code>include_paths_conditional</code>
+pass through <code>manifest::interpolate</code>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Token</th><th>Value</th></tr>
+</thead>
+<tbody>
+<tr><td><code>{nros}</code></td><td><code>zpico-sys</code>’s <code>CARGO_MANIFEST_DIR</code>.</td></tr>
+<tr><td><code>{out}</code></td><td><code>OUT_DIR</code>.</td></tr>
+<tr><td><code>{src}</code></td><td><code>zenoh-pico/src/</code> under <code>{nros}</code>.</td></tr>
+<tr><td><code>{env:VAR}</code></td><td>Value of <code>VAR</code>; an unset variable fails the build.</td></tr>
+<tr><td><code>{envpath:VAR}</code></td><td>A path-valued env var, resolved through the checkout-path rule (issue 1280).</td></tr>
+<tr><td><code>{source:NAME}</code></td><td>A vendored source tree by name, located through <code>nros locate</code> (RFC-0103 D4).</td></tr>
+<tr><td><code>{nuttx_include}</code></td><td>The NuttX include root for this arch’s export.</td></tr>
+<tr><td><code>{freertos_port_dir}</code></td><td>The FreeRTOS port directory <code>FREERTOS_PORT</code> names, mapped through upstream’s <code>portable/CMakeLists.txt</code> table (phase-349 W3).</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="the-compile"><a class="header" href="#the-compile">The compile</a></h2>
+<p><code>build_zenoh_pico_unified</code> in <code>nros-zpico-build/src/runner.rs</code> is the only
+place that invokes <code>cc-rs</code> for zenoh-pico, and it is skipped when the row
+says <code>compiled_by = "platform"</code>. In order:</p>
 <ol>
-<li>Pick an <code>[arch.&lt;name&gt;]</code> block for the target CPU. If the family
-isn’t already there (or compiler flags differ), add an
-<code>[arch.*]</code> block. Reusable across platforms.</li>
-<li>Write the <code>[platform.&lt;your_rtos&gt;]</code> block with <code>defines</code> +
-<code>include</code> + <code>extra_sources</code> + <code>required_env</code> + <code>include_paths</code>.</li>
-<li>The Cargo feature for the new platform must be added in
-<code>Cargo.toml</code> and wired into the existing match in <code>build.rs</code>
-that maps Cargo feature → manifest platform name.</li>
-<li>Verify with <code>cargo build -p zpico-sys --features &lt;your_rtos&gt; --target &lt;triple&gt;</code>.</li>
+<li>Validate <code>required_env</code> (honouring <code>when</code>).</li>
+<li>Generate the version header into <code>{out}/zenoh-pico-version/</code>.</li>
+<li>Apply the first <code>[arch.*]</code> profile from <code>arch_profiles</code> that admits the
+target.</li>
+<li>Add the <code>zenoh-sources.txt</code> groups this lane selects, then the row’s
+<code>extra_sources</code> (<code>when</code>, <code>if_env</code>, <code>with_define</code>).</li>
+<li>Add include paths: the generated config, zenoh-pico’s own, the version
+header and the platform C ABI headers, then the row’s paths
+(unconditional, then conditional).</li>
+<li>Add defines: <code>defines</code>, <code>defines_conditional</code>, <code>defines_kv</code>,
+<code>defines_env</code>.</li>
+<li>Handle mbedTLS per <code>mbedtls</code>, when <code>link-tls</code> is on.</li>
+<li>Apply shim slot counts and <code>compile</code> settings, then the <code>pic</code> override.</li>
+<li>Compile <code>libzenohpico.a</code> and register <code>rerun_if_env_changed</code>.</li>
 </ol>
-<p>No <code>build.rs</code> edits needed for the data layer.</p>
-<h2 id="adding-a-new-target-arch"><a class="header" href="#adding-a-new-target-arch">Adding a new target arch</a></h2>
-<p>Adding a new CPU family is one <code>[arch.*]</code> block + any of the
-<code>needs_picolibc</code> / <code>needs_errno_override</code> /
-<code>needs_riscv_compiler</code> flags it requires. Existing platforms that
-need to target it set <code>arch = "&lt;your_arch&gt;"</code> (or extend their
-existing <code>arch = [...]</code> list with the new name).</p>
-<p>For platforms that span multiple architectures (e.g. <code>bare-metal</code>
-covers <code>cortex-m3</code> for <code>mps2-an385-baremetal</code> / <code>stm32f4</code> AND
-<code>riscv32imc</code> for <code>ESP32-C3</code>), declare every arch the platform
-supports and let build.rs’s first-match dispatch pick the right
-one per target triple:</p>
-<pre><code class="language-toml">[platform.bare-metal]
-arch = ["cortex-m3", "riscv32imc"]   # first arch_matches wins
-</code></pre>
-<p>This is what makes <code>cargo check</code> work on both
-<code>examples/mps2-an385-baremetal/rust/talker</code> and
-<code>examples/esp32-c3-baremetal/rust/{listener,talker}</code> from the same platform
-entry — the picolibc sysroot wired up by
-<code>arch.riscv32imc.needs_picolibc = true</code> is added to the cc-rs
-<code>-I</code> list only when the build target is riscv32imc-*.</p>
-<h2 id="mbedtls-source-policy"><a class="header" href="#mbedtls-source-policy">mbedTLS source policy</a></h2>
-<p>Manifest’s <code>mbedtls</code> field per-platform:</p>
-<ul>
-<li><code>pkg-config</code> — discover via the <code>pkg-config</code> build crate. POSIX
-hosts only. The build script also synthesizes <code>.pc</code> files when
-the host doesn’t ship them (Ubuntu’s <code>libmbedtls-dev</code> is the
-motivating case).</li>
-<li><code>vendored</code> — pull from the in-tree <code>mbedtls/</code> submodule sources.
-Bare-metal / RTOS targets without a system mbedTLS.</li>
-<li><code>none</code> — <code>link-tls</code> users on this platform get a link error;
-the platform doesn’t support TLS.</li>
-</ul>
-<p>The selection only matters when <code>link-tls</code> is on (controlled by
-the <code>CARGO_FEATURE_LINK_TLS</code> env var).</p>
-<h2 id="source-drift-gate"><a class="header" href="#source-drift-gate">Source-drift gate</a></h2>
-<p>Every <code>include</code> root in <code>zenoh_platforms.toml</code> must (a) resolve to
-a real directory under <code>zenoh-pico/src/</code>, (b) contain <code>≥1 .c</code> file
-or sub-directory. A failed check panics build-time with the
-offending key + expected path. owns this; full
-set-equality vs. the resolved cc-rs source list lands as a
-follow-up.</p>
-<h2 id="manifest-driven-consumer"><a class="header" href="#manifest-driven-consumer">Manifest-driven consumer</a></h2>
-<p><code>build.rs</code>’s <code>build_zenoh_pico_unified</code> consumes a
-<code>ResolvedPlatform</code> (the merged <code>inherits</code> chain). It:</p>
+<p>The zpico shim (<code>c/zpico/zpico.c</code>) is a separate compile in <code>build_c_shim</code>,
+and shares the generated zenoh config header with the library (issue 0135).</p>
+<h2 id="adding-a-platform"><a class="header" href="#adding-a-platform">Adding a platform</a></h2>
 <ol>
-<li>Validates <code>required_env</code> + <code>validate_subdir</code>.</li>
-<li>Generates the version header in <code>{out}/zenoh-pico-version/</code>.</li>
-<li>Applies the <code>[arch.*]</code> profile if its <code>target_match</code> /
-<code>target_exclude</code> predicates pass.</li>
-<li>Adds core sources (8 protocol subdirs + <code>system/common</code>) and
-per-platform <code>extra_sources</code> (with <code>if_env</code> / <code>with_define</code>).</li>
-<li>Sets include paths (unconditional + conditional after <code>matches</code>).</li>
-<li>Adds defines (<code>defines</code> / <code>defines_kv</code> / <code>defines_env</code>).</li>
-<li>Handles mbedTLS per the manifest’s <code>mbedtls</code> field.</li>
-<li>Applies shim slot counts.</li>
-<li>Applies compile settings + <code>pic</code> override.</li>
-<li>Compiles to <code>libzenohpico.a</code>.</li>
-<li>Registers <code>rerun_if_env_changed</code>.</li>
+<li><strong>The platform file.</strong> Create <code>nros-platform.toml</code> beside the platform
+crate (or in a directory on <code>$NROS_PLATFORMS_DIR</code>): <code>names</code>, and the
+C-build keys if the platform cross-compiles. Reuse an existing <code>[arch.*]</code>
+profile by naming it in <code>arch_profiles</code>, or define one.</li>
+<li><strong>The port row.</strong> Add <code>[port.&lt;name&gt;]</code> to <code>nros-rmw-zenoh/nros-rmw.toml</code>:
+the <code>ZENOH_*</code> platform define, the <code>system/&lt;x&gt;/</code> sources as
+<code>extra_sources</code>, and include paths. If the platform’s own build compiles
+zenoh-pico, set <code>compiled_by = "platform"</code>.</li>
+<li><strong>The feature.</strong> Add the <code>zpico-sys</code> Cargo feature and its arm in
+<code>runner.rs</code>’s <code>platform_name</code> derivation.</li>
+<li><strong>Check.</strong> <code>cargo build -p zpico-sys --features &lt;name&gt; --target &lt;triple&gt;</code>,
+then <code>just check zenoh-source-manifest</code> and
+<code>just check arch-profile-resolution</code>.</li>
 </ol>
-<p>The consumer is the only function that actually invokes <code>cc-rs</code>
-for zenoh-pico. Every per-platform delta lives in the TOML.</p>
+<p>A new CPU family is one <code>[arch.*]</code> block in each platform file that admits
+it, plus its name in their <code>arch_profiles</code>. A multi-arch platform lists every
+profile and lets the first match pick: <code>bare-metal</code> lists <code>cortex-m3</code>,
+<code>cortex-m4f</code> and <code>riscv32imc</code>, so one platform serves mps2-an385 and the
+ESP32-C3.</p>
 <h2 id="related"><a class="header" href="#related">Related</a></h2>
 <ul>
-<li><code>docs/roadmap/phase-136-zpico-sys-unified-build.md</code> — the phase
-doc that drove this refactor.</li>
-<li><code>book/src/concepts/platform-model.md</code> — Boards vs Platforms;
-manifest is the platform-side knob.</li>
+<li><code>docs/roadmap/archived/phase-136-zpico-sys-unified-build.md</code> — the unified
+<code>cc-rs</code> build.</li>
+<li><code>docs/roadmap/archived/phase-349-rtos-integration-shells.md</code> — W2b, the
+platform/backend split.</li>
+<li>RFC-0049 (<code>docs/design/0049-hierarchical-platform-board-config.md</code>) — the
+platform and board files and their ladder.</li>
+<li><code>book/src/concepts/platform-model.md</code> — boards vs platforms.</li>
 <li><code>book/src/internals/rmw-backends.md</code> — RMW host-language policy.</li>
 </ul>
 
