@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['detail_3a_3aqos_5ffrom_5fffi_0',['qos_from_ffi',['../classrclcpp_1_1QoS.html#aaf9d716c6ea9833f8d015a01f2b5f328',1,'rclcpp::QoS']]]
+  ['client_3c_20a_20_3e_0',['Client&lt; A &gt;',['../classrclcpp__action_1_1ClientGoalHandle.html#ad0374ffea64c6063bab96c39fa894829',1,'rclcpp_action::ClientGoalHandle']]]
 ];

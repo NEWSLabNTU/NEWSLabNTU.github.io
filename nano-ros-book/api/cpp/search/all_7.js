@@ -5,7 +5,7 @@ var searchData=
   ['abi_20in_20mixed_20c_20c_2',['Callback ABI in Mixed C++/C',['../troubleshooting.html#autotoc_md29',1,'']]],
   ['abort_3',['abort',['../classrclcpp__action_1_1Server.html#a16584973d935b960bcb5308e6a30d7d9',1,'rclcpp_action::Server::abort(const uint8_t goal_id[16], const ResultType &amp;result)'],['../classrclcpp__action_1_1Server.html#a14cdd59cfb4688614e2b488f08853082',1,'rclcpp_action::Server::abort(const ::rclcpp_action::GoalUUID &amp;goal_id, const ResultType &amp;result)']]],
   ['abort_5ffailed_5fcreate_4',['abort_failed_create',['../namespacerclcpp_1_1detail.html#a3e4e37b68cb8ea4a7409ca297ac4fc9a',1,'rclcpp::detail']]],
-  ['aborted_5',['Aborted',['../namespacerclcpp__action.html#a3878b7d63c0d80e31572d5227d9ba344a721c28f4c74928cc9e0bb3fef345e408',1,'rclcpp_action']]],
+  ['aborted_5',['aborted',['../namespacerclcpp__action.html#a3878b7d63c0d80e31572d5227d9ba344a721c28f4c74928cc9e0bb3fef345e408',1,'rclcpp_action::Aborted'],['../namespacerclcpp__action.html#ae469597b77e40287e19539b806a54619a4e6c860e5da10e31c5fd9cb76ddc2025',1,'rclcpp_action::ABORTED']]],
   ['accept_6',['ACCEPT',['../namespacerclcpp__action.html#a27ea2386548de7ad3bef27bb3c0eed05a1fd72e016e8fbf2cf1f0c918dcd9bad3',1,'rclcpp_action']]],
   ['accept_5fand_5fdefer_7',['ACCEPT_AND_DEFER',['../namespacerclcpp__action.html#ababbbebf29fec7c541687c724fc82ba7a4c24d323172f030b263f7e3f5665fd6b',1,'rclcpp_action']]],
   ['accept_5fand_5fexecute_8',['ACCEPT_AND_EXECUTE',['../namespacerclcpp__action.html#ababbbebf29fec7c541687c724fc82ba7afebe382dbb4c4822fce296b00f91fac5',1,'rclcpp_action']]],
@@ -31,8 +31,9 @@ var searchData=
   ['arm_5fmonitors_28',['arm_monitors',['../namespacerclcpp.html#ac7860ba546fddff3a0046b8feb7e45e5',1,'rclcpp']]],
   ['as_5fnode_5fref_29',['as_node_ref',['../namespacerclcpp_1_1detail.html#a000b5403cc5c8b72edb038402d677bea',1,'rclcpp::detail::as_node_ref(::rclcpp::Node &amp;n)'],['../namespacerclcpp_1_1detail.html#aa20a28ca91e9daf75f05c1600a4b33b5',1,'rclcpp::detail::as_node_ref(::rclcpp::Node *n)'],['../namespacerclcpp_1_1detail.html#a9f02268296f2ddac019d012fef47fd1b',1,'rclcpp::detail::as_node_ref(const ::rclcpp::Node::SharedPtr &amp;n)']]],
   ['assert_5fliveliness_30',['assert_liveliness',['../classrclcpp_1_1Publisher.html#a01baee3f0df00adebf5c3940d86aaf28',1,'rclcpp::Publisher']]],
-  ['async_5fsend_5frequest_31',['async_send_request',['../classrclcpp_1_1Client.html#a38f31656846534865a53e095cac3f846',1,'rclcpp::Client']]],
-  ['attach_5fclosure_5fblock_32',['attach_closure_block',['../classrclcpp_1_1Timer.html#a02cf3910c2d9b373ace85844ba321b1c',1,'rclcpp::Timer::attach_closure_block()'],['../classrclcpp_1_1GuardCondition.html#aeb90dce625b6c6db54cdc5aa00355d7d',1,'rclcpp::GuardCondition::attach_closure_block()']]],
-  ['automatic_33',['Automatic',['../namespacerclcpp.html#a9de3336c22cf3e1469030d55e9b5108fa086247a9b57fde6eefee2a0c4752242d',1,'rclcpp']]],
-  ['avoid_5fros_5fnamespace_5fconventions_34',['avoid_ros_namespace_conventions',['../classrclcpp_1_1QoS.html#ae1f639c5f248f52343f0dbaba5a005eb',1,'rclcpp::QoS::avoid_ros_namespace_conventions()'],['../structnros__cpp__qos__t.html#ab342de97418984350c69693828c66383',1,'nros_cpp_qos_t::avoid_ros_namespace_conventions'],['../classrclcpp_1_1QoS.html#ac325f085965128b3db6246c9b357c1b0',1,'rclcpp::QoS::avoid_ros_namespace_conventions()']]]
+  ['async_5fsend_5fgoal_31',['async_send_goal',['../classrclcpp__action_1_1Client.html#a75a414639e749817a262561981d31a46',1,'rclcpp_action::Client']]],
+  ['async_5fsend_5frequest_32',['async_send_request',['../classrclcpp_1_1Client.html#a38f31656846534865a53e095cac3f846',1,'rclcpp::Client']]],
+  ['attach_5fclosure_5fblock_33',['attach_closure_block',['../classrclcpp_1_1Timer.html#a02cf3910c2d9b373ace85844ba321b1c',1,'rclcpp::Timer::attach_closure_block()'],['../classrclcpp_1_1GuardCondition.html#aeb90dce625b6c6db54cdc5aa00355d7d',1,'rclcpp::GuardCondition::attach_closure_block()']]],
+  ['automatic_34',['Automatic',['../namespacerclcpp.html#a9de3336c22cf3e1469030d55e9b5108fa086247a9b57fde6eefee2a0c4752242d',1,'rclcpp']]],
+  ['avoid_5fros_5fnamespace_5fconventions_35',['avoid_ros_namespace_conventions',['../classrclcpp_1_1QoS.html#ae1f639c5f248f52343f0dbaba5a005eb',1,'rclcpp::QoS::avoid_ros_namespace_conventions()'],['../structnros__cpp__qos__t.html#ab342de97418984350c69693828c66383',1,'nros_cpp_qos_t::avoid_ros_namespace_conventions'],['../classrclcpp_1_1QoS.html#ac325f085965128b3db6246c9b357c1b0',1,'rclcpp::QoS::avoid_ros_namespace_conventions()']]]
 ];

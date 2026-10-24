@@ -5,5 +5,6 @@ var searchData=
   ['_3a_3arclcpp_3a_3anodebuilder_2',['NodeBuilder',['../classrclcpp_1_1Node.html#a2a486db447ded710c44b606473d90c54',1,'rclcpp::Node']]],
   ['_3a_3arclcpp_3a_3apollclient_3',['PollClient',['../classrclcpp_1_1Future.html#aeea55f64a30343400179b68037a7b779',1,'rclcpp::Future']]],
   ['_3a_3arclcpp_3a_3apollsubscription_4',['PollSubscription',['../classrclcpp_1_1Stream.html#a9cf8757e2d93c9d9497d95462a078095',1,'rclcpp::Stream']]],
-  ['_3a_3arclcpp_5faction_3a_3aclient_5',['::rclcpp_action::client',['../classrclcpp_1_1Future.html#a715c45ad34550b472554985cccde7cbd',1,'rclcpp::Future::Client'],['../classrclcpp_1_1Stream.html#a715c45ad34550b472554985cccde7cbd',1,'rclcpp::Stream::Client']]]
+  ['_3a_3arclcpp_5faction_3a_3aclient_5',['::rclcpp_action::client',['../classrclcpp_1_1Future.html#a715c45ad34550b472554985cccde7cbd',1,'rclcpp::Future::Client'],['../classrclcpp_1_1Stream.html#a715c45ad34550b472554985cccde7cbd',1,'rclcpp::Stream::Client']]],
+  ['_3a_3arclcpp_5faction_3a_3aservergoalhandle_3c_20a_20_3e_6',['ServerGoalHandle&lt; A &gt;',['../classrclcpp__action_1_1Server.html#a6a61ce493389a9bbdcc5e9ca941dd99f',1,'rclcpp_action::Server']]]
 ];

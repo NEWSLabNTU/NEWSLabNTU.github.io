@@ -6,10 +6,10 @@ var indexSectionsWithContent =
   3: "cefgmnpqrst",
   4: "abcdefghiklmnopqrstuvw~",
   5: "abcdefghklmnopqrstuv",
-  6: "cefgimnprstuw",
+  6: "cefghimnprstuw",
   7: "cdefghlnrs",
   8: "abcefgikmnoprstuv",
-  9: ":dor",
+  9: ":cdor",
   10: "nr",
   11: "aceinpqs",
   12: "2acegimnrst"

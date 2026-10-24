@@ -15,10 +15,11 @@ var searchData=
   ['depth_12',['depth',['../classrclcpp_1_1QoS.html#ae9426296bab3f749f16419dcca236d3d',1,'rclcpp::QoS::depth()'],['../structnros__cpp__qos__t.html#acfa3abca89031c99a8461cd9ece9a090',1,'nros_cpp_qos_t::depth']]],
   ['describe_5fparameter_13',['describe_parameter',['../classrclcpp_1_1Node.html#a4e2764cedefd6a59c7eb5b47ce2336c9',1,'rclcpp::Node']]],
   ['detail_3a_3aqos_5ffrom_5fffi_14',['qos_from_ffi',['../classrclcpp_1_1QoS.html#aaf9d716c6ea9833f8d015a01f2b5f328',1,'rclcpp::QoS']]],
-  ['discard_15',['discard',['../classrclcpp_1_1Publisher_1_1Loan.html#a757dcc88c8a049f7086c0d6f43cf3a19',1,'rclcpp::Publisher::Loan']]],
-  ['domain_5fid_16',['domain_id',['../classrclcpp_1_1NodeBuilder.html#ae2b3cafdd7425282076e008bb7dd03a8',1,'rclcpp::NodeBuilder']]],
-  ['durability_17',['durability',['../structnros__cpp__qos__t.html#a221e6bce6b2426d1c6546292cb922f10',1,'nros_cpp_qos_t::durability'],['../classrclcpp_1_1QoS.html#a990bf9800b726430d0b5b16d6afe31c0',1,'rclcpp::QoS::durability() const']]],
-  ['durability_5fbest_5favailable_18',['durability_best_available',['../classrclcpp_1_1QoS.html#a15af3ecad21714204e5e23f18ca54f1b',1,'rclcpp::QoS']]],
-  ['durability_5fvolatile_19',['durability_volatile',['../classrclcpp_1_1QoS.html#ac9f19f0b9730f0dfe0958cb1dec4741c',1,'rclcpp::QoS']]],
-  ['durabilitypolicy_20',['DurabilityPolicy',['../namespacerclcpp.html#ae9843ccd28bc49a283849198ffda8833',1,'rclcpp']]]
+  ['detail_3a_3aserverupstream_3c_20a_20_3e_15',['detail::serverupstream&lt; a &gt;',['../classrclcpp__action_1_1ServerGoalHandle.html#a290ab2b4be6134e9804a750ffcdbf07f',1,'rclcpp_action::ServerGoalHandle::ServerUpstream&lt; A &gt;'],['../classrclcpp__action_1_1Server.html#a290ab2b4be6134e9804a750ffcdbf07f',1,'rclcpp_action::Server::ServerUpstream&lt; A &gt;']]],
+  ['discard_16',['discard',['../classrclcpp_1_1Publisher_1_1Loan.html#a757dcc88c8a049f7086c0d6f43cf3a19',1,'rclcpp::Publisher::Loan']]],
+  ['domain_5fid_17',['domain_id',['../classrclcpp_1_1NodeBuilder.html#ae2b3cafdd7425282076e008bb7dd03a8',1,'rclcpp::NodeBuilder']]],
+  ['durability_18',['durability',['../structnros__cpp__qos__t.html#a221e6bce6b2426d1c6546292cb922f10',1,'nros_cpp_qos_t::durability'],['../classrclcpp_1_1QoS.html#a990bf9800b726430d0b5b16d6afe31c0',1,'rclcpp::QoS::durability() const']]],
+  ['durability_5fbest_5favailable_19',['durability_best_available',['../classrclcpp_1_1QoS.html#a15af3ecad21714204e5e23f18ca54f1b',1,'rclcpp::QoS']]],
+  ['durability_5fvolatile_20',['durability_volatile',['../classrclcpp_1_1QoS.html#ac9f19f0b9730f0dfe0958cb1dec4741c',1,'rclcpp::QoS']]],
+  ['durabilitypolicy_21',['DurabilityPolicy',['../namespacerclcpp.html#ae9843ccd28bc49a283849198ffda8833',1,'rclcpp']]]
 ];
