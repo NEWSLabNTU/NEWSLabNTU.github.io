@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-8e623778.js";
+            window.path_to_searchindex_js = "searchindex-a3c4b5fe.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f34c65de.js"></script>
@@ -13553,14 +13553,23 @@ use is these two calls.</li>
 <code>is_executing</code>, <code>is_canceling</code>, and <code>publish_feedback</code> / <code>succeed</code> / <code>abort</code> /
 <code>canceled</code> take upstream’s <code>std::shared_ptr</code>s. Each call forwards to the
 server, keyed by the goal id; the goal itself lives in the server’s static
-arena, and the handle is a token over it. <code>execute()</code> (for
-<code>ACCEPT_AND_DEFER</code>) is not there yet.</li>
+arena, and the handle is a token over it. <code>execute()</code> moves a goal accepted
+with <code>ACCEPT_AND_DEFER</code> to EXECUTING and publishes the status (issue 2027);
+for <code>ACCEPT_AND_EXECUTE</code> the server does that itself before
+<code>handle_accepted</code>, as upstream’s does.</li>
 <li><code>Client&lt;A&gt;::SendGoalOptions</code> carries upstream’s <code>goal_response_callback</code>
 (a <code>ClientGoalHandle&lt;A&gt;::SharedPtr</code>, null when rejected), <code>feedback_callback</code>
 (<code>std::shared_ptr&lt;const Feedback&gt;</code>) and <code>result_callback</code>
 (<code>WrappedResult{goal_id, code, result}</code>), and <code>async_send_goal(goal, options)</code>
 binds them to that goal. Giving a result callback requests the result once the
 goal is accepted, as upstream does.</li>
+<li><code>async_get_result(goal_handle, result_callback)</code> and
+<code>async_cancel_goal(goal_handle, cancel_callback)</code>, plus
+<code>async_cancel_all_goals</code> / <code>async_cancel_goals_before(stamp)</code>, return
+upstream’s <code>std::shared_future</code> (of a <code>WrappedResult</code>, or a
+<code>CancelResponse::SharedPtr</code> with <code>return_code</code> and <code>goals_canceling</code>), so
+<code>rclcpp::spin_until_future_complete(node, f)</code> then <code>f.get()</code> work unchanged
+(issue 2027). The future drives the client while it is polled or waited on.</li>
 </ul>
 <p>What stays different, each a compile error or written below:</p>
 <ul>
@@ -13568,8 +13577,12 @@ goal is accepted, as upstream does.</li>
 future <code>send_goal_future</code> returns, not a <code>std::shared_future</code> of a goal
 handle. <code>auto f = client-&gt;async_send_goal(goal, opts);</code> compiles; a caller
 that waits on <code>f</code> gets the acceptance (RFC-0021: the future never blocks
-without spinning). <code>async_cancel_goal</code> / <code>async_get_result</code> with a goal
-handle are not there: cancel with <code>cancel_goal(goal_id)</code>.</li>
+without spinning).</li>
+<li><strong>A cancel reply is taken when its future is polled</strong> (<code>spin_until_future_complete</code>,
+<code>wait_for</code>, <code>get</code>) or <code>client-&gt;poll()</code> runs, not by the executor’s spin. Code
+that keeps only the <code>cancel_callback</code> calls <code>poll()</code> from its loop. A
+nano-ros SERVER does not yet act on the zero-id cancel-all / cancel-before
+forms (issue 2029); an rclcpp server does.</li>
 <li><strong>A goal handle is driven from the executor’s task.</strong> Do not hand it to a
 thread you start (see the 6 lines above). It names its server by address, so
 the server must not move while a handle is in use; a <code>SharedPtr</code> does not
@@ -25141,7 +25154,11 @@ public surface a user application needs.</p>
 <li><a href="api/cpp/classrclcpp_1_1Service.html"><code>rclcpp::Service&lt;S&gt;</code></a> / <a href="api/cpp/classrclcpp_1_1Client.html"><code>Client&lt;S&gt;</code></a> — the DISPATCH service server and client. A handler is registered into the executor arena, which owns the entity. <code>Service&lt;S&gt;::SharedPtr</code> is <code>rclcpp::ServiceHandle&lt;S&gt;</code>, a two-word keep-alive with nothing to dereference (phase-456 W5); <code>Client&lt;S&gt;::SharedPtr</code> is <code>rclcpp::ClientHandle&lt;S&gt;</code>, the same two words WITH one verb — <code>async_send_request</code>, which is all a census of the corpus found anyone calling on a dispatch client (phase-456 W9). Neither has an <code>operator-&gt;</code>.</li>
 <li><a href="api/cpp/classrclcpp_1_1PollService.html"><code>rclcpp::PollService&lt;S&gt;</code></a> — L1 polling service server. The caller owns the server and drains it with <code>take_request</code> / <code>send_response</code> from its own spin loop. <code>node.create_service&lt;S&gt;(name)</code> with no handler hands one back.</li>
 <li><a href="api/cpp/classrclcpp_1_1PollClient.html"><code>rclcpp::PollClient&lt;S&gt;</code></a> — L1 future-style service client, the client half of the same split (phase-456 W9). The caller owns the client and drains the reply itself: <code>send_request</code> returns a <code>rclcpp::Future&lt;T&gt;</code>, <code>call</code> blocks while driving the executor, <code>call_polling</code> blocks without driving it, and <code>wait_for_service</code> / <code>service_is_ready</code> probe the server. <code>node.create_client&lt;S&gt;(name)</code> with no handler hands one back.</li>
-<li><a href="api/cpp/classrclcpp__action_1_1Server.html"><code>rclcpp_action::Server&lt;A&gt;</code></a> / <a href="api/cpp/classrclcpp__action_1_1Client.html"><code>Client&lt;A&gt;</code></a> — L2 callback model (executor-arena registered). <code>rclcpp::ActionServer&lt;A&gt;</code> / <code>rclcpp::ActionClient&lt;A&gt;</code> are the same two types.</li>
+<li><a href="api/cpp/classrclcpp__action_1_1Server.html"><code>rclcpp_action::Server&lt;A&gt;</code></a> / <a href="api/cpp/classrclcpp__action_1_1Client.html"><code>Client&lt;A&gt;</code></a> — L2 callback model (executor-arena registered). <code>rclcpp::ActionServer&lt;A&gt;</code> / <code>rclcpp::ActionClient&lt;A&gt;</code> are the same two types.
+Hosted, upstream’s goal handles too: <code>ServerGoalHandle&lt;A&gt;</code> (incl. <code>execute()</code>
+for <code>ACCEPT_AND_DEFER</code>), <code>ClientGoalHandle&lt;A&gt;</code>, and <code>Client&lt;A&gt;::async_get_result</code> /
+<code>async_cancel_goal</code> / <code>async_cancel_all_goals</code> / <code>async_cancel_goals_before</code>
+returning <code>std::shared_future</code>s (issues 2015, 2027).</li>
 <li><a href="api/cpp/classrclcpp_1_1PollingActionServer.html"><code>rclcpp::PollingActionServer&lt;A&gt;</code></a> / <a href="api/cpp/classrclcpp_1_1PollingActionClient.html"><code>PollingActionClient&lt;A&gt;</code></a> — L1 polling model. Caller drives <code>take_*</code> / <code>accept_goal</code> / <code>complete_goal</code> from a spin loop.</li>
 <li><a href="api/cpp/classrclcpp_1_1Future.html"><code>rclcpp::Future&lt;T&gt;</code></a> — async result handle</li>
 <li><a href="api/cpp/classrclcpp_1_1Executor.html"><code>rclcpp::Executor</code></a>, <a href="api/cpp/classrclcpp_1_1Timer.html"><code>Timer</code></a>, <a href="api/cpp/classrclcpp_1_1GuardCondition.html"><code>GuardCondition</code></a></li>

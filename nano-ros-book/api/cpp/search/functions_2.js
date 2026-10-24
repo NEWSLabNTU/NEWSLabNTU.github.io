@@ -11,7 +11,7 @@ var searchData=
   ['check_5fdeclared_5fqos_8',['check_declared_qos',['../classrclcpp_1_1Node.html#a99f3ecbeb9b02dbb675797e20ff1949a',1,'rclcpp::Node']]],
   ['clear_9',['clear',['../classrclcpp_1_1GuardCondition.html#ae053dcca3678eea416c6530f98a4cf29',1,'rclcpp::GuardCondition']]],
   ['client_10',['client',['../classrclcpp_1_1Client.html#ab398cc164355ac44d4dd89abb3bf931f',1,'rclcpp::Client::Client(Client &amp;&amp;other)'],['../classrclcpp_1_1Client.html#aa7b400af40e2b42a9fde21c9bfd86f9a',1,'rclcpp::Client::Client()'],['../classrclcpp__action_1_1Client.html#a70b89d843db4babc9f8b1da846d12aa0',1,'rclcpp_action::Client::Client(Client &amp;&amp;other)'],['../classrclcpp__action_1_1Client.html#a498a3344342ac1d73b8ff6bbe4848680',1,'rclcpp_action::Client::Client()']]],
-  ['clientgoalhandle_11',['ClientGoalHandle',['../classrclcpp__action_1_1ClientGoalHandle.html#adbd14573febc2b5c3e78de5bc30a7590',1,'rclcpp_action::ClientGoalHandle']]],
+  ['clientgoalhandle_11',['clientgoalhandle',['../classrclcpp__action_1_1ClientGoalHandle.html#adbd14573febc2b5c3e78de5bc30a7590',1,'rclcpp_action::ClientGoalHandle::ClientGoalHandle(const GoalUUID &amp;id)'],['../classrclcpp__action_1_1ClientGoalHandle.html#a3da4147d6c0e602fd938b9a6ccb46a72',1,'rclcpp_action::ClientGoalHandle::ClientGoalHandle(const ClientGoalHandle &amp;)=delete']]],
   ['clockqos_12',['ClockQoS',['../classrclcpp_1_1ClockQoS.html#acda43c4547d1c1a20fd254caeb70cbe9',1,'rclcpp::ClockQoS']]],
   ['code_13',['code',['../classrclcpp_1_1ResultOf_3_01void_01_4.html#a795ff5c845c78a4d0ffdf74ac44152ad',1,'rclcpp::ResultOf&lt; void &gt;']]],
   ['commit_14',['commit',['../classrclcpp_1_1Publisher_1_1Loan.html#ae5de645652f2bc8246244633d35a21b9',1,'rclcpp::Publisher::Loan']]],

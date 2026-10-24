@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8e623778.js";
+            window.path_to_searchindex_js = "../searchindex-a3c4b5fe.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-f34c65de.js"></script>
@@ -440,14 +440,23 @@ use is these two calls.</li>
 <code>is_executing</code>, <code>is_canceling</code>, and <code>publish_feedback</code> / <code>succeed</code> / <code>abort</code> /
 <code>canceled</code> take upstream’s <code>std::shared_ptr</code>s. Each call forwards to the
 server, keyed by the goal id; the goal itself lives in the server’s static
-arena, and the handle is a token over it. <code>execute()</code> (for
-<code>ACCEPT_AND_DEFER</code>) is not there yet.</li>
+arena, and the handle is a token over it. <code>execute()</code> moves a goal accepted
+with <code>ACCEPT_AND_DEFER</code> to EXECUTING and publishes the status (issue 2027);
+for <code>ACCEPT_AND_EXECUTE</code> the server does that itself before
+<code>handle_accepted</code>, as upstream’s does.</li>
 <li><code>Client&lt;A&gt;::SendGoalOptions</code> carries upstream’s <code>goal_response_callback</code>
 (a <code>ClientGoalHandle&lt;A&gt;::SharedPtr</code>, null when rejected), <code>feedback_callback</code>
 (<code>std::shared_ptr&lt;const Feedback&gt;</code>) and <code>result_callback</code>
 (<code>WrappedResult{goal_id, code, result}</code>), and <code>async_send_goal(goal, options)</code>
 binds them to that goal. Giving a result callback requests the result once the
 goal is accepted, as upstream does.</li>
+<li><code>async_get_result(goal_handle, result_callback)</code> and
+<code>async_cancel_goal(goal_handle, cancel_callback)</code>, plus
+<code>async_cancel_all_goals</code> / <code>async_cancel_goals_before(stamp)</code>, return
+upstream’s <code>std::shared_future</code> (of a <code>WrappedResult</code>, or a
+<code>CancelResponse::SharedPtr</code> with <code>return_code</code> and <code>goals_canceling</code>), so
+<code>rclcpp::spin_until_future_complete(node, f)</code> then <code>f.get()</code> work unchanged
+(issue 2027). The future drives the client while it is polled or waited on.</li>
 </ul>
 <p>What stays different, each a compile error or written below:</p>
 <ul>
@@ -455,8 +464,12 @@ goal is accepted, as upstream does.</li>
 future <code>send_goal_future</code> returns, not a <code>std::shared_future</code> of a goal
 handle. <code>auto f = client-&gt;async_send_goal(goal, opts);</code> compiles; a caller
 that waits on <code>f</code> gets the acceptance (RFC-0021: the future never blocks
-without spinning). <code>async_cancel_goal</code> / <code>async_get_result</code> with a goal
-handle are not there: cancel with <code>cancel_goal(goal_id)</code>.</li>
+without spinning).</li>
+<li><strong>A cancel reply is taken when its future is polled</strong> (<code>spin_until_future_complete</code>,
+<code>wait_for</code>, <code>get</code>) or <code>client-&gt;poll()</code> runs, not by the executor’s spin. Code
+that keeps only the <code>cancel_callback</code> calls <code>poll()</code> from its loop. A
+nano-ros SERVER does not yet act on the zero-id cancel-all / cancel-before
+forms (issue 2029); an rclcpp server does.</li>
 <li><strong>A goal handle is driven from the executor’s task.</strong> Do not hand it to a
 thread you start (see the 6 lines above). It names its server by address, so
 the server must not move while a handle is in use; a <code>SharedPtr</code> does not
