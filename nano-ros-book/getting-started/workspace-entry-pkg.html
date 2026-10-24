@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b6e190d7.js";
+            window.path_to_searchindex_js = "../searchindex-2ccaae23.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-f34c65de.js"></script>
@@ -310,6 +310,7 @@ launch argument. Nothing is duplicated to express any of that.</p>
 <tr><td><code>args</code></td><td>Launch arguments bound at resolve time (<code>{ host = "robot1" }</code>) — how an image selects one machine out of a multi-host launch tree</td></tr>
 <tr><td><code>rmw</code></td><td>Backend for this image. Absent ⇒ <code>[system] rmw</code></td></tr>
 <tr><td><code>panic</code></td><td>RFC-0077 panic policy (<code>platform</code> | <code>halt</code> | <code>own</code>), forwarded to the generated entry</td></tr>
+<tr><td><code>before_boot</code></td><td><code>"&lt;package&gt;::&lt;fn&gt;"</code>, a function the generated entry calls before the board boots; see <a href="#customising-an-entry">Customising an entry</a>. Rust entries only</td></tr>
 <tr><td><code>profile</code></td><td>A cargo / CMake build profile name</td></tr>
 <tr><td><code>conf</code></td><td>Extra framework config fragments, in order (Zephyr <code>prj-*.conf</code>)</td></tr>
 <tr><td><code>features</code></td><td>Capability axes for this image, over <code>[system]</code>’s list</td></tr>
@@ -596,40 +597,75 @@ crate root stays a single line — as in
 
 nros::main!();
 <span class="boring">}</span></code></pre>
-<h2 id="escape-hatch"><a class="header" href="#escape-hatch">Escape hatch</a></h2>
-<p>If you need more control than the macro provides — custom startup ordering,
-hardware init before the runtime, or a fully manual executor loop — take
-ownership of the generated entry:</p>
+<h2 id="customising-an-entry"><a class="header" href="#customising-an-entry">Customising an entry</a></h2>
+<p>The generated entry is one <code>nros::main!(…)</code> line, and the macro behind it
+does a lot: it opens the executor at the size the image declares, applies the
+deploy settings, and registers every launch node, plus the lifecycle,
+parameter services and tiers the system declares. Owning the entry means
+owning all of that, so take the smallest step that works:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>you need</th><th>use</th><th>the entry stays generated?</th></tr>
+</thead>
+<tbody>
+<tr><td>a different panic policy, build profile, Kconfig fragment or capability</td><td>an <code>[image.*]</code> key: <code>panic</code>, <code>profile</code>, <code>conf</code>, <code>features</code></td><td>yes</td></tr>
+<tr><td>one step before the runtime starts (open a device, check a calibration)</td><td><code>before_boot</code>, below</td><td>yes</td></tr>
+<tr><td>hardware bring-up every image on a board needs (clocks, DMA, flash unlock)</td><td>the board’s <code>init_hardware</code>, in a <a href="../porting/board-trait.html">board package</a></td><td>yes</td></tr>
+<tr><td>startup none of the above can express</td><td><code>nros materialize</code>, below: the last resort</td><td>no</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="a-step-before-boot-before_boot"><a class="header" href="#a-step-before-boot-before_boot">A step before boot: <code>before_boot</code></a></h3>
+<p>Name a function in one of the image’s node packages:</p>
+<pre><code class="language-toml">[image.linux_rust_before_boot]
+board = "linux"
+launch = "rust_before_boot.launch.xml"
+before_boot = "rust_before_boot_talker_pkg::prepare"
+</code></pre>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// rust_before_boot_talker_pkg/src/lib.rs
+pub fn prepare() -&gt; Result&lt;(), &amp;'static str&gt; {
+    // open the device, check the calibration, wait for the peripheral …
+    Ok(())
+}
+<span class="boring">}</span></code></pre>
+<p><code>nros build</code> writes it into the generated entry as
+<code>nros::main!(before_boot = rust_before_boot_talker_pkg::prepare, …)</code>, and the
+entry calls it first, before the board does anything. So nothing has booted
+when it runs: no executor and no session, and a bare-metal board has not
+initialised its hardware yet. Returning <code>Err("reason")</code> stops the image there, with the reason
+in the failure. The entry is still generated, so a node you add to the launch
+file still reaches it.</p>
+<p>The worked example is <code>examples/workspaces/features</code>, image
+<code>linux_rust_before_boot</code>. Its node logs <code>before_boot ran first</code> on every tick
+when the step ran before the node registered, and a test checks that line.</p>
+<p><code>before_boot</code> is a <code>nros::main!</code> argument, so it exists for Rust entries. A
+C/C++ image that sets it is refused, and so is an RTIC or Embassy board, whose
+framework owns the first statement: use the framework’s own init there.</p>
+<h3 id="the-last-resort-nros-materialize"><a class="header" href="#the-last-resort-nros-materialize">The last resort: <code>nros materialize</code></a></h3>
+<p>When the entry needs changes that no declaration expresses, take ownership of
+it:</p>
 <pre><code class="language-console">$ nros build linux          # generate it first — materialize copies, it does not re-emit
 $ nros materialize linux
 wrote …/src/linux_entry
 
 This entry is YOURS now — `nros build` will not regenerate it.
 </code></pre>
-<p>It lands at <code>src/&lt;image_id&gt;_entry/</code>, carries a stamp recording the shape it was
-cut for, and <code>nros build</code> warns if that shape later moves. Its derivation stays
-live — <code>nros::main!</code> still reads the launch file at compile time, so adding a
-node needs no change here; what is frozen is the <em>shell</em>: the panic policy, the
-board boilerplate, the crate type. Inside it you can bypass <code>nros::main!()</code>
-entirely:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// Option A: delegate init to the board crate, supply your own closure.
-&lt;LinuxBoard as BoardEntry&gt;::run(|runtime| {
-    let node = runtime.create_node("talker", "/", &amp;Default::default())?;
-    // ...
-    Ok(())
-});
-
-// Option B: fully manual — no board crate.
-let executor = nros::Executor::open(&amp;ExecutorConfig::default())?;
-// wire nodes, spin manually ...
-<span class="boring">}</span></code></pre>
-<p>Option A is the right choice when you need to run something before the first
-spin (e.g. DMA setup, flash unlock). Option B is there for board-bringup
-authors adding a new platform. Reach for either only after the declarative
-escapes — an <code>[image.*]</code> key, a <code>conf</code> fragment, a support package — have
-actually run out.</p>
+<p>It lands at <code>src/&lt;image_id&gt;_entry/</code>, carries a stamp recording the board shape
+it was cut for, and <code>nros build</code> warns when that shape later moves. What you
+receive is the same one-line <code>nros::main!(…)</code> with its crate root around it.
+While you keep calling the macro, the launch file still reaches the entry, and
+what you own is the shell: <code>#![no_std]</code> / <code>#![no_main]</code>, the panic crate, the
+board boilerplate, the crate type and <code>Cargo.toml</code>. Edit those freely.</p>
+<p>Replacing the macro call with your own <code>fn main</code> is possible but expensive.
+There is no supported expanded form of a Rust entry to start from: the
+generator that once wrote one was retired because its output silently lacked
+tiers, lifecycle and parameter services. So you would be writing the boot,
+the per-node registration, the executor sizing and every capability call
+yourself, and keeping them in step with the launch file by hand. Do it only
+for customisation that extensive, and only after the table above has run out.</p>
 <h2 id="running-a-native-image"><a class="header" href="#running-a-native-image">Running a native image</a></h2>
 <p>Build it, start a router if your backend needs one, run the binary:</p>
 <pre><code class="language-bash">cd examples/workspaces/c
