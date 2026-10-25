@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-51fcbf3d.js";
+            window.path_to_searchindex_js = "searchindex-42761057.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-f34c65de.js"></script>
@@ -9470,7 +9470,7 @@ readers refuse them rather than reading them. Design of record:
 <tr><th>File</th><th>Owns</th><th>Per</th></tr>
 </thead>
 <tbody>
-<tr><td><strong><code>system.toml</code></strong></td><td><strong>Everything about the deployment</strong> — <code>[system]</code> (RMW, domain, capability axes like <code>features = ["param_services"]</code> and the <code>[safety]</code> block, tiers), <code>[[component]]</code> (what runs, and its entities), and one <code>[image.&lt;id&gt;]</code> per target (<code>board</code>, <code>locator</code>, and the image’s address on a network, <code>net = { eth0 = { network = "qemu", host = 10 } }</code>; a project’s own networks are <code>[network.&lt;name&gt;]</code>). One schema for Rust, C and C++, and the same file whether the project is one package or a workspace.</td><td>package, or bringup pkg</td></tr>
+<tr><td><strong><code>system.toml</code></strong></td><td><strong>Everything about the deployment</strong> — <code>[system]</code> (RMW, domain, capability axes like <code>features = ["param_services"]</code> and the <code>[safety]</code> block, tiers), <code>[[component]]</code> (what runs, and its entities), and one <code>[image.&lt;id&gt;]</code> per target (<code>board</code>, <code>locator</code>, the board network file holding its address, <code>os_config = ["board-net.toml"]</code>, and how it runs, <code>[image.&lt;id&gt;.run]</code>). One schema for Rust, C and C++, and the same file whether the project is one package or a workspace.</td><td>package, or bringup pkg</td></tr>
 <tr><td><code>Cargo.toml</code></td><td>Rust toolchain facts only: crate, language deps, the RMW <strong>feature menu</strong> (<code>rmw-zenoh</code>/<code>rmw-cyclonedds</code>/<code>rmw-xrce</code>) the generated entry selects from. No board, no target triple, no deploy block.</td><td>Rust project</td></tr>
 <tr><td><code>CMakeLists.txt</code></td><td>C/C++ toolchain facts only: targets and language deps, via <code>find_package(nano_ros)</code> + <code>nano_ros_add_executable</code> / <code>nano_ros_auto_add_library</code> + <code>nros_components_register_node</code> (RFC-0057; <code>nano_ros_node_register</code> remains as the compat spelling) / <code>nano_ros_entry</code>. No platform, board or RMW <code>set()</code>.</td><td>C/C++ project</td></tr>
 <tr><td><code>build/&lt;image&gt;/nros-cargo.toml</code></td><td><strong>GENERATED, never edited</strong> — every cargo setting the board choice implies: <code>[build] target</code>, <code>[target.*]</code> runner and rustflags, the cross compiler, the derived pool sizes as <code>[env]</code>, the nano-ros profiles, and the <code>[patch.crates-io]</code> rows that resolve nano-ros’s registry-style names into your checkout. Written by <code>nros sync</code>, passed to cargo with <code>--config</code>.</td><td>image</td></tr>
@@ -9543,12 +9543,12 @@ boot <code>Config</code>; the C/C++ entry codegen bakes the same values into its
 generated glue. Nothing is written in <code>Cargo.toml</code>, in <code>package.xml</code> or on a
 <code>cmake</code> command line.</p>
 <h3 id="networks-and-addresses"><a class="header" href="#networks-and-addresses">Networks and addresses</a></h3>
-<p>A network fact has three owners (RFC-0103 D10): the <strong>board</strong> states its
-interfaces, the <strong>project</strong> states its networks, and the <strong>image</strong> states its
-address on one. The image’s half lives in a <strong>board network file</strong> the image
-names with <code>os_config</code> (RFC-0109 D4 — on a board where nano-ros is the OS, the
-board package owns the device, so the address is in the board’s own file), one
-table per interface:</p>
+<p>An image’s address is a layer-1 fact (RFC-0109): the operating system owns the
+network device. On Linux that is the kernel; on Zephyr and NuttX it is their
+own configuration (Kconfig, devicetree, <code>defconfig</code>); on a board where nano-ros
+is the OS (the reference FreeRTOS, ThreadX and bare-metal boards) it is the
+board package, through a small <strong>board network file</strong> the image names with
+<code>os_config</code> — one table per interface:</p>
 <pre><code class="language-toml">[image.talker]
 board = "qemu-mps2-an385"
 os_config = ["board-net.toml"]
@@ -9558,23 +9558,27 @@ os_config = ["board-net.toml"]
 network = "qemu"
 host = 10                      # 10.0.2.10 on QEMU's network
 </code></pre>
-<p>The older inline spelling, <code>net = { eth0 = { … } }</code> in <code>[image.&lt;id&gt;]</code>, is still
-read; stating one interface in both places is refused. Zephyr and NuttX boards
-own their network in their own configuration, and a host-OS board (Linux) in
-the operating system, so neither takes a board network file.</p>
 <p><code>qemu</code> is built in: QEMU’s own user-mode (SLIRP) network, <code>10.0.2.0/24</code> with
 gateway and router host <code>10.0.2.2</code>. Every <code>-nic user</code> makes a private copy of
-it, so two images on <code>qemu</code> never meet. Any other network is the project’s,
-stated once and named by every image on it:</p>
-<pre><code class="language-toml">[network.lab]                  # e.g. a switch or a Linux bridge with boards on it
+it, so two images on <code>qemu</code> never meet. Any other network is defined in the
+board network file beside the interface on it, and the image states its
+router as its own <code>locator</code>:</p>
+<pre><code class="language-toml"># board-net-sensor.toml
+[eth0]
+network = "lab"
+address = "192.168.50.20"
+
+[network.lab]                  # e.g. a switch or a Linux bridge with boards on it
 subnet  = "192.168.50.0/24"
 gateway = "192.168.50.1"
-router  = "tcp/192.168.50.1:7447"    # the locator its images dial by default
-
-[image.sensor]
-board = "qemu-mps2-an385"
-os_config = ["board-net-sensor.toml"]   # [eth0] network = "lab", address = "192.168.50.20"
 </code></pre>
+<pre><code class="language-toml">[image.sensor]
+board = "qemu-mps2-an385"
+os_config = ["board-net-sensor.toml"]
+locator = "tcp/192.168.50.1:7447"
+</code></pre>
+<p>Two images on one network each define it in their own file, and the files must
+agree: one network has one subnet, gateway and lease policy.</p>
 <p>Per interface:</p>
 <ul>
 <li><code>network</code> defaults to the board’s (<code>qemu</code> on every QEMU board), so
@@ -9586,42 +9590,45 @@ takes <code>10.0.2.15</code>, the address a plain <code>-nic user</code> guest p
 <li><code>mac</code> is optional. Left out, it is derived from the board interface’s
 <code>mac_prefix</code> and the system, image, network and interface names, so two
 images never share one by accident.</li>
-<li>The gateway and netmask come from the network, so an image never states them.</li>
-<li>An image dials its own <code>locator</code>, else its network’s <code>router</code>, else
-<code>[system] locator</code>. On a network other than <code>qemu</code> one of the three must be
-stated.</li>
+<li>The gateway and netmask come from the network, so an interface never states
+them.</li>
+<li>An image dials its own <code>locator</code>, else <code>[system] locator</code>. On a network other
+than <code>qemu</code> one of the two must be stated.</li>
 </ul>
 <p>A board may have several interfaces. An image addresses each on its own
 network, one table each: <code>[eth0]</code>, <code>[eth1]</code>.</p>
 <p>These fail the build, naming the image (and, for a duplicate, both images):</p>
 <ul>
-<li>an address outside its subnet, equal to the gateway, or on a network that
-does not exist;</li>
+<li>an address outside its subnet, equal to the gateway, or on a network no file
+defines;</li>
 <li>two images with the same static address, or the same MAC, on one network
-other than <code>qemu</code>;</li>
-<li><code>net</code> on a board whose network belongs to the host operating system (<code>linux</code>,
-<code>freertos-posix</code>, threadx-linux), or on a board that declares no interfaces
-(Zephyr boards take their address from Kconfig);</li>
-<li>the old flat <code>ip</code> / <code>gateway</code> / <code>netmask</code> keys on <code>[image.&lt;id&gt;]</code>.</li>
+other than <code>qemu</code>, or two files defining one network differently;</li>
+<li>a board network file on a board whose network belongs to the host operating
+system (<code>linux</code>, <code>freertos-posix</code>, threadx-linux), or on a board that
+declares no interfaces (Zephyr boards take their address from Kconfig);</li>
+<li>the retired spellings, each refused naming its new home: <code>[network.&lt;name&gt;]</code>
+and <code>[image.&lt;id&gt;.net.&lt;if&gt;]</code> in <code>system.toml</code>, and the flat <code>ip</code> / <code>gateway</code> /
+<code>netmask</code> keys on <code>[image.&lt;id&gt;]</code>.</li>
 </ul>
-<p>The board’s half is <code>[board.net]</code> in its descriptor: <code>network</code> (its default
-network) and <code>interfaces</code>, each a kind (<code>eth0 = "ethernet"</code>) or a table
+<p>The board’s half is <code>[board.net]</code> in its descriptor: <code>stack</code> (who owns the
+network: <code>host</code>, <code>os</code> or <code>board</code>), <code>links</code>, <code>network</code> (its default network) and
+<code>interfaces</code>, each a kind (<code>eth0 = "ethernet"</code>) or a table
 (<code>eth0 = { kind = "ethernet", mac_prefix = "52:54:00", dhcp = true }</code>). A board
 states no address: <code>[board.net] ip</code> / <code>mac</code> are refused.</p>
 <p>The resolved answer for an image is written to
 <code>build/nros/net/&lt;image&gt;.toml</code> (beside the workspace or leaf) and reaches the firmware as
 <code>NROS_IMAGE_NET</code>.</p>
-<p>An emulated image joins its network through the network’s <code>attach</code>:
-<code>"slirp"</code> (QEMU’s own user-mode network, what <code>qemu</code> is), <code>{ bridge = "&lt;dev&gt;" }</code>
-or <code>{ tap = "&lt;dev&gt;" }</code> on the host. A network with no <code>attach</code> is physical only,
-and an emulated image on it is refused at launch. <code>nros ws qemu-nic &lt;leaf&gt; --model &lt;nic-model&gt;</code> prints the <code>-nic</code> value for a leaf’s image, for a script
-that starts QEMU itself:</p>
-<pre><code class="language-toml">[network.br]
-subnet = "192.0.3.0/24"
-gateway = "192.0.3.1"
-router = "tcp/192.0.3.1:7447"
-attach = { bridge = "qemu-br" }   # QEMU: -nic bridge,br=qemu-br,…
+<p>How an emulated image joins its network is a fact about how it is RUN, not
+built, so it has its own table, read only by the QEMU launchers and the test
+harness:</p>
+<pre><code class="language-toml">[image.sensor.run]
+nic = { bridge = "qemu-br" }   # QEMU: -nic bridge,br=qemu-br,…
 </code></pre>
+<p><code>nic</code> is <code>"slirp"</code> (QEMU’s own user-mode network, the default on <code>qemu</code>),
+<code>{ bridge = "&lt;dev&gt;" }</code> or <code>{ tap = "&lt;dev&gt;" }</code> on the host, and applies to the
+image’s first interface. An image on any other network with no <code>nic</code> is
+physical only, and launching it under QEMU is refused. <code>nros ws qemu-nic &lt;leaf&gt; --model &lt;nic-model&gt;</code> prints the <code>-nic</code> value for a leaf’s image, for a script
+that starts QEMU itself.</p>
 <h3 id="per-image-build-knobs"><a class="header" href="#per-image-build-knobs">Per-image build knobs</a></h3>
 <p>A build knob that one image needs, and that its board does not state, goes in
 <code>[image.&lt;id&gt;.knobs.&lt;group&gt;]</code>. The table has the same shape as a board
