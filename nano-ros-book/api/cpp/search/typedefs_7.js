@@ -1,20 +1,4 @@
 var searchData=
 [
-  ['nodebaseinterface_0',['NodeBaseInterface',['../namespacerclcpp_1_1node__interfaces.html#a42bb9731f1e094e4839db603353d255b',1,'rclcpp::node_interfaces']]],
-  ['nodeclockinterface_1',['NodeClockInterface',['../namespacerclcpp_1_1node__interfaces.html#a7932984dc34252d9319d67c59c7c8b5f',1,'rclcpp::node_interfaces']]],
-  ['nodegraphinterface_2',['NodeGraphInterface',['../namespacerclcpp_1_1node__interfaces.html#a9364860666f11ab76b0587da7645851b',1,'rclcpp::node_interfaces']]],
-  ['nodelogginginterface_3',['NodeLoggingInterface',['../namespacerclcpp_1_1node__interfaces.html#a869da980c3ca7baf08627c8d9326620e',1,'rclcpp::node_interfaces']]],
-  ['nodewaitablesinterface_4',['NodeWaitablesInterface',['../namespacerclcpp_1_1node__interfaces.html#ad8980294dcc9c0614b7618575bf321c0',1,'rclcpp::node_interfaces']]],
-  ['nros_5fcpp_5faccepted_5fcallback_5ft_5',['nros_cpp_accepted_callback_t',['../server_8hpp.html#ac0ccf16c3dea0c8266e2dececfe970c8',1,'server.hpp']]],
-  ['nros_5fcpp_5faction_5fclient_5fcancel_5freply_5fcallback_5ft_6',['nros_cpp_action_client_cancel_reply_callback_t',['../rclcpp__action_2client_8hpp.html#aaa551ddee75acbfaa4cf224bf029bf5c',1,'client.hpp']]],
-  ['nros_5fcpp_5faction_5fclient_5ffeedback_5fcallback_5ft_7',['nros_cpp_action_client_feedback_callback_t',['../rclcpp__action_2client_8hpp.html#aa3e04e46e7df233a268c69063582bd94',1,'client.hpp']]],
-  ['nros_5fcpp_5faction_5fclient_5fgoal_5fresponse_5fcallback_5ft_8',['nros_cpp_action_client_goal_response_callback_t',['../rclcpp__action_2client_8hpp.html#a587a78600943f0edad58b5c9020be46c',1,'client.hpp']]],
-  ['nros_5fcpp_5faction_5fclient_5fresult_5fcallback_5ft_9',['nros_cpp_action_client_result_callback_t',['../rclcpp__action_2client_8hpp.html#abd08fc902a9bcfd1dd6f9cbbcb718909',1,'client.hpp']]],
-  ['nros_5fcpp_5fcancel_5fcallback_5ft_10',['nros_cpp_cancel_callback_t',['../server_8hpp.html#a34e509a483aa012f1efa77efaa9f00c9',1,'server.hpp']]],
-  ['nros_5fcpp_5fgoal_5fcallback_5ft_11',['nros_cpp_goal_callback_t',['../server_8hpp.html#a22d8a6c03c62d6d259f9cdc2987532bc',1,'server.hpp']]],
-  ['nros_5fcpp_5fret_5ft_12',['nros_cpp_ret_t',['../future_8hpp.html#a45b2b7085c06c18b90bbab273aee11b1',1,'nros_cpp_ret_t:&#160;future.hpp'],['../stream_8hpp.html#a45b2b7085c06c18b90bbab273aee11b1',1,'nros_cpp_ret_t:&#160;stream.hpp']]],
-  ['nros_5fcpp_5fservice_5frequest_5fcallback_5ft_13',['nros_cpp_service_request_callback_t',['../service_8hpp.html#a52f236c6bec9091dad05a46f70b2185a',1,'service.hpp']]],
-  ['nros_5fcpp_5fservice_5fresponse_5fcallback_5ft_14',['nros_cpp_service_response_callback_t',['../rclcpp_2client_8hpp.html#abd3e9a5a9109ac2d00a579c39a42c011',1,'client.hpp']]],
-  ['nros_5fcpp_5fsubscription_5fmessage_5fcallback_5ft_15',['nros_cpp_subscription_message_callback_t',['../subscription_8hpp.html#aca09411656ccf70618994c7fdef9de7c',1,'subscription.hpp']]],
-  ['nros_5fcpp_5fsubscription_5fmessage_5finfo_5fcallback_5ft_16',['nros_cpp_subscription_message_info_callback_t',['../subscription_8hpp.html#a8cdcc3df26179817d9ea6dc6d8b61b00',1,'subscription.hpp']]]
+  ['pumpfn_0',['PumpFn',['../namespacerclcpp_1_1detail.html#a4ef4958bcc8246758c5c1493f8975e82',1,'rclcpp::detail']]]
 ];

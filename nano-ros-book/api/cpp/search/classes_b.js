@@ -1,15 +1,9 @@
 var searchData=
 [
-  ['parametereventsqos_0',['ParameterEventsQoS',['../classrclcpp_1_1ParameterEventsQoS.html',1,'rclcpp']]],
-  ['parametersqos_1',['ParametersQoS',['../classrclcpp_1_1ParametersQoS.html',1,'rclcpp']]],
-  ['pendinglink_2',['PendingLink',['../structrclcpp_1_1detail_1_1PendingLink.html',1,'rclcpp::detail']]],
-  ['pendinglist_3',['PendingList',['../structrclcpp_1_1detail_1_1PendingList.html',1,'rclcpp::detail']]],
-  ['pollclient_4',['PollClient',['../classrclcpp_1_1PollClient.html',1,'rclcpp']]],
-  ['pollingactionclient_5',['PollingActionClient',['../classrclcpp_1_1PollingActionClient.html',1,'rclcpp']]],
-  ['pollingactionserver_6',['PollingActionServer',['../classrclcpp_1_1PollingActionServer.html',1,'rclcpp']]],
-  ['pollingsubscription_7',['PollingSubscription',['../classrclcpp_1_1PollingSubscription.html',1,'rclcpp']]],
-  ['pollservice_8',['PollService',['../classrclcpp_1_1PollService.html',1,'rclcpp']]],
-  ['pollsubscription_9',['PollSubscription',['../classrclcpp_1_1PollSubscription.html',1,'rclcpp']]],
-  ['preshutdowncallbackhandle_10',['PreShutdownCallbackHandle',['../classrclcpp_1_1PreShutdownCallbackHandle.html',1,'rclcpp']]],
-  ['publisher_11',['Publisher',['../classrclcpp_1_1Publisher.html',1,'rclcpp']]]
+  ['qos_0',['QoS',['../classrclcpp_1_1QoS.html',1,'rclcpp']]],
+  ['qos_5farg_5fstrip_1',['qos_arg_strip',['../structrclcpp_1_1detail_1_1qos__arg__strip.html',1,'rclcpp::detail']]],
+  ['qos_5farg_5fstrip_3c_20const_20f_20_26_20_3e_2',['qos_arg_strip&lt; const F &amp; &gt;',['../structrclcpp_1_1detail_1_1qos__arg__strip_3_01const_01F_01_6_01_4.html',1,'rclcpp::detail']]],
+  ['qos_5farg_5fstrip_3c_20const_20f_20_3e_3',['qos_arg_strip&lt; const F &gt;',['../structrclcpp_1_1detail_1_1qos__arg__strip_3_01const_01F_01_4.html',1,'rclcpp::detail']]],
+  ['qos_5farg_5fstrip_3c_20f_20_26_20_3e_4',['qos_arg_strip&lt; F &amp; &gt;',['../structrclcpp_1_1detail_1_1qos__arg__strip_3_01F_01_6_01_4.html',1,'rclcpp::detail']]],
+  ['qosinitialization_5',['QoSInitialization',['../structrclcpp_1_1QoSInitialization.html',1,'rclcpp']]]
 ];

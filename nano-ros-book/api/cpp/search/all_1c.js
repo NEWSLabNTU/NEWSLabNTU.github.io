@@ -6,6 +6,7 @@ var searchData=
   ['wait_5fnext_3',['wait_next',['../classrclcpp_1_1Stream.html#ae83865767a42d77c2888e768241e0aa2',1,'rclcpp::Stream']]],
   ['wait_5fnext_5fsized_4',['wait_next_sized',['../classrclcpp_1_1Stream.html#a2396fe464c9289bf0fcfe9feda644fa1',1,'rclcpp::Stream']]],
   ['wallrate_5',['WallRate',['../namespacerclcpp.html#ae8c7494ed03ea85690c57b1a74b92a45',1,'rclcpp']]],
-  ['wrappedresult_6',['wrappedresult',['../classrclcpp__action_1_1ClientGoalHandle.html#ac66b315e41792b2a4c8edb9577149ec1',1,'rclcpp_action::ClientGoalHandle::WrappedResult'],['../classrclcpp__action_1_1Client.html#ac960663fd6ceab3081e64b109d5c2e2f',1,'rclcpp_action::Client::WrappedResult']]],
-  ['write_20a_20talker_7',['4. Write a Talker',['../getting_started.html#autotoc_md9',1,'']]]
+  ['weakptr_6',['WeakPtr',['../classrclcpp_1_1Node.html#a3fd3e53f87bcc308185287e2a2a1496b',1,'rclcpp::Node']]],
+  ['wrappedresult_7',['wrappedresult',['../classrclcpp__action_1_1ClientGoalHandle.html#ac66b315e41792b2a4c8edb9577149ec1',1,'rclcpp_action::ClientGoalHandle::WrappedResult'],['../classrclcpp__action_1_1Client.html#ac960663fd6ceab3081e64b109d5c2e2f',1,'rclcpp_action::Client::WrappedResult']]],
+  ['write_20a_20talker_8',['4. Write a Talker',['../getting_started.html#autotoc_md9',1,'']]]
 ];

@@ -1,4 +1,5 @@
 var searchData=
 [
-  ['futurereturncode_0',['FutureReturnCode',['../namespacerclcpp.html#a7b4ff5f1e516740d7e11ea97fe6f5532',1,'rclcpp']]]
+  ['goalresponse_0',['GoalResponse',['../namespacerclcpp__action.html#ababbbebf29fec7c541687c724fc82ba7',1,'rclcpp_action']]],
+  ['goalstatus_1',['GoalStatus',['../namespacerclcpp__action.html#a3878b7d63c0d80e31572d5227d9ba344',1,'rclcpp_action']]]
 ];
