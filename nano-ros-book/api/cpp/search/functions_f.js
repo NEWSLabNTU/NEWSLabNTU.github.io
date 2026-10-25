@@ -1,9 +1,21 @@
 var searchData=
 [
-  ['qos_0',['qos',['../classrclcpp_1_1QoS.html#a216be553b6c132b1894fc9838711d746',1,'rclcpp::QoS::QoS()'],['../classrclcpp_1_1QoS.html#ae166a1b88544e4988f59e14cfa90e80a',1,'rclcpp::QoS::QoS(::size_t depth)']]],
+  ['qos_0',['qos',['../classrclcpp_1_1QoS.html#ae166a1b88544e4988f59e14cfa90e80a',1,'rclcpp::QoS::QoS(::size_t depth)'],['../classrclcpp_1_1QoS.html#a6dd674ebaa82c2321ee9d5f8c16d84e3',1,'rclcpp::QoS::QoS(const QoSInitialization &amp;init)'],['../classrclcpp_1_1QoS.html#ab69cb23d38a3c2e9e12cbb6810f0ddaa',1,'rclcpp::QoS::QoS(const QoSInitialization &amp;init, const ::rmw_qos_profile_s &amp;profile)'],['../classrclcpp_1_1QoS.html#a216be553b6c132b1894fc9838711d746',1,'rclcpp::QoS::QoS()']]],
   ['qos_5fbest_5favailable_5fduration_1',['qos_best_available_duration',['../namespacerclcpp_1_1detail.html#acddc826fce34ff578e9ad4f719989d11',1,'rclcpp::detail']]],
-  ['qos_5ffrom_5fffi_2',['qos_from_ffi',['../namespacerclcpp_1_1detail.html#aa038dbc49ddfae9f6086cb923a3aec15',1,'rclcpp::detail']]],
-  ['qos_5fpolicy_5fkind_5fto_5fcstr_3',['qos_policy_kind_to_cstr',['../namespacerclcpp.html#a375ecff864f99831ba14537bd7864dbd',1,'rclcpp']]],
-  ['qos_5fwindow_5fduration_4',['qos_window_duration',['../namespacerclcpp_1_1detail.html#a4c8db509a86cf909828b1f37d649fd0b',1,'rclcpp::detail']]],
-  ['qos_5fwindow_5fms_5',['qos_window_ms',['../namespacerclcpp_1_1detail.html#ac366d08441f129df84cead16252a6cec',1,'rclcpp::detail']]]
+  ['qos_5fdurability_5ffrom_5frmw_2',['qos_durability_from_rmw',['../namespacerclcpp_1_1detail.html#a3aeb8b84b51f0303f40e3a1c9dc01cbf',1,'rclcpp::detail']]],
+  ['qos_5fdurability_5fto_5frmw_3',['qos_durability_to_rmw',['../namespacerclcpp_1_1detail.html#a6e81ba1428029530529aeeae7006a0eb',1,'rclcpp::detail']]],
+  ['qos_5ffrom_5fffi_4',['qos_from_ffi',['../namespacerclcpp_1_1detail.html#aa038dbc49ddfae9f6086cb923a3aec15',1,'rclcpp::detail']]],
+  ['qos_5fhistory_5ffrom_5frmw_5',['qos_history_from_rmw',['../namespacerclcpp_1_1detail.html#a6e22f5246d87e06c5234360346af9edf',1,'rclcpp::detail']]],
+  ['qos_5fhistory_5fto_5frmw_6',['qos_history_to_rmw',['../namespacerclcpp_1_1detail.html#a4e32dfad5bd329b6ca7af2bf72dba79c',1,'rclcpp::detail']]],
+  ['qos_5fliveliness_5ffrom_5frmw_7',['qos_liveliness_from_rmw',['../namespacerclcpp_1_1detail.html#af82e742a39a0fc92ba539de8198f8881',1,'rclcpp::detail']]],
+  ['qos_5fliveliness_5fto_5frmw_8',['qos_liveliness_to_rmw',['../namespacerclcpp_1_1detail.html#a6556a96d60f74611db310d46cf6b9449',1,'rclcpp::detail']]],
+  ['qos_5fpolicy_5fkind_5fto_5fcstr_9',['qos_policy_kind_to_cstr',['../namespacerclcpp.html#a375ecff864f99831ba14537bd7864dbd',1,'rclcpp']]],
+  ['qos_5freliability_5ffrom_5frmw_10',['qos_reliability_from_rmw',['../namespacerclcpp_1_1detail.html#ab4331e2ee48fe353bf37be609e6bc445',1,'rclcpp::detail']]],
+  ['qos_5freliability_5fto_5frmw_11',['qos_reliability_to_rmw',['../namespacerclcpp_1_1detail.html#af87e0522ced979f6650a5e8f1df93ef6',1,'rclcpp::detail']]],
+  ['qos_5fto_5frmw_12',['qos_to_rmw',['../namespacerclcpp_1_1detail.html#aea681592fac3b0580450c44585651af8',1,'rclcpp::detail']]],
+  ['qos_5fwindow_5fduration_13',['qos_window_duration',['../namespacerclcpp_1_1detail.html#a4c8db509a86cf909828b1f37d649fd0b',1,'rclcpp::detail']]],
+  ['qos_5fwindow_5ffrom_5frmw_14',['qos_window_from_rmw',['../namespacerclcpp_1_1detail.html#a3660bf129a926f2ca59aa360aa16de7b',1,'rclcpp::detail']]],
+  ['qos_5fwindow_5fms_15',['qos_window_ms',['../namespacerclcpp_1_1detail.html#ac366d08441f129df84cead16252a6cec',1,'rclcpp::detail']]],
+  ['qos_5fwindow_5fto_5frmw_16',['qos_window_to_rmw',['../namespacerclcpp_1_1detail.html#a811eedaf6ba7841038368464f744d188',1,'rclcpp::detail']]],
+  ['qosinitialization_17',['qosinitialization',['../structrclcpp_1_1QoSInitialization.html#adb4b314e1e1686a65d5de3e423222d75',1,'rclcpp::QoSInitialization::QoSInitialization(const QoS &amp;qos)'],['../structrclcpp_1_1QoSInitialization.html#a33f3062ff66cb29e2a30c05a1dafe7b2',1,'rclcpp::QoSInitialization::QoSInitialization(rmw_qos_history_policy_t history_policy_arg, size_t depth_arg)']]]
 ];

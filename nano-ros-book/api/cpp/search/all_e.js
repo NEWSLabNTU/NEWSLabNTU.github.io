@@ -8,6 +8,7 @@ var searchData=
   ['has_5fsched_5fhandle_5',['has_sched_handle',['../classrclcpp_1_1Subscription.html#a01ce7ee2550532192ba8006d9b797423',1,'rclcpp::Subscription']]],
   ['head_6',['head',['../structrclcpp_1_1detail_1_1PendingList.html#a851675176488336e14650969a5f77c2d',1,'rclcpp::detail::PendingList']]],
   ['header_20organisation_7',['Header Organisation',['../index.html#autotoc_md2',1,'']]],
-  ['history_8',['history',['../structnros__cpp__qos__t.html#a5e12bb897ccd47cbe31660f056363209',1,'nros_cpp_qos_t::history'],['../classrclcpp_1_1QoS.html#a634383f11dcde292e02f38138cbd7109',1,'rclcpp::QoS::history()']]],
-  ['historypolicy_9',['HistoryPolicy',['../namespacerclcpp.html#ab983f8c879de2296df1c3842b4561183',1,'rclcpp']]]
+  ['history_8',['history',['../structnros__cpp__qos__t.html#a5e12bb897ccd47cbe31660f056363209',1,'nros_cpp_qos_t::history'],['../structrmw__qos__profile__s.html#ac7e4344c1d7318c95488c370329b920f',1,'rmw_qos_profile_s::history'],['../classrclcpp_1_1QoS.html#a634383f11dcde292e02f38138cbd7109',1,'rclcpp::QoS::history()']]],
+  ['history_5fpolicy_9',['history_policy',['../structrclcpp_1_1QoSInitialization.html#a17c878920d98f354578a2b0abce1aa3d',1,'rclcpp::QoSInitialization']]],
+  ['historypolicy_10',['HistoryPolicy',['../namespacerclcpp.html#ab983f8c879de2296df1c3842b4561183',1,'rclcpp']]]
 ];
