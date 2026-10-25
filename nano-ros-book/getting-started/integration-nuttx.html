@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-e928a932.js";
+            window.path_to_searchindex_js = "../searchindex-11110b96.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-191e012a.js"></script>
@@ -192,14 +192,16 @@ the canonical user entry.</p>
 <p><strong>Prereqs.</strong> Install the <code>nros</code> CLI once per machine, then run
 <code>nros setup qemu-armv7a-nuttx --rmw &lt;zenoh|xrce|cyclonedds&gt;</code> (<code>--rmw</code>
 defaults to <code>zenoh</code>). This fetches a mostly-prebuilt toolchain set into
-<code>${NROS_HOME:-~/.nros}/sdk</code> — the NuttX cross-compiler, the emulator, the NuttX
-sources, and the RMW host daemon — so you do <strong>not</strong> hand-install
-a cross-toolchain and do <strong>not</strong> need a ROS 2 install:</p>
+<code>${NROS_HOME:-~/.nros}/sdk</code> — the NuttX cross-compiler, the emulator and the
+NuttX sources — so you do <strong>not</strong> hand-install a cross-toolchain. The zenoh
+router is ROS’s <code>rmw_zenohd</code> and comes from a ROS 2 install (RFC-0075); the
+xrce path needs only the Micro-XRCE-DDS agent, which <code>nros setup … --rmw xrce</code> installs:</p>
 <pre><code class="language-bash">nros setup qemu-armv7a-nuttx --rmw zenoh
 </code></pre>
 <p>(<code>nros</code> is the installed CLI — <a href="./installation.html">Installation</a>.)</p>
-<p>You still need a NuttX ≥ nuttx-12 checkout with an <code>apps/</code> sibling
-and Python 3.10+ for the NuttX configure scripts.</p>
+<p>The NuttX-managed road below (<code>apps/external</code>, NuttX’s own <code>make</code>) also
+needs a NuttX ≥ nuttx-12 checkout of your own with an <code>apps/</code> sibling;
+the <code>nros build</code> road does not.</p>
 </blockquote>
 <h2 id="project-layout"><a class="header" href="#project-layout">Project layout</a></h2>
 <p>NuttX’s “external apps” pattern places the app shim under
@@ -300,11 +302,22 @@ because the guest reaches it through QEMU’s Slirp gateway:</p>
 <p><strong><code>nros build</code> — the path for a nano-ros package or workspace.</strong> The board in
 <code>system.toml</code> (<code>qemu-armv7a-nuttx</code> for Arm <code>virt</code>, <code>rv-virt-nuttx</code> for RISC-V
 <code>rv-virt</code>) picks the cross toolchain and the NuttX board config; <code>nros build</code>
-links your application into a bootable NuttX kernel ELF. A C / C++ package —
-<code>nros new my_app --platform nuttx --lang c</code> writes <code>board = "nuttx"</code>, which the
-C / C++ road cannot resolve, so name the board in full first:</p>
-<pre><code class="language-bash">cd my_app
-# in system.toml:  [image.nuttx] board = "qemu-armv7a-nuttx"   (or "rv-virt-nuttx")
+links your application into a bootable NuttX kernel ELF. Provision the board
+(no NuttX checkout of your own is needed on this road — <code>nros setup</code> fetches
+the kernel and apps sources), then scaffold a C / C++ package — <code>nros new</code>
+writes <code>board = "qemu-armv7a-nuttx"</code>, the platform’s default board — and build
+it:</p>
+<pre><code class="language-bash probe=30 variant=arm">nros setup qemu-armv7a-nuttx --rmw zenoh
+</code></pre>
+<p>The NuttX kernel build needs two host tools <code>nros setup</code> does not install
+(it installs no system packages): Python’s venv module — with no
+<code>kconfig-frontends</code> on the host, the build provisions <code>kconfiglib</code> into a venv
+of its own for NuttX’s <code>kconfig</code> step — and <code>unzip</code>, for the <code>dtc</code> and
+<code>libmetal</code> archives NuttX’s own build downloads. On Debian/Ubuntu:</p>
+<pre><code class="language-bash probe=35">sudo apt-get install -y python3-venv unzip
+</code></pre>
+<pre><code class="language-bash probe=40 variant=arm">nros new my_app --platform nuttx --lang c
+cd my_app
 nros build
 </code></pre>
 <p>The kernel ELF lands at <code>build/nuttx/cmake/my_app</code> (<code>build/&lt;image&gt;/cmake/</code>
@@ -338,36 +351,44 @@ into it as described under
 <h2 id="run-on-qemu-arm-virt"><a class="header" href="#run-on-qemu-arm-virt">Run on QEMU (Arm virt)</a></h2>
 <p>QEMU is the store’s build (<code>nros setup qemu-armv7a-nuttx</code> installed it), on
 QEMU’s <code>virt</code> machine with virtio-net on Slirp — the line <code>nros build</code>
-prints:</p>
-<pre><code class="language-bash"># 1. Start the router on the host (Slirp forwards 10.0.2.2:&lt;port&gt; →
-#    host). It must listen on 0.0.0.0 for the Slirp gateway; match
-#    whatever `locator` your app bakes (8200 in the example above):
-ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:8200"];scouting/multicast/enabled=false' \
-    ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
-
-# 2. Boot the kernel ELF — the one `nros build` wrote, or `$NUTTX_DIR/nuttx`
-#    from the make build:
-"$(nros sdk-path qemu)/bin/qemu-system-arm" -M virt -cpu cortex-a7 -nographic \
+prints. Two terminals: the router, then the board.</p>
+<p><strong>1. The router</strong> on the host (Slirp forwards <code>10.0.2.2:&lt;port&gt;</code> → host). It
+must listen on <code>0.0.0.0</code> for the Slirp gateway; match whatever <code>locator</code> your
+app bakes — 7447 when it states none, as a scaffolded package; 8200 in the
+example above:</p>
+<pre><code class="language-bash probe=60 probe-run=60 probe-keep">source /opt/ros/humble/setup.bash
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:7447"];scouting/multicast/enabled=false' \
+    ros2 run rmw_zenoh_cpp rmw_zenohd
+</code></pre>
+<pre><code class="language-text probe-expect=60">Started Zenoh router with id
+</code></pre>
+<p><strong>2. The board</strong> — boot the kernel ELF, the one <code>nros build</code> wrote (or
+<code>$NUTTX_DIR/nuttx</code> from the make build), from the package directory:</p>
+<pre><code class="language-bash probe=70 probe-run=120 variant=arm">"$(nros sdk-path qemu)/bin/qemu-system-arm" -M virt -cpu cortex-a7 -nographic \
     -icount shift=auto \
     -netdev user,id=net0 \
     -device virtio-net-device,netdev=net0 \
     -kernel build/nuttx/cmake/my_app
-
-# An image `nros build` produced starts its application itself. A make-built
-# kernel boots to the NSH prompt; run your app's PROGNAME there — the
-# `make`-driven build registers every nano-ros example as a built-in command
-# via Application.mk's `-Dmain=&lt;PROGNAME&gt;_main` rename, e.g.:
-#   nsh&gt; nuttx_c_talker            # C talker
-#   nsh&gt; nuttx_cpp_talker          # C++ talker
-
-# 3. Verify from stock ROS 2 in another terminal:
-source /opt/ros/humble/setup.bash
+</code></pre>
+<p>An image <code>nros build</code> produced starts its application itself. The scaffolded
+C talker publishes once and returns, so it prints one line:</p>
+<pre><code class="language-text probe-expect=70 variant=arm">my_app: published 0 on /chatter
+</code></pre>
+<p>Paste the
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/qemu-armv7a-nuttx/c/talker/src/main.c">example’s <code>main.c</code></a>
+over it for a talker that publishes <code>Hello World: N</code> on a timer, which a stock
+ROS 2 peer can then echo:</p>
+<pre><code class="language-bash">source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
 # RELIABLE, so the QoS-mismatched echo silently delivers nothing.
 # Force best-effort to receive:
 ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
+<p>A make-built kernel boots to the NSH prompt instead; run your app’s PROGNAME
+there — the <code>make</code>-driven build registers every nano-ros example as a built-in
+command via Application.mk’s <code>-Dmain=&lt;PROGNAME&gt;_main</code> rename, e.g.
+<code>nsh&gt; nuttx_c_talker</code> (C) or <code>nsh&gt; nuttx_cpp_talker</code> (C++).</p>
 <p>QEMU exits via Ctrl-A x.</p>
 <blockquote>
 <p><strong>Contributors:</strong> the in-tree fixture/test lanes for nano-ros’s own
@@ -375,9 +396,11 @@ QEMU examples are in
 <a href="../internals/platform-lanes.html#nuttx">Per-Platform Contributor Lanes</a>.</p>
 </blockquote>
 <p><strong>Readiness signal.</strong> Once the image boots (a make-built kernel: once
-you type the app’s NSH command, e.g. <code>nuttx_c_talker</code>), expect <code>Publishing: 'Hello World: 1'</code> on the NSH
-console within ~6 seconds — Rust + C + C++ talkers all start the
-count at 1, matching the official ROS 2 demo talker. If no
+you type the app’s NSH command, e.g. <code>nuttx_c_talker</code>), expect its first
+line on the NSH console within ~6 seconds — the scaffold’s one
+<code>published 0</code> line, or <code>Publishing: 'Hello World: 1'</code> from the in-tree
+Rust, C and C++ talkers, which start the count at 1 like the official
+ROS 2 demo talker. If no
 <code>Publishing:</code> line:</p>
 <ol>
 <li>Confirm the app actually ran — <code>ps</code> should show your task.</li>
@@ -392,20 +415,28 @@ With the virtio-net + Slirp wiring above, <code>eth0</code> comes up at
 <p>The <code>rv-virt-nuttx</code> board (<code>rv32imac</code>) boots on QEMU’s RISC-V <code>virt</code> machine.
 <strong>The store’s QEMU is built for Arm and RISC-V 64 only</strong>, so this board needs
 a <code>qemu-system-riscv32</code> from your distribution (Debian/Ubuntu:
-<code>qemu-system-misc</code>). Name it with <code>QEMU_SYSTEM_RISCV32</code> and <code>nros build</code>
-prints a line that uses it; without it the printed line asks
-<code>nros locate tool qemu-system-riscv32</code>, which then has nothing to answer:</p>
-<pre><code class="language-bash">nros setup rv-virt-nuttx --rmw zenoh
-# in system.toml:  [image.nuttx] board = "rv-virt-nuttx"
+<code>qemu-system-misc</code>):</p>
+<pre><code class="language-bash probe=30 variant=riscv">nros setup rv-virt-nuttx --rmw zenoh
+sudo apt-get install -y qemu-system-misc
+</code></pre>
+<p>Name it with <code>QEMU_SYSTEM_RISCV32</code> and <code>nros build</code> prints a line that uses
+it; without it the printed line asks <code>nros locate tool qemu-system-riscv32</code>,
+which then has nothing to answer. Scaffold for this board (<code>nuttx</code> names the
+Arm one by default) and build:</p>
+<pre><code class="language-bash probe=40 variant=riscv">nros new my_app --platform nuttx --lang c --board rv-virt-nuttx
+cd my_app
 export QEMU_SYSTEM_RISCV32="$(command -v qemu-system-riscv32)"
 nros build
-
-# router as above (on the port your image's `locator` names), then:
-"$QEMU_SYSTEM_RISCV32" -M virt -bios none -nographic \
+</code></pre>
+<p>Start the router as above (on the port your image’s <code>locator</code> names), then
+boot it:</p>
+<pre><code class="language-bash probe=70 probe-run=120 variant=riscv">"$QEMU_SYSTEM_RISCV32" -M virt -bios none -nographic \
     -icount shift=auto \
     -netdev user,id=net0 \
     -device virtio-net-device,netdev=net0 \
     -kernel build/nuttx/cmake/my_app
+</code></pre>
+<pre><code class="language-text probe-expect=70 variant=riscv">my_app: published 0 on /chatter
 </code></pre>
 <h2 id="auto-configure-glue-nsh-built-in-registration"><a class="header" href="#auto-configure-glue-nsh-built-in-registration">Auto-configure glue (NSH built-in registration)</a></h2>
 <p>The <code>make</code>-driven build above relies on a host-side glue layer. In-tree
