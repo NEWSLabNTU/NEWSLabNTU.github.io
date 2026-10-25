@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-44a5e23f.js";
+            window.path_to_searchindex_js = "../searchindex-b6e99e6d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-938ce3c7.js"></script>
@@ -190,8 +190,8 @@ directly.</p>
 </code></pre>
 <p>It verifies the sha256, installs into <code>~/.nros/sdk/nros/&lt;version&gt;/</code> and points
 <code>~/.nros/bin/nros</code> at the newest installed version — one command, however many
-versions accumulate. (No release is cut yet; the installer says so and sends
-you to the source build.)</p>
+versions accumulate. <code>--version &lt;v&gt;</code> installs a named release instead of the
+newest; the repository’s GitHub Releases page lists them.</p>
 <p><strong>Working on nano-ros</strong> — build the CLI from the checkout. That is not a
 fallback: in a checkout the tree’s own build is the only binary this tree
 accepts, because a released <code>nros</code> emits its own generated code and this
@@ -202,34 +202,37 @@ activate the workspace to put it on PATH:</p>
 <pre><code class="language-sh">./scripts/bootstrap.sh
 source ./activate.sh        # OR: direnv allow / source ./activate.fish
 </code></pre>
-<p>Equivalent, if you already have cargo (same build, same binary):
-<code>git submodule update --init packages/cli/third-party/play_launch</code>
+<p>Equivalent, if you already have cargo (same build, same binaries):
+<code>git submodule update --init packages/cli/third-party/play_launch</code>,
 then <code>cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros</code>
-(bootstrap runs both for you; <code>just setup-cli</code> is the internal alias).</p>
+and <code>cargo build --release --manifest-path packages/cli/nros-launch-resolve/Cargo.toml</code>
+— the launch resolver the workspace flow needs (bootstrap runs all three for
+you; <code>just setup-cli</code> + <code>just setup-launch-resolve</code> are the internal aliases).</p>
 <p>The resulting binary lives at <code>packages/cli/target/release/nros</code>. One
 checkout = one CLI version = one runtime ABI; contributors with
 multiple nano-ros worktrees get per-tree CLIs with no global PATH
-skew. Once on PATH, <code>nros --help</code> lists every verb. The transitional
-<code>${NROS_HOME:-~/.nros}/bin/nros</code> install location remains supported
-for users mid-migration from the pre-218 release-fetch shape.</p>
+skew. Once on PATH, <code>nros --help</code> lists every verb. <code>${NROS_HOME:-~/.nros}/bin/nros</code>
+is where <code>install.sh</code> puts a release; inside a checkout <code>just doctor</code> fails
+when that one shadows the tree’s own build.</p>
 <h2 id="verbs"><a class="header" href="#verbs">Verbs</a></h2>
-<h3 id="nros-setup-board---rmw-rmw---tool-name---source-name---prefix-dir---list---licenses---dry-run"><a class="header" href="#nros-setup-board---rmw-rmw---tool-name---source-name---prefix-dir---list---licenses---dry-run"><code>nros setup [&lt;board&gt;] [--rmw &lt;rmw&gt;] [--tool &lt;name&gt;] [--source &lt;name&gt;] [--prefix &lt;dir&gt;] [--list] [--licenses] [--dry-run]</code></a></h3>
+<h3 id="nros-setup-board---rmw-rmw---tool-name---source-name---prefix-dir---list---licenses---system---workspace-path---check---sudo---dry-run"><a class="header" href="#nros-setup-board---rmw-rmw---tool-name---source-name---prefix-dir---list---licenses---system---workspace-path---check---sudo---dry-run"><code>nros setup [&lt;board&gt;] [--rmw &lt;rmw&gt;] [--tool &lt;name&gt;] [--source &lt;name&gt;] [--prefix &lt;dir&gt;] [--list] [--licenses] [--system] [--workspace [&lt;path&gt;]] [--check] [--sudo] [--dry-run]</code></a></h3>
 <p>Provision the toolchain/SDK for a board. <code>nros setup</code> is the single
 canonical provisioning command. Most components are <strong>prebuilt per platform
-per RMW</strong> (cross-compiler, emulator, RMW host daemon, SDK sources), fetched
+per RMW</strong> (cross-compiler, emulator, RMW host tools, SDK sources), fetched
 from a pinned index into a shared store (<code>${NROS_HOME:-~/.nros}/sdk</code>). No
-hand-installed cross-toolchains; no ROS distro required.</p>
+hand-installed cross-toolchains.</p>
 <p>Packages are prebuilt where the index has a binary for your host and built
 from source otherwise; the vendored submodules (<code>zenoh-pico</code>, <code>mbedtls</code>,
 RTOS sources) are the source builds. <code>--dry-run</code> prints the plan without
 fetching. Full explanation:
 <a href="../getting-started/installation.html#provision-your-toolchain-with-nros-setup">Installation</a>.</p>
 <p>Note <code>setup</code> does <strong>not</strong> provision a zenoh router: since RFC-0075 that is
-ROS’s <code>rmw_zenoh_cpp/rmw_zenohd</code>. See
+ROS’s <code>rmw_zenoh_cpp/rmw_zenohd</code>, so a zenoh run needs a ROS 2 install;
+Cyclone DDS needs no daemon. See
 <a href="../getting-started/installation.html#do-i-need-ros-2-installed">Do I need ROS 2 installed?</a>.</p>
 <pre><code class="language-sh">nros setup linux --rmw zenoh            # host build (router comes from ROS)
 nros setup mps2-an385-freertos --rmw xrce  # arm-none-eabi-gcc, qemu, FreeRTOS, XRCE agent
-nros setup zephyr                        # Zephyr west workspace + SDK bits
+nros setup zephyr                        # the Zephyr SDK + RMW transport sources
 </code></pre>
 <div class="table-wrapper">
 <table>
@@ -238,28 +241,41 @@ nros setup zephyr                        # Zephyr west workspace + SDK bits
 </thead>
 <tbody>
 <tr><td><code>&lt;board&gt;</code></td><td>resolve + fetch this board’s package set (see <a href="supported-boards.html">Supported Boards</a>)</td></tr>
-<tr><td><code>--rmw &lt;zenoh|xrce|cyclonedds&gt;</code></td><td>also provision the RMW’s host daemon/tool (default <code>zenoh</code>); resolves <code>board ∪ rmw</code> packages</td></tr>
+<tr><td><code>--rmw &lt;zenoh|xrce|cyclonedds&gt;</code></td><td>also provision the RMW’s host tools — the XRCE agent, Cyclone’s <code>idlc</code>; zenoh has none here (default <code>zenoh</code>); resolves <code>board ∪ rmw</code> packages</td></tr>
 <tr><td><code>--tool &lt;name&gt;</code></td><td>install tools by name (e.g. <code>--tool qemu</code>); repeatable — <code>--tool ninja --tool make</code> is one plan, with one system-package ask for the union</td></tr>
 <tr><td><code>--source &lt;name&gt;</code></td><td>provision a single source package by name (repeatable)</td></tr>
 <tr><td><code>--prefix &lt;dir&gt;</code></td><td>install a <code>--tool</code> here instead of the shared store</td></tr>
 <tr><td><code>--list</code></td><td>list every package in the index + its version</td></tr>
 <tr><td><code>--licenses</code></td><td>show license-gated packages + how to install them</td></tr>
+<tr><td><code>--system</code></td><td>resolve the OS-package closure for this host’s package manager and PRINT the one install command (it never runs it without <code>--sudo</code>)</td></tr>
+<tr><td><code>--workspace [&lt;path&gt;]</code></td><td>plan from what the workspace at <code>&lt;path&gt;</code> (default <code>.</code>) declares — its <code>package.xml</code> dependencies, build types and the boards its <code>[image.*]</code> rows name; prints the plan, installs nothing</td></tr>
+<tr><td><code>--role &lt;role&gt;</code></td><td>narrow <code>--system</code> to entries of this role (repeatable)</td></tr>
+<tr><td><code>--check</code></td><td>run presence probes instead of installing; exits 1 when anything is missing. With <code>--system</code>, the OS packages only; alone, every declared class</td></tr>
+<tr><td><code>--sudo</code></td><td>with <code>--system</code> (or a <code>--tool</code> that declares OS build deps): EXECUTE the composed install command instead of printing it</td></tr>
+<tr><td><code>--build-sources</code></td><td>provision the whole build-stage source union the repo’s tests need (contributors); with <code>--check</code>, verify only</td></tr>
+<tr><td><code>--full</code> / <code>--shallow</code></td><td>full git history / force <code>--depth 1</code> for provisioned sources</td></tr>
+<tr><td><code>-j, --jobs &lt;n&gt;</code></td><td>packages installed at once (default: CPU count; <code>NROS_SETUP_JOBS</code>)</td></tr>
+<tr><td><code>--index &lt;path&gt;</code></td><td>the SDK index to read (default <code>nros-sdk-index.toml</code>)</td></tr>
 <tr><td><code>--dry-run</code></td><td>resolve + print the plan without fetching anything</td></tr>
 </tbody>
 </table>
 </div>
+<p><code>nros setup board &lt;name&gt; --zephyr-workspace &lt;dir&gt; [--workspace &lt;nano-ros&gt;]</code>
+provisions a downstream Zephyr consumer’s tree for a nano-ros board.</p>
 <p><code>--tool</code> and <code>--source</code> combine: <code>nros setup --tool arm-none-eabi-gcc --source freertos-kernel --source lwip</code> installs the tool, then the
 sources, in one command. Selectors that do not combine — a <code>&lt;board&gt;</code>
 beside <code>--tool</code>/<code>--source</code>, anything beside <code>--list</code>/<code>--licenses</code>/
 <code>--system</code>, <code>--source</code> with <code>--check</code>, <code>--rmw</code> without a <code>&lt;board&gt;</code> — are
 <strong>refused</strong>, naming the flag, never silently ignored (issue 1935).</p>
-<p>Board names (the full set — RFC-0093 names each board for the reach of
-its build): <code>native</code>, <code>posix</code>, <code>mps2-an385-baremetal</code>,
-<code>mps2-an385-freertos</code>, <code>mps3-an536-freertos</code>, <code>s32z270-freertos</code>,
-<code>freertos-posix</code>, <code>qemu-armv7a-nuttx</code>, <code>rv-virt-nuttx</code>, <code>rv-virt-threadx</code>,
-<code>threadx-linux</code>, <code>esp32-c3-baremetal</code>, <code>fvp-aemv8r-smp</code>, <code>zephyr</code>. A wrong
-one lists the rest; <code>nros setup &lt;board&gt; --dry-run</code> resolves without fetching.
-Names retired by phase-437 are in the
+<p>Board names (the full set — the index’s <code>[board.*]</code> keys; RFC-0093 names each
+board for the reach of its build):</p>
+<!-- board-names:begin (generated by scripts/check-book-board-names.py --write) -->
+<p><code>freertos-posix</code>, <code>fvp-aemv8r-smp</code>, <code>linux</code>, <code>mps2-an385-baremetal</code>, <code>mps2-an385-freertos</code>, <code>mps3-an536-freertos</code>, <code>qemu-armv7a-nuttx</code>, <code>rv-virt-nuttx</code>, <code>rv-virt-threadx</code>, <code>s32z270-freertos</code>, <code>threadx-linux</code>, <code>zephyr</code>.</p>
+<!-- board-names:end -->
+<p>A wrong one lists the rest; <code>nros setup &lt;board&gt; --dry-run</code> resolves without
+fetching. <code>native</code> and <code>posix</code> are refused with a hint naming <code>linux</code>
+(<a href="retired-names.html#retired-board-names">Retired names</a>); names retired by
+phase-437 are in the
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/reference/retired-board-names.md">retired board names</a>
 ledger.</p>
 <h3 id="nros-init-dir"><a class="header" href="#nros-init-dir"><code>nros init [&lt;dir&gt;]</code></a></h3>
@@ -272,19 +288,28 @@ after provisioning a new board to pick up its fragment.</p>
 nros init                 # writes ./CMakePresets.json
 cmake --preset qemu-armv7a-nuttx
 </code></pre>
-<h3 id="nros-new-name---platform-plat---rmw-rmw---lang-lang---use-case-case---force"><a class="header" href="#nros-new-name---platform-plat---rmw-rmw---lang-lang---use-case-case---force"><code>nros new &lt;name&gt; --platform &lt;plat&gt; [--rmw &lt;rmw&gt;] [--lang &lt;lang&gt;] [--use-case &lt;case&gt;] [--force]</code></a></h3>
+<h3 id="nros-new-name---platform-plat---rmw-rmw---lang-lang---use-case-case---ros-edition-e---force"><a class="header" href="#nros-new-name---platform-plat---rmw-rmw---lang-lang---use-case-case---ros-edition-e---force"><code>nros new &lt;name&gt; --platform &lt;plat&gt; [--rmw &lt;rmw&gt;] [--lang &lt;lang&gt;] [--use-case &lt;case&gt;] [--ros-edition &lt;e&gt;] [--force]</code></a></h3>
 <p>Scaffold a new nano-ros project. Emits a colcon-compatible
 <code>package.xml</code> plus a hello-world Rust / C / C++ skeleton tuned for the
 chosen platform.</p>
+<p><strong>Workspace mode:</strong> <code>nros new &lt;name&gt; --workspace [--lang &lt;lang&gt;] [--rmw &lt;rmw&gt;]</code>
+scaffolds a multi-node workspace instead — two node packages (<code>talker_pkg</code>,
+<code>listener_pkg</code>) and a <code>demo_bringup</code> with its <code>system.toml</code> and launch file,
+no root build file (<a href="../getting-started/first-project.html">First Project</a>). It
+defaults to <code>--lang cpp --rmw cyclonedds</code>, the combination that needs no
+router, and builds for the host (<code>--platform linux</code>, the only one it accepts);
+add embedded targets afterwards with <code>nros new --image &lt;name&gt; --board &lt;b&gt;</code>.</p>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Flag</th><th>Values</th><th>Default</th></tr>
 </thead>
 <tbody>
-<tr><td><code>--platform</code></td><td><code>linux</code>, <code>freertos</code>, <code>nuttx</code>, <code>threadx</code>, <code>zephyr</code>, <code>esp32</code>, <code>baremetal</code></td><td>(required)</td></tr>
-<tr><td><code>--rmw</code></td><td><code>zenoh</code>, <code>xrce</code>, <code>cyclonedds</code></td><td><code>zenoh</code></td></tr>
-<tr><td><code>--lang</code></td><td><code>rust</code>, <code>c</code>, <code>cpp</code></td><td><code>rust</code></td></tr>
+<tr><td><code>--platform</code></td><td><code>linux</code>, <code>freertos</code>, <code>nuttx</code>, <code>threadx</code>, <code>zephyr</code>, <code>baremetal</code></td><td>(required, except with <code>--workspace</code>)</td></tr>
+<tr><td><code>--rmw</code></td><td><code>zenoh</code>, <code>xrce</code>, <code>cyclonedds</code></td><td><code>zenoh</code> (<code>cyclonedds</code> with <code>--workspace</code>)</td></tr>
+<tr><td><code>--lang</code></td><td><code>rust</code>, <code>c</code>, <code>cpp</code></td><td><code>rust</code> (<code>cpp</code> with <code>--workspace</code>)</td></tr>
+<tr><td><code>--ros-edition</code></td><td><code>humble</code>, <code>iron</code>, <code>jazzy</code></td><td><code>humble</code></td></tr>
+<tr><td><code>--workspace</code></td><td>scaffold the multi-node workspace above</td><td>off</td></tr>
 <tr><td><code>--use-case</code></td><td><code>talker</code>, <code>listener</code>, <code>service</code>, <code>action</code></td><td><code>talker</code></td></tr>
 <tr><td><code>--force</code></td><td>overwrite an existing directory</td><td>off</td></tr>
 </tbody>
@@ -460,9 +485,10 @@ directory above the package:</p>
 <pre><code class="language-sh">cargo build --manifest-path &lt;leaf&gt;/Cargo.toml \
             --config &lt;leaf&gt;/build/&lt;image-id&gt;/nros-cargo.toml
 </code></pre>
-<p>The working-directory rule is temporary: until phase-445 W6 deletes the leaf’s
-<code>.cargo/</code>, running cargo inside the leaf reads it a second time and joins the
-board’s <code>rustflags</code> onto themselves.</p>
+<p>Run that from the directory above the package: <code>nros sync</code> also wires the same
+file into the package’s gitignored <code>.cargo/config.toml</code> (so a plain <code>cargo build</code>
+inside the package works), and naming it again with <code>--config</code> from inside would
+join the board’s <code>rustflags</code> onto themselves.</p>
 <h3 id="nros-materialize-image---workspace-dir---force"><a class="header" href="#nros-materialize-image---workspace-dir---force"><code>nros materialize &lt;image&gt; [--workspace &lt;dir&gt;] [--force]</code></a></h3>
 <p>Take ownership of a generated entry package (RFC-0065 D5) — the last resort,
 after which <code>nros build</code> stops regenerating it. <code>panic</code>, <code>profile</code> and
@@ -528,6 +554,62 @@ The justfile orchestrates every per-module doctor recipe (<code>just nuttx docto
 <h3 id="nros-board-list---workspace-path"><a class="header" href="#nros-board-list---workspace-path"><code>nros board list [--workspace &lt;path&gt;]</code></a></h3>
 <p>Enumerate every <code>nros-board-*</code> crate under <code>packages/boards/</code>. Output
 columns are <code>name | description</code>; structured <code>chip | flash | ram | supported_rmw</code> fields are deferred to a future board-descriptor TOML.</p>
+<h3 id="nros-sdk-root---workspace-dir---nano-ros-path-dir---explain"><a class="header" href="#nros-sdk-root---workspace-dir---nano-ros-path-dir---explain"><code>nros sdk-root [--workspace &lt;dir&gt;] [--nano-ros-path &lt;dir&gt;] [--explain]</code></a></h3>
+<p>Print the nano-ros SDK root this <code>nros</code> resolves — the directory holding the
+runtime sources and <code>nano_rosConfig.cmake</code> that a build compiles against: an
+explicit <code>--nano-ros-path</code>, else a nano-ros checkout found by walking up from
+<code>--workspace</code> (default: the current directory), else this binary’s own SDK
+(a release’s <code>share/nano-ros</code>, or the checkout an in-tree <code>nros</code> was built in).
+<code>--explain</code> names the rung that answered on stderr; stdout stays the bare path.</p>
+<pre><code class="language-sh">nros sdk-root --explain
+</code></pre>
+<h3 id="nros-locate-name---all---why---format-pathshcmake---project-dir"><a class="header" href="#nros-locate-name---all---why---format-pathshcmake---project-dir"><code>nros locate &lt;name&gt;… [--all] [--why] [--format &lt;path|sh|cmake&gt;] [--project &lt;dir&gt;]</code></a></h3>
+<p>Where a resource is, and with <code>--why</code>, every rung of the one ladder (argument &gt;
+env &gt; the project’s <code>system.toml</code> <code>[sources]</code> &gt; local edit &gt; store &gt; checkout)
+and what each saw. A name is an index <code>[source.&lt;name&gt;]</code>, or <code>store</code> / <code>nano-ros</code>
+for the two roots; <code>nros locate artifact &lt;name&gt;…</code> (<code>c-archive</code>, <code>cpp-archive</code>,
+<code>c-include</code>, …, with <code>--target</code>, <code>--profile</code>, <code>--target-dir</code>, <code>--placed-dir</code>)
+locates a cargo-built artifact, and <code>nros locate tool &lt;name&gt;</code> a first-party host
+binary (<code>nros-launch-resolve</code>). <code>--all</code> locates every <code>[source.*]</code> row.</p>
+<pre><code class="language-sh">nros locate zenoh-pico --why
+</code></pre>
+<h3 id="nros-store-listgc"><a class="header" href="#nros-store-listgc"><code>nros store &lt;list|gc&gt;</code></a></h3>
+<p>Inspect and shrink the SDK store, which only grows: provisioning never
+overwrites, so a new version lands beside the old one.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Subcommand</th><th>Effect</th></tr>
+</thead>
+<tbody>
+<tr><td><code>list [--root &lt;dir&gt;]</code></td><td>every entry with its version, size and when it was last read</td></tr>
+<tr><td><code>gc --older-than &lt;dur&gt; [--delete] [--dry-run] [--pin-file &lt;f&gt;…] [--ignore-pins] [--root &lt;dir&gt;]</code></td><td>propose removing entries not read for <code>&lt;dur&gt;</code> (<code>90d</code>, <code>12h</code>, <code>2w</code>); removes nothing without <code>--delete</code>, and never an entry a pin names</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="nros-toolchain-uninstallmanifest"><a class="header" href="#nros-toolchain-uninstallmanifest"><code>nros toolchain &lt;uninstall|manifest&gt;</code></a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Subcommand</th><th>Effect</th></tr>
+</thead>
+<tbody>
+<tr><td><code>uninstall &lt;version&gt; [--dry-run] [--pin-file &lt;f&gt;…] [--ignore-pins] [--root &lt;dir&gt;]</code></td><td>remove one installed nano-ros toolchain; refuses while a pin names it, or when no pin file could be consulted</td></tr>
+<tr><td><code>manifest [--store-version &lt;v&gt;] [--index &lt;date&gt;] [--nano-ros &lt;commit&gt;] [--write &lt;path&gt;]</code></td><td>read (or, with <code>--write</code>, stamp) the <code>share/nros/manifest.toml</code> a release declares it is made of</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="nros-pin-version---dir-dir---root-dir---dry-run"><a class="header" href="#nros-pin-version---dir-dir---root-dir---dry-run"><code>nros pin [&lt;version&gt;] [--dir &lt;dir&gt;] [--root &lt;dir&gt;] [--dry-run]</code></a></h3>
+<p>Report this project’s <code>nros-toolchain.toml</code> pin, or move it to <code>&lt;version&gt;</code> (the
+store version, e.g. <code>0.6.0-nros3</code>, not the crate version <code>nros --version</code>
+prints). A move reports the codegen delta between the two toolchains first, so
+an upgrade that would invalidate already-generated code warns before anything
+is written.</p>
+<h3 id="nros-update---pins---prune----crate-n---precise-v----source-n---ref-sha---allow-rewind----tool-n---to-version-v----west-m---revision-r---nano-ros-path-dir"><a class="header" href="#nros-update---pins---prune----crate-n---precise-v----source-n---ref-sha---allow-rewind----tool-n---to-version-v----west-m---revision-r---nano-ros-path-dir"><code>nros update (--pins [--prune] | --crate &lt;n&gt; [--precise &lt;v&gt;] | --source &lt;n&gt; [--ref &lt;sha&gt;] [--allow-rewind] | --tool &lt;n&gt; [--to-version &lt;v&gt;] | --west &lt;m&gt; [--revision &lt;r&gt;]) [--nano-ros-path &lt;dir&gt;]</code></a></h3>
+<p>Move ONE pin of a nano-ros checkout’s pin set — a registry crate, a vendored
+source, a host tool or a west project — and leave one diff to review.
+<code>--pins</code> regenerates the registry pin set from the locked roots. A contributor
+verb: an installed SDK’s pin set is read-only.</p>
 <h3 id="nros-version"><a class="header" href="#nros-version"><code>nros version</code></a></h3>
 <p>Print toolchain + library versions.</p>
 <h3 id="nros-completions-shell"><a class="header" href="#nros-completions-shell"><code>nros completions &lt;shell&gt;</code></a></h3>
@@ -565,13 +647,12 @@ columns are <code>name | description</code>; structured <code>chip | flash | ram
 wrap user-flow operations call into <code>nros</code> for consistency; internal
 recipes (build matrices, CI orchestration) keep their current shape.</p>
 <h2 id="release-pipeline-status"><a class="header" href="#release-pipeline-status">Release pipeline status</a></h2>
-<p>There is no crates.io / Arduino zip / ESP-IDF binary / GitHub Releases
-tarball channel. Per the archive decision (2026-05-19), nano-ros is
-consumed by <code>git clone --branch=v&lt;X.Y.Z&gt;</code> plus the in-tree build
-recipes documented at
-<a href="../getting-started/installation.html">Installation</a>. (A hidden,
-maintainer-only <code>nros release</code> verb exists behind the <code>release</code> cargo
-feature; the default build does not carry it.)
+<p>The <code>nros</code> CLI is released as a GitHub Releases asset (<code>nros-&lt;host&gt;.tar.zst</code>,
+carrying the CLI and its SDK root) and installed with <code>scripts/install.sh</code> —
+<a href="../getting-started/installation.html">Installation</a>. There is no crates.io,
+Arduino zip or ESP-IDF binary channel. (A hidden, maintainer-only
+<code>nros release</code> verb exists behind the <code>release</code> cargo feature; the default
+build does not carry it.)
 Downstream RTOS package managers (Zephyr <code>west</code>,
 ESP-IDF <code>idf_component_yml</code>, NuttX <code>Kconfig</code>) consume the same source
 tree via the integration shells under <code>integrations/&lt;rtos&gt;/</code>.</p>

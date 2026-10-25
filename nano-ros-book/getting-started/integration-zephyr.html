@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-44a5e23f.js";
+            window.path_to_searchindex_js = "../searchindex-b6e99e6d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-938ce3c7.js"></script>
@@ -340,32 +340,37 @@ language API: the module renders it from the app, and the typed Zephyr carrier
 that drives this component’s <code>configure</code> is C++, so the <code>nros-cpp</code> header
 surface is on the app include path even though <code>Talker.c</code> itself is C.</p>
 <h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
-<p><code>nros setup</code> provisions the parts nano-ros owns — the <strong>RMW host daemon</strong>
-(<code>zenohd</code> / Micro-XRCE-DDS agent) and the <strong>RMW transport submodules</strong>
-(zenoh-pico + mbedtls for zenoh, the cyclonedds fork) — from a pinned index into
-<code>${NROS_HOME:-~/.nros}/sdk</code> / the nano-ros checkout. It does <strong>not</strong> replace Zephyr’s own SDK,
-and interface codegen still needs the ROS message definitions.</p>
+<p><code>nros setup zephyr</code> provisions what the index declares for the board — the
+<strong>Zephyr SDK</strong> (<code>[board.zephyr] packages = ["zephyr-sdk"]</code>) and the <strong>RMW
+transport sources</strong> (zenoh-pico + mbedtls for zenoh, the cyclonedds fork) —
+from a pinned index into <code>${NROS_HOME:-~/.nros}/sdk</code>. The Zephyr sources and
+modules themselves are a <code>west</code> workspace, which you keep the standard Zephyr
+way. It provides <strong>no zenoh router</strong>: that is ROS’s <code>rmw_zenohd</code>
+(<a href="../design/rmw.html">RFC-0075</a>); Cyclone DDS needs no daemon at all.</p>
 <ol>
-<li><strong>Build the in-tree <code>nros</code> CLI</strong> (Phase 218, from the nano-ros checkout):
+<li><strong>Get the <code>nros</code> CLI</strong> — install a release with <code>scripts/install.sh</code>
+(<a href="installation.html">Installation</a>). Working inside a nano-ros checkout
+instead, build the in-tree one:
 <pre><code class="language-bash">./scripts/bootstrap.sh      # builds packages/cli/target/release/nros
 source ./activate.sh        # OR: direnv allow / source ./activate.fish
 </code></pre>
 </li>
-<li><strong>Provision the RMW (daemon + transports)</strong> from the nano-ros checkout:
-<pre><code class="language-bash">( cd modules/nano-ros &amp;&amp; nros setup zephyr --rmw zenoh )  # zenohd + zenoh-pico + mbedtls
+<li><strong>Provision the board + RMW</strong>:
+<pre><code class="language-bash">( cd modules/nano-ros &amp;&amp; nros setup zephyr --rmw zenoh )  # Zephyr SDK + zenoh-pico + mbedtls
 ( cd modules/nano-ros &amp;&amp; nros setup --source px4-rs )     # workspace cargo-load dep
 </code></pre>
 </li>
-<li><strong>Install the Zephyr SDK</strong> the standard Zephyr way (<code>nros setup</code> does <em>not</em>
-provide it) and expose it — <code>export ZEPHYR_SDK_INSTALL_DIR=/path/to/zephyr-sdk-&lt;ver&gt;</code>
-(or register it via the SDK’s <code>setup.sh -c</code>).</li>
-<li><strong>Message definitions for codegen.</strong> The interface codegen resolves a
-package’s <code>msg/*.msg</code> from <code>NROS_&lt;PKG&gt;_DIR</code> (e.g.
-<code>export NROS_STD_MSGS_DIR=/opt/ros/humble/share/std_msgs</code>) — point it at a ROS
-install or any dir holding the <code>.msg</code> files.</li>
+<li><strong>Point Zephyr at the SDK</strong> if your shell does not already find it —
+<code>export ZEPHYR_SDK_INSTALL_DIR="$(nros sdk-path zephyr-sdk --require)"</code> (or
+register it via the SDK’s <code>setup.sh -c</code>).</li>
+<li><strong>Message definitions need no setup.</strong> <code>find_package(&lt;pkg&gt;)</code> resolves a
+message package from <code>NROS_INTERFACE_SEARCH_PATH</code>, then <code>AMENT_PREFIX_PATH</code>,
+then the definitions bundled with nano-ros (<code>packages/cli/interfaces/</code>), so
+<code>std_msgs</code> and the other stock packages build with no ROS install.</li>
 </ol>
-<p>The RMW host daemon must be <strong>running</strong> before an example connects
-(for zenoh: <code>ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd</code>; the Micro-XRCE-DDS agent for xrce).</p>
+<p>The zenoh router must be <strong>running</strong> before an example connects
+(<code>ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd</code>); for xrce, the Micro-XRCE-DDS agent
+<code>nros setup … --rmw xrce</code> installed; for cyclonedds, nothing.</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
 <p>Add nano-ros (and a Zephyr pin — <code>zephyr/west.yml</code> is manifest-only;
 it does <strong>not</strong> pull Zephyr itself) to your workspace <code>west.yml</code>:</p>
@@ -782,10 +787,12 @@ layout.</strong> From your app dir, run (after the <a href="#prerequisites">Prer
 <pre><code class="language-bash">nros sync --nano-ros-path &lt;path-to-your-nano-ros-module&gt;
 </code></pre>
 <p>This writes <code>generated/&lt;pkg&gt;/</code> (the message crates) and a <code>.cargo/config.toml</code>
-whose <code>[patch.crates-io]</code> points the <code>nros-*</code> crates at your
-<code>modules/nano-ros/packages/core/*</code> and the generated interfaces at
-<code>generated/*</code>. Adjust <code>--nano-ros-path</code> to your workspace’s
-<code>modules/nano-ros/packages/core</code> (the dir holding <code>nros-core</code>, <code>nros-node</code>, …).
+whose <code>[patch.crates-io]</code> points the <code>nros-*</code> crates into your nano-ros
+module and the generated interfaces at <code>generated/*</code>. <code>--nano-ros-path</code>
+takes the nano-ros SDK ROOT — the module directory itself
+(<code>modules/nano-ros</code>, the one holding <code>nano_rosConfig.cmake</code>), not a
+subdirectory of it. <code>nros sdk-root --explain</code> prints the root <code>nros</code> would
+pick without the flag.
 In-tree examples commit no <code>.cargo/config.toml</code> at all (phase-445 W6): their
 equivalent is generated into <code>build/&lt;image&gt;/nros-cargo.toml</code> and is likewise
 repo-relative, so it is no more copyable than the old file was.</p>
