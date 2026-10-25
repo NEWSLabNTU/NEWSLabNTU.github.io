@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-42761057.js";
+            window.path_to_searchindex_js = "searchindex-5521fd75.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-f34c65de.js"></script>
+        <script src="toc-938ce3c7.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -22363,6 +22363,134 @@ just qemu test-wcet
 <li><a href="https://docs.rust-embedded.org/book/">Embedded Rust Book</a></li>
 <li><a href="https://rtic.rs/">RTIC Book</a></li>
 </ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="the-real-time-execution-model"><a class="header" href="#the-real-time-execution-model">The Real-Time Execution Model</a></h1>
+<p>This chapter is about one question: when does a nano-ros callback meet its
+deadline, and what does the runtime do to make it? The design lives in
+<a href="../../docs/design/0002-rt-execution-model.html">RFC-0002</a> (the executor’s
+scheduling contexts) and
+<a href="../../docs/design/0108-executor-preemption-levels.html">RFC-0108</a> (executor
+levels). <a href="#scheduling-models">Scheduling Models</a> covers the RTOS
+schedulers underneath.</p>
+<h2 id="one-level-does-not-preempt"><a class="header" href="#one-level-does-not-preempt">One level does not preempt</a></h2>
+<p>An executor runs a callback to completion. Within one OS thread nothing can
+interrupt user code mid-callback, so a callback that becomes ready while
+another runs waits for it to return. Its worst-case blocking is the longest
+callback that can be running when it wakes:</p>
+<pre><code class="language-text">response time  &gt;=  own execution time  +  longest other callback on the thread
+</code></pre>
+<p>A 5 ms telemetry callback on the same thread as a 1 kHz control loop makes that
+loop miss its 1 ms deadline every time the two meet, whatever priority bucket
+or scheduling class either has. The buckets and classes below change which
+READY callback runs next. They cannot stop one that is already running.</p>
+<h2 id="scheduling-classes"><a class="header" href="#scheduling-classes">Scheduling classes</a></h2>
+<p>A callback runs in a scheduling context (<code>SchedContext</code>), and its class picks
+how the executor orders ready work:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Class</th><th>Orders ready work by</th><th>Use it for</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Fifo</code> (default)</td><td>registration order within a priority bucket</td><td>most callbacks</td></tr>
+<tr><td><code>Edf</code></td><td>absolute deadline (release + relative deadline)</td><td>periodic work with stated deadlines on one level</td></tr>
+<tr><td><code>Sporadic</code></td><td><code>Fifo</code>, plus a budget per replenishment period</td><td>a callback whose CPU share must be capped</td></tr>
+<tr><td><code>BestEffort</code></td><td>last, after every other bucket</td><td>logging, telemetry</td></tr>
+</tbody>
+</table>
+</div>
+<p>A tier or level’s <code>class = "real_time"</code> is the deployment-side spelling. On
+Linux it also selects <code>SCHED_DEADLINE</code> for a level that states a budget (see
+below). Time-triggered windows are a gate on a context
+(<code>tt_window_offset_us</code> / <code>tt_window_duration_us</code>), not a class.</p>
+<h2 id="levels-preemption-from-the-kernel"><a class="header" href="#levels-preemption-from-the-kernel">Levels: preemption from the kernel</a></h2>
+<p>The fix for the bound above is a second thread. RFC-0108 places callbacks
+on <strong>executor levels</strong>: one OS thread per level, all over one executor per
+core. A more urgent level’s thread has a higher kernel priority, so the
+kernel preempts a less urgent level mid-callback when the urgent one wakes.</p>
+<ul>
+<li><strong>The number of levels is derived.</strong> Each node’s rank comes from its
+contract (<code>paths.&lt;p&gt;.trigger.timer.rate_hz</code>, rate-monotonic), and each
+distinct rank is one level, up to the image’s <code>max_levels</code>
+(<code>CONFIG_NROS_EXECUTOR_MAX_LEVELS</code>, default 8).</li>
+<li><strong>Priorities are allocated, not authored.</strong> A derived level takes a
+priority from the board’s application band, below the transport tasks
+(RFC-0079). An authored <code>[tiers.&lt;name&gt;]</code> bound with <code>group_tiers</code> is a pin:
+its members share one level at its stated priority.</li>
+<li><strong>The boot level</strong> is the least urgent one; it runs on <code>main()</code> and owns the
+session. The others are spawned.</li>
+<li><strong>On a multi-core host, levels run in parallel.</strong> Preemption only shows when
+they compete for one CPU, which is why the Linux tests pin the process with
+<code>taskset -c 0</code>.</li>
+</ul>
+<h2 id="who-enforces-a-budget"><a class="header" href="#who-enforces-a-budget">Who enforces a budget</a></h2>
+<p>A level whose tier states a budget and a period has exactly one enforcer
+(issue 2018). The kernel takes it where the kernel can; otherwise the
+executor enforces the same numbers at callback boundaries. The runner prints
+which:</p>
+<pre><code class="language-text">nros: level budget tier=`capped` 2000us/10000us enforced by the KERNEL
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Platform</th><th>Kernel mechanism</th><th>When the kernel enforces it</th></tr>
+</thead>
+<tbody>
+<tr><td>Linux</td><td><code>SCHED_DEADLINE</code> (runtime, deadline, period)</td><td>a spawned level with <code>class = "real_time"</code>, when the process holds <code>CAP_SYS_NICE</code> and the level is not pinned to fewer CPUs than its root domain</td></tr>
+<tr><td>NuttX</td><td><code>SCHED_SPORADIC</code> (<code>CONFIG_SCHED_SPORADIC</code>)</td><td>every budgeted level thread on the C runner; spawned levels on the Rust runner</td></tr>
+<tr><td>Zephyr, FreeRTOS, ThreadX</td><td>none</td><td>never: the executor enforces it</td></tr>
+</tbody>
+</table>
+</div>
+<p>Without <code>CAP_SYS_NICE</code> a Linux image keeps running. The kernel refuses both
+<code>SCHED_FIFO</code> and <code>SCHED_DEADLINE</code>, the image prints the refusal once with the
+<code>setcap</code> command that fixes it, and every level runs at the default policy.
+That image has levels but no preemption between them.</p>
+<h2 id="scenarios-and-what-measured-them"><a class="header" href="#scenarios-and-what-measured-them">Scenarios and what measured them</a></h2>
+<p>RFC-0002 §11 names twelve scenarios. Each row names the test that measured
+it, or says that none has.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Scenario</th><th>Status</th></tr>
+</thead>
+<tbody>
+<tr><td>S1, drone flight controller: 1 kHz critical loop beside 5 ms telemetry</td><td>Linux, on levels: <code>rt_sched_levels_e2e::s1_critical_loop_meets_every_deadline_on_its_own_level</code> (60 s, zero misses, plus a one-level negative control). It runs only on a lane that claims <code>rt-sched</code>.</td></tr>
+<tr><td>S2, sense, plan and act at 10 Hz on one thread</td><td>No dedicated test.</td></tr>
+<tr><td>S3, watchdog liveness</td><td>Levels feed the watchdog only when every level is alive (RFC-0108 D8). Measured on the S32K344 safety island in phase-509.</td></tr>
+<tr><td>S4, Autoware-style mixed rates on Linux</td><td>No dedicated test.</td></tr>
+<tr><td>S5, Cortex-M0+ sensor node</td><td>No dedicated test.</td></tr>
+<tr><td>S6, <code>Trigger::AllOf</code> fusion</td><td><code>trigger_conditions</code> (nros-tests) and the executor’s unit tests.</td></tr>
+<tr><td>S7, a 1 kHz subscription drained once a cycle</td><td>Idempotent ready-set insertion, unit-tested in <code>nros-node</code>.</td></tr>
+<tr><td>S8, a long-running action goal</td><td>The action server is a cooperative state machine; covered by the action e2e tests, not by a timing test.</td></tr>
+<tr><td>S9, a service handler that triggers a callback</td><td>No dedicated test.</td></tr>
+<tr><td>S10, cross-level priority inversion</td><td>Priority-inheritance mutexes in the POSIX port (<code>c_port_posix</code>). No scenario test.</td></tr>
+<tr><td>S11, several nodes on one executor</td><td>The default deployment; every multi-node example runs it.</td></tr>
+<tr><td>S12, a cycle wall-time budget</td><td>Not built: there is no cycle budget option.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="running-the-real-time-tests"><a class="header" href="#running-the-real-time-tests">Running the real-time tests</a></h2>
+<p>Three tests need the kernel’s real-time scheduling, and live in
+<code>packages/testing/nros-tests/tests/rt_sched_levels_e2e.rs</code>:</p>
+<ul>
+<li>the preemption order of <code>levels-cpp</code>’s three levels on one CPU;</li>
+<li>a spawned level past its <code>SCHED_DEADLINE</code> budget, throttled by the kernel;</li>
+<li>S1, above.</li>
+</ul>
+<p>No lane claims the <code>rt-sched</code> capability, so each is a <code>[SKIPPED:lane]</code>
+everywhere by default. To run them on a host you control, build the fixtures,
+grant the capability to the four <code>levels-cpp</code> binaries (it is bound to the
+file’s contents, so again after every rebuild), and claim the capability:</p>
+<pre><code class="language-sh">NROS_FIXTURE_ID=workspace-cpp-native-levels-s1 scripts/build/workspace-fixtures-build.sh linux cpp
+# ... and -levels, -levels-s1-flat, -levels-budget
+cd examples/workspaces/levels-cpp/build/posix-zenoh-linux/cmake
+sudo setcap cap_sys_nice+ep linux_entry linux_s1_entry linux_s1_flat_entry linux_budget_entry
+cd -
+NROS_TEST_UNCLAIMED= cargo nextest run -p nros-tests --test rt_sched_levels_e2e
+</code></pre>
+<p>A run that claims <code>rt-sched</code> on a host without the capability fails with
+<code>[UNMET PRECONDITION]</code> and names the binary to grant it to.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="build-system--caching"><a class="header" href="#build-system--caching">Build System &amp; Caching</a></h1>
 <blockquote>
