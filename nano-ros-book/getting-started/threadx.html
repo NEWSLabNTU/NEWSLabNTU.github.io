@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-904f2a05.js";
+            window.path_to_searchindex_js = "../searchindex-e928a932.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-191e012a.js"></script>
@@ -361,33 +361,49 @@ line, for driving cargo yourself.</p>
 preflight with one line naming what is missing and telling you to run sync in
 that directory. See
 <a href="../user-guide/workflow-by-platform.html">Workflow by Platform and Language</a>.</p>
-<h2 id="run"><a class="header" href="#run">Run</a></h2>
-<pre><code class="language-bash"># threadx-linux (no QEMU). Step 1 brings up the router (ROS's
-# `rmw_zenohd`) on the port your image's `locator` names (9000 in the
-# example above). Step 2 runs the talker the workspace built:
+<p>After a successful build, <code>nros build</code> prints the artifact and the command
+that runs it: the binary itself for <code>threadx-linux</code>, and for
+<code>rv-virt-threadx</code> the QEMU line below with the store’s
+<code>qemu-system-riscv64</code> filled in. The C / C++ package’s image is
+<code>build/threadx/cmake/tx_talker</code> (<code>build/&lt;image&gt;/cmake/</code> plus the name
+<code>nano_ros_add_executable</code> gives it).</p>
+<h2 id="run-on-the-linux-simulator"><a class="header" href="#run-on-the-linux-simulator">Run on the Linux simulator</a></h2>
+<p><code>threadx-linux</code> is an ordinary host process — no QEMU:</p>
+<pre><code class="language-bash"># 1. The router (ROS's `rmw_zenohd`) on the port your image's `locator`
+#    names (9000 in the example above):
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:9000"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
+
+# 2. The talker. Rust workspace image:
 cd tx_ws
 ./build/threadx-linux-zenoh/tx_linux_entry/target/debug/tx_linux_entry
+#    …or the C / C++ package (board = "threadx-linux"):
+#    cd tx_talker &amp;&amp; ./build/threadx/cmake/tx_talker
 # Expected:
 #   Publishing: 'Hello World: 1'
 #   Publishing: 'Hello World: 2'
 #   ...
-
-# threadx-riscv64 (QEMU virt). Same shape — the router on the image's
-# port first (9400 in the example above; the guest dials 10.0.2.2:&lt;p&gt;
-# through QEMU Slirp):
+</code></pre>
+<h2 id="run-on-qemu-risc-v-64"><a class="header" href="#run-on-qemu-risc-v-64">Run on QEMU (RISC-V 64)</a></h2>
+<p><code>rv-virt-threadx</code> boots on QEMU’s RISC-V <code>virt</code> machine, UART on stdio,
+virtio-net on Slirp:</p>
+<pre><code class="language-bash"># 1. The router on the image's port (9400 in the example above; the
+#    guest dials 10.0.2.2:&lt;p&gt; through QEMU Slirp):
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:9400"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
-# Then boot the built image in QEMU (UART on stdio, Slirp networking):
+# 2. Boot the built image with the store's qemu-system-riscv64
+#    (`nros setup rv-virt-threadx` installed it):
+cd tx_ws
 "$(nros sdk-path qemu)/bin/qemu-system-riscv64" -M virt -m 256M -bios none -nographic \
     -global virtio-mmio.force-legacy=false \
-    -kernel build/threadx-riscv64-zenoh/tx_riscv_entry/target/riscv64gc-unknown-none-elf/debug/tx_riscv_entry \
     -netdev user,id=net0 \
-    -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.0
+    -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.0 \
+    -kernel build/threadx-riscv64-zenoh/tx_riscv_entry/target/riscv64gc-unknown-none-elf/debug/tx_riscv_entry
+#    …or the C / C++ package (board = "rv-virt-threadx"):
+#    -kernel build/threadx/cmake/tx_talker
 
-# Verify from stock ROS 2:
+# 3. Verify from stock ROS 2 (either flavour):
 source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Talker publishes best-effort; stock `ros2 topic echo` defaults to
@@ -395,6 +411,7 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Force best-effort to receive:
 ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
+<p>QEMU exits via Ctrl-A x.</p>
 <blockquote>
 <p><strong>Contributors:</strong> the in-tree fixture run/test lanes are in
 <a href="../internals/platform-lanes.html#threadx">Per-Platform Contributor Lanes</a>.</p>
@@ -413,6 +430,13 @@ fine for this tutorial (<code>nros setup threadx-linux</code> does not create
 the interface).</li>
 <li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
+<h2 id="flash-a-real-board"><a class="header" href="#flash-a-real-board">Flash a real board</a></h2>
+<p>No real ThreadX board is supported. Both boards here are simulated — a
+Linux process and a QEMU machine — and nano-ros ships no ThreadX board
+package for physical hardware. A board of your own starts from the
+<a href="../porting/custom-board.html">porting guide</a>, with the
+<code>nros-board-threadx</code> family crate and the riscv64 arch port as the
+pieces to reuse; it is then flashed with that board vendor’s tooling.</p>
 <h2 id="multi-tier-scheduling-phase-297"><a class="header" href="#multi-tier-scheduling-phase-297">Multi-tier scheduling (phase-297)</a></h2>
 <p>ThreadX supports the multi-tier workspace scheduling model
 (RFC-0053): declare per-tier ThreadX priorities in the workspace

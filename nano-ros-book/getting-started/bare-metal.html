@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-904f2a05.js";
+            window.path_to_searchindex_js = "../searchindex-e928a932.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-191e012a.js"></script>
@@ -341,6 +341,13 @@ nros build           # builds the image `[image.baremetal]` declares
 <code>thumbv7m-none-eabi</code>. Re-builds finish in seconds. The ELF lands at
 <code>build/baremetal/target/thumbv7m-none-eabi/debug/bm_talker</code> — under
 <code>build/</code>, never beside your sources.</p>
+<p>After a successful build <code>nros build</code> prints that path and a <code>run:</code> line —
+the board’s own QEMU runner with the store’s <code>qemu-system-arm</code> filled in.
+Pasted, it boots the talker, and QEMU’s default user-mode network lands on
+the board’s LAN9118, so it reaches a router on the host. The command under
+<a href="#run-on-qemu">Run on QEMU</a> is the one the test harness boots: it adds
+<code>-icount shift=auto</code>, which keeps the board’s timer in step with Slirp’s
+I/O, and names the NIC explicitly.</p>
 <p><strong>Driving cargo yourself</strong> (an IDE, a CI step, <code>--release</code>) is supported: run
 <code>nros sync</code> first, then point cargo at the generated settings file, from the
 directory above the package (<code>nros build --dry-run</code> prints this line):</p>
@@ -356,7 +363,7 @@ never add a <code>.cargo/config.toml</code> of your own to carry board facts. Yo
 Rust-toolchain preferences go where cargo already looks for them — a parent
 directory or <code>$CARGO_HOME</code>. See
 <a href="../user-guide/workflow-by-platform.html">Workflow by Platform and Language</a>.</p>
-<h2 id="run"><a class="header" href="#run">Run</a></h2>
+<h2 id="run-on-qemu"><a class="header" href="#run-on-qemu">Run on QEMU</a></h2>
 <pre><code class="language-bash"># 1. Bring up the router on the host, on the port your image's
 #    `locator` names (Slirp forwards 10.0.2.2:&lt;p&gt; → host:&lt;p&gt;). With
 #    no `locator` the board dials 10.0.2.2:7447; the example above
@@ -364,10 +371,9 @@ directory or <code>$CARGO_HOME</code>. See
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:7447"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
-# 2. Boot the talker in QEMU. Invoke qemu-system-arm directly with the
-#    LAN9118 networking wiring the example expects — the board's own
-#    runner is bare `-kernel`, so it boots QEMU without networking. The
-#    patched qemu-system-arm is provisioned by
+# 2. Boot the talker in QEMU, with the LAN9118 on Slirp and the
+#    `-icount` the test harness uses (the `run:` line `nros build`
+#    printed works too). The patched qemu-system-arm is provisioned by
 #    `nros setup mps2-an385-baremetal` into the SDK store, which
 #    `nros sdk-path qemu` prints:
 "$(nros sdk-path qemu)/bin/qemu-system-arm" -cpu cortex-m3 -machine mps2-an385 -nographic \
@@ -397,18 +403,31 @@ talker. If no <code>Publishing:</code> line:</p>
 <ol>
 <li>Router not running — talker spins on smoltcp poll until
 killed.</li>
-<li>Wrong LAN9118 emulation flag — <code>qemu-system-arm</code> needs
-<code>-nic user,model=lan9118</code> (or equivalent). The board’s runner (in
-the generated <code>build/mps2-an385-baremetal/nros-cargo.toml</code>) is bare
-<code>-kernel</code>, so booting through it gives you QEMU without networking;
-the direct <code>qemu-system-arm</code> invocation shown above carries the
-LAN9118 wiring and is the working invocation for this tutorial. If
-you copy the runner out, mirror those flags.</li>
+<li>No network on the guest — an explicit <code>-nic</code>/<code>-netdev</code> that does
+not reach the LAN9118 (or <code>-nic none</code>, <code>-nodefaults</code>) leaves it
+unwired. With no network option at all QEMU’s default user-mode
+network attaches to it, which is why the board’s bare runner works;
+<code>-nic user,model=lan9118</code> says so explicitly.</li>
 <li>Cooperative spin starvation — if you added a long-running
 callback, the entire executor stalls; bare-metal has no
 preemption.</li>
 <li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
+<h2 id="flash-a-real-board"><a class="header" href="#flash-a-real-board">Flash a real board</a></h2>
+<p>Nothing in-tree is flashed: <code>mps2-an385</code> is a QEMU machine, and <code>nros setup</code>
+provisions no probe or flash tooling for it. A real Cortex-M board is a board
+crate of your own — <a href="../porting/stm32f4-out-of-tree.html">Worked Example — STM32F4 Out of Tree</a>
+takes one through the whole ladder — and its ELF goes to the board with the
+probe tool its vendor supports, which reads the same <code>build/&lt;image&gt;/target/…</code>
+path:</p>
+<pre><code class="language-bash">nros build
+probe-rs run --chip STM32F407VGTx build/&lt;image&gt;/target/thumbv7em-none-eabihf/debug/&lt;bin&gt;
+# or OpenOCD:
+#   openocd -f interface/stlink.cfg -f target/stm32f4x.cfg \
+#       -c "program build/&lt;image&gt;/target/thumbv7em-none-eabihf/debug/&lt;bin&gt; verify reset exit"
+</code></pre>
+<p>The chip, interface and triple above are the STM32F4-Discovery’s; yours come
+from your board.</p>
 <h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>
 <ul>
 <li>Bare-metal talker:

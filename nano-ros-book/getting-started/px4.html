@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-904f2a05.js";
+            window.path_to_searchindex_js = "../searchindex-e928a932.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-191e012a.js"></script>
@@ -219,26 +219,30 @@ git -C PX4-Autopilot submodule update --init \
 (e.g. <code>PX4-Autopilot/Tools/setup/ubuntu.sh</code>) — run those per PX4’s
 documentation if the firmware build complains about missing Python
 modules.</p>
-<p>Copy the template into your firmware repo, then point PX4 at its
-parent directory:</p>
+<p>Copy the template into your firmware repo; PX4 is pointed at the copy at
+build time:</p>
 <pre><code class="language-bash">mkdir -p px4-modules
 cp -r "$(nros sdk-root)/integrations/px4/module-template" px4-modules/nano-ros
 </code></pre>
 <p>(Releases after 0.6.0-nros4 ship the template; with an older one, copy
 it from
-<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/integrations/px4/module-template">GitHub</a>.) The template finds nano-ros itself: an explicit
-<code>-Dnano_ros_ROOT=&lt;path&gt;</code> cache variable wins, otherwise it asks the
-<code>nros</code> on PATH (<code>nros sdk-root</code>), which answers with the SDK that binary
-belongs to. No environment variable is read (RFC-0103 D6):</p>
-<pre><code class="language-bash">cmake -B build -S PX4-Autopilot \
-      -DCONFIG=px4_fmu-v5_default \
-      -DEXTERNAL_MODULES_LOCATION=$PWD/px4-modules/nano-ros \
-      -Dnano_ros_ROOT="$(nros sdk-root)"         # optional: name the SDK root
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/integrations/px4/module-template">GitHub</a>.)</p>
+<p>PX4’s own <code>make &lt;target&gt;</code> is the build verb, and it configures and builds ONE
+tree, <code>PX4-Autopilot/build/&lt;target&gt;/</code>. The module joins it through
+<code>EXTERNAL_MODULES_LOCATION</code>, passed on that same <code>make</code> line — PX4’s
+<code>Makefile</code> forwards it to its CMake configure — and pointing at the dir that
+contains the template’s <code>src/</code> (that’s <code>px4-modules/nano-ros</code>, not its
+parent: PX4’s root <code>CMakeLists.txt</code> does
+<code>add_subdirectory("${EXTERNAL_MODULES_LOCATION}/src" …)</code>).</p>
+<p>The template finds nano-ros itself: an explicit <code>-Dnano_ros_ROOT=&lt;path&gt;</code>
+cache variable wins, otherwise it asks the <code>nros</code> on PATH (<code>nros sdk-root</code>),
+which answers with the SDK that binary belongs to. No environment variable is
+read (RFC-0103 D6). To name the root anyway, pass it through PX4’s
+<code>CMAKE_ARGS</code>:</p>
+<pre><code class="language-bash">make -C PX4-Autopilot px4_sitl_default \
+    EXTERNAL_MODULES_LOCATION="$PWD/px4-modules/nano-ros" \
+    CMAKE_ARGS="-Dnano_ros_ROOT=$(nros sdk-root)"    # optional
 </code></pre>
-<p>(<code>EXTERNAL_MODULES_LOCATION</code> must point at the dir containing
-the template’s <code>src/</code> — that’s <code>px4-modules/nano-ros</code>, not its parent.
-PX4’s root <code>CMakeLists.txt</code> does <code>add_subdirectory("${EXTERNAL_MODULES_LOCATION}/src" …)</code>,
-so the path resolves to <code>px4-modules/nano-ros/src</code> per the layout above.)</p>
 <p>Inside the module, the canonical pattern bridges uORB → nano-ros.
 The module is a <code>PX4Module</code> subclass that runs in its own work
 queue, opens an nros executor, and forwards uORB messages onto a
@@ -247,33 +251,34 @@ your topic bindings.</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
 <p>The template does <strong>not</strong> ship a Kconfig overlay (no <code>Kconfig.projbuild</code>
 files). Module enablement is implicit once <code>EXTERNAL_MODULES_LOCATION</code>
-points at the template’s parent. Pass RMW + ROS-edition selection
-via CMake cache vars rather than menuconfig:</p>
-<pre><code class="language-bash">cmake -B build -S PX4-Autopilot \
-      -DCONFIG=px4_fmu-v5_default \
-      -DEXTERNAL_MODULES_LOCATION=$PWD/px4-modules/nano-ros \
-      -DNROS_RMW=zenoh
-</code></pre>
-<p>(Adding a Kconfig overlay so the module appears under
-<code>menuconfig → External modules</code> is a follow-up task; for now the
-template is always enabled.)</p>
+points at the template. Which RMW backends the module registers is the
+<code>BACKENDS</code> list of <code>nros_px4_add_module(...)</code> in
+<code>src/modules/nano_ros_app/CMakeLists.txt</code> — the template ships <code>BACKENDS uorb</code>
+— not a cache variable. (Adding a Kconfig overlay so the module appears under
+<code>menuconfig → External modules</code> is a follow-up task; for now the template is
+always enabled.)</p>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
-<pre><code class="language-bash">cd PX4-Autopilot
-make px4_fmu-v5_default
-# Or for the SITL simulator (POSIX target — easier to develop against):
-make px4_sitl_default gazebo
+<p>One <code>make</code>, one tree. For the SITL simulator (POSIX target — easier to
+develop against), or for a Pixhawk (<code>px4_fmu-v5_default</code> here; use your
+board’s PX4 target):</p>
+<pre><code class="language-bash">make -C PX4-Autopilot px4_sitl_default \
+    EXTERNAL_MODULES_LOCATION="$PWD/px4-modules/nano-ros"
+make -C PX4-Autopilot px4_fmu-v5_default \
+    EXTERNAL_MODULES_LOCATION="$PWD/px4-modules/nano-ros"
 </code></pre>
-<p>The first build cross-compiles nano-ros’s Rust staticlibs alongside
-PX4’s NuttX kernel + apps (~10 min on a fresh checkout).</p>
-<h2 id="run"><a class="header" href="#run">Run</a></h2>
-<pre><code class="language-bash"># SITL: PX4 boots Gazebo + the autopilot binary
-cd PX4-Autopilot
-make px4_sitl_default gazebo
+<p>The firmware lands in PX4’s own tree, <code>PX4-Autopilot/build/&lt;target&gt;/</code>
+(<code>px4_fmu-v5_default.px4</code> for the Pixhawk). The first build cross-compiles
+nano-ros’s Rust staticlibs alongside PX4’s NuttX kernel + apps (~10 min on a
+fresh checkout). Note that the module links prebuilt nano-ros archives
+(<code>nros_px4_add_module</code> resolves them at configure time and, when one is
+missing, stops naming the command that builds it).</p>
+<h2 id="run-on-the-sitl-simulator"><a class="header" href="#run-on-the-sitl-simulator">Run on the SITL simulator</a></h2>
+<p>PX4’s SITL runs the autopilot as a host process against a simulator. With
+Gazebo (Harmonic) installed per PX4’s documentation:</p>
+<pre><code class="language-bash">make -C PX4-Autopilot px4_sitl_default gz_x500 \
+    EXTERNAL_MODULES_LOCATION="$PWD/px4-modules/nano-ros"
 # In the PX4 console:
 pxh&gt; nano_ros_app start
-
-# Real hardware (Pixhawk): flash via QGroundControl or
-#     `make px4_fmu-v5_default upload` over the bootloader USB
 
 # Verify from stock ROS 2 on the same network (only after you have
 # added uORB → nano-ros forwarders to nano_ros_app.cpp — the shipped
@@ -282,6 +287,15 @@ source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 topic echo /vehicle_local_position px4_msgs/msg/VehicleLocalPosition
 </code></pre>
+<h2 id="flash-a-real-board"><a class="header" href="#flash-a-real-board">Flash a real board</a></h2>
+<p>PX4’s own upload target flashes over the bootloader USB, with the same
+<code>EXTERNAL_MODULES_LOCATION</code> as the build (it rebuilds if anything changed):</p>
+<pre><code class="language-bash">make -C PX4-Autopilot px4_fmu-v5_default upload \
+    EXTERNAL_MODULES_LOCATION="$PWD/px4-modules/nano-ros"
+</code></pre>
+<p>QGroundControl can flash the same <code>build/px4_fmu-v5_default/px4_fmu-v5_default.px4</code>
+instead. Start the module from the NSH console (<code>nano_ros_app start</code>) or the
+board’s startup script.</p>
 <p><strong>Readiness signal.</strong> After <code>nano_ros_app start</code> in the PX4
 console, the shipped template logs <code>nano-ros uORB backend registered</code> and returns immediately — it doesn’t start a
 publisher loop or print a “bridge started” line on its own.

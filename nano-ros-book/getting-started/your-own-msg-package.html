@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-904f2a05.js";
+            window.path_to_searchindex_js = "../searchindex-e928a932.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-191e012a.js"></script>
@@ -305,25 +305,41 @@ target_link_libraries(my_app
 
 ament_package()
 </code></pre>
-<h2 id="the-nano-ros-umbrella--the-only-nano-ros-specific-file"><a class="header" href="#the-nano-ros-umbrella--the-only-nano-ros-specific-file">The nano-ros umbrella — the only nano-ros-specific file</a></h2>
-<p>The two <code>src/</code> packages are stock ROS. One umbrella CMakeLists.txt at the
-workspace root pulls nano-ros in:</p>
+<h2 id="build-it-with-nros-build"><a class="header" href="#build-it-with-nros-build">Build it with <code>nros build</code></a></h2>
+<p>There is no nano-ros-specific file to add: a workspace has no root build file
+(RFC-0098 D9). With no bringup, <code>nros build</code> builds it the way <code>colcon build</code>
+does — every package it finds by its <code>package.xml</code>, in <code>&lt;depend&gt;</code> order, each
+in its own <code>build/&lt;pkg&gt;/</code>. For <code>my_app</code> it generates the CMake root that used
+to be hand-written (nano-ros, <code>NROS_INTERFACE_SEARCH_PATH</code> at <code>./src/</code>, the
+rclcpp / ament surface); <code>my_msgs</code> is not built on its own — its bindings are
+generated into the package that uses it.</p>
+<pre><code class="language-sh">nros sync
+nros build
+./build/my_app/cmake/pkg/my_app/my_app
+</code></pre>
+<p>In a workspace that also has a bringup (the <code>my_robot</code> scaffold), the same two
+commands build <code>my_msgs</code> into whichever image’s packages depend on it.</p>
+<p><strong>Escape hatch — a hand-written umbrella.</strong> For a CMake tree that is not a
+nano-ros workspace, one top-level <code>CMakeLists.txt</code> pulls nano-ros in as a
+subdirectory, naming the SDK root on the configure line
+(<a href="build-as-subdirectory.html">Build as a CMake subdirectory</a> has the
+mechanism):</p>
 <pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
 project(my_workspace LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 14)
 
-# Pull nano-ros.
+# Pull nano-ros — the installed SDK root, passed as -DNANO_ROS_SDK=….
 set(NROS_PLATFORM posix)
 set(NROS_RMW "zenoh" CACHE STRING "Active RMW.")
 set(NROS_RMW "${NROS_RMW}")
-add_subdirectory(/path/to/nano-ros nano_ros)
+add_subdirectory("${NANO_ROS_SDK}" nano_ros)
 
 # Point the message-package resolver at this workspace (must precede the
 # ament-surface include so the workspace Find&lt;pkg&gt;.cmake auto-emit picks it up).
 set(NROS_INTERFACE_SEARCH_PATH "${CMAKE_SOURCE_DIR}/src")
 
 # nano-ros's ament / rclcpp surface (find_package(rclcpp), ament_* verbs).
-include(/path/to/nano-ros/cmake/NanoRosAmentSurface.cmake)
+include("${NANO_ROS_SDK}/cmake/NanoRosAmentSurface.cmake")
 
 # Bulk-build every workspace msg pkg in topo order. One line, no
 # add_subdirectory(src/&lt;pkg&gt;) per pkg.
@@ -332,8 +348,7 @@ nros_workspace_interfaces()
 # Build the consumer app.
 add_subdirectory(src/my_app)
 </code></pre>
-<p>Build:</p>
-<pre><code class="language-sh">cmake -B build -S .
+<pre><code class="language-sh">cmake -B build -S . -DNANO_ROS_SDK="$(nros sdk-root)"
 cmake --build build -j
 ./build/src/my_app/my_app
 </code></pre>

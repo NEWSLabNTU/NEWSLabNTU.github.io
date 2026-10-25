@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-904f2a05.js";
+            window.path_to_searchindex_js = "../searchindex-e928a932.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-191e012a.js"></script>
@@ -296,8 +296,25 @@ because the guest reaches it through QEMU’s Slirp gateway:</p>
     ros2 run rmw_zenoh_cpp rmw_zenohd
 </code></pre>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
-<p>NuttX owns the build verb here — <code>make</code>, from the configured kernel — the way
-Zephyr owns <code>west build</code>. <code>nros sync</code> still runs first, in the application
+<p>Two roads, and they differ in who owns the NuttX kernel build.</p>
+<p><strong><code>nros build</code> — the path for a nano-ros package or workspace.</strong> The board in
+<code>system.toml</code> (<code>qemu-armv7a-nuttx</code> for Arm <code>virt</code>, <code>rv-virt-nuttx</code> for RISC-V
+<code>rv-virt</code>) picks the cross toolchain and the NuttX board config; <code>nros build</code>
+links your application into a bootable NuttX kernel ELF. A C / C++ package —
+<code>nros new my_app --platform nuttx --lang c</code> writes <code>board = "nuttx"</code>, which the
+C / C++ road cannot resolve, so name the board in full first:</p>
+<pre><code class="language-bash">cd my_app
+# in system.toml:  [image.nuttx] board = "qemu-armv7a-nuttx"   (or "rv-virt-nuttx")
+nros build
+</code></pre>
+<p>The kernel ELF lands at <code>build/nuttx/cmake/my_app</code> (<code>build/&lt;image&gt;/cmake/</code>
+plus the name <code>nano_ros_add_executable</code> gives it), and <code>nros build</code> prints it
+with the QEMU line that boots it. Rust starts as a workspace image
+(<code>nros new --image nuttx --board qemu-armv7a-nuttx</code>, then <code>nros sync</code> and
+<code>nros build nuttx</code>); its ELF is under the entry’s target dir, which <code>nros build</code> prints. <code>nros build &lt;image&gt; --dry-run</code> shows the native commands.</p>
+<p><strong>NuttX’s own build — the integration shell in a NuttX-managed tree.</strong> NuttX
+owns the build verb there, <code>make</code> from the configured kernel, the way Zephyr
+owns <code>west build</code>. <code>nros sync</code> still runs first, in the application
 directory, because the generated message bindings must exist before anything
 compiles against them:</p>
 <pre><code class="language-bash">cd my_app
@@ -308,40 +325,40 @@ make                                # full kernel + apps build
 </code></pre>
 <p>The Cargo build of nano-ros’s Rust staticlibs runs as a sub-step of
 the NuttX app build; <code>libnros_c.a</code> is linked at the final app
-link stage.</p>
-<p>For CMake-driven NuttX builds:</p>
-<pre><code class="language-bash">cmake -B build -DBOARD=qemu-armv7a \
-              -DCONFIG=nsh_smp
-cmake --build build
+link stage. The kernel ELF is <code>$NUTTX_DIR/nuttx</code>.</p>
+<p>For a CMake-driven NuttX build, NuttX’s own CMake takes one
+<code>BOARD_CONFIG=&lt;board&gt;:&lt;config&gt;</code> and finds <code>apps/</code> beside the kernel tree
+(<code>-DNUTTX_APPS_DIR=&lt;dir&gt;</code> names another):</p>
+<pre><code class="language-bash">cmake -S "$NUTTX_DIR" -B build -DBOARD_CONFIG=qemu-armv7a:nsh -GNinja
+cmake --build build                 # the ELF is build/nuttx
 </code></pre>
-<h2 id="run"><a class="header" href="#run">Run</a></h2>
+<p>Stock <code>qemu-armv7a:nsh</code> has no networking; merge the nano-ros requirements
+into it as described under
+<a href="#auto-configure-glue-nsh-built-in-registration">Auto-configure glue</a> below.</p>
+<h2 id="run-on-qemu-arm-virt"><a class="header" href="#run-on-qemu-arm-virt">Run on QEMU (Arm virt)</a></h2>
+<p>QEMU is the store’s build (<code>nros setup qemu-armv7a-nuttx</code> installed it), on
+QEMU’s <code>virt</code> machine with virtio-net on Slirp — the line <code>nros build</code>
+prints:</p>
 <pre><code class="language-bash"># 1. Start the router on the host (Slirp forwards 10.0.2.2:&lt;port&gt; →
-#    host). It must listen on 0.0.0.0 for the Slirp gateway; 8200 is
-#    the port the in-tree lanes use — match whatever `locator` your
-#    app bakes:
+#    host). It must listen on 0.0.0.0 for the Slirp gateway; match
+#    whatever `locator` your app bakes (8200 in the example above):
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:8200"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
-# 2. QEMU NuttX (ARM). For a NuttX-managed workspace where you've
-#    staged the integration shell + your own app, boot QEMU directly:
-qemu-system-arm -M virt -cpu cortex-a7 -nographic \
-                -icount shift=auto \
-                -kernel $NUTTX_DIR/nuttx \
-                -netdev user,id=net0 \
-                -device virtio-net-device,netdev=net0
-# `$NUTTX_DIR/nuttx` is the linked NuttX ELF produced by `make`
-# at the NuttX source root — adjust if your workspace puts it
-# elsewhere (e.g. an out-of-tree build dir).
-# At the NSH prompt, run the example's PROGNAME — the
-# `make`-driven build registers every nano-ros example as a
-# built-in command via Application.mk's `-Dmain=&lt;PROGNAME&gt;_main`
-# rename. Real PROGNAMEs (from
-# `packages/testing/nros-tests/tests/nuttx_make_e2e.rs::EXPECTED_PROGNAMES`):
-nsh&gt; nuttx_c_talker            # C talker
-# nsh&gt; nuttx_cpp_talker        # C++ talker
-# nsh&gt; nuttx_c_listener        # ...and listener / service / action variants
+# 2. Boot the kernel ELF — the one `nros build` wrote, or `$NUTTX_DIR/nuttx`
+#    from the make build:
+"$(nros sdk-path qemu)/bin/qemu-system-arm" -M virt -cpu cortex-a7 -nographic \
+    -icount shift=auto \
+    -netdev user,id=net0 \
+    -device virtio-net-device,netdev=net0 \
+    -kernel build/nuttx/cmake/my_app
 
-# Real hardware: standard NuttX flash flow (openocd / J-Link / etc.)
+# An image `nros build` produced starts its application itself. A make-built
+# kernel boots to the NSH prompt; run your app's PROGNAME there — the
+# `make`-driven build registers every nano-ros example as a built-in command
+# via Application.mk's `-Dmain=&lt;PROGNAME&gt;_main` rename, e.g.:
+#   nsh&gt; nuttx_c_talker            # C talker
+#   nsh&gt; nuttx_cpp_talker          # C++ talker
 
 # 3. Verify from stock ROS 2 in another terminal:
 source /opt/ros/humble/setup.bash
@@ -351,13 +368,14 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Force best-effort to receive:
 ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
+<p>QEMU exits via Ctrl-A x.</p>
 <blockquote>
 <p><strong>Contributors:</strong> the in-tree fixture/test lanes for nano-ros’s own
 QEMU examples are in
 <a href="../internals/platform-lanes.html#nuttx">Per-Platform Contributor Lanes</a>.</p>
 </blockquote>
-<p><strong>Readiness signal.</strong> After typing the app’s NSH command (e.g.
-<code>nuttx_c_talker</code>), expect <code>Publishing: 'Hello World: 1'</code> on the NSH
+<p><strong>Readiness signal.</strong> Once the image boots (a make-built kernel: once
+you type the app’s NSH command, e.g. <code>nuttx_c_talker</code>), expect <code>Publishing: 'Hello World: 1'</code> on the NSH
 console within ~6 seconds — Rust + C + C++ talkers all start the
 count at 1, matching the official ROS 2 demo talker. If no
 <code>Publishing:</code> line:</p>
@@ -370,7 +388,26 @@ With the virtio-net + Slirp wiring above, <code>eth0</code> comes up at
 <code>rclc_support_init</code> arguments) must match the router’s listen port.</li>
 <li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
-<h3 id="auto-configure-glue-nsh-built-in-registration"><a class="header" href="#auto-configure-glue-nsh-built-in-registration">Auto-configure glue (NSH built-in registration)</a></h3>
+<h2 id="run-on-qemu-risc-v-rv-virt"><a class="header" href="#run-on-qemu-risc-v-rv-virt">Run on QEMU (RISC-V rv-virt)</a></h2>
+<p>The <code>rv-virt-nuttx</code> board (<code>rv32imac</code>) boots on QEMU’s RISC-V <code>virt</code> machine.
+<strong>The store’s QEMU is built for Arm and RISC-V 64 only</strong>, so this board needs
+a <code>qemu-system-riscv32</code> from your distribution (Debian/Ubuntu:
+<code>qemu-system-misc</code>). Name it with <code>QEMU_SYSTEM_RISCV32</code> and <code>nros build</code>
+prints a line that uses it; without it the printed line asks
+<code>nros locate tool qemu-system-riscv32</code>, which then has nothing to answer:</p>
+<pre><code class="language-bash">nros setup rv-virt-nuttx --rmw zenoh
+# in system.toml:  [image.nuttx] board = "rv-virt-nuttx"
+export QEMU_SYSTEM_RISCV32="$(command -v qemu-system-riscv32)"
+nros build
+
+# router as above (on the port your image's `locator` names), then:
+"$QEMU_SYSTEM_RISCV32" -M virt -bios none -nographic \
+    -icount shift=auto \
+    -netdev user,id=net0 \
+    -device virtio-net-device,netdev=net0 \
+    -kernel build/nuttx/cmake/my_app
+</code></pre>
+<h2 id="auto-configure-glue-nsh-built-in-registration"><a class="header" href="#auto-configure-glue-nsh-built-in-registration">Auto-configure glue (NSH built-in registration)</a></h2>
 <p>The <code>make</code>-driven build above relies on a host-side glue layer. In-tree
 that is <code>scripts/nuttx/stage-external-apps.sh</code> plus <code>kconfig-tweak</code>. If you
 wire the integration shell into your own NuttX tree by hand, reproduce the same
@@ -401,6 +438,18 @@ so the newly-visible dependencies settle, then <code>make</code>.</li>
 </ol>
 <p><code>kconfig-tweak</code> ships in the <code>kconfig-frontends</code> package on most
 distros. Without it the recipe skips (<code>"NuttX skip: kconfig-tweak not on PATH"</code>); install it before retrying.</p>
+<h2 id="flash-a-real-board"><a class="header" href="#flash-a-real-board">Flash a real board</a></h2>
+<p>nano-ros has no NuttX hardware board of its own: both boards above are QEMU
+machines. On real hardware the image is an ordinary NuttX application, so it
+goes to the board the way NuttX’s documentation for that board says — build
+the board’s own <code>BOARD_CONFIG</code> with the integration shell staged as above,
+then flash <code>nuttx</code> (or <code>nuttx.bin</code> / <code>nuttx.hex</code>) with the board’s tool:</p>
+<pre><code class="language-bash">cmake -S "$NUTTX_DIR" -B build -DBOARD_CONFIG=&lt;board&gt;:&lt;config&gt; -GNinja
+cmake --build build
+openocd -f board/&lt;your-board&gt;.cfg -c "program build/nuttx verify reset exit"
+</code></pre>
+<p>(OpenOCD is an example; NuttX boards also flash with J-Link, <code>dfu-util</code>,
+<code>esptool</code> or a vendor tool, as the board’s page says.)</p>
 <h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>
 <ul>
 <li>NuttX integration shell:

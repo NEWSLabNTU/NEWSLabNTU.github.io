@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-904f2a05.js";
+            window.path_to_searchindex_js = "../searchindex-e928a932.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-191e012a.js"></script>
@@ -298,18 +298,40 @@ nros sync
 nros build freertos
 </code></pre>
 <p>First Rust build pulls + cross-compiles deps (~5 min); the ELF lands at
-<code>build/freertos-zenoh/freertos_entry/target/thumbv7m-none-eabi/debug/freertos_entry</code>
-(<code>nros build freertos --dry-run</code> prints the paths without building). The
-C / C++ build lands under <code>build/freertos/cmake/</code> and also compiles the
-FreeRTOS kernel + lwIP — first run ~3 min.</p>
-<p><strong>Driving cargo yourself</strong> (an IDE, a CI step, <code>--release</code>) is
-supported: run <code>nros sync</code> first, then point cargo at the generated
-settings file — <code>nros build freertos --dry-run</code> prints the exact
-<code>cargo build --manifest-path … --config …/nros-cargo.toml</code> line.</p>
+<code>build/freertos-zenoh/freertos_entry/target/thumbv7m-none-eabi/debug/freertos_entry</code>.
+The C / C++ build lands at <code>build/freertos/cmake/fr_talker</code> (<code>build/&lt;image&gt;/cmake/</code>
+plus the name <code>nano_ros_add_executable</code> gives it) and also compiles the
+FreeRTOS kernel + lwIP — first run ~3 min. <code>nros build &lt;image&gt; --dry-run</code>
+prints the native commands without building.</p>
+<p>After a successful build <code>nros build</code> prints what it built and the
+command that runs it — a block like</p>
+<pre><code class="language-text">nros build: next for `fr_talker:freertos`:
+  artifact: /home/you/fr_talker/build/freertos/cmake/fr_talker
+  run:
+    /home/you/.nros/sdk/qemu/&lt;version&gt;/bin/qemu-system-arm -cpu cortex-m3 -machine mps2-an385 …
+</code></pre>
+<p>That <code>run</code> line is the board’s own QEMU runner with the store’s
+<code>qemu-system-arm</code> filled in; QEMU’s default user-mode network lands on the
+board’s LAN9118, so it reaches a router on the host. The line under
+<a href="#run-on-qemu">Run on QEMU</a> below is the one the test harness boots: it adds
+<code>-icount shift=auto</code>, which keeps the board’s timer in step with Slirp’s
+I/O, and names the NIC explicitly.</p>
+<p><strong>Driving the native tool yourself</strong> is the escape hatch, not the path.
+For cargo (an IDE, a CI step, <code>--release</code>): run <code>nros sync</code> first, then
+point cargo at the generated settings file — <code>nros build freertos --dry-run</code> prints the exact <code>cargo build --manifest-path … --config …/nros-cargo.toml</code> line. For CMake, <code>nros build --dry-run</code> in the C /
+C++ package prints the configure line it would run; its core is</p>
+<pre><code class="language-bash">cmake -S . -B build/freertos/cmake -DNROS_IMAGE=freertos \
+    -DCMAKE_TOOLCHAIN_FILE="$(nros sdk-root)/cmake/toolchain/arm-freertos-armcm3.cmake" \
+    -Dnano_ros_ROOT="$(nros sdk-root)"
+cmake --build build/freertos/cmake
+</code></pre>
+<p>plus the board’s RX-timing knobs, which the dry-run spells out. Without
+a <code>system.toml</code> at all, see
+<a href="./build-as-subdirectory.html">Build as a CMake subdirectory</a>.</p>
 <p>See
 <a href="../user-guide/workflow-by-platform.html">Workflow by Platform and Language</a>
 for why the sync requirement is per language rather than per platform.</p>
-<h2 id="run"><a class="header" href="#run">Run</a></h2>
+<h2 id="run-on-qemu"><a class="header" href="#run-on-qemu">Run on QEMU</a></h2>
 <pre><code class="language-bash"># 1. Start the router (ROS's `rmw_zenohd`) on the host, on the port
 #    your image's `locator` names (7447 by default; 7800 in the example
 #    shown above). It must listen on 0.0.0.0 for the Slirp gateway:
@@ -317,16 +339,17 @@ for why the sync requirement is per language rather than per platform.</p>
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:7447"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
-# 2. Boot the talker in QEMU. Invoke qemu-system-arm directly, with the
-#    LAN9118 + Slirp wiring the example expects — the board's own cargo
-#    runner is bare `-kernel`, so booting through it gives you QEMU
-#    without networking:
+# 2. Boot the talker in QEMU — the store's patched qemu-system-arm
+#    (`nros setup mps2-an385-freertos` installed it), with the LAN9118 on
+#    Slirp and the `-icount` the test harness uses. Rust workspace image:
 cd fr_ws
 "$(nros sdk-path qemu)/bin/qemu-system-arm" -cpu cortex-m3 -machine mps2-an385 -nographic \
     -icount shift=auto \
     -semihosting-config enable=on,target=native \
     -kernel build/freertos-zenoh/freertos_entry/target/thumbv7m-none-eabi/debug/freertos_entry \
     -nic user,model=lan9118
+#    …or the C / C++ package's image — same flags, its own ELF:
+#    -kernel build/freertos/cmake/fr_talker
 
 # 3. Verify from stock ROS 2:
 source /opt/ros/humble/setup.bash
@@ -361,6 +384,47 @@ install (with <code>RMW_IMPLEMENTATION=rmw_zenoh_cpp</code>) confirms
 end-to-end interop.</li>
 <li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
+<h2 id="run-on-the-posix-simulator"><a class="header" href="#run-on-the-posix-simulator">Run on the POSIX simulator</a></h2>
+<p>The <code>freertos-posix</code> board runs the FreeRTOS kernel as an ordinary
+Linux process (FreeRTOS’s POSIX port) — no QEMU, host networking. It is
+a C / C++ board (it has no Rust entry shape). Provision it, point the
+package’s image at it, build, and run the binary:</p>
+<pre><code class="language-bash">nros setup freertos-posix --rmw zenoh
+# in system.toml:  [image.freertos] board = "freertos-posix"
+cd fr_talker
+nros build
+./build/freertos/cmake/fr_talker
+</code></pre>
+<p>The image dials the router on the host directly (no Slirp gateway), so
+start <code>rmw_zenohd</code> on the port its <code>locator</code> names, as in
+<a href="#run-on-qemu">Run on QEMU</a> step 1.</p>
+<h2 id="flash-a-real-board"><a class="header" href="#flash-a-real-board">Flash a real board</a></h2>
+<p>No in-tree FreeRTOS board is flashed by a documented flow, and none is
+claimed: the MPS2-AN385 boards above are QEMU machines.</p>
+<ul>
+<li>
+<p><strong>NXP S32Z270 (<code>s32z270-freertos</code>, tier 3) is build-only.</strong> No
+emulator models its Cortex-R52 RTU, so nothing here boots it. It
+builds like the other boards — the licensed pieces (NXP’s
+<code>GCC/ARM_CR52_GIC</code> FreeRTOS port, the RTD NETC Ethernet driver, the
+S32 Config Tools <code>PBcfg</code>) are yours to supply, as its
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/packages/boards/nros-board-s32z270-freertos/nros-board.toml">descriptor</a>
+explains — and the ELF is flashed with your own S32 tooling (S32
+Design Studio, a Lauterbach/PEmicro probe); nano-ros adds no flash
+step:</p>
+<pre><code class="language-bash">nros setup s32z270-freertos --rmw zenoh
+# in system.toml:  [image.s32z] board = "s32z270-freertos"
+nros build s32z
+# → build/s32z/cmake/&lt;your executable&gt;   (flash it with your S32 tooling)
+</code></pre>
+</li>
+<li>
+<p><strong>Your own FreeRTOS board</strong> is a board package of your own — see
+<a href="../porting/freertos-board.html">Adding a FreeRTOS Board</a> — and is
+flashed with whatever that board’s vendor uses (probe-rs, OpenOCD, a
+vendor IDE).</p>
+</li>
+</ul>
 <h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>
 <p>The full examples, to read:</p>
 <ul>
@@ -372,10 +436,8 @@ end-to-end interop.</li>
 <ul>
 <li>Subscriber: peer <code>listener/</code> directory next to each talker.</li>
 <li>Services + actions: peer <code>service-*/</code> and <code>action-*/</code> directories.</li>
-<li>Real hardware: same code runs on STM32F4-Discovery /
-NXP-LPC55S69 / TI-MSP432 with a different board crate + linker
-script; see the <a href="./bare-metal.html">Bare-metal Cortex-M3</a> page for
-the no-RTOS variant.</li>
+<li>No RTOS: the <a href="./bare-metal.html">Bare-metal Cortex-M3</a> page is the
+same board without FreeRTOS.</li>
 <li>Your own board / RTOS: the
 <a href="../concepts/board-integration.html">Board Integration matrix</a> maps each
 user profile (Cargo-first, vendor-IDE, Zephyr, NuttX, ESP32-C3, niche fork)
