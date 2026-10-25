@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-faab8b61.js";
+            window.path_to_searchindex_js = "../searchindex-01ff895d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-938ce3c7.js"></script>
@@ -268,7 +268,7 @@ it, or says that none has.</p>
 <tr><th>Scenario</th><th>Status</th></tr>
 </thead>
 <tbody>
-<tr><td>S1, drone flight controller: 1 kHz critical loop beside 5 ms telemetry</td><td>Linux, on levels: <code>rt_sched_levels_e2e::s1_critical_loop_meets_every_deadline_on_its_own_level</code> (60 s, zero misses, plus a one-level negative control). It runs only on a lane that claims <code>rt-sched</code>.</td></tr>
+<tr><td>S1, drone flight controller: 1 kHz critical loop beside 5 ms telemetry</td><td>Linux, on levels: <code>rt_sched_levels_e2e::s1_critical_loop_meets_every_deadline_on_its_own_level</code> (60 s, zero misses on a <code>PREEMPT_RT</code> kernel and the host’s own floor on a generic one, plus a one-level negative control). It runs only on a lane that claims <code>rt-sched</code>.</td></tr>
 <tr><td>S2, sense, plan and act at 10 Hz on one thread</td><td>No dedicated test.</td></tr>
 <tr><td>S3, watchdog liveness</td><td>Levels feed the watchdog only when every level is alive (RFC-0108 D8). Measured on the S32K344 safety island in phase-509.</td></tr>
 <tr><td>S4, Autoware-style mixed rates on Linux</td><td>No dedicated test.</td></tr>
@@ -291,17 +291,26 @@ it, or says that none has.</p>
 <li>a spawned level past its <code>SCHED_DEADLINE</code> budget, throttled by the kernel;</li>
 <li>S1, above.</li>
 </ul>
-<p>No lane claims the <code>rt-sched</code> capability, so each is a <code>[SKIPPED:lane]</code>
-everywhere by default. To run them on a host you control, build the fixtures,
-grant the capability to the four <code>levels-cpp</code> binaries (it is bound to the
-file’s contents, so again after every rebuild), and claim the capability:</p>
+<p>Only host-tests’ <code>rt-sched</code> job claims the <code>rt-sched</code> capability, so
+everywhere else each is a <code>[SKIPPED:lane]</code>. None of them needs <code>sudo</code>. By
+default each image runs in a throwaway docker container granted <code>SYS_NICE</code>
+and an RT priority limit, so a member of the <code>docker</code> group can run them on
+any Linux host:</p>
 <pre><code class="language-sh">NROS_FIXTURE_ID=workspace-cpp-native-levels-s1 scripts/build/workspace-fixtures-build.sh linux cpp
 # ... and -levels, -levels-s1-flat, -levels-budget
-cd examples/workspaces/levels-cpp/build/posix-zenoh-linux/cmake
-sudo setcap cap_sys_nice+ep linux_entry linux_s1_entry linux_s1_flat_entry linux_budget_entry
-cd -
 NROS_TEST_UNCLAIMED= cargo nextest run -p nros-tests --test rt_sched_levels_e2e
 </code></pre>
+<p>The container’s image is the host’s own distribution and release, so the
+binary finds the C++ runtime it was linked against; <code>NROS_RT_SCHED_IMAGE</code>
+names another. <code>NROS_RT_SCHED_LAUNCHER=direct</code> runs the binaries as they are,
+for a process that already holds the capability: a CI job container started
+with <code>--cap-add SYS_NICE</code>, or fixtures given <code>setcap cap_sys_nice+ep</code> (bound
+to the file’s contents, so again after every rebuild).
+<code>NROS_RT_SCHED_CPU</code> moves the pinned runs off CPU 0.</p>
+<p>S1 asserts zero misses only on a <code>PREEMPT_RT</code> kernel. A generic kernel misses
+the odd release for any program: a bare C loop at the same priority missed 2
+in 60 s. There the test asserts a miss rate at least 50 times below the
+one-level control’s, which is what the levels change.</p>
 <p>A run that claims <code>rt-sched</code> on a host without the capability fails with
 <code>[UNMET PRECONDITION]</code> and names the binary to grant it to.</p>
 
