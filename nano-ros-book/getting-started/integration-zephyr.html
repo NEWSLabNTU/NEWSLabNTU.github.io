@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-ffa41747.js";
+            window.path_to_searchindex_js = "../searchindex-904f2a05.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-938ce3c7.js"></script>
+        <script src="../toc-191e012a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -186,7 +186,7 @@ care of the rest.</p>
 <blockquote>
 <p><strong>Contributor path?</strong> Building nano-ros’s own Zephyr examples
 straight from this repository (no west-managed workspace) is
-covered at <a href="./zephyr.html">Zephyr (contributor)</a>. The page below is
+covered at <a href="../internals/zephyr-in-tree.html">Zephyr in-tree examples (contributor)</a>. The page below is
 the canonical user entry.</p>
 </blockquote>
 <blockquote>
@@ -270,9 +270,8 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(my_app)
 
-set(NROS_PLATFORM zephyr)
-include("${NROS_REPO_DIR}/cmake/NanoRosNodeRegister.cmake")
-include("${NROS_REPO_DIR}/cmake/NanoRosVerbs.cmake")
+find_package(nano_ros REQUIRED)
+find_package(std_msgs REQUIRED)
 
 nano_ros_auto_add_library(talker_lib STATIC src/Talker.c)
 
@@ -280,8 +279,7 @@ nros_components_register_node(talker_lib
     PLUGIN my_app::Talker
     EXECUTABLE talker
     SHAPE configure
-    TYPED
-    DEPLOY zephyr)
+    TYPED)
 </code></pre>
 <pre><code class="language-c">// apps/my_app/src/Talker.c
 // `talker_configure` creates a publisher on `/chatter` + a timer that
@@ -349,15 +347,10 @@ way. It provides <strong>no zenoh router</strong>: that is ROS’s <code>rmw_zen
 (<a href="../design/rmw.html">RFC-0075</a>); Cyclone DDS needs no daemon at all.</p>
 <ol>
 <li><strong>Get the <code>nros</code> CLI</strong> — install a release with <code>scripts/install.sh</code>
-(<a href="installation.html">Installation</a>). Working inside a nano-ros checkout
-instead, build the in-tree one:
-<pre><code class="language-bash">./scripts/bootstrap.sh      # builds packages/cli/target/release/nros
-source ./activate.sh        # OR: direnv allow / source ./activate.fish
-</code></pre>
-</li>
+(<a href="installation.html">Installation</a>); it lands in <code>~/.nros/bin</code>.</li>
 <li><strong>Provision the board + RMW</strong>:
-<pre><code class="language-bash">( cd modules/nano-ros &amp;&amp; nros setup zephyr --rmw zenoh )  # Zephyr SDK + zenoh-pico + mbedtls
-( cd modules/nano-ros &amp;&amp; nros setup --source px4-rs )     # workspace cargo-load dep
+<pre><code class="language-bash">nros setup zephyr --rmw zenoh       # Zephyr SDK + zenoh-pico + mbedtls
+nros setup --source px4-rs          # workspace cargo-load dep
 </code></pre>
 </li>
 <li><strong>Point Zephyr at the SDK</strong> if your shell does not already find it —
@@ -365,19 +358,25 @@ source ./activate.sh        # OR: direnv allow / source ./activate.fish
 register it via the SDK’s <code>setup.sh -c</code>).</li>
 <li><strong>Message definitions need no setup.</strong> <code>find_package(&lt;pkg&gt;)</code> resolves a
 message package from <code>NROS_INTERFACE_SEARCH_PATH</code>, then <code>AMENT_PREFIX_PATH</code>,
-then the definitions bundled with nano-ros (<code>packages/cli/interfaces/</code>), so
+then the definitions bundled with the release, so
 <code>std_msgs</code> and the other stock packages build with no ROS install.</li>
 </ol>
 <p>The zenoh router must be <strong>running</strong> before an example connects
 (<code>ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' ros2 run rmw_zenoh_cpp rmw_zenohd</code>); for xrce, the Micro-XRCE-DDS agent
 <code>nros setup … --rmw xrce</code> installed; for cyclonedds, nothing.</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
-<p>Add nano-ros (and a Zephyr pin — <code>zephyr/west.yml</code> is manifest-only;
-it does <strong>not</strong> pull Zephyr itself) to your workspace <code>west.yml</code>:</p>
+<p>nano-ros’s Zephyr module ships in the installed SDK — the directory
+<code>nros sdk-root</code> prints holds its <code>zephyr/module.yml</code>. You do not add
+nano-ros to your <code>west.yml</code>: <code>nros build</code> names the module on the
+<code>west build</code> line it runs (<code>-DZEPHYR_EXTRA_MODULES=&lt;sdk root&gt;</code>), and a
+<code>west build</code> you run yourself passes the same:</p>
+<pre><code class="language-bash">west build -b native_sim/native/64 apps/my_app -- \
+    -DZEPHYR_EXTRA_MODULES="$(nros sdk-root)"
+</code></pre>
+<p>Your <code>west.yml</code> pins Zephyr itself (and whatever modules your
+application uses) the standard Zephyr way:</p>
 <pre><code class="language-yaml">manifest:
   remotes:
-    - name: nano-ros
-      url-base: https://github.com/NEWSLabNTU
     - name: zephyr
       url-base: https://github.com/zephyrproject-rtos
   projects:
@@ -386,17 +385,10 @@ it does <strong>not</strong> pull Zephyr itself) to your workspace <code>west.ym
       revision: v3.7.0          # or your chosen 3.7 LTS / 4.x SHA
       path: zephyr
       import: true               # pulls Zephyr's own modules
-    - name: nano-ros
-      remote: nano-ros
-      revision: nros-v0.6.0      # pin a release tag (west needs SOME
-                                 # revision — its default `master` does
-                                 # not exist here). `main` works for
-                                 # tracking tip, but a tag keeps your
-                                 # build reproducible.
-      path: modules/nano-ros
-      import:
-        file: zephyr/west.yml    # pulls nano-ros's transport deps
 </code></pre>
+<p>The transport sources the module compiles (zenoh-pico, mbedtls, the
+Cyclone DDS fork) come from <code>nros setup zephyr --rmw &lt;rmw&gt;</code>, not from
+west.</p>
 <p>Then, per application, nano-ros’s half of the configuration goes in a
 <code>system.toml</code> beside the <code>CMakeLists.txt</code> (RFC-0098 D10, phase-481), and
 Zephyr’s own half in <code>prj.conf</code>:</p>
@@ -422,24 +414,123 @@ CONFIG_NET_TCP=y
 <p>The module renders the image into a Kconfig fragment merged after <code>prj.conf</code>:
 the RMW from <code>rmw</code>, the language API from your app, the endpoint from
 <code>locator</code>, the domain from <code>domain_id</code>, and every <code>env</code> knob (any symbol in the
-<a href="zephyr.html#kconfig-reference">Kconfig reference</a>, spelled without
+<a href="../internals/zephyr-in-tree.html#kconfig-reference">Kconfig reference</a>, spelled without
 <code>CONFIG_</code>). A <code>CONFIG_NROS_*</code> line in <code>prj.conf</code> would be overridden by it, so
 it is at best dead. Several images in one file — one per RMW — are picked with
 <code>west build … -- -DNROS_IMAGE=&lt;id&gt;</code>; see
-<a href="zephyr.html#configuring-an-image-systemtoml-not-prjconf">Configuring an image</a>.
+<a href="#configuring-an-image-systemtoml-not-prjconf">Configuring an image</a>.
 An app with NO <code>system.toml</code> gets no rendering and is configured by Kconfig
 defaults and the RMW snippets alone.</p>
 <p><code>CONFIG_NROS=y</code> activates the shell, which maps Kconfig values to
 <code>NROS_*</code> CMake cache vars and <code>add_subdirectory()</code>s the root
 nano-ros CMake. <code>NanoRos::NanoRos</code> is linked into your <code>app</code>
 library transparently.</p>
+<h2 id="configuring-an-image-systemtoml-not-prjconf"><a class="header" href="#configuring-an-image-systemtoml-not-prjconf">Configuring an image: <code>system.toml</code>, not <code>prj.conf</code></a></h2>
+<p>An application’s nano-ros configuration lives in ONE place, its
+<code>system.toml</code> (RFC-0098 D10, phase-481). The nano-ros Zephyr module renders
+the selected image into a Kconfig fragment and merges it <strong>last</strong>, after every
+conf file. So the <code>prj*.conf</code> files hold Zephyr’s own settings only (networking,
+POSIX, stacks, heaps) and <strong>never a <code>CONFIG_NROS_*</code> line</strong>: one there is either
+dead (the image overrides it) or a second source that can disagree with the
+first. A gate (<code>check-leaf-conf-nros-knobs</code>) refuses one in the tree.</p>
+<p>What the module renders, and from where:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>You write in <code>system.toml</code></th><th>The build gets</th></tr>
+</thead>
+<tbody>
+<tr><td><code>[image.&lt;id&gt;] rmw = "xrce"</code></td><td><code>CONFIG_NROS_RMW_XRCE=y</code></td></tr>
+<tr><td>(nothing — the package’s language)</td><td><code>CONFIG_NROS_{C,CPP,RUST}_API=y</code></td></tr>
+<tr><td><code>locator = "tcp/…"</code> (zenoh)</td><td><code>CONFIG_NROS_ZENOH_LOCATOR</code></td></tr>
+<tr><td><code>locator = "udp/&lt;host&gt;:&lt;port&gt;"</code> (XRCE)</td><td><code>CONFIG_NROS_XRCE_AGENT_ADDR</code> + <code>_PORT</code></td></tr>
+<tr><td><code>domain_id = 7</code> (image, <code>[defaults]</code> or <code>[system]</code>)</td><td><code>CONFIG_NROS_DOMAIN_ID</code></td></tr>
+<tr><td><code>[image.&lt;id&gt;.knobs.zenoh] max_queryables = 12</code></td><td><code>CONFIG_NROS_MAX_QUERYABLES=12</code> — a registry knob, spelled as a board’s <code>[knobs]</code> is (see <a href="../user-guide/configuration.html#per-image-build-knobs">Configuration</a>)</td></tr>
+<tr><td><code>[image.&lt;id&gt;.knobs.xrce] max_subscribers = 0</code></td><td><code>CONFIG_NROS_XRCE_MAX_SUBSCRIBERS=0</code> — likewise</td></tr>
+<tr><td><code>env = { NROS_ZEPHYR_TASK_STACK_SIZE = "16384" }</code></td><td><code>CONFIG_NROS_ZEPHYR_TASK_STACK_SIZE=16384</code> — any other option in the reference below, spelled without <code>CONFIG_</code></td></tr>
+<tr><td><code>os_config = ["prj-xrce.conf"]</code></td><td>that Zephyr-native fragment, added ahead of your own <code>EXTRA_CONF_FILE</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>An <code>env</code> row with no Kconfig symbol is not lost: it reaches the image’s cargo
+builds as an <code>[env]</code> row instead (issue 1712). A row whose type does not fit
+its symbol, or that only exists under another RMW, is refused at configure
+time, naming the <code>system.toml</code> line.</p>
+<h3 id="one-image-per-rmw"><a class="header" href="#one-image-per-rmw">One image per RMW</a></h3>
+<p>An application built for several backends states one image per RMW, and
+picks one at build time. From
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/zephyr/c/talker/system.toml"><code>examples/zephyr/c/talker/system.toml</code></a>:</p>
+<pre><code class="language-toml">[system]
+name = "nros_zephyr_talker_c"
+rmw = "zenoh"
+domain_id = 0
+default_images = ["zephyr_zenoh"]
+
+[image.zephyr_zenoh]
+board = "zephyr"
+rmw = "zenoh"
+os_config = ["prj-zenoh.conf"]
+
+[image.zephyr_xrce]
+board = "zephyr"
+rmw = "xrce"
+os_config = ["prj-xrce.conf"]
+locator = "udp/127.0.0.1:2018"
+
+[image.zephyr_xrce.knobs.xrce]
+max_subscribers = 0
+max_service_servers = 0
+max_service_clients = 0
+
+[image.zephyr_cyclonedds]
+board = "zephyr"
+rmw = "cyclonedds"
+os_config = ["prj-cyclonedds.conf"]
+</code></pre>
+<pre><code class="language-bash">west build -b native_sim/native/64 my_app                       # default_images: zenoh
+west build -b native_sim/native/64 my_app -- -DNROS_IMAGE=zephyr_xrce
+</code></pre>
+<p><code>-DNROS_IMAGE</code> is a CMake cache variable like any <code>-D</code>: re-running <code>west build</code>
+on the same build directory WITHOUT it keeps the image it last built, exactly
+as <code>-b</code> keeps the board. Pass it every time, or use <code>-p</code> when switching. A name
+the <code>system.toml</code> does not declare is refused, listing the ones it does.</p>
+<p>Precedence, last wins: the conf files, then a 4.x <code>-S nros-&lt;rmw&gt;</code> snippet,
+then the image’s rendering, then any <code>-DCONFIG_…</code> on the command line (how a
+test harness passes a per-run port). A snippet naming a DIFFERENT RMW than the
+image is refused rather than silently overridden; one that agrees is
+redundant. An application with no <code>system.toml</code> gets no rendering, so for it
+the snippets and Kconfig defaults still choose.</p>
+<h3 id="what-each-rmws-zephyr-native-fragment-needs"><a class="header" href="#what-each-rmws-zephyr-native-fragment-needs">What each RMW’s Zephyr-native fragment needs</a></h3>
+<p>The image’s <code>os_config</code> file carries what the backend needs from Zephyr itself:</p>
+<ul>
+<li><strong>Zenoh</strong> (the Kconfig default): TCP and POSIX threads for zenoh-pico —
+<code>CONFIG_NET_TCP=y</code>, <code>CONFIG_POSIX_API=y</code>, and pthread pools big enough for
+it (<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/zephyr/rust/talker/prj-zenoh.conf"><code>examples/zephyr/rust/talker/prj-zenoh.conf</code></a> uses
+<code>CONFIG_MAX_PTHREAD_MUTEX_COUNT=64</code>, <code>CONFIG_MAX_PTHREAD_COND_COUNT=16</code>).</li>
+<li><strong>XRCE-DDS</strong>: <code>CONFIG_NET_TCP=y</code>, on top of the BSD sockets
+(<code>CONFIG_NET_SOCKETS=y</code>) every image’s shared <code>prj.conf</code> enables. The agent
+endpoint is the image’s <code>locator</code>.</li>
+<li><strong>Cyclone DDS</strong>: brokerless RTPS, wire-compatible with stock ROS 2
+(<code>rmw_cyclonedds_cpp</code>). Its source is C++, so <code>CONFIG_CPP=y</code> even for Rust
+callers; it needs a large stack (<code>CONFIG_MAIN_STACK_SIZE=524288</code>), pthread
+pools, and <code>CONFIG_NET_IPV4_IGMP=y</code> for SPDP multicast. The bool
+prerequisites (thread-local storage, dynamic threads, <code>NET_TCP</code>, …) are
+<code>select</code>ed by <code>CONFIG_NROS_RMW_CYCLONEDDS</code>. Its <code>ddsrt_malloc</code> draws on the
+nano-ros platform heap, 1 MiB by default under Cyclone — raise it with
+<code>[image.&lt;id&gt;.knobs.zephyr] heap_size = …</code> on the image, not in the conf.</li>
+</ul>
+<p>On <code>native_sim</code>, add the NSOS host-socket offload
+(<code>CONFIG_NET_SOCKETS_OFFLOAD=y</code> + <code>CONFIG_NET_NATIVE_OFFLOADED_SOCKETS=y</code>) so
+discovery uses host BSD sockets instead of zeth/TAP. See
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/zephyr/rust/talker/prj-cyclonedds.conf"><code>examples/zephyr/rust/talker/prj-cyclonedds.conf</code></a>
+for the full fragment.</p>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
 <p>If your workspace is a fresh manifest-only dir (no <code>.west/</code>), initialise
 it first so <code>west</code> knows which <code>west.yml</code> is the manifest:</p>
 <pre><code class="language-bash">cd my_zephyr_ws
 west init -l .                           # one-time; points west at the
                                          # local west.yml in cwd
-west update                              # clones nano-ros + Zephyr into the workspace
+west update                              # clones Zephyr + its modules into the workspace
 </code></pre>
 <p>(If you started from <code>west init -m &lt;remote&gt;</code>, both calls above are
 already done — go straight to <code>west build</code> below.)</p>
@@ -519,7 +610,7 @@ links them.</li>
 <p><code>--board</code>, <code>--rmw</code> and <code>--bringup</code> override the defaults
 (<code>native_sim/native/64</code>, <code>zenoh</code>, and the workspace’s single bringup).</p>
 <h4 id="the-whole-flow-end-to-end"><a class="header" href="#the-whole-flow-end-to-end">The whole flow, end to end</a></h4>
-<p>Five commands, run from your workspace. This is the <code>examples/workspaces/rust</code>
+<p>Five commands, run from your workspace. This is the <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/rust"><code>examples/workspaces/rust</code></a>
 transcript, verbatim:</p>
 <pre><code class="language-bash"># 0. tell nros where your west workspace is — the directory containing
 #    `zephyr/`. On the command line:
@@ -733,7 +824,7 @@ resolved from.
 <p>The other is <code>-b</code>/<code>--board</code>, which comes from the image’s <code>board</code>.</p>
 <p>Verified by building one. An out-of-tree module with its own Kconfig, a driver
 source gated on it, a devicetree overlay declaring a node and a binding shipped
-from the module’s <code>dts_root</code>, added to <code>examples/workspaces/rust</code>’s entry and
+from the module’s <code>dts_root</code>, added to <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/rust"><code>examples/workspaces/rust</code></a>’s entry and
 enabled through the image:</p>
 <pre><code class="language-toml">[image.zephyr]
 os_config = ["prj-zenoh.conf", "prj-user-extra.conf", "user-widget.overlay"]
@@ -753,17 +844,19 @@ build, it fails to compile instead of quietly doing nothing.</p>
 </code></pre>
 <p>which is the message you would get from a plain <code>west build</code>, because it is a
 plain <code>west build</code>.</p>
-<p>The transports + <code>px4-rs</code> come from the <a href="#prerequisites">prerequisites</a> step
-(<code>west update</code> clones nano-ros but <strong>not</strong> its submodules). With the Zephyr SDK +
-<code>NROS_STD_MSGS_DIR</code> exported (also prerequisites), build your app — <code>nros</code> on
-PATH is auto-resolved as the codegen tool:</p>
-<pre><code class="language-bash"># native_sim (POSIX, no QEMU). The 3.7 line needs the NSOS line overlay; apply
+<p>The transports + <code>px4-rs</code> come from the <a href="#prerequisites">prerequisites</a> step.
+With the Zephyr SDK exported (also prerequisites), build your app — <code>nros</code> on
+PATH is auto-resolved as the codegen tool, and the module is the installed
+SDK root:</p>
+<pre><code class="language-bash">sdk="$(nros sdk-root)"
+# native_sim (POSIX, no QEMU). The 3.7 line needs the NSOS line overlay; apply
 # the NSOS patches first (see "apply nano-ros's patches" below).
-overlay="$PWD/modules/nano-ros/cmake/zephyr/native-sim-line-3.7.conf"
-west build -b native_sim/native/64 apps/my_app -- -DCONF_FILE="prj.conf;$overlay"
+overlay="$sdk/cmake/zephyr/native-sim-line-3.7.conf"
+west build -b native_sim/native/64 apps/my_app -- \
+    -DZEPHYR_EXTRA_MODULES="$sdk" -DCONF_FILE="prj.conf;$overlay"
 
 # A real board, e.g. Cortex-A9 (no native_sim overlay):
-west build -b qemu_cortex_a9 apps/my_app
+west build -b qemu_cortex_a9 apps/my_app -- -DZEPHYR_EXTRA_MODULES="$sdk"
 </code></pre>
 <p>(Verified end-to-end on a fresh BYO west workspace: this builds to
 <code>zephyr.exe</code> and runs to <code>Published: 0</code> against a router started with
@@ -784,18 +877,12 @@ links <code>librustapp.a</code>. The Cargo <em>package</em> name is free.</p>
 <p><strong>Generate the interface crates and the dependency wiring for YOUR
 layout.</strong> From your app dir, run (after the <a href="#prerequisites">Prerequisites</a>
 <code>nros setup</code>, which provides the codegen toolchain + message sources):</p>
-<pre><code class="language-bash">nros sync --nano-ros-path &lt;path-to-your-nano-ros-module&gt;
+<pre><code class="language-bash">nros sync
 </code></pre>
 <p>This writes <code>generated/&lt;pkg&gt;/</code> (the message crates) and a <code>.cargo/config.toml</code>
-whose <code>[patch.crates-io]</code> points the <code>nros-*</code> crates into your nano-ros
-module and the generated interfaces at <code>generated/*</code>. <code>--nano-ros-path</code>
-takes the nano-ros SDK ROOT — the module directory itself
-(<code>modules/nano-ros</code>, the one holding <code>nano_rosConfig.cmake</code>), not a
-subdirectory of it. <code>nros sdk-root --explain</code> prints the root <code>nros</code> would
-pick without the flag.
-In-tree examples commit no <code>.cargo/config.toml</code> at all (phase-445 W6): their
-equivalent is generated into <code>build/&lt;image&gt;/nros-cargo.toml</code> and is likewise
-repo-relative, so it is no more copyable than the old file was.</p>
+whose <code>[patch.crates-io]</code> points the <code>nros-*</code> crates into the nano-ros SDK
+root and the generated interfaces at <code>generated/*</code>. <code>nros sdk-root --explain</code> prints the root <code>nros</code> picks; <code>--nano-ros-path &lt;dir&gt;</code> names
+another (the SDK ROOT, the directory holding <code>nano_rosConfig.cmake</code>).</p>
 </li>
 </ol>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
@@ -888,15 +975,15 @@ on your side beyond the provisioning command (already run during
 with stock Zephyr. Phase 208.D.7 / E.9 unified both lines on the
 provisioner. Cyclone-DDS-on-Zephyr patches stay baked into the pinned
 cyclonedds submodule, not delivered through <code>patches.yml</code>.)</p>
-<h2 id="copy-out-an-example-as-your-starting-point"><a class="header" href="#copy-out-an-example-as-your-starting-point">Copy out an example as your starting point</a></h2>
-<p>The <code>examples/zephyr/&lt;lang&gt;/&lt;role&gt;/</code> dirs are <strong>copy-out clean</strong> — copy one
-into your own app tree and it builds against the nano-ros module with no
-reference back into the nano-ros repo:</p>
-<pre><code class="language-bash">cp -r modules/nano-ros/examples/zephyr/c/talker apps/my_app
-# cyclonedds examples need the host idlc + the ROS message dirs:
-export NROS_STD_MSGS_DIR=/opt/ros/humble/share/std_msgs   # PKG_DIR contract
-west build -b native_sim/native/64 -S nros-zenoh apps/my_app
-</code></pre>
+<h2 id="start-from-an-example"><a class="header" href="#start-from-an-example">Start from an example</a></h2>
+<p>The <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/zephyr"><code>examples/zephyr/&lt;lang&gt;/&lt;role&gt;/</code></a>
+dirs on GitHub are <strong>copy-out clean</strong> — each is a complete application
+(<code>CMakeLists.txt</code>, <code>system.toml</code>, <code>prj*.conf</code>, <code>src/</code>) with no reference
+back into the nano-ros repository, so its files are a starting point to
+copy into your own app tree. The release does not ship <code>examples/</code>;
+<code>nros new &lt;name&gt; --platform zephyr --lang &lt;c|cpp&gt;</code> scaffolds a minimal
+C or C++ app instead (single-package Rust scaffolding is not offered for
+Zephyr yet — start a Rust app from the example).</p>
 <p>Cyclone <code>idlc</code> and the descriptor-gen scripts are located via the module’s
 exported cache vars (<code>NROS_CYCLONE_IDLC</code>, <code>NROS_CYCLONE_SCRIPTS_DIR</code>,
 <code>NROS_CYCLONE_CMAKE_DIR</code>); message-package dirs come from <code>NROS_&lt;PKG&gt;_DIR</code>
@@ -930,7 +1017,7 @@ add a board-specific overlay to your <code>prj.conf</code>.</li>
 <a href="../user-guide/rmw-backends.html">Choosing an RMW Backend</a> for the
 required Kconfig deltas.</li>
 <li>Build nano-ros’s own Zephyr examples without west:
-<a href="./zephyr.html">Zephyr (contributor)</a>.</li>
+<a href="../internals/zephyr-in-tree.html">Zephyr in-tree examples (contributor)</a>.</li>
 </ul>
 
                     </main>
@@ -941,7 +1028,7 @@ required Kconfig deltas.</li>
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../getting-started/zephyr.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../getting-started/integration-nuttx.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -955,7 +1042,7 @@ required Kconfig deltas.</li>
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../getting-started/zephyr.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../getting-started/integration-nuttx.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

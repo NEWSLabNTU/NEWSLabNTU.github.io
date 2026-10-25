@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-ffa41747.js";
+            window.path_to_searchindex_js = "../searchindex-904f2a05.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-938ce3c7.js"></script>
+        <script src="../toc-191e012a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -180,67 +180,55 @@
                         <h1 id="integrating-nano-ros-into-a-vendored-tree"><a class="header" href="#integrating-nano-ros-into-a-vendored-tree">Integrating nano-ros into a Vendored Tree</a></h1>
 <p>This page is for the engineer whose company has its own source tree —
 a BSP, possibly a forked RTOS, an existing build system — and needs
-nano-ros to live <em>inside</em> it: pinned, reproducible, buildable offline,
+nano-ros to be part of it: pinned, reproducible, buildable offline,
 upgradable on their schedule. It collects the contracts the other
 chapters mention in passing into one place.</p>
-<p>nano-ros is <strong>source-only</strong>: nothing is on crates.io, there is no
-install prefix, and no binary distribution. Vendoring the repository
-is not a workaround — it is the supported consumption model.</p>
-<h2 id="pinning-the-checkout"><a class="header" href="#pinning-the-checkout">Pinning the checkout</a></h2>
-<p>Vendor the repo as a git submodule (or subtree) and pin a release tag:</p>
-<pre><code class="language-bash">git submodule add https://github.com/NEWSLabNTU/nano-ros.git third_party/nano-ros
-git -C third_party/nano-ros checkout nros-v0.6.0
-git add third_party/nano-ros
+<p>nano-ros is distributed as a <strong>release</strong>: one archive holding the <code>nros</code>
+CLI and the library source it builds against (the <em>SDK root</em>). Nothing
+is on crates.io and there is no prebuilt library. So “vendoring” nano-ros
+means pinning and mirroring a release, not copying its repository into
+your tree: your tree holds your packages and their <code>system.toml</code>, and
+the release supplies everything else.</p>
+<h2 id="pinning-the-release"><a class="header" href="#pinning-the-release">Pinning the release</a></h2>
+<p>Install the exact release your tree is tested against:</p>
+<pre><code class="language-bash">curl -fsSL https://raw.githubusercontent.com/NEWSLabNTU/nano-ros/main/scripts/install.sh \
+    | sh -s -- --version 0.6.0-nros4
+export PATH="$HOME/.nros/bin:$PATH"
+nros pin 0.6.0-nros4          # record it in the project's nros-toolchain.toml
 </code></pre>
 <p>Rules that keep the pin trustworthy:</p>
 <ul>
-<li><strong>Pin tags (<code>nros-v&lt;X.Y.Z&gt;</code>), not <code>main</code>.</strong> A moving branch unships
-the pairing you tested.</li>
-<li><strong>Move the pin forward only.</strong> A rewind silently drops whatever the
-skipped commits fixed, and two hex strings in a diff cannot be
-ordered by eye.</li>
-<li><strong>nano-ros’s own submodules are decisions, not lags.</strong> The Cyclone
-DDS fork tracks the Cyclone that ROS ships; zenoh-pico is pinned at
-a wire-stable version. Never “update to latest” inside the vendored
-checkout — take what the tag pinned.</li>
+<li><strong>Pin a version, never “latest”.</strong> A moving target unships the
+pairing you tested.</li>
+<li><strong>Move the pin forward only.</strong> <code>nros pin &lt;newer&gt;</code> reports the codegen
+delta before it writes anything, so an upgrade that invalidates
+generated bindings warns first.</li>
+<li><strong>A release’s toolchain pins are decisions, not lags.</strong> Its
+<code>nros-sdk-index.toml</code> fixes the cross-compilers, the Cyclone DDS that
+ROS ships, a wire-stable zenoh-pico. Take what the release pinned.</li>
 </ul>
-<p>Initialize nano-ros’s submodules <strong>non-recursively</strong> — the launch
-toolchain’s third-level runtime submodules are never built by
-nano-ros:</p>
-<pre><code class="language-bash">git -C third_party/nano-ros submodule update --init packages/cli/third-party/play_launch
-</code></pre>
-<p>For build-related submodules you normally do nothing: the configure
-step populates the ones your <code>(platform, RMW)</code> pair needs (see
-Bootstrap below), or you pre-seed them explicitly for offline builds.</p>
-<h2 id="what-a-fresh-vendored-checkout-needs-in-order"><a class="header" href="#what-a-fresh-vendored-checkout-needs-in-order">What a fresh vendored checkout needs, in order</a></h2>
+<h2 id="what-a-fresh-machine-needs-in-order"><a class="header" href="#what-a-fresh-machine-needs-in-order">What a fresh machine needs, in order</a></h2>
 <p>Four things, and the order matters:</p>
 <ol>
-<li><strong>The <code>nros</code> CLI.</strong> <code>./scripts/bootstrap.sh</code> inside the checkout
-builds <code>packages/cli/target/release/nros</code>. Nothing else works
-without it.</li>
-<li><strong>An activated environment</strong> for interactive use:
-<code>source third_party/nano-ros/activate.sh</code> wires <code>nros</code> and the
-SDK-store tools onto <code>PATH</code>. It exports no root: <code>nros</code> knows the
-checkout it was built in. CI can skip this and use an absolute CLI
-path (a raw <code>cmake</code> passes <code>-Dnano_ros_ROOT=…</code>).</li>
+<li><strong>The <code>nros</code> CLI</strong>, installed as above. Nothing else works without it.</li>
+<li><strong><code>~/.nros/bin</code> on <code>PATH</code></strong> for interactive use. CI can skip this and
+call <code>$NROS_HOME/bin/nros</code> by absolute path.</li>
 <li><strong>Provisioned toolchains.</strong> <code>nros setup &lt;board&gt; --rmw &lt;rmw&gt;</code>
 fetches the cross-compiler, emulator, and SDK sources for exactly
 that pair into the shared store at <code>${NROS_HOME:-~/.nros}/sdk</code>.
 <code>--dry-run</code> prints the plan first. (The zenoh <em>router</em> is
 deliberately not provisioned — it comes from a ROS 2 install,
 <code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>.)</li>
-<li><strong><code>nros sync</code>.</strong> <code>nros sync</code> from your workspace root (the vendored
-<code>nros</code> answers with its own checkout; <code>--nano-ros-path &lt;checkout&gt;</code>
-names it explicitly). It produces the message bindings <em>and</em> the build
-settings each <code>[image.*]</code> implies — see the next section for why
-this is not optional.</li>
+<li><strong><code>nros sync</code>.</strong> <code>nros sync</code> from your workspace root. It produces
+the message bindings <em>and</em> the build settings each <code>[image.*]</code>
+implies — see the next section for why this is not optional.</li>
 </ol>
 <h2 id="the-rust-side-nros-sync-is-mandatory-and-nothing-it-writes-is-in-your-source-tree"><a class="header" href="#the-rust-side-nros-sync-is-mandatory-and-nothing-it-writes-is-in-your-source-tree">The Rust side: <code>nros sync</code> is mandatory, and nothing it writes is in your source tree</a></h2>
 <p>Two things a Rust package needs are <strong>generated, not authored</strong>: the
 <code>generated/</code> message crates, and every build setting the target implies
 — the triple, the runner, the link flags, the resolved <code>[env]</code>, and the
 <code>[patch.crates-io]</code> table that resolves registry-style names
-(<code>nros = { version = "*" }</code>) to the vendored sources. You state the
+(<code>nros = { version = "*" }</code>) to the release’s SDK root. You state the
 target once, as a board name in the package’s <code>system.toml</code>, and
 <code>nros sync</code> derives the rest (RFC-0098):</p>
 <pre><code class="language-toml">[system]
@@ -260,19 +248,13 @@ nros build            # or: nros build &lt;image-id&gt; for one image
 <pre><code class="language-bash">cargo build --manifest-path &lt;pkg&gt;/Cargo.toml \
             --config &lt;pkg&gt;/build/&lt;image-id&gt;/nros-cargo.toml
 </code></pre>
-<p>(If the package still carries a <code>.cargo/</code> directory of its own — the
-in-tree examples do, until that directory is retired — run cargo from
-the directory <em>above</em> it, or cargo reads both and joins two sets of
-link flags. A package of yours has no such directory, so the working
-directory does not matter.)</p>
-<p>This is what makes a vendored tree cheap to move: there is no leaf
-<code>.cargo/config.toml</code> to copy from an in-repo example, no <code>include</code>
-line whose relative path cannot resolve from your directory, and no
-table of absolute paths under version control to invalidate. After
-relocating either the workspace or the vendored checkout, re-run
-<code>nros sync</code>; it rewrites what is under <code>build/</code> and touches nothing
-you track. Switching a package to another board is editing its one
-<code>board =</code> line and syncing again.</p>
+<p>This is what makes a tree cheap to move: there is no <code>.cargo/config.toml</code>
+to copy, no <code>include</code> line whose relative path cannot resolve from your
+directory, and no table of absolute paths under version control to
+invalidate. After relocating the workspace or installing another
+release, re-run <code>nros sync</code>; it rewrites what is under <code>build/</code> and
+touches nothing you track. Switching a package to another board is
+editing its one <code>board =</code> line and syncing again.</p>
 <p>A build that runs before sync fails at the first preflight with a line
 naming <code>nros sync</code>, rather than deep inside cargo.</p>
 <p>Message dependencies stay path deps pinned <code>0.0.0</code>
@@ -283,94 +265,78 @@ against the public crates.io.</p>
 <p>Two entry points, both source-backed:</p>
 <ul>
 <li><strong><code>find_package(nano_ros REQUIRED)</code></strong> — the ament-shaped entry
-(<code>nano_rosConfig.cmake</code> at the checkout root). Located via
-<code>-Dnano_ros_ROOT=&lt;checkout&gt;</code>, which <code>nros build</code> and the CMakePresets
-<code>nros init</code> writes pass; a raw <code>cmake</code> names it (no shell exports it).</li>
-<li><strong><code>add_subdirectory(third_party/nano-ros)</code></strong> — the lower-level
+(<code>nano_rosConfig.cmake</code> at the SDK root). Located via
+<code>-Dnano_ros_ROOT="$(nros sdk-root)"</code>, which <code>nros build</code> and the
+CMakePresets <code>nros init</code> writes pass; a raw <code>cmake</code> names it (no
+shell exports it).</li>
+<li><strong><code>add_subdirectory(&lt;sdk-root&gt; nano_ros)</code></strong>, the path from <code>nros sdk-root</code> — the lower-level
 shape. See <a href="build-as-subdirectory.html">Build as a CMake subdirectory</a>
 for the cache-variable table.</li>
 </ul>
-<p>Either way, at configure time nano-ros’s <code>bootstrap.cmake</code> runs
-<code>tools/setup.sh</code> to populate the source submodules your
-<code>(NROS_PLATFORM, NROS_RMW)</code> pair needs. That is correct on a
-developer machine and wrong in hermetic CI — see the next section.
-Corrosion is never fetched at configure time: without it in the SDK store
+<p>Corrosion is never fetched at configure time: without it in the SDK store
 the configure stops and names <code>nros setup --tool corrosion</code>. <code>nros setup &lt;board&gt;</code> installs it too, for every board with a CMake road.</p>
 <h2 id="air-gapped--mirrored-ci"><a class="header" href="#air-gapped--mirrored-ci">Air-gapped / mirrored CI</a></h2>
 <p>The offline contract, all of it:</p>
 <ol>
-<li><strong><code>-DNROS_SKIP_BOOTSTRAP=ON</code>.</strong> Disables the configure-time
-submodule fetch. You now own pre-seeding.</li>
-<li><strong>Pre-seed the submodules</strong> your platform/RMW pair needs in your
-mirror (e.g. <code>zpico-sys/zenoh-pico</code>, the FreeRTOS kernel + lwIP,
-the Cyclone fork — <code>tools/setup.sh</code> derives the per-target list
-from <code>nros-sdk-index.toml</code>, which is the single manifest of what
-comes from where).</li>
+<li><strong>Mirror the release asset.</strong> <code>install.sh</code> takes
+<code>NROS_INSTALL_URL=&lt;url&gt;</code> — a mirror, an air-gapped copy, a test
+server. The asset’s <code>.sha256</code> must sit beside it and is still
+required.</li>
+<li><strong>Mirror or pin the SDK index.</strong> <code>nros setup</code> reads the index the
+release ships; <code>NROS_INDEX_URL=&lt;url&gt;</code> fetches a newer one from a
+mirror, <code>nros setup --index &lt;path&gt;</code> uses a copy you already have, and
+<code>NROS_OFFLINE=1</code> forbids the fetch. The index names every asset’s
+upstream (<code>[tool.*]</code>, <code>[source.*]</code> sections); for a full mirror,
+rehost those URLs in your copy.</li>
 <li><strong>Pre-install Corrosion</strong>: <code>nros setup --tool corrosion</code> (or the
-<code>nros setup &lt;board&gt;</code> you already run) stages it
-into the SDK store, where the configure finds it without the
-network. Verify the configure line prints
-<code>nano-ros: Corrosion &lt;ver&gt; via &lt;origin&gt;</code> — never infer the version
-from having run an installer; a stale store entry can shadow a
-fresh one.</li>
-<li><strong>Cache the SDK store.</strong> Everything <code>nros setup</code> fetches lands
-under <code>${NROS_HOME:-~/.nros}/sdk</code>; point <code>NROS_HOME</code> at a shared
-or cached location and the store is reusable across jobs and
-machines of the same host triple.</li>
-<li><strong>Mirror the asset sources.</strong> <code>nros-sdk-index.toml</code> names every
-asset’s upstream (<code>[tool.*]</code>, <code>[source.*]</code> sections). For a full
-mirror, rehost those URLs and patch the index in your vendored
-checkout — that patch is part of the carried diff below, and the
-index is versioned with the tree so the patch rebases cleanly.</li>
+<code>nros setup &lt;board&gt;</code> you already run) stages it into the SDK store,
+where the configure finds it without the network. Verify the
+configure line prints <code>nano-ros: Corrosion &lt;ver&gt; via &lt;origin&gt;</code> —
+never infer the version from having run an installer.</li>
+<li><strong>Cache <code>NROS_HOME</code>.</strong> The CLI, the SDK root and everything
+<code>nros setup</code> fetches land under <code>${NROS_HOME:-~/.nros}</code>; point
+<code>NROS_HOME</code> at a shared or cached location and it is reusable across
+jobs and machines of the same host triple.</li>
 </ol>
-<h2 id="the-patch-set-you-carry"><a class="header" href="#the-patch-set-you-carry">The patch set you carry</a></h2>
-<p>Be clear-eyed: some extensions live <strong>inside</strong> the vendored checkout.
-There is no out-of-tree escape hatch for them today, so a vendored
-tree carries a small local diff and rebases it across tag bumps:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>You add…</th><th>Files inside the checkout</th></tr>
-</thead>
-<tbody>
-<tr><td>A <strong>platform</strong> (your RTOS)</td><td><code>packages/platform/nros-platform/Cargo.toml</code> (feature + optional dep), <code>nros-platform/src/resolve.rs</code> (type alias), <code>cmake/platform/nano-ros-&lt;name&gt;.cmake</code></td></tr>
-<tr><td>A <strong>board</strong> the tooling can see</td><td><strong>none needed since <code>NROS_EXTRA_BOARD_PATH</code></strong>: point it (env, or CMake cache var for <code>nano_ros_use_board()</code>) at a directory of board crates in YOUR tree — same layout as <code>packages/boards/</code>. Board keys stay global (a name under two roots errors). Copying into <code>packages/boards/</code> remains the fallback</td></tr>
-<tr><td>A <strong>mirrored SDK index</strong></td><td><code>nros-sdk-index.toml</code> URL edits</td></tr>
-</tbody>
-</table>
-</div>
+<h2 id="what-lives-in-your-tree-and-what-does-not"><a class="header" href="#what-lives-in-your-tree-and-what-does-not">What lives in your tree, and what does not</a></h2>
 <p>An application, a message package, a board <em>overlay crate</em>, and a
-custom transport all live entirely in <strong>your</strong> tree — no diff.</p>
-<p>Workflow for the diff: keep a branch in your nano-ros fork
-(<code>company/nros-v0.6.0-patches</code>), and on upgrade rebase it onto the new
-tag rather than merging. The registration edits are a few lines each;
-conflicts are rare and loud.</p>
+custom transport all live entirely in <strong>your</strong> tree. A <strong>board</strong> the
+tooling can see does too: point <code>NROS_EXTRA_BOARD_PATH</code> (env, or CMake
+cache var for <code>nano_ros_use_board()</code>) at a directory of board crates in
+your tree, laid out like the SDK’s <code>packages/boards/</code>. Board keys stay
+global (a name under two roots errors).</p>
+<p>A new <strong>platform</strong> (your own RTOS port) is the one extension that still
+edits nano-ros itself (<code>nros-platform</code>’s feature list and type alias,
+plus a <code>cmake/platform/</code> module). That is a fork of nano-ros, built and
+maintained the way <a href="../internals/contributing.html">Contributing</a> describes
+— see <a href="../porting/custom-platform.html">Custom Platform</a> for the edits.</p>
 <h2 id="upgrading-the-pin"><a class="header" href="#upgrading-the-pin">Upgrading the pin</a></h2>
-<pre><code class="language-bash">git -C third_party/nano-ros fetch origin --tags
-git -C third_party/nano-ros rebase --onto nros-v0.7.0 nros-v0.6.0 company/patches
-# build + test, then:
-git add third_party/nano-ros
+<pre><code class="language-bash">curl -fsSL https://raw.githubusercontent.com/NEWSLabNTU/nano-ros/main/scripts/install.sh \
+    | sh -s -- --version &lt;newer&gt;
+nros pin &lt;newer&gt;              # reports the codegen delta first
+nros setup &lt;board&gt;            # reconcile the SDK store with the new index
+nros sync                     # in each consuming workspace
+nros build
 </code></pre>
-<p>After every pin move, in order: rebuild the <code>nros</code> CLI
-(<code>./scripts/bootstrap.sh</code>), re-run <code>nros sync</code> in each consuming
-workspace (the sync output is keyed to the CLI), then rebuild. Stale
-sync output after an upgrade produces build errors that look like
-missing packages, not like staleness.</p>
+<p>Re-run <code>nros sync</code> after every pin move: its output is keyed to the
+CLI, and stale sync output after an upgrade produces build errors that
+look like missing packages, not like staleness.</p>
 <h2 id="checklist"><a class="header" href="#checklist">Checklist</a></h2>
 <ul>
-<li><input disabled="" type="checkbox"> Submodule pinned to an <code>nros-v</code> tag, forward-only</li>
-<li><input disabled="" type="checkbox"> <code>play_launch</code> submodule initialized non-recursively</li>
-<li><input disabled="" type="checkbox"> CI drives <code>nros build</code> (or passes <code>-Dnano_ros_ROOT=</code> to a raw
-<code>cmake</code>) — no reliance on an activated shell</li>
+<li><input disabled="" type="checkbox"> One release version, installed with <code>--version</code>, recorded with
+<code>nros pin</code>, moved forward only</li>
+<li><input disabled="" type="checkbox"> CI drives <code>nros build</code> (or passes <code>-Dnano_ros_ROOT="$(nros sdk-root)"</code>
+to a raw <code>cmake</code>) — no reliance on an interactive shell</li>
 <li><input disabled="" type="checkbox"> <code>nros sync</code> runs in CI before any Rust build — before <code>nros build</code>,
 and before any cargo line that passes <code>--config     build/&lt;image-id&gt;/nros-cargo.toml</code>; no build setting hand-written
 into a package</li>
-<li><input disabled="" type="checkbox"> Air-gapped: <code>NROS_SKIP_BOOTSTRAP=ON</code>, submodules pre-seeded,
-Corrosion staged, <code>NROS_HOME</code> cached</li>
-<li><input disabled="" type="checkbox"> Local patch set (platform/board/index edits) lives on a fork
-branch, rebased per tag</li>
+<li><input disabled="" type="checkbox"> Air-gapped: release asset mirrored (<code>NROS_INSTALL_URL</code>), index
+pinned (<code>--index</code> / <code>NROS_OFFLINE</code>), Corrosion staged,
+<code>NROS_HOME</code> cached</li>
+<li><input disabled="" type="checkbox"> Your own boards found through <code>NROS_EXTRA_BOARD_PATH</code>, not copied
+into the SDK</li>
 <li><input disabled="" type="checkbox"> Router comes from the ROS 2 install on the host that runs it —
-nothing in the vendored tree provides one</li>
+nothing in the release provides one</li>
 </ul>
 <h2 id="related"><a class="header" href="#related">Related</a></h2>
 <ul>

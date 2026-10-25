@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-ffa41747.js";
+            window.path_to_searchindex_js = "../searchindex-904f2a05.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-938ce3c7.js"></script>
+        <script src="../toc-191e012a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -187,54 +187,33 @@ router at all (see <a href="../user-guide/rmw-choosing.html">Choosing an RMW</a>
 <p><strong>Stuck?</strong> See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a> for the common first-build errors.</p>
 </blockquote>
 <h2 id="prereqs"><a class="header" href="#prereqs">Prereqs</a></h2>
-<p>Pick one path from a fresh checkout — <code>just</code> is NOT a prereq.</p>
-<p><strong>A. Front door</strong> (bare machine OK — no Rust, no <code>just</code>):</p>
-<pre><code class="language-sh">./scripts/bootstrap.sh
-</code></pre>
-<p>Installs rustup if needed and builds the in-tree <code>nros</code> CLI from
-source at <code>packages/cli/target/release/nros</code>, leaving it on PATH for
-this shell (in a checkout, the tree’s own build is the binary this tree
-accepts — RFC-0090 / phase-431).</p>
-<p><strong>B. Already have cargo</strong> (equivalent — same build, same binary):</p>
-<pre><code class="language-sh">git submodule update --init packages/cli/third-party/play_launch
-cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
-cargo build --release --manifest-path packages/cli/nros-launch-resolve/Cargo.toml
-export PATH="$PWD/packages/cli/target/release:$PATH"
-</code></pre>
-<p>Every subsequent shell sources the workspace env via one of:</p>
-<pre><code class="language-sh">direnv allow                  # if you use direnv
-source ./activate.sh          # bash / zsh
-source ./activate.fish        # fish
-</code></pre>
-<p>Then provision the Linux host (installs the zenoh client stack into a
-shared store; the router itself comes from your ROS 2 install):</p>
+<p>The <code>nros</code> CLI on PATH (<a href="./installation.html">Installation</a> — <code>install.sh</code>
+puts it in <code>~/.nros/bin</code>), then provision the Linux host (installs the
+zenoh client stack into a shared store; the router itself comes from
+your ROS 2 install):</p>
 <pre><code class="language-sh">nros setup linux --rmw zenoh
 </code></pre>
-<p>See <a href="./installation.html">Install + first build (Linux)</a> for more.</p>
-<h2 id="project-layout"><a class="header" href="#project-layout">Project layout</a></h2>
-<p>The talker is a <strong>standalone Cargo package</strong> that pulls nano-ros in
-via a path dependency. Four files matter:</p>
-<pre><code class="language-text">examples/linux/rust/talker/
+<h2 id="scaffold-the-talker"><a class="header" href="#scaffold-the-talker">Scaffold the talker</a></h2>
+<pre><code class="language-sh probe=28">nros new my_talker --platform linux --lang rust --rmw zenoh
+cd my_talker
+</code></pre>
+<p>The talker is a <strong>standalone Cargo package</strong> with its own
+<code>system.toml</code>. These files matter:</p>
+<pre><code class="language-text">my_talker/
 ├── system.toml         # WHAT this deploys to — the one file you edit
 ├── Cargo.toml          # registry-style deps; no board facts
 ├── package.xml         # ROS-style manifest (drives codegen tooling)
-├── generated/          # auto-generated message bindings (gitignored)
-├── build/              # everything `nros sync` generates (gitignored)
+├── generated/          # message bindings `nros sync` writes
+├── build/              # everything `nros sync` / `nros build` generate
 └── src/
-    ├── main.rs         # one line: nros::main!(spin = "forever")
-    └── lib.rs          # the ~65-line talker node body
+    └── main.rs         # the talker: a 1 s timer publishing /chatter
 </code></pre>
 <p><code>system.toml</code> is the whole deployment statement — the same schema a
 multi-node workspace’s bringup package uses (RFC-0098):</p>
 <pre><code class="language-toml">[system]
-name = "native_talker"
+name = "my_talker"
 rmw = "zenoh"
 domain_id = 0
-
-[[component]]
-pkg   = "native_talker"
-class = "native_rs_talker::Talker"
-name  = "talker"
 
 [image.linux]
 board = "linux"
@@ -244,84 +223,29 @@ flag, no <code>[patch.crates-io]</code> table, no <code>.cargo/config.toml</code
 derives every one of those from <code>board = "linux"</code> and writes them to
 <code>build/linux/nros-cargo.toml</code>, which <code>nros build</code> hands cargo with
 <code>--config</code>.</p>
-<p>Retargeting is therefore one line. This native talker names no board
-crate: it depends on a generated <code>&lt;pkg&gt;_nros_selection</code> package that
-<code>nros sync</code> writes for the image’s board (with that image’s RMW and ROS
-edition), so the <code>board =</code> line is the whole edit
-(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/archived/1305-single-package-board-crate-dep-not-generated.md">issue 1305</a>).
-Everything else the board implies — the triple, the link group, the
-QEMU runner, the cross compiler — follows the <code>system.toml</code> edit on its
-own. A multi-node workspace has no such caveat: its entry is generated,
-so there the board really is one line.</p>
 <p>Native (host) images read the locator / domain from environment
 variables (<code>NROS_LOCATOR</code> — the retired <code>ZENOH_LOCATOR</code> is refused at startup — and
 <code>ROS_DOMAIN_ID</code>). Embedded images bake theirs from the same
 <code>[image.&lt;id&gt;]</code> table (<code>locator</code>, and the address in <code>net</code>) — the shape
 shows up under the Embedded Starters section.</p>
 <p>The <code>Cargo.toml</code> is the contract that wires nano-ros into your
-package, and it holds Rust facts only. Every example is its own
-standalone Cargo root (an empty
-<code>[workspace]</code> table stops <code>cargo</code> walking up the filesystem), and
-nano-ros crates are declared <strong>registry-style</strong> (<code>version = "*"</code>);
-the <code>[patch.crates-io]</code> block that resolves them into a nano-ros
-checkout is GENERATED by <code>nros sync</code>, into
-<code>build/&lt;image&gt;/nros-cargo.toml</code> beside the package — nothing about the
-build is committed, and nothing about it is hand-edited (RFC-0098 D1).
-Verbatim from
-<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/linux/rust/talker/Cargo.toml"><code>examples/linux/rust/talker/Cargo.toml</code></a>
-(trimmed to the docs-relevant fields — the in-tree file also keeps a
-zenoh-only <code>link-tls</code> feature):</p>
-<pre><code class="language-toml">[package]
-name    = "native-rs-talker"
-version = "0.1.0"
-edition = "2024"
-license = "MIT OR Apache-2.0"
-publish = false
-
-[[bin]]
-name = "talker"
-path = "src/main.rs"
-
-[dependencies]
-nros = { version = "*", default-features = false,
-         features = ["alloc", "env", "log", "rmw-cffi", "macros"] }
-# The image's board crate, RMW backend and ROS edition — GENERATED by
-# `nros sync` / `nros build` from `system.toml`.
-native_rs_talker_nros_selection = { path = "build/nros/selection" }
-# The ONE non-registry dep: your own generated message crate, by path.
-std_msgs = { path = "generated/std_msgs", default-features = false }
-log = "0.4"
-env_logger = "0.11"
-
-[workspace]
-</code></pre>
-<p>Nothing in it names a board, an RMW or a ROS edition. Those are the
-image’s (<code>system.toml</code>), and <code>nros sync</code> writes them into the generated
-<code>&lt;pkg&gt;_nros_selection</code> package the manifest depends on (RFC-0098 D6,
-RFC-0031). The talker declares one image per RMW and edition —
-<code>linux</code> (zenoh, Humble, the default), <code>linux_xrce</code>,
-<code>linux_cyclonedds</code>, <code>linux_jazzy</code>, … — so picking another backend is
-a command, not an edit:</p>
-<pre><code class="language-bash">nros sync --image linux_xrce &amp;&amp; nros build linux_xrce
-</code></pre>
-<p><strong>Copying this out of the workspace?</strong> That is the intended workflow —
-nano-ros crates are not published to crates.io, so the <code>version = "*"</code>
-deps resolve through a generated <code>[patch.crates-io]</code> block, and
-<code>nros sync</code> rewrites it (plus the generated message crates, and the
-board settings the copied <code>system.toml</code> still names) for wherever the
-directory lives now:</p>
-<pre><code class="language-bash">cp -r examples/linux/rust/talker ~/my-talker &amp;&amp; cd ~/my-talker
-nros sync
-nros build
-RUST_LOG=info ./build/linux/target/debug/talker
-</code></pre>
-<p>Nothing in the copied directory names a path into the checkout, so the
-copy is a checkout-independent starter: <code>nros</code> finds the SDK it belongs
-to (the checkout an in-tree <code>nros</code> was built in, or a release’s own
-<code>share/nano-ros</code>), and <code>--nano-ros-path &lt;dir&gt;</code> names another on the
-command line, never in a file.</p>
-<p>Prefer vendoring instead? <code>examples/templates/multi-package-workspace/</code>
-documents the path-dep workspace layout.</p>
+package, and it holds Rust facts only. The package is its own
+standalone Cargo root (an empty <code>[workspace]</code> table stops <code>cargo</code>
+walking up the filesystem), and nano-ros crates are declared
+<strong>registry-style</strong> (<code>version = "*"</code>): nothing of nano-ros is on
+crates.io, so <code>nros sync</code> generates the <code>[patch.crates-io]</code> block that
+resolves them into the SDK the <code>nros</code> on PATH carries, into
+<code>build/&lt;image&gt;/nros-cargo.toml</code> — nothing about the build is committed,
+and nothing about it is hand-edited (RFC-0098 D1). The scaffold’s RMW
+is a Cargo feature (<code>default = ["rmw-zenoh"]</code>), chosen by the
+<code>--rmw</code> you passed to <code>nros new</code>.</p>
+<p>The directory names no path into the SDK, so you can move or copy it
+anywhere and re-run <code>nros sync</code>; <code>--nano-ros-path &lt;dir&gt;</code> names a
+different SDK root on the command line, never in a file.</p>
+<p>For a fuller talker to read — a component library plus
+<code>nros::main!</code>, one image per RMW and ROS edition — see
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/linux/rust/talker"><code>examples/linux/rust/talker/</code></a>
+on GitHub.</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
 <p>Three runtime knobs, each an env override on a built-in default:</p>
 <div class="table-wrapper">
@@ -341,23 +265,19 @@ no <code>locator</code>. An embedded image bakes them from its own <code>[image.
 table instead; see the
 <a href="../user-guide/configuration.html">Configuration Guide</a>.</p>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
-<pre><code class="language-bash probe=30">cd examples/linux/rust/talker
-nros sync             # writes generated/ message bindings and
+<pre><code class="language-bash probe=30">nros sync             # writes generated/ message bindings and
                       # build/linux/nros-cargo.toml from system.toml
 nros build            # builds the image `[image.linux]` declares
 </code></pre>
 <p>First build pulls dependencies (~3 minutes). Re-builds finish in
-seconds. The binary lands at <code>build/linux/target/debug/talker</code> —
+seconds. The binary lands at <code>build/linux/target/debug/my_talker</code> —
 under <code>build/</code>, never beside your sources.</p>
 <p><strong>Driving cargo yourself</strong> (an IDE, a CI step, <code>--release</code>) is
 supported: run <code>nros sync</code> first, then point cargo at the generated
-settings file. Run it from the directory <em>above</em> the package, so the
-package’s own <code>.cargo/</code> is not read a second time — phase-445 W6
-deletes that directory, after which the working directory stops
-mattering:</p>
-<pre><code class="language-bash">cd examples/linux/rust
-cargo build --manifest-path talker/Cargo.toml \
-            --config talker/build/linux/nros-cargo.toml
+settings file, from the directory above the package:</p>
+<pre><code class="language-bash">cd ..
+cargo build --manifest-path my_talker/Cargo.toml \
+            --config my_talker/build/linux/nros-cargo.toml
 </code></pre>
 <p>That file is regenerated on every <code>nros sync</code>; never edit it, and never
 add a <code>.cargo/config.toml</code> of your own to carry board facts. Your own
@@ -367,16 +287,16 @@ parent directory or <code>$CARGO_HOME</code>.</p>
 <p>Three terminals (each command below blocks; keep them open):</p>
 <pre><code class="language-bash"># Terminal 1 — zenoh router (ROS 2's own). Blocks the shell until Ctrl-C.
 source /opt/ros/humble/setup.bash
-ros2 run rmw_zenoh_cpp rmw_zenohd    # or: just zenohd
+ros2 run rmw_zenoh_cpp rmw_zenohd
 
 # Terminal 2 — the talker. The talker logs via `log::info!`, so set
 # RUST_LOG=info — without it `env_logger` only shows errors and the
 # `Publishing:` lines stay hidden.
-cd examples/linux/rust/talker
-RUST_LOG=info ./build/linux/target/debug/talker
+cd my_talker
+RUST_LOG=info ./build/linux/target/debug/my_talker
 # Expected output (on stderr):
-#   [INFO  talker] Publishing: 'Hello World: 1'
-#   [INFO  talker] Publishing: 'Hello World: 2'
+#   [INFO  my_talker] Publishing: 'Hello World: 1'
+#   [INFO  my_talker] Publishing: 'Hello World: 2'
 #   …
 </code></pre>
 <p>That’s the nano-ros side fully working. <strong>Optional step:</strong> verify
@@ -408,14 +328,14 @@ blocks on <code>Executor::open</code> indefinitely.</li>
 failed” — usually a wrong locator or wrong port.</li>
 <li>See <a href="./troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
 </ol>
-<h2 id="github-source"><a class="header" href="#github-source">GitHub source</a></h2>
-<p>Canonical, copy-out:
-<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/linux/rust/talker"><code>examples/linux/rust/talker/</code></a></p>
-<p>Copy the directory, run <code>nros sync</code> inside it, rename the package, and your starter is ready to modify.
-To aim it at a board, change <code>[image.linux] board</code> in <code>system.toml</code> to
-that board’s name (<code>nros board list</code> prints them), swap the board crate
-in <code>[dependencies]</code> to match (issue 1305 — or start from a bare-metal,
-FreeRTOS, NuttX or ThreadX-Linux example, whose board crate is generated), and re-run <code>nros sync</code>.</p>
+<h2 id="retargeting"><a class="header" href="#retargeting">Retargeting</a></h2>
+<p>To aim the package at a board, change <code>[image.linux] board</code> in
+<code>system.toml</code> to that board’s name (<a href="../reference/supported-boards.html">Supported Boards</a>),
+run <code>nros setup &lt;board&gt;</code>, and re-run <code>nros sync</code>. The scaffold’s
+<code>Cargo.toml</code> names the Linux board crate (<code>nros-board-linux</code>), so a
+cross build swaps that dependency too (issue 1305); the platform
+chapters scaffold with <code>--platform &lt;freertos|nuttx|threadx|baremetal&gt;</code>,
+which writes the right one.</p>
 <h2 id="next"><a class="header" href="#next">Next</a></h2>
 <ul>
 <li>Add a subscription:

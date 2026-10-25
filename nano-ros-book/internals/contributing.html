@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-ffa41747.js";
+            window.path_to_searchindex_js = "../searchindex-904f2a05.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-938ce3c7.js"></script>
+        <script src="../toc-191e012a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -180,6 +180,89 @@
                         <h1 id="contributing"><a class="header" href="#contributing">Contributing</a></h1>
 <p>This chapter covers the development workflow for nano-ros.</p>
 <h2 id="development-setup"><a class="header" href="#development-setup">Development Setup</a></h2>
+<p>This is the <strong>contributor</strong> setup: a checkout of the repository and the
+CLI built from it. If you only want to <em>use</em> nano-ros, install a release
+instead — <a href="../getting-started/installation.html">Installation</a>; every user
+chapter of this book assumes the installed CLI and no checkout.</p>
+<p>Inside a nano-ros checkout the tree’s own build is the only correct
+<code>nros</code>: a released <code>nros</code> run against a checkout is refused outright,
+because it emits <em>its own</em> generated code and this tree’s runtime is the
+one that has to compile it
+(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0090-codegen-version-is-the-compatibility-token.md">RFC-0090</a>).
+<strong>One checkout = one CLI version = one runtime ABI</strong> — no global
+install, no <code>~/.nros/bin</code> PATH skew across worktrees.</p>
+<p>The host prerequisites are the ones in
+<a href="../getting-started/installation.html#host-prerequisites">Installation § Host prerequisites</a>
+(<code>python3-dev</code> is needed here: <code>bootstrap.sh</code> builds the launch resolver,
+which embeds CPython to parse ROS launch files).</p>
+<h3 id="from-a-fresh-checkout"><a class="header" href="#from-a-fresh-checkout">From a fresh checkout</a></h3>
+<pre><code class="language-sh probe=20 track=checkout"># 1. Pull the source (`main`, or a release tag `nros-&lt;version&gt;`):
+git clone https://github.com/NEWSLabNTU/nano-ros.git
+cd nano-ros
+
+# 2. Build the `nros` CLI from source (installs rustup if needed):
+./scripts/bootstrap.sh
+
+# 3. Wire the workspace env into this (and every future) shell:
+source ./activate.sh          # or: direnv allow / source ./activate.fish
+
+# 4. Provision the toolchains + RMW daemon for your target:
+nros setup &lt;board&gt; --rmw &lt;zenoh|xrce|cyclonedds&gt;    # e.g. `linux`
+</code></pre>
+<p><code>bootstrap.sh</code> builds the in-tree <code>nros</code> CLI <strong>from source</strong> at
+<code>packages/cli/target/release/nros</code> and leaves it on PATH for that shell
+(<code>just</code> is NOT a prerequisite; rustup is installed on demand). Already
+have cargo? The equivalent by hand:</p>
+<pre><code class="language-sh">git submodule update --init packages/cli/third-party/play_launch
+cargo build --release --manifest-path packages/cli/Cargo.toml --bin nros
+cargo build --release --manifest-path packages/cli/nros-launch-resolve/Cargo.toml
+export PATH="$PWD/packages/cli/target/release:$PATH"
+</code></pre>
+<p>Both builds are needed for a workspace flow: <code>nros sync</code> and <code>nros build</code> call <code>nros-launch-resolve</code> to resolve launch files, so a bare
+<code>cargo build --bin nros</code> alone is not equivalent.</p>
+<h3 id="every-subsequent-shell"><a class="header" href="#every-subsequent-shell">Every subsequent shell</a></h3>
+<p>Every new shell needs the workspace env wired in. All three wire the
+same env exports + PATH entries from <code>activate.sh</code>:</p>
+<pre><code class="language-bash">direnv allow                  # auto-activates on `cd nano-ros` (recommended)
+source ./activate.sh          # bash / zsh, one-shot per shell
+source ./activate.fish        # fish, one-shot per shell
+</code></pre>
+<p><code>activate.sh</code> is the after-install step, not a prerequisite: it presumes
+the <code>nros</code> binary already exists at <code>packages/cli/target/release/nros</code>.
+It also sources <code>/opt/ros/humble/setup.bash</code> if present (used by the
+rmw_zenoh interop tests, and it lets codegen resolve message packages
+from the ament index). It exports no checkout root: the in-tree <code>nros</code>
+knows the checkout it was built in. Without ROS 2 it says so:</p>
+<pre><code>activate.sh: /opt/ros/humble/setup.bash not found — ROS-dependent recipes
+  will fail (interop tests, `ros2` CLI verification). The setup, codegen
+  and first-node flows do not need it.
+</code></pre>
+<p>On a host without <code>just</code> it also prints one line about RTOS SDK path
+defaults (<code>FREERTOS_DIR</code>, <code>NUTTX_DIR</code>, <code>THREADX_DIR</code>, …) not being
+loaded — only the in-tree <code>just</code> recipes (test lanes, fixture builds)
+read them (<code>cargo install just</code>).</p>
+<h3 id="provisioning-through-just"><a class="header" href="#provisioning-through-just">Provisioning through <code>just</code></a></h3>
+<p>The <code>just</code> setup recipes are thin wrappers over the same <code>nros setup</code>
+index — <code>just setup &lt;module&gt;</code> calls <code>nros setup &lt;board&gt;</code> under the hood,
+so the toolchains a contributor gets are identical to a user’s:</p>
+<pre><code class="language-bash">just setup freertos           # → nros setup mps2-an385-freertos
+just setup nuttx              # → nros setup qemu-armv7a-nuttx
+just setup threadx_linux      # → nros setup threadx-linux
+just doctor tier=all          # diagnose missing tools (read-only)
+</code></pre>
+<p>A checkout’s version is its tag: the CLI built from a <code>nros-&lt;version&gt;</code>
+tree prints the same number (<code>scripts/check-version-lockstep.sh</code> and
+<code>bootstrap.sh shell-doctor</code> enforce binary↔tree agreement), and the
+tree’s committed <code>nros-sdk-index.toml</code> pins the toolchains. Upgrading =
+checking out a newer tag, re-running <code>./scripts/bootstrap.sh</code>, then
+<code>nros setup</code>.</p>
+<h3 id="docker-environment"><a class="header" href="#docker-environment">Docker environment</a></h3>
+<p>For a containerized environment with QEMU 7.2+ (in-tree checkout):</p>
+<pre><code class="language-bash">just docker build
+just docker shell      # Interactive shell with all tools
+just docker test-qemu  # Run QEMU tests in container
+</code></pre>
+<h3 id="setup-tiers"><a class="header" href="#setup-tiers">Setup tiers</a></h3>
 <p>Choose the setup tier. <code>base</code> is enough for most code review and
 native development; <code>all</code> prepares the full <code>test-all</code> matrix:</p>
 <pre><code class="language-bash">just setup               # print setup choices
@@ -299,7 +382,7 @@ just verify-verus    # Verus deductive proofs (~1 sec)
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../internals/platform-lanes.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../internals/nuttx-in-tree.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -313,7 +396,7 @@ just verify-verus    # Verus deductive proofs (~1 sec)
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../internals/platform-lanes.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../internals/nuttx-in-tree.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 

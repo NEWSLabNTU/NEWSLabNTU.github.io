@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-ffa41747.js";
+            window.path_to_searchindex_js = "../searchindex-904f2a05.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-938ce3c7.js"></script>
+        <script src="../toc-191e012a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -179,7 +179,7 @@
                     <main>
                         <h1 id="threadx-linux-sim--risc-v64-qemu"><a class="header" href="#threadx-linux-sim--risc-v64-qemu">ThreadX (Linux sim / RISC-V64 QEMU)</a></h1>
 <p>Single-node starter on Microsoft Azure RTOS ThreadX + NetX Duo (BSD
-socket layer). Two flavours ship in-tree:</p>
+socket layer). Two flavours:</p>
 <ul>
 <li><strong>threadx-linux</strong> — ThreadX user-space simulator on Linux. Fast
 build, host network stack, ideal for development.</li>
@@ -214,56 +214,47 @@ agent is provisioned by <code>nros setup</code>.</p>
 <p>Packages are prebuilt where the index has a binary for your host and built from
 source otherwise. <code>--dry-run</code> prints the plan for your host. See
 <a href="installation.html#provision-your-toolchain-with-nros-setup">Installation</a> for the full explanation.</p>
-<p>Build the in-tree <code>nros</code> CLI (Phase 218):</p>
-<pre><code class="language-bash">./scripts/bootstrap.sh      # builds packages/cli/target/release/nros
-source ./activate.sh        # OR: direnv allow / source ./activate.fish
-</code></pre>
-<p>Provision the ThreadX flavour you need (+ the RMW):</p>
+<p>With the <code>nros</code> CLI on PATH (<a href="./installation.html">Installation</a> —
+<code>install.sh</code> puts it in <code>~/.nros/bin</code>), provision the ThreadX flavour you need (+ the RMW):</p>
 <pre><code class="language-bash">nros setup threadx-linux --rmw zenoh          # POSIX-sim flavour; --rmw defaults to zenoh
 nros setup rv-virt-threadx --rmw zenoh   # only if you need the RISC-V64 QEMU flow
-source ./activate.sh
 </code></pre>
 <p>The RMW host daemon must be <strong>running</strong> before any example: for zenoh the
 ROS 2 router (<code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>), for xrce the
 Micro-XRCE-DDS agent (installed by <code>nros setup … --rmw xrce</code>).</p>
 <h2 id="project-layout"><a class="header" href="#project-layout">Project layout</a></h2>
-<p>Each example is a standalone Cargo or CMake project under
-<code>examples/threadx-linux/</code> and <code>examples/rv-virt-threadx/</code>
-(<code>&lt;lang&gt;/&lt;example&gt;/</code> under each):</p>
-<pre><code class="language-text">examples/threadx-linux/
-├── rust/talker/                 # Cargo package
-│   ├── system.toml               # WHAT this deploys to — the one file you edit
-│   ├── Cargo.toml                # Rust deps only; nothing here names a board
-│   ├── package.xml
-│   ├── generated/                # generated message bindings (gitignored)
-│   ├── build/                    # everything `nros sync` generates (gitignored)
-│   └── src/lib.rs                # the component class; nros::main! generates the entry
-└── c/talker/                    # CMake, add_subdirectory
-    ├── system.toml               # the same file, same schema
-    ├── CMakeLists.txt            # targets only
-    ├── package.xml
-    └── src/Talker.c
-
-examples/rv-virt-threadx/
-├── rust/talker/                 # identical shape; `board = "rv-virt-threadx"`
-│   └── ...
-└── c/talker/
-    └── ...
+<p><strong>C / C++</strong> is a single package — <code>nros new</code> scaffolds it. The scaffold
+writes <code>board = "threadx"</code>, which names both flavours, so set the one you
+mean:</p>
+<pre><code class="language-bash">nros new tx_talker --platform threadx --lang c      # or --lang cpp
+cd tx_talker
+# then in system.toml: board = "threadx-linux"   (or "rv-virt-threadx")
 </code></pre>
-<p>The two flavours differ in the <code>board =</code> line of their <code>system.toml</code> — plus,
-on the Rust side, how the board crate is reached. A <code>threadx-linux</code> Rust leaf
-names no board crate: it depends on a generated <code>&lt;pkg&gt;_nros_selection</code> package
-that <code>nros sync</code> writes for the image’s board
+<pre><code class="language-text">tx_talker/
+├── system.toml          # WHAT this deploys to — the one file you edit
+├── CMakeLists.txt       # find_package(nano_ros) + targets; no board facts
+├── package.xml
+└── src/main.c
+</code></pre>
+<p><strong>Rust</strong> on ThreadX is a node package plus a generated entry, so it
+starts as a workspace (single-package Rust scaffolding is not offered
+for ThreadX — <code>nros new</code> says so and names the alternative):</p>
+<pre><code class="language-bash">nros new tx_ws --workspace --lang rust --rmw zenoh
+cd tx_ws
+nros new --image tx_linux --board threadx-linux       # hosted flavour
+nros new --image tx_riscv --board rv-virt-threadx     # QEMU flavour (optional)
+</code></pre>
+<p>The two flavours differ in the <code>board =</code> line of their image — nothing
+else. Everything else follows the board. <code>threadx-linux</code> builds for the
+host triple (its Rust entry is still <code>#![no_std]</code>, issue 1759), so its
+board contributes no target triple; <code>rv-virt-threadx</code> cross-compiles,
+and its triple, link group and emulator all come from the board
+descriptor — never from your package. <code>nros sync</code> / <code>nros build</code>
+resolve the choice into the image’s <code>nros-cargo.toml</code> under <code>build/</code>,
+which is what the build reads (RFC-0098). The board crate is reached
+through a generated <code>&lt;pkg&gt;_nros_selection</code> package
 (<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/archived/1305-single-package-board-crate-dep-not-generated.md">issue 1305</a>),
-so its board switch is the one line. The <code>rv-virt-threadx</code> Rust leaves are
-static libraries a CMake image links, and still name
-<code>nros-board-threadx-qemu-riscv64</code> by hand. The C leaves have no board crate and
-really do switch on the one line.</p>
-<p>Everything else follows the board. <code>threadx-linux</code> builds for the host triple (its Rust entry is still <code>#![no_std]</code>, issue 1759), so its
-board contributes no target triple; <code>rv-virt-threadx</code> cross-compiles, and its
-triple, link group and emulator all come from the board descriptor — never
-from a leaf. <code>nros sync</code> resolves the choice into
-<code>build/&lt;image-id&gt;/nros-cargo.toml</code>, which is what the build reads (RFC-0098).</p>
+so nothing you write names it.</p>
 <p>ThreadX-linux runs as a regular host process — no QEMU. NetX Duo
 uses the <code>nx_bsd_*</code> BSD socket shim layered on the host TCP stack
 (threadx-linux variant) or on its own NetX Duo TCP/IP stack
@@ -309,7 +300,7 @@ packets at runtime rather than a compiler error. A
 into a build failure with a name on it.</p>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
 <p>Deployment is declared per flavour in <code>system.toml</code> and baked at compile
-time. Both shipped shapes, verbatim:</p>
+time. The two examples on GitHub show the keys an image takes:</p>
 <p>threadx-linux —
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/threadx-linux/rust/talker/system.toml"><code>examples/threadx-linux/rust/talker/system.toml</code></a>:</p>
 <pre><code class="language-toml">[system]
@@ -334,7 +325,9 @@ board = "rv-virt-threadx"
 locator = "tcp/10.0.2.2:9400"
 os_config = ["board-net.toml"]    # [eth0] network = "qemu", host = 15
 </code></pre>
-<p>The C leaves carry the same file with the same keys; their <code>CMakeLists.txt</code>
+<p>Add the same keys (<code>locator</code>, and <code>os_config</code> for the QEMU flavour) to
+the image <code>nros new</code> wrote. The C leaves carry the same file with the
+same keys; their <code>CMakeLists.txt</code>
 declares targets and nothing about the deployment, and their <code>package.xml</code>
 carries no <code>&lt;nano_ros …/&gt;</code> tuple. Anything the image does not state — the rest
 of the network shape — comes from the board crate’s defaults; see the
@@ -347,64 +340,52 @@ Bring up <code>tap-tx0</code> by hand (<code>ip link add … type veth …</code
 you need real-network bridging. The QEMU-RISC-V64 fixture uses
 Slirp’s default <code>10.0.2.2</code> gateway just like the FreeRTOS QEMU flow.</p>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
-<pre><code class="language-bash"># Single example — `nros sync` writes the generated message bindings and
-# build/threadx-linux/nros-cargo.toml from system.toml; `nros build` builds
-# the image that file declares.
-cd examples/threadx-linux/rust/talker
-nros sync
+<p>C / C++, in the scaffolded package (no <code>nros sync</code> — its message
+bindings are a CMake-time output):</p>
+<pre><code class="language-bash">cd tx_talker
 nros build
 </code></pre>
-<blockquote>
-<p><strong>Contributors:</strong> the in-tree fixture build lanes for both flavours are in
-<a href="../internals/platform-lanes.html#threadx">Per-Platform Contributor Lanes</a>.</p>
-</blockquote>
-<p>First setup builds ThreadX + NetX Duo (~3 min). Subsequent example
-builds finish in seconds. The binary lands under the image’s own directory —
-<code>build/threadx-linux/target/debug/talker</code> for the hosted flavour, with the
-cross triple as an extra path segment for <code>rv-virt-threadx</code>.</p>
-<p><strong>Driving cargo yourself</strong> (an IDE, a CI step, <code>--release</code>) is supported: run
-<code>nros sync</code> first, then point cargo at the generated settings file. Run it from
-the directory <em>above</em> the package, so the package’s own <code>.cargo/</code> is not read
-a second time — phase-445 W6 deletes that directory, after which the working
-directory stops mattering:</p>
-<pre><code class="language-bash">cd examples/threadx-linux/rust
-cargo build --manifest-path talker/Cargo.toml \
-            --config talker/build/threadx-linux/nros-cargo.toml
+<p>Rust, in the workspace — <code>nros sync</code> first, then the image:</p>
+<pre><code class="language-bash">cd tx_ws
+nros sync
+nros build tx_linux          # or: nros build tx_riscv
 </code></pre>
+<p>First setup builds ThreadX + NetX Duo (~3 min). Subsequent builds finish
+in seconds. A Rust image lands under its entry’s directory —
+<code>build/threadx-linux-zenoh/tx_linux_entry/target/debug/tx_linux_entry</code>
+for the hosted flavour, with the cross triple as an extra path segment
+for <code>rv-virt-threadx</code> (<code>build/threadx-riscv64-zenoh/tx_riscv_entry/target/riscv64gc-unknown-none-elf/debug/tx_riscv_entry</code>).
+<code>nros build &lt;image&gt; --dry-run</code> prints the exact paths and the <code>cargo</code>
+line, for driving cargo yourself.</p>
 <p>Skipping <code>nros sync</code> is not a mysterious failure: <code>nros build</code> stops at its
 preflight with one line naming what is missing and telling you to run sync in
 that directory. See
 <a href="../user-guide/workflow-by-platform.html">Workflow by Platform and Language</a>.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
 <pre><code class="language-bash"># threadx-linux (no QEMU). Step 1 brings up the router (ROS's
-# `rmw_zenohd`) on port 9000 — the `locator` the talker bakes from
-# `[image.threadx-linux]`. Step 2 builds + runs the talker:
+# `rmw_zenohd`) on the port your image's `locator` names (9000 in the
+# example above). Step 2 runs the talker the workspace built:
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:9000"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
-cd examples/threadx-linux/rust/talker &amp;&amp; nros sync &amp;&amp; nros build
-./build/threadx-linux/target/debug/talker
-# Expected (per src/lib.rs structured logs):
+cd tx_ws
+./build/threadx-linux-zenoh/tx_linux_entry/target/debug/tx_linux_entry
+# Expected:
 #   Publishing: 'Hello World: 1'
 #   Publishing: 'Hello World: 2'
 #   ...
 
-# threadx-riscv64 (QEMU virt). Same shape — the router on 9400 first
-# (the riscv64 talker dials tcp/10.0.2.2:9400 through QEMU Slirp):
-ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:9400"];scouting/multicast/enabled=false' \
+# threadx-riscv64 (QEMU virt). Same shape — the router on the image's
+# port first (9400 in the example above; the guest dials 10.0.2.2:&lt;p&gt;
+# through QEMU Slirp):
+ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:9400"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd &amp;
 
-# Build it the same way (`system.toml` names `board = "rv-virt-threadx"`,
-# so the riscv64 triple and link group come from the board):
-cd examples/rv-virt-threadx/rust/talker &amp;&amp; nros sync &amp;&amp; nros build
-
 # Then boot the built image in QEMU (UART on stdio, Slirp networking):
-qemu-system-riscv64 -M virt -m 256M -bios none -nographic \
+"$(nros sdk-path qemu)/bin/qemu-system-riscv64" -M virt -m 256M -bios none -nographic \
     -global virtio-mmio.force-legacy=false \
-    -kernel build/rv-virt-threadx/target/riscv64gc-unknown-none-elf/debug/talker \
+    -kernel build/threadx-riscv64-zenoh/tx_riscv_entry/target/riscv64gc-unknown-none-elf/debug/tx_riscv_entry \
     -netdev user,id=net0 \
     -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.0
-# **Contributors (in-tree checkout):** `just threadx_riscv64 talker`
-# builds and boots this exact shape in one step.
 
 # Verify from stock ROS 2:
 source /opt/ros/humble/setup.bash
@@ -420,8 +401,8 @@ ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </blockquote>
 <p><strong>Readiness signal.</strong> threadx-linux: <code>Publishing: 'Hello World: 1'</code>
 within a few seconds of starting the binary <strong>on a warm
-cache</strong>; a cold first <code>nros build</code> compiles the Rust example (~80 s on a
-fresh checkout) before the first publish lands. threadx-riscv64
+cache</strong>; a cold first <code>nros build</code> compiles the Rust image (~80 s)
+before the first publish lands. threadx-riscv64
 (QEMU): within ~15 seconds of QEMU boot. If no <code>Publishing:</code> line:</p>
 <ol>
 <li>Confirm the router is reachable on the image’s <code>locator</code>
@@ -472,7 +453,7 @@ board crate.</li>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../getting-started/nuttx.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../getting-started/integration-nuttx.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -486,7 +467,7 @@ board crate.</li>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../getting-started/nuttx.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../getting-started/integration-nuttx.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
