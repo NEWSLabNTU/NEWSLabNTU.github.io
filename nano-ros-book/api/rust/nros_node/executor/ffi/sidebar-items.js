@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"trait":["ExecutorFfi"]};
+window.SIDEBAR_ITEMS = {"trait":["ActionClientCoreFfi","ActionClientRawHandleFfi","ActionServerCoreFfi","ActionServerRawHandleFfi","ExecutorFfi"]};
