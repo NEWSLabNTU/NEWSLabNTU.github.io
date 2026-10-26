@@ -1,15 +1,15 @@
 var searchData=
 [
-  ['weaker_20question_20than_20upstream_20s_20stated_20here_20rather_20than_20discovered_0',['A WEAKER QUESTION THAN UPSTREAM&apos;S, stated here rather than discovered',['../nros__generated_8h.html#autotoc_md224',1,'']]],
+  ['weaker_20question_20than_20upstream_20s_20stated_20here_20rather_20than_20discovered_0',['A WEAKER QUESTION THAN UPSTREAM&apos;S, stated here rather than discovered',['../nros__generated_8h.html#autotoc_md226',1,'']]],
   ['what_20the_20callback_20sees_20when_20decoding_20fails_1',['What the callback sees when decoding fails',['../nros__generated_8h.html#autotoc_md93',1,'']]],
   ['when_20decoding_20fails_2',['What the callback sees when decoding fails',['../nros__generated_8h.html#autotoc_md93',1,'']]],
-  ['which_20clock_20now_20is_20read_20from_3',['Which clock &quot;now&quot; is read from',['../nros__generated_8h.html#autotoc_md373',1,'']]],
-  ['which_20upstream_20does_20not_20take_4',['The EXECUTOR parameter, which upstream does not take',['../nros__generated_8h.html#autotoc_md225',1,'']]],
-  ['why_20it_20is_20not_20upstream_20s_5',['Shape, and why it is not upstream&apos;s',['../nros__generated_8h.html#autotoc_md217',1,'']]],
-  ['why_20it_20takes_20two_20strings_20rather_20than_20a_20handle_6',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md171',1,'']]],
-  ['why_20this_20exists_20and_20why_20it_20takes_20two_20strings_20rather_20than_20a_20handle_7',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md171',1,'']]],
-  ['why_20tt_20const_20tt_20on_20a_20function_20that_20writes_8',['Why &lt;tt&gt;const&lt;/tt&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md370',1,'']]],
+  ['which_20clock_20now_20is_20read_20from_3',['Which clock &quot;now&quot; is read from',['../nros__generated_8h.html#autotoc_md375',1,'']]],
+  ['which_20upstream_20does_20not_20take_4',['The EXECUTOR parameter, which upstream does not take',['../nros__generated_8h.html#autotoc_md227',1,'']]],
+  ['why_20it_20is_20not_20upstream_20s_5',['Shape, and why it is not upstream&apos;s',['../nros__generated_8h.html#autotoc_md219',1,'']]],
+  ['why_20it_20takes_20two_20strings_20rather_20than_20a_20handle_6',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md173',1,'']]],
+  ['why_20this_20exists_20and_20why_20it_20takes_20two_20strings_20rather_20than_20a_20handle_7',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md173',1,'']]],
+  ['why_20tt_20const_20tt_20on_20a_20function_20that_20writes_8',['Why &lt;tt&gt;const&lt;/tt&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md372',1,'']]],
   ['write_9',['write',['../structnros__transport__ops__t.html#ae809a35d2f99f641e3af90ba848745f2',1,'nros_transport_ops_t']]],
-  ['write_20a_20publisher_10',['4. Write a Publisher',['../getting_started.html#autotoc_md388',1,'']]],
-  ['writes_11',['Why &lt;tt&gt;const&lt;/tt&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md370',1,'']]]
+  ['write_20a_20publisher_10',['4. Write a Publisher',['../getting_started.html#autotoc_md390',1,'']]],
+  ['writes_11',['Why &lt;tt&gt;const&lt;/tt&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md372',1,'']]]
 ];
