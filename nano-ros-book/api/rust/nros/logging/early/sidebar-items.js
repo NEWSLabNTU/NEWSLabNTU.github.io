@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["DRAIN_PASSES"],"fn":["early_depth","overflowed"]};
+window.SIDEBAR_ITEMS = {"constant":["DRAIN_PASSES"],"fn":["early_depth","emit_until_delivered","overflowed"]};

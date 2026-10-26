@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["PUBLISHER_GID_SIZE"],"fn":["pad_publisher_gid"],"mod":["correlation","custom_transport","event","fallible","service_inbox","sync","traits","type_descriptor"],"struct":["MessageInfo","Time"]};
+window.SIDEBAR_ITEMS = {"constant":["PUBLISHER_GID_SIZE","REQUEST_WRITER_GUID_SIZE"],"fn":["pad_publisher_gid"],"mod":["correlation","custom_transport","event","fallible","service_inbox","sync","traits","type_descriptor"],"struct":["MessageInfo","RequestId","ServiceRequestInfo","Time"]};

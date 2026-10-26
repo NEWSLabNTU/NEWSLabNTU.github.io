@@ -200,108 +200,154 @@
 <a href=#200 id=200 data-nosnippet>200</a>    LOST.load(Ordering::Relaxed)
 <a href=#201 id=201 data-nosnippet>201</a>}
 <a href=#202 id=202 data-nosnippet>202</a>
-<a href=#203 id=203 data-nosnippet>203</a><span class="doccomment">/// Hold `record` until a dispatcher delivers it.
-<a href=#204 id=204 data-nosnippet>204</a>///
-<a href=#205 id=205 data-nosnippet>205</a>/// Returns `false` when it did not fit — the caller has nothing further to do,
-<a href=#206 id=206 data-nosnippet>206</a>/// but [`overflowed`] counts it and the next delivery reports it.
-<a href=#207 id=207 data-nosnippet>207</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>hold(record: <span class="kw-2">&amp;</span>Record&lt;<span class="lifetime">'_</span>&gt;) -&gt; bool {
-<a href=#208 id=208 data-nosnippet>208</a>    <span class="kw">for </span>slot <span class="kw">in </span><span class="kw-2">&amp;</span>SLOTS {
-<a href=#209 id=209 data-nosnippet>209</a>        <span class="kw">if </span>slot
-<a href=#210 id=210 data-nosnippet>210</a>            .state
-<a href=#211 id=211 data-nosnippet>211</a>            .compare_exchange(EMPTY, WRITING, Ordering::Acquire, Ordering::Relaxed)
-<a href=#212 id=212 data-nosnippet>212</a>            .is_err()
-<a href=#213 id=213 data-nosnippet>213</a>        {
-<a href=#214 id=214 data-nosnippet>214</a>            <span class="kw">continue</span>;
-<a href=#215 id=215 data-nosnippet>215</a>        }
-<a href=#216 id=216 data-nosnippet>216</a>        slot.seq
-<a href=#217 id=217 data-nosnippet>217</a>            .store(NEXT_SEQ.fetch_add(<span class="number">1</span>, Ordering::Relaxed), Ordering::Relaxed);
-<a href=#218 id=218 data-nosnippet>218</a>        <span class="comment">// SAFETY: the CAS above made this thread the slot's only owner until
-<a href=#219 id=219 data-nosnippet>219</a>        // the `Release` store of READY below.
-<a href=#220 id=220 data-nosnippet>220</a>        </span><span class="kw">let </span>pending = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>slot.cell.get() };
-<a href=#221 id=221 data-nosnippet>221</a>        pending.severity = record.severity;
-<a href=#222 id=222 data-nosnippet>222</a>        <span class="comment">// Truncating rather than refusing: a clipped record is worth more than
-<a href=#223 id=223 data-nosnippet>223</a>        // none, and the alternative is deciding that a long logger name loses
-<a href=#224 id=224 data-nosnippet>224</a>        // the whole line.
-<a href=#225 id=225 data-nosnippet>225</a>        </span>pending.logger_name.clear();
-<a href=#226 id=226 data-nosnippet>226</a>        <span class="kw">let _ </span>= pending
-<a href=#227 id=227 data-nosnippet>227</a>            .logger_name
-<a href=#228 id=228 data-nosnippet>228</a>            .push_str(clip(record.logger_name, NAME_CAP));
-<a href=#229 id=229 data-nosnippet>229</a>        pending.message.clear();
-<a href=#230 id=230 data-nosnippet>230</a>        <span class="kw">let _ </span>= pending.message.push_str(clip(record.message, MSG_CAP));
-<a href=#231 id=231 data-nosnippet>231</a>        pending.file = record.file;
-<a href=#232 id=232 data-nosnippet>232</a>        pending.line = record.line;
-<a href=#233 id=233 data-nosnippet>233</a>        pending.timestamp_ns = record.timestamp_ns;
-<a href=#234 id=234 data-nosnippet>234</a>        slot.state.store(READY, Ordering::Release);
-<a href=#235 id=235 data-nosnippet>235</a>        PENDING.fetch_add(<span class="number">1</span>, Ordering::SeqCst);
-<a href=#236 id=236 data-nosnippet>236</a>        <span class="kw">return </span><span class="bool-val">true</span>;
-<a href=#237 id=237 data-nosnippet>237</a>    }
-<a href=#238 id=238 data-nosnippet>238</a>    LOST.fetch_add(<span class="number">1</span>, Ordering::Relaxed);
-<a href=#239 id=239 data-nosnippet>239</a>    <span class="bool-val">false
-<a href=#240 id=240 data-nosnippet>240</a></span>}
-<a href=#241 id=241 data-nosnippet>241</a>
-<a href=#242 id=242 data-nosnippet>242</a><span class="doccomment">/// Whether any record is waiting.
-<a href=#243 id=243 data-nosnippet>243</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>pending() -&gt; bool {
-<a href=#244 id=244 data-nosnippet>244</a>    PENDING.load(Ordering::SeqCst) &gt; <span class="number">0
-<a href=#245 id=245 data-nosnippet>245</a></span>}
-<a href=#246 id=246 data-nosnippet>246</a>
-<a href=#247 id=247 data-nosnippet>247</a><span class="doccomment">/// Longest prefix of `s` that fits `cap` bytes without splitting a character.
-<a href=#248 id=248 data-nosnippet>248</a></span><span class="kw">fn </span>clip(s: <span class="kw-2">&amp;</span>str, cap: usize) -&gt; <span class="kw-2">&amp;</span>str {
-<a href=#249 id=249 data-nosnippet>249</a>    <span class="kw">if </span>s.len() &lt;= cap {
-<a href=#250 id=250 data-nosnippet>250</a>        <span class="kw">return </span>s;
-<a href=#251 id=251 data-nosnippet>251</a>    }
-<a href=#252 id=252 data-nosnippet>252</a>    <span class="kw">let </span><span class="kw-2">mut </span>end = cap;
-<a href=#253 id=253 data-nosnippet>253</a>    <span class="kw">while </span>end &gt; <span class="number">0 </span>&amp;&amp; !s.is_char_boundary(end) {
-<a href=#254 id=254 data-nosnippet>254</a>        end -= <span class="number">1</span>;
-<a href=#255 id=255 data-nosnippet>255</a>    }
-<a href=#256 id=256 data-nosnippet>256</a>    <span class="kw-2">&amp;</span>s[..end]
-<a href=#257 id=257 data-nosnippet>257</a>}
-<a href=#258 id=258 data-nosnippet>258</a>
-<a href=#259 id=259 data-nosnippet>259</a><span class="doccomment">/// One pass: deliver every record held when the pass began, oldest first.
-<a href=#260 id=260 data-nosnippet>260</a>///
-<a href=#261 id=261 data-nosnippet>261</a>/// A record held DURING the pass waits for the next one — that is what bounds
-<a href=#262 id=262 data-nosnippet>262</a>/// a sink that logs (module docs). Safe to run concurrently with `hold` and
-<a href=#263 id=263 data-nosnippet>263</a>/// with another pass: a slot is claimed READY -&gt; READING by one reader only.
-<a href=#264 id=264 data-nosnippet>264</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>drain_with(deliver: <span class="kw-2">&amp;mut </span><span class="kw">dyn </span>FnMut(<span class="kw-2">&amp;</span>Record&lt;<span class="lifetime">'_</span>&gt;)) {
-<a href=#265 id=265 data-nosnippet>265</a>    <span class="kw">let </span>bound = NEXT_SEQ.load(Ordering::Acquire);
-<a href=#266 id=266 data-nosnippet>266</a>    <span class="kw">loop </span>{
-<a href=#267 id=267 data-nosnippet>267</a>        <span class="comment">// Oldest READY slot raised before the pass began. DEPTH is a handful,
-<a href=#268 id=268 data-nosnippet>268</a>        // so a scan per record is cheaper than any ordered structure.
-<a href=#269 id=269 data-nosnippet>269</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>oldest: <span class="prelude-ty">Option</span>&lt;(<span class="kw-2">&amp;</span>Slot, usize)&gt; = <span class="prelude-val">None</span>;
-<a href=#270 id=270 data-nosnippet>270</a>        <span class="kw">for </span>slot <span class="kw">in </span><span class="kw-2">&amp;</span>SLOTS {
-<a href=#271 id=271 data-nosnippet>271</a>            <span class="kw">if </span>slot.state.load(Ordering::Acquire) != READY {
-<a href=#272 id=272 data-nosnippet>272</a>                <span class="kw">continue</span>;
-<a href=#273 id=273 data-nosnippet>273</a>            }
-<a href=#274 id=274 data-nosnippet>274</a>            <span class="kw">let </span>seq = slot.seq.load(Ordering::Relaxed);
-<a href=#275 id=275 data-nosnippet>275</a>            <span class="kw">if </span>seq &gt;= bound {
-<a href=#276 id=276 data-nosnippet>276</a>                <span class="kw">continue</span>;
-<a href=#277 id=277 data-nosnippet>277</a>            }
-<a href=#278 id=278 data-nosnippet>278</a>            <span class="kw">if </span>oldest.is_none_or(|(<span class="kw">_</span>, best)| seq &lt; best) {
-<a href=#279 id=279 data-nosnippet>279</a>                oldest = <span class="prelude-val">Some</span>((slot, seq));
-<a href=#280 id=280 data-nosnippet>280</a>            }
-<a href=#281 id=281 data-nosnippet>281</a>        }
-<a href=#282 id=282 data-nosnippet>282</a>        <span class="kw">let </span><span class="prelude-val">Some</span>((slot, <span class="kw">_</span>)) = oldest <span class="kw">else </span>{ <span class="kw">break </span>};
-<a href=#283 id=283 data-nosnippet>283</a>        <span class="kw">if </span>slot
-<a href=#284 id=284 data-nosnippet>284</a>            .state
-<a href=#285 id=285 data-nosnippet>285</a>            .compare_exchange(READY, READING, Ordering::Acquire, Ordering::Relaxed)
-<a href=#286 id=286 data-nosnippet>286</a>            .is_err()
-<a href=#287 id=287 data-nosnippet>287</a>        {
-<a href=#288 id=288 data-nosnippet>288</a>            <span class="comment">// Another pass took it first.
-<a href=#289 id=289 data-nosnippet>289</a>            </span><span class="kw">continue</span>;
-<a href=#290 id=290 data-nosnippet>290</a>        }
-<a href=#291 id=291 data-nosnippet>291</a>        <span class="comment">// SAFETY: the CAS above made this the slot's only reader, and its
-<a href=#292 id=292 data-nosnippet>292</a>        // `Acquire` pairs with the writer's `Release` store of READY.
-<a href=#293 id=293 data-nosnippet>293</a>        </span><span class="kw">let </span>pending = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>slot.cell.get() };
-<a href=#294 id=294 data-nosnippet>294</a>        <span class="kw">let </span>record = Record {
-<a href=#295 id=295 data-nosnippet>295</a>            severity: pending.severity,
-<a href=#296 id=296 data-nosnippet>296</a>            logger_name: pending.logger_name.as_str(),
-<a href=#297 id=297 data-nosnippet>297</a>            message: pending.message.as_str(),
-<a href=#298 id=298 data-nosnippet>298</a>            file: pending.file,
-<a href=#299 id=299 data-nosnippet>299</a>            line: pending.line,
-<a href=#300 id=300 data-nosnippet>300</a>            timestamp_ns: pending.timestamp_ns,
-<a href=#301 id=301 data-nosnippet>301</a>        };
-<a href=#302 id=302 data-nosnippet>302</a>        deliver(<span class="kw-2">&amp;</span>record);
-<a href=#303 id=303 data-nosnippet>303</a>        slot.state.store(EMPTY, Ordering::Release);
-<a href=#304 id=304 data-nosnippet>304</a>        PENDING.fetch_sub(<span class="number">1</span>, Ordering::SeqCst);
-<a href=#305 id=305 data-nosnippet>305</a>    }
-<a href=#306 id=306 data-nosnippet>306</a>}
+<a href=#203 id=203 data-nosnippet>203</a><span class="doccomment">/// Raise a record with `emit` until `delivered()` sees it, re-raising it
+<a href=#204 id=204 data-nosnippet>204</a>/// whenever [`overflowed`] counts a loss, for as long as `keep_waiting()`
+<a href=#205 id=205 data-nosnippet>205</a>/// says to. Returns whether `delivered()` saw it.
+<a href=#206 id=206 data-nosnippet>206</a>///
+<a href=#207 id=207 data-nosnippet>207</a>/// For a caller that must OBSERVE a record it raised — a test asserting on
+<a href=#208 id=208 data-nosnippet>208</a>/// what reached its sink. A record raised while another thread is delivering
+<a href=#209 id=209 data-nosnippet>209</a>/// is held, and one that does not fit is dropped and counted, so in a
+<a href=#210 id=210 data-nosnippet>210</a>/// multi-threaded test binary a record can be lost outright and no amount of
+<a href=#211 id=211 data-nosnippet>211</a>/// waiting or [`crate::flush`] delivers it. Measured on `nros-node`'s lib
+<a href=#212 id=212 data-nosnippet>212</a>/// tests: 8 copies at `--test-threads=64` failed 1 run in 48, with 16 records
+<a href=#213 id=213 data-nosnippet>213</a>/// counted lost, the asserted ones among them.
+<a href=#214 id=214 data-nosnippet>214</a>///
+<a href=#215 id=215 data-nosnippet>215</a>/// A counted loss may have been a sibling's record while the caller's was
+<a href=#216 id=216 data-nosnippet>216</a>/// still held, so a re-raise can deliver the record TWICE: assert on every
+<a href=#217 id=217 data-nosnippet>217</a>/// copy, never on a count. `emit` must therefore be safe to repeat — a
+<a href=#218 id=218 data-nosnippet>218</a>/// one-shot report (a latch it trips) has to reset its latch inside `emit`.
+<a href=#219 id=219 data-nosnippet>219</a>///
+<a href=#220 id=220 data-nosnippet>220</a>/// `keep_waiting` is the caller's budget and back-off, since this crate has
+<a href=#221 id=221 data-nosnippet>221</a>/// no clock: a hosted test passes a deadline that yields,
+<a href=#222 id=222 data-nosnippet>222</a>/// `|| { std::thread::yield_now(); Instant::now() &lt; deadline }`.
+<a href=#223 id=223 data-nosnippet>223</a></span><span class="kw">pub fn </span>emit_until_delivered(
+<a href=#224 id=224 data-nosnippet>224</a>    emit: <span class="kw">impl </span>Fn(),
+<a href=#225 id=225 data-nosnippet>225</a>    delivered: <span class="kw">impl </span>Fn() -&gt; bool,
+<a href=#226 id=226 data-nosnippet>226</a>    <span class="kw-2">mut </span>keep_waiting: <span class="kw">impl </span>FnMut() -&gt; bool,
+<a href=#227 id=227 data-nosnippet>227</a>) -&gt; bool {
+<a href=#228 id=228 data-nosnippet>228</a>    <span class="kw">loop </span>{
+<a href=#229 id=229 data-nosnippet>229</a>        <span class="kw">let </span>lost = overflowed();
+<a href=#230 id=230 data-nosnippet>230</a>        emit();
+<a href=#231 id=231 data-nosnippet>231</a>        <span class="kw">loop </span>{
+<a href=#232 id=232 data-nosnippet>232</a>            <span class="kw">crate</span>::flush();
+<a href=#233 id=233 data-nosnippet>233</a>            <span class="kw">if </span>delivered() {
+<a href=#234 id=234 data-nosnippet>234</a>                <span class="kw">return </span><span class="bool-val">true</span>;
+<a href=#235 id=235 data-nosnippet>235</a>            }
+<a href=#236 id=236 data-nosnippet>236</a>            <span class="kw">if </span>overflowed() != lost {
+<a href=#237 id=237 data-nosnippet>237</a>                <span class="kw">break</span>;
+<a href=#238 id=238 data-nosnippet>238</a>            }
+<a href=#239 id=239 data-nosnippet>239</a>            <span class="kw">if </span>!keep_waiting() {
+<a href=#240 id=240 data-nosnippet>240</a>                <span class="kw">return </span>delivered();
+<a href=#241 id=241 data-nosnippet>241</a>            }
+<a href=#242 id=242 data-nosnippet>242</a>        }
+<a href=#243 id=243 data-nosnippet>243</a>        <span class="kw">if </span>!keep_waiting() {
+<a href=#244 id=244 data-nosnippet>244</a>            <span class="kw">return </span>delivered();
+<a href=#245 id=245 data-nosnippet>245</a>        }
+<a href=#246 id=246 data-nosnippet>246</a>    }
+<a href=#247 id=247 data-nosnippet>247</a>}
+<a href=#248 id=248 data-nosnippet>248</a>
+<a href=#249 id=249 data-nosnippet>249</a><span class="doccomment">/// Hold `record` until a dispatcher delivers it.
+<a href=#250 id=250 data-nosnippet>250</a>///
+<a href=#251 id=251 data-nosnippet>251</a>/// Returns `false` when it did not fit — the caller has nothing further to do,
+<a href=#252 id=252 data-nosnippet>252</a>/// but [`overflowed`] counts it and the next delivery reports it.
+<a href=#253 id=253 data-nosnippet>253</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>hold(record: <span class="kw-2">&amp;</span>Record&lt;<span class="lifetime">'_</span>&gt;) -&gt; bool {
+<a href=#254 id=254 data-nosnippet>254</a>    <span class="kw">for </span>slot <span class="kw">in </span><span class="kw-2">&amp;</span>SLOTS {
+<a href=#255 id=255 data-nosnippet>255</a>        <span class="kw">if </span>slot
+<a href=#256 id=256 data-nosnippet>256</a>            .state
+<a href=#257 id=257 data-nosnippet>257</a>            .compare_exchange(EMPTY, WRITING, Ordering::Acquire, Ordering::Relaxed)
+<a href=#258 id=258 data-nosnippet>258</a>            .is_err()
+<a href=#259 id=259 data-nosnippet>259</a>        {
+<a href=#260 id=260 data-nosnippet>260</a>            <span class="kw">continue</span>;
+<a href=#261 id=261 data-nosnippet>261</a>        }
+<a href=#262 id=262 data-nosnippet>262</a>        slot.seq
+<a href=#263 id=263 data-nosnippet>263</a>            .store(NEXT_SEQ.fetch_add(<span class="number">1</span>, Ordering::Relaxed), Ordering::Relaxed);
+<a href=#264 id=264 data-nosnippet>264</a>        <span class="comment">// SAFETY: the CAS above made this thread the slot's only owner until
+<a href=#265 id=265 data-nosnippet>265</a>        // the `Release` store of READY below.
+<a href=#266 id=266 data-nosnippet>266</a>        </span><span class="kw">let </span>pending = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;mut *</span>slot.cell.get() };
+<a href=#267 id=267 data-nosnippet>267</a>        pending.severity = record.severity;
+<a href=#268 id=268 data-nosnippet>268</a>        <span class="comment">// Truncating rather than refusing: a clipped record is worth more than
+<a href=#269 id=269 data-nosnippet>269</a>        // none, and the alternative is deciding that a long logger name loses
+<a href=#270 id=270 data-nosnippet>270</a>        // the whole line.
+<a href=#271 id=271 data-nosnippet>271</a>        </span>pending.logger_name.clear();
+<a href=#272 id=272 data-nosnippet>272</a>        <span class="kw">let _ </span>= pending
+<a href=#273 id=273 data-nosnippet>273</a>            .logger_name
+<a href=#274 id=274 data-nosnippet>274</a>            .push_str(clip(record.logger_name, NAME_CAP));
+<a href=#275 id=275 data-nosnippet>275</a>        pending.message.clear();
+<a href=#276 id=276 data-nosnippet>276</a>        <span class="kw">let _ </span>= pending.message.push_str(clip(record.message, MSG_CAP));
+<a href=#277 id=277 data-nosnippet>277</a>        pending.file = record.file;
+<a href=#278 id=278 data-nosnippet>278</a>        pending.line = record.line;
+<a href=#279 id=279 data-nosnippet>279</a>        pending.timestamp_ns = record.timestamp_ns;
+<a href=#280 id=280 data-nosnippet>280</a>        slot.state.store(READY, Ordering::Release);
+<a href=#281 id=281 data-nosnippet>281</a>        PENDING.fetch_add(<span class="number">1</span>, Ordering::SeqCst);
+<a href=#282 id=282 data-nosnippet>282</a>        <span class="kw">return </span><span class="bool-val">true</span>;
+<a href=#283 id=283 data-nosnippet>283</a>    }
+<a href=#284 id=284 data-nosnippet>284</a>    LOST.fetch_add(<span class="number">1</span>, Ordering::Relaxed);
+<a href=#285 id=285 data-nosnippet>285</a>    <span class="bool-val">false
+<a href=#286 id=286 data-nosnippet>286</a></span>}
+<a href=#287 id=287 data-nosnippet>287</a>
+<a href=#288 id=288 data-nosnippet>288</a><span class="doccomment">/// Whether any record is waiting.
+<a href=#289 id=289 data-nosnippet>289</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>pending() -&gt; bool {
+<a href=#290 id=290 data-nosnippet>290</a>    PENDING.load(Ordering::SeqCst) &gt; <span class="number">0
+<a href=#291 id=291 data-nosnippet>291</a></span>}
+<a href=#292 id=292 data-nosnippet>292</a>
+<a href=#293 id=293 data-nosnippet>293</a><span class="doccomment">/// Longest prefix of `s` that fits `cap` bytes without splitting a character.
+<a href=#294 id=294 data-nosnippet>294</a></span><span class="kw">fn </span>clip(s: <span class="kw-2">&amp;</span>str, cap: usize) -&gt; <span class="kw-2">&amp;</span>str {
+<a href=#295 id=295 data-nosnippet>295</a>    <span class="kw">if </span>s.len() &lt;= cap {
+<a href=#296 id=296 data-nosnippet>296</a>        <span class="kw">return </span>s;
+<a href=#297 id=297 data-nosnippet>297</a>    }
+<a href=#298 id=298 data-nosnippet>298</a>    <span class="kw">let </span><span class="kw-2">mut </span>end = cap;
+<a href=#299 id=299 data-nosnippet>299</a>    <span class="kw">while </span>end &gt; <span class="number">0 </span>&amp;&amp; !s.is_char_boundary(end) {
+<a href=#300 id=300 data-nosnippet>300</a>        end -= <span class="number">1</span>;
+<a href=#301 id=301 data-nosnippet>301</a>    }
+<a href=#302 id=302 data-nosnippet>302</a>    <span class="kw-2">&amp;</span>s[..end]
+<a href=#303 id=303 data-nosnippet>303</a>}
+<a href=#304 id=304 data-nosnippet>304</a>
+<a href=#305 id=305 data-nosnippet>305</a><span class="doccomment">/// One pass: deliver every record held when the pass began, oldest first.
+<a href=#306 id=306 data-nosnippet>306</a>///
+<a href=#307 id=307 data-nosnippet>307</a>/// A record held DURING the pass waits for the next one — that is what bounds
+<a href=#308 id=308 data-nosnippet>308</a>/// a sink that logs (module docs). Safe to run concurrently with `hold` and
+<a href=#309 id=309 data-nosnippet>309</a>/// with another pass: a slot is claimed READY -&gt; READING by one reader only.
+<a href=#310 id=310 data-nosnippet>310</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>drain_with(deliver: <span class="kw-2">&amp;mut </span><span class="kw">dyn </span>FnMut(<span class="kw-2">&amp;</span>Record&lt;<span class="lifetime">'_</span>&gt;)) {
+<a href=#311 id=311 data-nosnippet>311</a>    <span class="kw">let </span>bound = NEXT_SEQ.load(Ordering::Acquire);
+<a href=#312 id=312 data-nosnippet>312</a>    <span class="kw">loop </span>{
+<a href=#313 id=313 data-nosnippet>313</a>        <span class="comment">// Oldest READY slot raised before the pass began. DEPTH is a handful,
+<a href=#314 id=314 data-nosnippet>314</a>        // so a scan per record is cheaper than any ordered structure.
+<a href=#315 id=315 data-nosnippet>315</a>        </span><span class="kw">let </span><span class="kw-2">mut </span>oldest: <span class="prelude-ty">Option</span>&lt;(<span class="kw-2">&amp;</span>Slot, usize)&gt; = <span class="prelude-val">None</span>;
+<a href=#316 id=316 data-nosnippet>316</a>        <span class="kw">for </span>slot <span class="kw">in </span><span class="kw-2">&amp;</span>SLOTS {
+<a href=#317 id=317 data-nosnippet>317</a>            <span class="kw">if </span>slot.state.load(Ordering::Acquire) != READY {
+<a href=#318 id=318 data-nosnippet>318</a>                <span class="kw">continue</span>;
+<a href=#319 id=319 data-nosnippet>319</a>            }
+<a href=#320 id=320 data-nosnippet>320</a>            <span class="kw">let </span>seq = slot.seq.load(Ordering::Relaxed);
+<a href=#321 id=321 data-nosnippet>321</a>            <span class="kw">if </span>seq &gt;= bound {
+<a href=#322 id=322 data-nosnippet>322</a>                <span class="kw">continue</span>;
+<a href=#323 id=323 data-nosnippet>323</a>            }
+<a href=#324 id=324 data-nosnippet>324</a>            <span class="kw">if </span>oldest.is_none_or(|(<span class="kw">_</span>, best)| seq &lt; best) {
+<a href=#325 id=325 data-nosnippet>325</a>                oldest = <span class="prelude-val">Some</span>((slot, seq));
+<a href=#326 id=326 data-nosnippet>326</a>            }
+<a href=#327 id=327 data-nosnippet>327</a>        }
+<a href=#328 id=328 data-nosnippet>328</a>        <span class="kw">let </span><span class="prelude-val">Some</span>((slot, <span class="kw">_</span>)) = oldest <span class="kw">else </span>{ <span class="kw">break </span>};
+<a href=#329 id=329 data-nosnippet>329</a>        <span class="kw">if </span>slot
+<a href=#330 id=330 data-nosnippet>330</a>            .state
+<a href=#331 id=331 data-nosnippet>331</a>            .compare_exchange(READY, READING, Ordering::Acquire, Ordering::Relaxed)
+<a href=#332 id=332 data-nosnippet>332</a>            .is_err()
+<a href=#333 id=333 data-nosnippet>333</a>        {
+<a href=#334 id=334 data-nosnippet>334</a>            <span class="comment">// Another pass took it first.
+<a href=#335 id=335 data-nosnippet>335</a>            </span><span class="kw">continue</span>;
+<a href=#336 id=336 data-nosnippet>336</a>        }
+<a href=#337 id=337 data-nosnippet>337</a>        <span class="comment">// SAFETY: the CAS above made this the slot's only reader, and its
+<a href=#338 id=338 data-nosnippet>338</a>        // `Acquire` pairs with the writer's `Release` store of READY.
+<a href=#339 id=339 data-nosnippet>339</a>        </span><span class="kw">let </span>pending = <span class="kw">unsafe </span>{ <span class="kw-2">&amp;*</span>slot.cell.get() };
+<a href=#340 id=340 data-nosnippet>340</a>        <span class="kw">let </span>record = Record {
+<a href=#341 id=341 data-nosnippet>341</a>            severity: pending.severity,
+<a href=#342 id=342 data-nosnippet>342</a>            logger_name: pending.logger_name.as_str(),
+<a href=#343 id=343 data-nosnippet>343</a>            message: pending.message.as_str(),
+<a href=#344 id=344 data-nosnippet>344</a>            file: pending.file,
+<a href=#345 id=345 data-nosnippet>345</a>            line: pending.line,
+<a href=#346 id=346 data-nosnippet>346</a>            timestamp_ns: pending.timestamp_ns,
+<a href=#347 id=347 data-nosnippet>347</a>        };
+<a href=#348 id=348 data-nosnippet>348</a>        deliver(<span class="kw-2">&amp;</span>record);
+<a href=#349 id=349 data-nosnippet>349</a>        slot.state.store(EMPTY, Ordering::Release);
+<a href=#350 id=350 data-nosnippet>350</a>        PENDING.fetch_sub(<span class="number">1</span>, Ordering::SeqCst);
+<a href=#351 id=351 data-nosnippet>351</a>    }
+<a href=#352 id=352 data-nosnippet>352</a>}
 </code></pre></div></section></main></body></html>
