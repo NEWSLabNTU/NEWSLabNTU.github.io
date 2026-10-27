@@ -13,5 +13,6 @@ var searchData=
   ['stream_3c_20feedbacktype_20_3e_10',['Stream&lt; FeedbackType &gt;',['../classrclcpp_1_1Stream.html',1,'rclcpp']]],
   ['stringview_11',['StringView',['../structrclcpp_1_1StringView.html',1,'rclcpp']]],
   ['subscription_12',['Subscription',['../classrclcpp_1_1Subscription.html',1,'rclcpp']]],
-  ['systemdefaultsqos_13',['SystemDefaultsQoS',['../classrclcpp_1_1SystemDefaultsQoS.html',1,'rclcpp']]]
+  ['subscriptionhandle_13',['SubscriptionHandle',['../classrclcpp_1_1SubscriptionHandle.html',1,'rclcpp']]],
+  ['systemdefaultsqos_14',['SystemDefaultsQoS',['../classrclcpp_1_1SystemDefaultsQoS.html',1,'rclcpp']]]
 ];
