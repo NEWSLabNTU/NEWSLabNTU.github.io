@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["declared","server","typed","types"]};
+window.SIDEBAR_ITEMS = {"mod":["declared","ops","server","typed","types"]};
