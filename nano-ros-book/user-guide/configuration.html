@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d540fd26.js";
+            window.path_to_searchindex_js = "../searchindex-e503014c.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-191e012a.js"></script>
@@ -208,7 +208,7 @@ readers refuse them rather than reading them. Design of record:
 <tr><td><code>CMakeLists.txt</code></td><td>C/C++ toolchain facts only: targets and language deps, via <code>find_package(nano_ros)</code> + <code>nano_ros_add_executable</code> / <code>nano_ros_auto_add_library</code> + <code>nros_components_register_node</code> (RFC-0057; <code>nano_ros_node_register</code> remains as the compat spelling) / <code>nano_ros_entry</code>. No platform, board or RMW <code>set()</code>.</td><td>C/C++ project</td></tr>
 <tr><td><code>build/&lt;image&gt;/nros-cargo.toml</code></td><td><strong>GENERATED, never edited</strong> — every cargo setting the board choice implies: <code>[build] target</code>, <code>[target.*]</code> runner and rustflags, the cross compiler, the derived pool sizes as <code>[env]</code>, the nano-ros profiles, and the <code>[patch.crates-io]</code> rows that resolve nano-ros’s registry-style names into your checkout. Written by <code>nros sync</code>, passed to cargo with <code>--config</code>.</td><td>image</td></tr>
 <tr><td><code>package.xml</code></td><td>ROS package identity + msg <code>&lt;depend&gt;</code>s (codegen input for <code>nros generate</code>)</td><td>all</td></tr>
-<tr><td><strong><code>config.toml</code></strong> (standalone)</td><td><strong>Hand-written <code>no_std</code> direct-mode apps only</strong> — <code>[node]</code> / <code>[[transport]]</code> / <code>[node.rt]</code>, compile-baked via <code>Config::from_toml(include_str!(…))</code>. Apps that use <code>nros::main!()</code> / codegen do <strong>not</strong> have one — they use <code>[image.&lt;id&gt;]</code> above.</td><td>embedded single-node app (no codegen)</td></tr>
+<tr><td><strong><code>config.toml</code></strong> (standalone)</td><td><strong>Hand-written <code>no_std</code> direct-mode apps only</strong> — <code>[node]</code> / <code>[eth0]</code> / <code>[network.&lt;name&gt;]</code> (RFC-0109 D4), compile-baked via <code>Config::from_toml(include_str!(…))</code>. Apps that use <code>nros::main!()</code> / codegen do <strong>not</strong> have one — they use <code>[image.&lt;id&gt;]</code> above.</td><td>embedded single-node app (no codegen)</td></tr>
 </tbody>
 </table>
 </div>
@@ -488,49 +488,39 @@ to catch. Rationale and the measurements: RFC-0002 § 4.4a.</p>
 <h2 id="standalone-configtoml--hand-written-no_std-apps-no-codegen"><a class="header" href="#standalone-configtoml--hand-written-no_std-apps-no-codegen">Standalone <code>config.toml</code> — hand-written <code>no_std</code> apps (no codegen)</a></h2>
 <p>A hand-written single-node app that writes its own <code>main()</code> and bypasses
 <code>nros::main!()</code> keeps its net config <strong>in a file, not hardcoded in Rust</strong>: a
-sibling <code>config.toml</code> carrying <code>[node]</code> / <code>[[transport]]</code> / <code>[node.rt]</code>,
-compile-baked with <code>include_str!</code> and parsed by the board crate’s
-<code>Config::from_toml</code>.</p>
+sibling <code>config.toml</code>, compile-baked with <code>include_str!</code> and parsed by the
+board crate’s <code>Config::from_toml</code>. It is the board package’s network file
+(RFC-0109 D4) — the same <code>[&lt;interface&gt;]</code> / <code>[network.&lt;name&gt;]</code> shape an image’s
+<code>os_config</code> file has — plus a <code>[node]</code> table that stands in for the session a
+<code>system.toml</code> would declare.</p>
 <pre><code class="language-toml"># config.toml
 
 [node]
-domain_id = 0              # ROS 2 domain ID (0–232)
-# namespace = "/"
-# rmw = "zenoh"            # ACTIVE backend; must match a LINKED backend
-                           # (the build file picks what is linked)
+domain_id = 0                    # ROS 2 domain ID (0–232)
+locator = "tcp/10.0.2.2:7447"    # the router the firmware dials
 
-# One transport per session. A single ethernet/wifi/serial entry is the
-# common case. In-process topic forwarding is the separate [[bridge]] path.
-[[transport]]
-kind    = "ethernet"       # ethernet | wifi | serial | can
-ip      = "10.0.2.10/24"   # CIDR — the prefix rides the address
-mac     = "02:00:00:00:00:00"
-gateway = "10.0.2.2"
-locator = "tcp/10.0.2.2:7447"
+[eth0]
+network = "qemu"                 # built in: QEMU user-mode, 10.0.2.0/24, gateway 10.0.2.2
+host = 10                        # the address within that network → 10.0.2.10
+# address = "10.0.2.10"          # or the whole address
+mac = "02:00:00:00:00:00"
 
-[node.rt]                  # scheduling / real-time (RTOS); omit for defaults
-app_priority         = 12
-app_stack_bytes      = 65536
-zenoh_read_priority  = 16
-poll_priority        = 16
-poll_interval_ms     = 5
+# A network of your own: name it on the interface instead of `qemu`.
+# [network.lab]
+# subnet = "192.168.50.0/24"
+# gateway = "192.168.50.1"
+
+[node.rt.freertos]               # FreeRTOS boards: raw task priorities; omit for defaults
+app_priority = 3
+zenoh_read_priority = 4
 </code></pre>
-<p>Per-kind transport fields:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>kind</th><th>fields</th></tr>
-</thead>
-<tbody>
-<tr><td><code>ethernet</code></td><td><code>ip</code> (CIDR), <code>mac</code>, <code>gateway</code>, <code>interface</code></td></tr>
-<tr><td><code>wifi</code></td><td><code>ssid</code>, <code>password</code>, optional static <code>ip</code>/<code>gateway</code></td></tr>
-<tr><td><code>serial</code> / <code>can</code></td><td><code>device</code>, <code>baudrate</code></td></tr>
-<tr><td>all</td><td><code>id</code>, <code>rmw</code>, <code>locator</code></td></tr>
-</tbody>
-</table>
-</div>
-<p><code>ip</code> is CIDR (<code>10.0.2.10/24</code>) — the board derives the prefix or netmask from it.
-A serial locator carrying <code>#</code> (<code>serial/UART_0#baudrate=115200</code>) is fine — quote it.</p>
+<p>A board reads its own facts from the interface table: a serial link’s
+<code>[uart0] baud</code>, ThreadX Linux’s host veth as <code>[eth0] device</code>. One interface is
+brought up; a direct-mode board takes no DHCP lease, so state the address.</p>
+<p>A file in the retired RFC-0004 shape (<code>[[transport]]</code> with <code>ip</code>, <code>gateway</code> and
+<code>locator</code>) <strong>panics at boot</strong> naming the new spelling, rather than booting on
+the board’s defaults: <code>ip = "10.0.2.10/24"</code> + <code>gateway = "10.0.2.2"</code> is
+<code>[eth0] network = "qemu"</code> + <code>host = 10</code>, and the <code>locator</code> moves to <code>[node]</code>.</p>
 <p>Consumption (compile-baked; no filesystem on the target):</p>
 <pre class="playground"><code class="language-rust">use nros_board_mps2_an385::{Config, run};
 
@@ -542,8 +532,7 @@ fn main() -&gt; ! {
     })
 }</code></pre>
 <p>Pick by whether the app uses codegen: <code>nros::main!()</code> app → <code>system.toml</code>
-<code>[image.&lt;id&gt;]</code> (above); hand-written <code>main()</code> → <code>config.toml</code>. Only the <strong>old</strong>
-<code>config.toml</code> schema (<code>[network]</code>/<code>[zenoh]</code>/<code>[scheduling]</code>) is retired.</p>
+<code>[image.&lt;id&gt;]</code> (above); hand-written <code>main()</code> → <code>config.toml</code>.</p>
 <h2 id="retired-files"><a class="header" href="#retired-files">Retired files</a></h2>
 <ul>
 <li><strong><code>nros.toml</code> — retired in full.</strong> A workspace-root <code>nros.toml</code>
@@ -553,10 +542,9 @@ on newer trees, #186); the legacy per-package overlay is a deprecated fallback t
 <code>nros check</code> flags; the embedded-runtime role never shipped (no example
 ever declared one). If a doc tells you to write <code>nros.toml</code>, it predates
 the migration — the content belongs in <code>system.toml</code>.</li>
-<li><strong>Old <code>config.toml</code> schema</strong> (<code>[network]</code>/<code>[zenoh]</code>/<code>[scheduling]</code>) —
-retired; superseded by <code>[image.&lt;id&gt;]</code> (net) + board
-features / Kconfig (RT). The direct-mode <code>config.toml</code> above is the kept,
-supported shape.</li>
+<li><strong>Old <code>config.toml</code> schemas</strong> — <code>[network]</code>/<code>[zenoh]</code>/<code>[scheduling]</code>, and
+RFC-0004’s <code>[[transport]]</code> (issue 2047) — retired; the direct-mode
+<code>config.toml</code> above is the kept, supported shape.</li>
 </ul>
 <h2 id="build-time-environment-variables"><a class="header" href="#build-time-environment-variables">Build-time environment variables</a></h2>
 <p>Read during <code>cargo build</code> (by <code>build.rs</code>) or by justfile recipes. Set in <code>.env</code>
@@ -769,7 +757,7 @@ nros-rmw-zenoh = { path = "…/nros-rmw-zenoh", features = ["platform-bare-metal
 <tr><td>ESP32 WiFi</td><td><code>[image.&lt;id&gt;]</code> (<code>ssid</code>/<code>password</code> via build env)</td><td><code>…, platform-bare-metal, …</code></td><td><code>SSID</code>/<code>PASSWORD</code> build env</td></tr>
 <tr><td>Zephyr module</td><td>Kconfig overlay (<code>prj-&lt;rmw&gt;.conf</code>)</td><td>(Kconfig → features)</td><td></td></tr>
 <tr><td>Hand-written <code>no_std</code> (no codegen)</td><td>standalone <code>config.toml</code> → <code>Config::from_toml</code></td><td>per-board</td><td>net config in a file, not in code</td></tr>
-<tr><td>Minimal RAM (XRCE serial)</td><td><code>config.toml [[transport]] kind="serial"</code> or <code>[image.&lt;id&gt;]</code></td><td><code>…</code> + xrce dep</td><td><code>XRCE_*</code> buffer tuning</td></tr>
+<tr><td>Minimal RAM (XRCE serial)</td><td><code>config.toml</code> <code>[uart0] baud</code> + <code>[node] locator</code> or <code>[image.&lt;id&gt;]</code></td><td><code>…</code> + xrce dep</td><td><code>XRCE_*</code> buffer tuning</td></tr>
 </tbody>
 </table>
 </div>
