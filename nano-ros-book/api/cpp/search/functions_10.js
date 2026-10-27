@@ -27,5 +27,6 @@ var searchData=
   ['resolve_5fnamespace_24',['resolve_namespace',['../structrclcpp_1_1NodeHandle.html#a360c2c6ba3b42d0ee2ce63f544534772',1,'rclcpp::NodeHandle']]],
   ['resultof_25',['resultof',['../classrclcpp_1_1ResultOf_3_01void_01_4.html#a4751d94aa62e7509f4900f46d7a1fdf0',1,'rclcpp::ResultOf&lt; void &gt;::ResultOf()'],['../classrclcpp_1_1ResultOf_3_01void_01_4.html#ae2d73cda5c602bcde984affd7b153d69',1,'rclcpp::ResultOf&lt; void &gt;::ResultOf(ErrorCode code)'],['../classrclcpp_1_1ResultOf_3_01void_01_4.html#ace28b95e026fa5479d2817ead5f06907',1,'rclcpp::ResultOf&lt; void &gt;::ResultOf(int32_t raw)']]],
   ['rmw_26',['rmw',['../classrclcpp_1_1NodeBuilder.html#ac673d25c340603f57d70ebc07c9f05cc',1,'rclcpp::NodeBuilder']]],
-  ['rosoutqos_27',['RosoutQoS',['../classrclcpp_1_1RosoutQoS.html#adda42f101873431baec5fb268350b1fe',1,'rclcpp::RosoutQoS']]]
+  ['rmw_5fimplementation_5fidentifier_27',['rmw_implementation_identifier',['../classrclcpp_1_1Node.html#a741a738a6fbe53604e5c8eeaaebb0a8f',1,'rclcpp::Node']]],
+  ['rosoutqos_28',['RosoutQoS',['../classrclcpp_1_1RosoutQoS.html#adda42f101873431baec5fb268350b1fe',1,'rclcpp::RosoutQoS']]]
 ];
