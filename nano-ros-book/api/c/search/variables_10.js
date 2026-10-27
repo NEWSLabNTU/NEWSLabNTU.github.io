@@ -16,5 +16,6 @@ var searchData=
   ['result_5fserialized_5fsize_5fmax_13',['result_serialized_size_max',['../structrclc__action__type__t.html#a53e5a7b355d822037713aa8d1e95c04e',1,'rclc_action_type_t']]],
   ['rmw_5fname_14',['rmw_name',['../structrcl__node__t.html#a0794efd19e70b9bf296ae79dad35d049',1,'rcl_node_t::rmw_name'],['../structrcl__node__options__t.html#a53276e534f2b3620b8fdaab201d90720',1,'rcl_node_options_t::rmw_name']]],
   ['rmw_5fname_5flen_15',['rmw_name_len',['../structrcl__node__t.html#a3be6a64c2aa19b8ea880dfe31dcedfb1',1,'rcl_node_t::rmw_name_len'],['../structrcl__node__options__t.html#a0b6a0b0c1e29589abce7cd60e762bb65',1,'rcl_node_options_t::rmw_name_len']]],
-  ['role_16',['role',['../structrclc__qos__override__t.html#ac74fa1dcf082d21180cc3b4c2325e5a3',1,'rclc_qos_override_t']]]
+  ['role_16',['role',['../structrclc__qos__override__t.html#ac74fa1dcf082d21180cc3b4c2325e5a3',1,'rclc_qos_override_t']]],
+  ['ros_5fgoal_5frequest_17',['ros_goal_request',['../structrclc__action__goal__handle__t.html#ade9a75b14183d28308eb03b95010e829',1,'rclc_action_goal_handle_t']]]
 ];

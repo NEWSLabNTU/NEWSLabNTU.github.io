@@ -1,29 +1,5 @@
 var searchData=
 [
-  ['nros_5f_5frclc_5farray_0',['NROS__RCLC_ARRAY',['../rclc__parameter_8h.html#a570dcf5c139773534ab230d3e4035d09',1,'rclc_parameter.h']]],
-  ['nros_5fassert_5fmessage_5fformat_1',['NROS_ASSERT_MESSAGE_FORMAT',['../serialization__format_8h.html#a6f605014e7b845f8e566217ed526938f',1,'serialization_format.h']]],
-  ['nros_5fdomain_5fid_5fexplicit_5fzero_2',['NROS_DOMAIN_ID_EXPLICIT_ZERO',['../nros__generated_8h.html#a07e0b61f7fcec01896f9d21b490fa5b9',1,'nros_generated.h']]],
-  ['nros_5fdomain_5fid_5finherit_3',['NROS_DOMAIN_ID_INHERIT',['../nros__generated_8h.html#a83f8199264199cf86ec156a925c7a139',1,'nros_generated.h']]],
-  ['nros_5fgenerated_5fh_4',['NROS_GENERATED_H',['../nros__generated_8h.html#aab6595028339faac4e913ee9a03e05ee',1,'nros_generated.h']]],
-  ['nros_5flocal_5',['NROS_LOCAL',['../visibility__control_8h.html#af42a63f4e90218d141e9f9fb5ae9c432',1,'visibility_control.h']]],
-  ['nros_5flog_5ffmt_5fbuffer_5fsize_6',['NROS_LOG_FMT_BUFFER_SIZE',['../log_8h.html#aa0f05658353580b0c6ed345bd7d0dc17',1,'log.h']]],
-  ['nros_5fmax_5faction_5fname_5flen_7',['NROS_MAX_ACTION_NAME_LEN',['../nros__generated_8h.html#ac92df9b06c0b5e3e4c3f43f1f2781bf7',1,'nros_generated.h']]],
-  ['nros_5fmax_5fconcurrent_5fgoals_8',['NROS_MAX_CONCURRENT_GOALS',['../nros__generated_8h.html#ae86080b7f568a3fde60178115843d03c',1,'nros_generated.h']]],
-  ['nros_5fmax_5flocator_5flen_9',['NROS_MAX_LOCATOR_LEN',['../nros__generated_8h.html#a1979b83a78b096cdd5144bd694b0ce8f',1,'nros_generated.h']]],
-  ['nros_5fmax_5fname_5flen_10',['NROS_MAX_NAME_LEN',['../nros__generated_8h.html#aaa62b5149ae3298c3b83241674513346',1,'nros_generated.h']]],
-  ['nros_5fmax_5fnamespace_5flen_11',['NROS_MAX_NAMESPACE_LEN',['../nros__generated_8h.html#ac90abe1819d37b2bcd79a213203a6233',1,'nros_generated.h']]],
-  ['nros_5fmax_5fservice_5fname_5flen_12',['NROS_MAX_SERVICE_NAME_LEN',['../nros__generated_8h.html#a954a2580982b210f7e4b2bc67e840c9d',1,'nros_generated.h']]],
-  ['nros_5fmax_5ftopic_5flen_13',['NROS_MAX_TOPIC_LEN',['../nros__generated_8h.html#a397e33c400e96524ced1c087d0b8db01',1,'nros_generated.h']]],
-  ['nros_5fmax_5ftype_5fhash_5flen_14',['NROS_MAX_TYPE_HASH_LEN',['../nros__generated_8h.html#af01414a1f12dd85847fbdf9774ad25c8',1,'nros_generated.h']]],
-  ['nros_5fmax_5ftype_5fname_5flen_15',['NROS_MAX_TYPE_NAME_LEN',['../nros__generated_8h.html#a0a22954a66c4e263e142c4191d893e2d',1,'nros_generated.h']]],
-  ['nros_5fpublic_16',['NROS_PUBLIC',['../visibility__control_8h.html#af322209d8c6f2f4f985363dfc13eceb0',1,'visibility_control.h']]],
-  ['nros_5fpublisher_5fgid_5fsize_17',['NROS_PUBLISHER_GID_SIZE',['../nros__generated_8h.html#a99858e20f7cc8e94b2eb436d849a067b',1,'nros_generated.h']]],
-  ['nros_5fserialization_5fformat_5fid_18',['NROS_SERIALIZATION_FORMAT_ID',['../nros__generated_8h.html#a52fa0c398a3852466bda8a49b896bf6c',1,'nros_generated.h']]],
-  ['nros_5fserialization_5fformat_5fid_5fcdr_19',['NROS_SERIALIZATION_FORMAT_ID_CDR',['../serialization__format_8h.html#a6dbbb8c5aa594109cdce8f50474458ef',1,'serialization_format.h']]],
-  ['nros_5fserialization_5fformat_5fid_5fuorb_20',['NROS_SERIALIZATION_FORMAT_ID_UORB',['../serialization__format_8h.html#ae163baa0bd0ae860fa16a136de50bee8',1,'serialization_format.h']]],
-  ['nros_5fstatic_5fassert_21',['NROS_STATIC_ASSERT',['../serialization__format_8h.html#ae813b72c1ded88765742e7a5b18080f0',1,'serialization_format.h']]],
-  ['nros_5fstatic_5fassert_5fcat_22',['NROS_STATIC_ASSERT_CAT',['../serialization__format_8h.html#aef11f60a2ccbc51cce120ea817554052',1,'serialization_format.h']]],
-  ['nros_5fstatic_5fassert_5fcat_5f_23',['NROS_STATIC_ASSERT_CAT_',['../serialization__format_8h.html#ab7935c180797c150ab8c82595998f44b',1,'serialization_format.h']]],
-  ['nros_5fstatic_5fassert_5ftag_5f_24',['NROS_STATIC_ASSERT_TAG_',['../serialization__format_8h.html#a8e3eabb963e83da74db2615d4d300bdf',1,'serialization_format.h']]],
-  ['nros_5fwarn_5funused_25',['NROS_WARN_UNUSED',['../visibility__control_8h.html#a55f3fee016bd58e00f2ec8bfe593dbd7',1,'visibility_control.h']]]
+  ['max_5frmw_5fname_5flen_0',['MAX_RMW_NAME_LEN',['../nros__generated_8h.html#a09391b4f9a7c6203acc9b6a87267f366',1,'nros_generated.h']]],
+  ['max_5fslots_1',['MAX_SLOTS',['../nros__generated_8h.html#a487ed1795a5ca9744954435f788569e2',1,'nros_generated.h']]]
 ];

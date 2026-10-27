@@ -1,14 +1,19 @@
 var searchData=
 [
   ['abi_5fversion_0',['abi_version',['../structnros__transport__ops__t.html#a6865f5eb017fb807d7b08c1c7ce58e93',1,'nros_transport_ops_t']]],
-  ['accepted_5fcallback_1',['accepted_callback',['../structrcl__action__server__t.html#adc62c05833c46a6b4c7e4c400e1d5e27',1,'rcl_action_server_t']]],
-  ['action_5fname_2',['action_name',['../structrcl__action__client__t.html#a75bba07b7ab5764dd147a881bf59afea',1,'rcl_action_client_t::action_name'],['../structrcl__action__server__t.html#a9ce6d6e4428dc347660f18efb36a84c1',1,'rcl_action_server_t::action_name']]],
-  ['action_5fname_5flen_3',['action_name_len',['../structrcl__action__client__t.html#a9f795f66e5c7eee46dc3237465b4a911',1,'rcl_action_client_t::action_name_len'],['../structrcl__action__server__t.html#a31e4c004a35422a6f927cc1d713e4a3b',1,'rcl_action_server_t::action_name_len']]],
-  ['actual_5fcall_5ftime_4',['actual_call_time',['../structrcl__timer__call__info__t.html#aa740881d93b5689f7ca2955a25a6cb70',1,'rcl_timer_call_info_t']]],
-  ['alive_5fcount_5',['alive_count',['../structrclc__liveliness__changed__status__t.html#a746b00c7ef31e213a182bcf75d2214cd',1,'rclc_liveliness_changed_status_t']]],
-  ['alive_5fcount_5fchange_6',['alive_count_change',['../structrclc__liveliness__changed__status__t.html#afedb1fa0e21a176586f1cb79ec59a16d',1,'rclc_liveliness_changed_status_t']]],
-  ['allocate_7',['allocate',['../structrcl__allocator__t.html#ac8dd4e57b1abe23307fdb63304959ead',1,'rcl_allocator_t']]],
-  ['allow_5fundeclared_5fparameters_8',['allow_undeclared_parameters',['../structrclc__parameter__options__t.html#aef67e5a06861c533397edf0d77fb7cee',1,'rclc_parameter_options_t']]],
-  ['arena_5fentry_5findex_9',['arena_entry_index',['../structActionClientInternal.html#a169e007df0a86691fe082c81f117c3ab',1,'ActionClientInternal::arena_entry_index'],['../structServiceServerInternal.html#a2bd7e66b517b5dc81d3b32d9ceb8a9ff',1,'ServiceServerInternal::arena_entry_index'],['../structServiceClientInternal.html#a534ec421ba839f27922490ae5c984680',1,'ServiceClientInternal::arena_entry_index']]],
-  ['avoid_5fros_5fnamespace_5fconventions_10',['avoid_ros_namespace_conventions',['../structrclc__qos__t.html#a0c5efc02c8c965b3cf79bc414ce5311d',1,'rclc_qos_t']]]
+  ['accepted_5fcallback_1',['accepted_callback',['../structrcl__action__server__t.html#a53f03f81eb40cc04a3ec7936d3ab8055',1,'rcl_action_server_t']]],
+  ['action_5fname_2',['action_name',['../structrcl__action__client__t.html#a75bba07b7ab5764dd147a881bf59afea',1,'rcl_action_client_t::action_name'],['../structrcl__action__server__t.html#a8a43a575700cd81e10968b9fe8155a47',1,'rcl_action_server_t::action_name']]],
+  ['action_5fname_5flen_3',['action_name_len',['../structrcl__action__client__t.html#a9f795f66e5c7eee46dc3237465b4a911',1,'rcl_action_client_t::action_name_len'],['../structrcl__action__server__t.html#ae53476007af9130fe150a499c87be34f',1,'rcl_action_server_t::action_name_len']]],
+  ['action_5fserver_4',['action_server',['../structrclc__action__goal__handle__t.html#a27f455a8860c07be14f0c70424489e5e',1,'rclc_action_goal_handle_t']]],
+  ['actual_5fcall_5ftime_5',['actual_call_time',['../structrcl__timer__call__info__t.html#aa740881d93b5689f7ca2955a25a6cb70',1,'rcl_timer_call_info_t']]],
+  ['alive_5fcount_6',['alive_count',['../structrclc__liveliness__changed__status__t.html#a746b00c7ef31e213a182bcf75d2214cd',1,'rclc_liveliness_changed_status_t']]],
+  ['alive_5fcount_5fchange_7',['alive_count_change',['../structrclc__liveliness__changed__status__t.html#afedb1fa0e21a176586f1cb79ec59a16d',1,'rclc_liveliness_changed_status_t']]],
+  ['allocate_8',['allocate',['../structrcl__allocator__t.html#ac8dd4e57b1abe23307fdb63304959ead',1,'rcl_allocator_t']]],
+  ['allow_5fundeclared_5fparameters_9',['allow_undeclared_parameters',['../structrclc__parameter__options__t.html#aef67e5a06861c533397edf0d77fb7cee',1,'rclc_parameter_options_t']]],
+  ['arena_5fentry_5findex_10',['arena_entry_index',['../structActionClientInternal.html#a169e007df0a86691fe082c81f117c3ab',1,'ActionClientInternal::arena_entry_index'],['../structServiceServerInternal.html#a2bd7e66b517b5dc81d3b32d9ceb8a9ff',1,'ServiceServerInternal::arena_entry_index'],['../structServiceClientInternal.html#a534ec421ba839f27922490ae5c984680',1,'ServiceClientInternal::arena_entry_index']]],
+  ['available_5fcancel_5fresponse_11',['available_cancel_response',['../structrclc__action__goal__handle__t.html#a036e40cf1a0369e4a192d55bda165946',1,'rclc_action_goal_handle_t']]],
+  ['available_5ffeedback_12',['available_feedback',['../structrclc__action__goal__handle__t.html#a9add8d281f4cf2234327728bef0e889f',1,'rclc_action_goal_handle_t']]],
+  ['available_5fgoal_5fresponse_13',['available_goal_response',['../structrclc__action__goal__handle__t.html#ae20380a1a8777a90538d7984a3a66e48',1,'rclc_action_goal_handle_t']]],
+  ['available_5fresult_5fresponse_14',['available_result_response',['../structrclc__action__goal__handle__t.html#ab9bc52bca2e1bc7fcefa9c42b11c8622',1,'rclc_action_goal_handle_t']]],
+  ['avoid_5fros_5fnamespace_5fconventions_15',['avoid_ros_namespace_conventions',['../structrclc__qos__t.html#a0c5efc02c8c965b3cf79bc414ce5311d',1,'rclc_qos_t']]]
 ];

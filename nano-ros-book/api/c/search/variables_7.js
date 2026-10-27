@@ -5,9 +5,15 @@ var searchData=
   ['get_5fresult_2',['get_result',['../structrclc__action__endpoint__hashes__t.html#ad5af0149f8b46b67be790c7f198eef8e',1,'rclc_action_endpoint_hashes_t']]],
   ['get_5fresult_5fresponse_5fresult_5foffset_3',['get_result_response_result_offset',['../structrclc__action__type__t.html#a0d3c33097adedf721bd72f545e3d73c5',1,'rclc_action_type_t']]],
   ['get_5fresult_5fresponse_5fsize_4',['get_result_response_size',['../structrclc__action__type__t.html#a393d6ac525af4be0a44396e39e8879c4',1,'rclc_action_type_t']]],
-  ['goal_5fcallback_5',['goal_callback',['../structrcl__action__server__t.html#ae56c05af797b5f471b6ba08457006a88',1,'rcl_action_server_t']]],
-  ['goal_5fdeserialize_6',['goal_deserialize',['../structrclc__action__type__t.html#a39eaf054f8d5fa62204bbc45c6a0a682',1,'rclc_action_type_t']]],
-  ['goal_5fresponse_5fcallback_7',['goal_response_callback',['../structrcl__action__client__t.html#aa4dfe40b7527c078243aa4f4c484607f',1,'rcl_action_client_t']]],
-  ['goal_5fserialize_8',['goal_serialize',['../structrclc__action__type__t.html#afc827178d4b7a60d8e81ecd2efeb6e5e',1,'rclc_action_type_t']]],
-  ['goal_5fserialized_5fsize_5fmax_9',['goal_serialized_size_max',['../structrclc__action__type__t.html#a725f86af1e2480f6b59d9b441681aab2',1,'rclc_action_type_t']]]
+  ['goal_5faccepted_5',['goal_accepted',['../structrclc__action__goal__handle__t.html#ae6dc2e77d94ddeba20a3898232d61373',1,'rclc_action_goal_handle_t']]],
+  ['goal_5fcallback_6',['goal_callback',['../structrclc__action__server__rclc__state__t.html#abf633d9aa70729e24256b99af53b4702',1,'rclc_action_server_rclc_state_t::goal_callback'],['../structrcl__action__server__t.html#af6d4988f1a188cee9622e84d181d9826',1,'rcl_action_server_t::goal_callback']]],
+  ['goal_5fcancelled_7',['goal_cancelled',['../structrclc__action__goal__handle__t.html#af062929da04af7a2b17bc129dff8025d',1,'rclc_action_goal_handle_t']]],
+  ['goal_5fdeserialize_8',['goal_deserialize',['../structrclc__action__type__t.html#a39eaf054f8d5fa62204bbc45c6a0a682',1,'rclc_action_type_t']]],
+  ['goal_5fhandles_9',['goal_handles',['../structrclc__action__server__rclc__state__t.html#addc317a2743e5dac1ac08c96791657f7',1,'rclc_action_server_rclc_state_t']]],
+  ['goal_5fid_10',['goal_id',['../structrclc__action__goal__handle__t.html#aad02a86a52dad7a27ef23aa9099c1220',1,'rclc_action_goal_handle_t']]],
+  ['goal_5frequest_5fsize_11',['goal_request_size',['../structrclc__action__server__rclc__state__t.html#a3239af771d17f51fca810bb399c35bcd',1,'rclc_action_server_rclc_state_t']]],
+  ['goal_5frequests_12',['goal_requests',['../structrclc__action__server__rclc__state__t.html#a1b4db74e0e1ee6fc55dc6566153d910e',1,'rclc_action_server_rclc_state_t']]],
+  ['goal_5fresponse_5fcallback_13',['goal_response_callback',['../structrcl__action__client__t.html#aa4dfe40b7527c078243aa4f4c484607f',1,'rcl_action_client_t']]],
+  ['goal_5fserialize_14',['goal_serialize',['../structrclc__action__type__t.html#afc827178d4b7a60d8e81ecd2efeb6e5e',1,'rclc_action_type_t']]],
+  ['goal_5fserialized_5fsize_5fmax_15',['goal_serialized_size_max',['../structrclc__action__type__t.html#a725f86af1e2480f6b59d9b441681aab2',1,'rclc_action_type_t']]]
 ];
