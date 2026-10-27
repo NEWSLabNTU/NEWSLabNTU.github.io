@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-1f350eef.js";
+            window.path_to_searchindex_js = "../searchindex-e3fcf642.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-191e012a.js"></script>
@@ -918,8 +918,8 @@ a <code>&lt;nros/rmw_ret.h&gt;</code> header change only.</li>
 </ul>
 <p><strong>Why same style.</strong> Named constants make <code>switch</code> statements
 possible at call sites; bare negative ints don’t.</p>
-<h2 id="publisher-gid--message-info-functional-parity-different-shape-issue-0242"><a class="header" href="#publisher-gid--message-info-functional-parity-different-shape-issue-0242">Publisher GID &amp; message-info: functional-parity, different shape (issue 0242)</a></h2>
-<p>Two upstream <code>rmw.h</code> capabilities exist in nano-ros in a <strong>different
+<h2 id="publisher-gid-message-info--service-info-functional-parity-different-shape-issue-0242"><a class="header" href="#publisher-gid-message-info--service-info-functional-parity-different-shape-issue-0242">Publisher GID, message-info &amp; service info: functional-parity, different shape (issue 0242)</a></h2>
+<p>Three upstream <code>rmw.h</code> capabilities exist in nano-ros in a <strong>different
 shape</strong> — the functionality is present, but the upstream-exact C entry
 points are deliberately not mirrored. Recorded here so the divergence
 reads as a decision, and updated (2026-07-27) to describe what nano-ros
@@ -982,6 +982,76 @@ peer: a Humble <code>rmw_cyclonedds_cpp</code> subscriber puts the 8-byte
 publication <em>handle</em> in <code>message_info.publisher_gid</code>, not the writer
 GUID it reports everywhere else, so its take-side gid matches no gid
 query. Ours reports the GUID.</p>
+<h3 id="service-request-info-a-sibling-slot-server-side-only-issue-2081"><a class="header" href="#service-request-info-a-sibling-slot-server-side-only-issue-2081">Service request info: a sibling slot, server side only (issue 2081)</a></h3>
+<p>Upstream’s <code>rmw_take_request</code> fills an <code>rmw_service_info_t</code> beside the
+request: the client’s <code>request_id</code> (writer GUID + the sequence number that
+client assigned) and the <code>source_timestamp</code> / <code>received_timestamp</code> pair.</p>
+<p>nano-ros splits that take across two vtable slots:</p>
+<ul>
+<li><strong><code>take_request</code></strong> returns the payload bytes and <code>int64_t *seq_out</code>, the
+backend’s reply-correlation token that <code>send_response</code> takes back. That is
+everything a server needs to answer, and it is all this slot returns.</li>
+<li><strong><code>take_request_with_info</code></strong> (optional, appended) is the same take plus a
+caller-owned <code>rmw_service_info_t *</code>, declared in <code>&lt;nros/rmw_entity.h&gt;</code>
+field for field as upstream’s. <code>seq_out</code> stays beside the struct instead
+of becoming its <code>request_id.sequence_number</code>: a backend’s token (a
+reply-slot index on Cyclone, XRCE and zenoh) is not the client’s sequence
+number, and the runtime needs both. When a backend fills this slot the
+runtime takes every request through it; when it does not, the runtime
+falls back to <code>take_request</code>, and only a Rust backend’s side table can
+then report anything.</li>
+</ul>
+<p>A field the backend cannot report is <strong>zero</strong> (all-zero <code>writer_guid</code> = no
+request id, timestamp 0 = not stamped), and the runtime turns each zero into
+<code>None</code>, never into a value:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>backend</th><th>channel</th><th><code>request_id</code></th><th><code>source_timestamp</code></th><th><code>received_timestamp</code></th></tr>
+</thead>
+<tbody>
+<tr><td>zenoh-pico</td><td>Rust adapter side table (issue 1942)</td><td>from the query attachment (<code>rmw_zenoh_cpp</code> layout)</td><td>from the attachment</td><td>not reported</td></tr>
+<tr><td>Cyclone DDS</td><td><code>take_request_with_info</code></td><td>request-header GUID + publication handle, header sequence (stock <code>rmw_cyclonedds_cpp</code> layout)</td><td>the DDS sample’s source timestamp</td><td>not reported</td></tr>
+<tr><td>XRCE-DDS</td><td><code>take_request_with_info</code></td><td>the Agent’s <code>SampleIdentity</code> (client request-writer GUID + sequence), as <code>rmw_microxrcedds</code> fills it</td><td>not reported — no timestamp reaches the client library</td><td>not reported</td></tr>
+<tr><td>uORB</td><td>—</td><td>uORB has no services</td><td>—</td><td>—</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>No backend reports <code>received_timestamp</code>.</strong> The field exists for upstream
+parity and is always zero here.</p>
+<p>What an application sees:</p>
+<ul>
+<li><strong>Rust.</strong> <code>create_service_with_info</code> (or the builder’s
+<code>.service_info()</code>) hands the callback a <code>nros::ServiceInfo</code> — rclrs’s
+shape, except every field is an <code>Option</code>:
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>executor.node_mut(nid).create_service_with_info::&lt;AddTwoInts, _&gt;(
+    "/add_two_ints",
+    |req: &amp;AddTwoIntsRequest, info: &amp;nros::ServiceInfo| {
+        if let Some(id) = info.request_id {
+            log::info!("request #{} from {:?}", id.sequence_number, id.writer_guid);
+        }
+        AddTwoIntsResponse { sum: req.a + req.b }
+    },
+)?;
+<span class="boring">}</span></code></pre>
+</li>
+<li><strong>C.</strong> <code>rclc_executor_add_service_with_request_id</code> (typed) and
+<code>rclc_executor_add_service_raw_with_request_id</code> (CDR bytes) pass the
+callback an <code>rmw_request_id_t *</code>, rclc’s shape. The timestamps are not
+surfaced in C.</li>
+<li><strong>C++.</strong> An rclcpp service handler taking three arguments —
+<code>(std::shared_ptr&lt;rmw_request_id_t&gt;, request, response)</code> — receives the
+request header; the two-argument handler does not. As in C, the
+timestamps are not surfaced.</li>
+</ul>
+<p><strong>The client side gets none of this.</strong> <code>take_response</code> returns the reply
+bytes and the <code>sequence_id</code> that <code>send_request</code> handed out, which is what the
+runtime matches a reply against (issue 0778). There is no
+<code>take_response_with_info</code> slot, no backend reports the reply’s timestamps or
+the server’s identity, and no client API surfaces them — upstream
+<code>rmw_take_response</code>’s <code>request_header</code> has no counterpart.</p>
 <h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
 <ul>
 <li><a href="rmw.html">RMW API Design</a> — deeper architectural rationale (heap,
