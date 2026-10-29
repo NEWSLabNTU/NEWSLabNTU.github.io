@@ -74,6 +74,7 @@ var structnros__rmw__vtable__t =
     [ "take_request", "structnros__rmw__vtable__t.html#a285cbb8334a37cbf9284efeb29dbf5aa", null ],
     [ "take_request_with_info", "structnros__rmw__vtable__t.html#a6bef9aa5bb684f77ab9716fbc276925a", null ],
     [ "take_response", "structnros__rmw__vtable__t.html#a4539c17ad8dbb43eececdf3b15fa9215", null ],
+    [ "take_response_with_info", "structnros__rmw__vtable__t.html#a3b8c00d1f1fde74d64071efd8829d6a7", null ],
     [ "take_sequence", "structnros__rmw__vtable__t.html#ac3ec35b61734ccee71503de21d8b6f87", null ],
     [ "take_with_info", "structnros__rmw__vtable__t.html#a199776b4c4429d9c4e0a1198ba25885c", null ]
 ];
