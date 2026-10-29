@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['platform_20cffi_0',['nros platform-cffi',['../index.html',1,'']]]
+  ['endpoints_0',['Sockets + endpoints',['../platform__net_8h.html#autotoc_md2',1,'']]]
 ];

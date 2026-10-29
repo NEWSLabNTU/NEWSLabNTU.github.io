@@ -1,7 +1,7 @@
 var searchData=
 [
   ['read_0',['read',['../structnros__transport__ops__t.html#ad34a520c1560fe2684427f535b356055',1,'nros_transport_ops_t']]],
-  ['received_5ftimestamp_1',['received_timestamp',['../structrmw__service__info__t.html#a0c2a080c7e852e9615bf2b1f2dab89e9',1,'rmw_service_info_t::received_timestamp'],['../structrmw__message__info__t.html#acb2c71bb7a415bfb972425dff9af1ea3',1,'rmw_message_info_t::received_timestamp']]],
+  ['received_5ftimestamp_1',['received_timestamp',['../structrmw__message__info__t.html#acb2c71bb7a415bfb972425dff9af1ea3',1,'rmw_message_info_t::received_timestamp'],['../structrmw__service__info__t.html#a0c2a080c7e852e9615bf2b1f2dab89e9',1,'rmw_service_info_t::received_timestamp']]],
   ['reception_5fsequence_5fnumber_2',['reception_sequence_number',['../structrmw__message__info__t.html#a62f6e92034142ba78fcf15e684ba42d1',1,'rmw_message_info_t']]],
   ['reliability_3',['reliability',['../structrmw__qos__profile__t.html#a69a5247828b59d001bef067228f01dff',1,'rmw_qos_profile_t']]],
   ['request_5fid_4',['request_id',['../structrmw__service__info__t.html#a140322113c48a267a85c678a862f188f',1,'rmw_service_info_t']]],

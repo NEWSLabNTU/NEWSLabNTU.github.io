@@ -1,0 +1,4 @@
+var structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__NONE_01_4_1_1Refused =
+[
+    [ "operator()", "structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__NONE_01_4_1_1Refused.html#aa3b9232f53511f7a0d7c6959e41cf621", null ]
+];

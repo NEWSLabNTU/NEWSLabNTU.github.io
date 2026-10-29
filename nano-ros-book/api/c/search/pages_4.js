@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['getting_20started_0',['Getting Started',['../getting_started.html',1,'index']]]
+  ['4_20write_20a_20publisher_0',['4. Write a Publisher',['../getting_started.html#autotoc_md417',1,'']]]
 ];

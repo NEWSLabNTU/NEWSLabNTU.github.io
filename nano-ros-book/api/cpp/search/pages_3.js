@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['error_20codes_0',['Error Codes',['../error_codes.html',1,'troubleshooting']]]
+  ['4_20write_20a_20talker_0',['4. Write a Talker',['../getting_started.html#autotoc_md9',1,'']]]
 ];

@@ -5,11 +5,11 @@ var searchData=
   ['when_20decoding_20fails_2',['What the callback sees when decoding fails',['../nros__generated_8h.html#autotoc_md105',1,'']]],
   ['which_20clock_20now_20is_20read_20from_3',['Which clock &quot;now&quot; is read from',['../nros__generated_8h.html#autotoc_md402',1,'']]],
   ['which_20upstream_20does_20not_20take_4',['The EXECUTOR parameter, which upstream does not take',['../nros__generated_8h.html#autotoc_md249',1,'']]],
-  ['why_20it_20is_20not_20upstream_20s_5',['Shape, and why it is not upstream&apos;s',['../nros__generated_8h.html#autotoc_md241',1,'']]],
-  ['why_20it_20takes_20two_20strings_20rather_20than_20a_20handle_6',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md191',1,'']]],
-  ['why_20this_20exists_20and_20why_20it_20takes_20two_20strings_20rather_20than_20a_20handle_7',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md191',1,'']]],
-  ['why_20tt_20const_20tt_20on_20a_20function_20that_20writes_8',['Why &lt;tt&gt;const&lt;/tt&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md399',1,'']]],
+  ['why_20const_20on_20a_20function_20that_20writes_5',['Why &lt;span class=&quot;tt&quot;&gt;const&lt;/span&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md399',1,'']]],
+  ['why_20it_20is_20not_20upstream_20s_6',['Shape, and why it is not upstream&apos;s',['../nros__generated_8h.html#autotoc_md241',1,'']]],
+  ['why_20it_20takes_20two_20strings_20rather_20than_20a_20handle_7',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md191',1,'']]],
+  ['why_20this_20exists_20and_20why_20it_20takes_20two_20strings_20rather_20than_20a_20handle_8',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md191',1,'']]],
   ['write_9',['write',['../structnros__transport__ops__t.html#ae809a35d2f99f641e3af90ba848745f2',1,'nros_transport_ops_t']]],
   ['write_20a_20publisher_10',['4. Write a Publisher',['../getting_started.html#autotoc_md417',1,'']]],
-  ['writes_11',['Why &lt;tt&gt;const&lt;/tt&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md399',1,'']]]
+  ['writes_11',['Why &lt;span class=&quot;tt&quot;&gt;const&lt;/span&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md399',1,'']]]
 ];

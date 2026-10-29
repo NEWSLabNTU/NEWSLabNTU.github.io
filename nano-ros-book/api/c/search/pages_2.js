@@ -1,6 +1,5 @@
 var searchData=
 [
-  ['c_20api_0',['nros C API',['../index.html',1,'']]],
-  ['codes_1',['Error Codes',['../error_codes.html',1,'index']]],
-  ['configuration_2',['Configuration',['../configuration.html',1,'index']]]
+  ['2_20code_20generation_0',['2. Code Generation',['../getting_started.html#autotoc_md415',1,'']]],
+  ['2_20interoperability_1',['ROS 2 Interoperability',['../ros2_interop.html',1,'index']]]
 ];

@@ -15,7 +15,7 @@ var searchData=
   ['is_20not_20upstream_20s_12',['Shape, and why it is not upstream&apos;s',['../nros__generated_8h.html#autotoc_md241',1,'']]],
   ['is_20read_20from_13',['Which clock &quot;now&quot; is read from',['../nros__generated_8h.html#autotoc_md402',1,'']]],
   ['is_5fpublisher_14',['is_publisher',['../structrclc__endpoint__info__t.html#a613ee941cc1745867b7815537bc8d2f7',1,'rclc_endpoint_info_t']]],
-  ['issues_15',['issues',['../troubleshooting.html#autotoc_md432',1,'Build Issues'],['../ros2_interop.html#autotoc_md429',1,'Common Issues']]],
+  ['issues_15',['Issues',['../troubleshooting.html#autotoc_md432',1,'Build Issues'],['../ros2_interop.html#autotoc_md429',1,'Common Issues']]],
   ['it_20is_20not_20upstream_20s_16',['Shape, and why it is not upstream&apos;s',['../nros__generated_8h.html#autotoc_md241',1,'']]],
   ['it_20takes_20two_20strings_20rather_20than_20a_20handle_17',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md191',1,'']]]
 ];

@@ -1,7 +1,5 @@
 var searchData=
 [
-  ['c_20api_0',['nros C++ API',['../index.html',1,'']]],
-  ['codes_1',['Error Codes',['../error_codes.html',1,'troubleshooting']]],
-  ['concept_2',['The Message-Type Concept',['../message_concept.html',1,'index']]],
-  ['configuration_3',['Configuration',['../configuration.html',1,'index']]]
+  ['3_20code_20generation_0',['3. Code Generation',['../getting_started.html#autotoc_md8',1,'']]],
+  ['3_20terminals_1',['Quick Start (3 Terminals)',['../ros2_interop.html#autotoc_md21',1,'']]]
 ];

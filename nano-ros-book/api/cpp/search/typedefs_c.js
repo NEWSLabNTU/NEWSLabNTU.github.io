@@ -1,6 +1,4 @@
 var searchData=
 [
-  ['wallrate_0',['WallRate',['../namespacerclcpp.html#ae8c7494ed03ea85690c57b1a74b92a45',1,'rclcpp']]],
-  ['weakptr_1',['WeakPtr',['../classrclcpp_1_1Node.html#a3fd3e53f87bcc308185287e2a2a1496b',1,'rclcpp::Node']]],
-  ['wrappedresult_2',['wrappedresult',['../classrclcpp__action_1_1ClientGoalHandle.html#ac66b315e41792b2a4c8edb9577149ec1',1,'rclcpp_action::ClientGoalHandle::WrappedResult'],['../classrclcpp__action_1_1Client.html#ac960663fd6ceab3081e64b109d5c2e2f',1,'rclcpp_action::Client::WrappedResult']]]
+  ['uniqueptr_0',['UniquePtr',['../classrclcpp_1_1Publisher.html#a0d2e6882706f6aa91bd7832491afb304',1,'rclcpp::Publisher::UniquePtr'],['../classrclcpp_1_1Subscription.html#a719fcbc17c0852ae52de1f4cc4f5da9b',1,'rclcpp::Subscription::UniquePtr'],['../classrclcpp_1_1Service.html#ab4ea9ec026096019ab4e3f153f7d1477',1,'rclcpp::Service::UniquePtr'],['../classClient.html#a306ff8f09e3f210f9954f3afef0895d8',1,'Client::UniquePtr'],['../classTimer.html#ac28976fd50b902ca0f2255aac7bef878',1,'Timer::UniquePtr']]]
 ];

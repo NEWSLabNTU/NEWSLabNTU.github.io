@@ -13,5 +13,5 @@ var searchData=
   ['from_10',['Which clock &quot;now&quot; is read from',['../nros__generated_8h.html#autotoc_md402',1,'']]],
   ['from_20rcl_11',['Overflow, and how this differs from rcl',['../timer_8h.html#autotoc_md406',1,'']]],
   ['from_20rcl_20deliberate_12',['Divergence from rcl, deliberate',['../timer_8h.html#autotoc_md407',1,'']]],
-  ['function_20that_20writes_13',['Why &lt;tt&gt;const&lt;/tt&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md399',1,'']]]
+  ['function_20that_20writes_13',['Why &lt;span class=&quot;tt&quot;&gt;const&lt;/span&gt; on a function that writes',['../nros__generated_8h.html#autotoc_md399',1,'']]]
 ];

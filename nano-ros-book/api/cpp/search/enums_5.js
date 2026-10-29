@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['livelinesspolicy_0',['LivelinessPolicy',['../namespacerclcpp.html#a9de3336c22cf3e1469030d55e9b5108f',1,'rclcpp']]]
+  ['historypolicy_0',['HistoryPolicy',['../namespacerclcpp.html#ab983f8c879de2296df1c3842b4561183',1,'rclcpp']]]
 ];

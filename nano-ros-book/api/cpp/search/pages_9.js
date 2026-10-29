@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['started_0',['Getting Started',['../getting_started.html',1,'index']]]
+  ['dds_20backend_20xrce_5f_0',['XRCE-DDS Backend (XRCE_*)',['../configuration.html#autotoc_md19',1,'']]]
 ];
