@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8b312ca5.js";
+            window.path_to_searchindex_js = "../searchindex-9ed670ce.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-191e012a.js"></script>
@@ -394,6 +394,12 @@ manifest:
       revision: v3.7.0
       import:
         name-allowlist: [cmsis, picolibc, mbedtls, tinycrypt, mcuboot, net-tools]
+    # Rust support: only a Rust app builds with it. Pinned to the revision
+    # nano-ros's own west.yml pins for the 3.7 line (it has no release tags).
+    - name: zephyr-lang-rust
+      remote: zephyrproject-rtos
+      revision: 404fcefdbab0f2711cd342a1fab9d2eda52a1ba9
+      path: modules/lang/rust
   self:
     path: manifest
 WEST_YML
@@ -426,6 +432,38 @@ ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicas
 <pre><code class="language-text probe-expect=70 variant=native-sim">Publishing: 'Hello World: 1'
 Publishing: 'Hello World: 2'
 ...
+</code></pre>
+<p><strong>The same talker in Rust.</strong> A Rust image on Zephyr is a workspace: a node
+package plus a Zephyr entry, which <code>nros new entry</code> scaffolds. This road
+does not build outside a nano-ros checkout yet: the scaffolded entry never
+gets the selection package its <code>nros::main!</code> needs
+(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/2152-zephyr-entry-scaffold-no-selection.md">issue 2152</a>).
+The steps are (see
+<a href="#the-entry-nros-new-entry">The entry: <code>nros new entry</code></a>). From the west
+workspace above, beside it:</p>
+<p>zephyr-lang-rust needs two things the C app does not: clang and libclang, for the
+bindings it generates from Zephyr’s headers, and the Rust target the Zephyr
+board implies (<code>x86_64-unknown-none</code> for native_sim/64). <code>nros setup zephyr</code>
+installs neither yet
+(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/2151-zephyr-rust-target-not-provisioned.md">issue 2151</a>):</p>
+<pre><code class="language-bash">sudo apt-get install -y --no-install-recommends clang libclang-dev
+. "$HOME/.cargo/env"     # the rustup `nros setup` installed (Installation)
+rustup target add x86_64-unknown-none
+export NROS_ZEPHYR_WORKSPACE="$PWD"
+cd ..
+nros new rs_ws --workspace --lang rust --rmw zenoh
+cd rs_ws
+nros new entry zephyr_entry --platform zephyr
+nros sync
+nros build demo_bringup:zephyr_entry
+</code></pre>
+<p>With the router above running, run the image <code>nros build</code> wrote (it prints
+this path):</p>
+<pre><code class="language-bash">./build/zephyr-zenoh/demo_bringup__zephyr_entry_west/zephyr/zephyr.exe
+</code></pre>
+<p>The workspace’s talker and listener run in the one image:</p>
+<pre><code class="language-text">Publishing: 0
+I heard: 0
 </code></pre>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
 <p>nano-ros’s Zephyr module ships in the installed SDK — the directory
@@ -779,8 +817,16 @@ west nros build --workspace ~/my_robot demo_bringup:zephyr
 <p>No <code>ZEPHYR_BASE</code>, no <code>NROS_ZEPHYR_WORKSPACE</code>, no <code>--zephyr-workspace</code>. Every
 argument after <code>nros</code> is passed straight through, so anything <code>nros</code> accepts
 works here unchanged.</p>
-<p>It picks up automatically in any workspace whose manifest lists nano-ros.
-<code>west nros</code> is now the only nano-ros west extension: <code>west fvp</code> shared that
+<p>It picks up automatically in any workspace whose manifest lists nano-ros —
+a checkout of this repository, or a mirror of a release you vendor (see
+<a href="./vendored-tree.html">Pin and mirror a release</a>). <strong>With the installed SDK alone
+there is no <code>west nros</code>:</strong> west reads extension commands from a manifest
+project, and the installed SDK root is a versioned directory under <code>~/.nros</code>
+that no <code>west.yml</code> can name. Name the Zephyr workspace to <code>nros</code> instead,
+which is what <code>west nros</code> does for you:</p>
+<pre><code class="language-bash">nros build --zephyr-workspace ~/zephyr-workspace demo_bringup:zephyr
+</code></pre>
+<p><code>west nros</code> is now the only nano-ros west extension: <code>west fvp</code> shared that
 route until RFC-0064 revision 5 retired it, since its body was environment
 wiring in front of the stock <code>west build -t run</code>. Two things worth knowing:</p>
 <ul>
