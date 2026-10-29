@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MAX_SESSION_PROPERTIES"],"enum":["BadSessionProperties"],"fn":["session_properties","set_session_properties","with_session_properties"],"struct":["SessionProperty"]};
+window.SIDEBAR_ITEMS = {"constant":["MAX_SESSION_PROPERTIES"],"enum":["BadSessionProperties"],"fn":["lent_session_properties","session_properties","set_session_properties","with_session_properties"],"struct":["SessionProperty"]};
