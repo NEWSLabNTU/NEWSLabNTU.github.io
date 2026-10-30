@@ -33,6 +33,7 @@ var classrclcpp_1_1Executor =
     [ "remove_node", "classrclcpp_1_1Executor.html#a6eaa6bc6bb127d8e91d99bafd0e7eed9", null ],
     [ "remove_on_shutdown_callback", "classrclcpp_1_1Executor.html#a5e6cb6e93aebe2e5ff343c8137567ba4", null ],
     [ "remove_pre_shutdown_callback", "classrclcpp_1_1Executor.html#a432476e75f31305e8d747000ed67fde0", null ],
+    [ "set_ready_notifier", "classrclcpp_1_1Executor.html#a502ac36ac7f8851bb780e22243062bfe", null ],
     [ "shutdown", "classrclcpp_1_1Executor.html#aaf019a1197cb397858e96bf3f1cc2797", null ],
     [ "spin", "classrclcpp_1_1Executor.html#a2e1913ac538122dcae73b289016e5ade", null ],
     [ "spin_all", "classrclcpp_1_1Executor.html#a8389ba0bbd8d42fda99c1bb4822ad274", null ],
