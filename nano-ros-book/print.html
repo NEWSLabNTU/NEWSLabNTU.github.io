@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-850b2c42.js";
+            window.path_to_searchindex_js = "searchindex-b540c5d2.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-191e012a.js"></script>
@@ -3872,10 +3872,10 @@ overlays — user intent, not derivable.”</em></p>
 lives with the bringup:</p>
 <pre><code class="language-text">src/demo_bringup/boards/native_sim_native_64/
 ├── prj.conf                            # APPLICATION_CONFIG_DIR
-├── prj-zenoh.conf                      # named by [image.&lt;id&gt;] os_config
-└── boards/
-    └── native_sim_native_64.conf       # Zephyr's own per-board discovery
+└── prj-zenoh.conf                      # named by [image.&lt;id&gt;] os_config
 </code></pre>
+<p>The host-socket network is not in it: board <code>zephyr</code> names the <code>nros-nsos</code>
+snippet (<code>[board.zephyr] snippets</code>), which every build of the image applies.</p>
 <p>That directory is what <code>[image.&lt;id&gt;] board</code> selects, and switching boards
 selects a different one rather than editing a package. Every Zephyr image in
 <code>examples/workspaces/{rust,c,cpp,mixed,derived-tiers-cpp,realtime-c,realtime-cpp}</code>
@@ -5703,13 +5703,16 @@ export ZEPHYR_BASE="$PWD/zephyr"
 </code></pre>
 <p>Scaffold a C application (a stock Zephyr app: <code>find_package(Zephyr)</code>, a typed
 talker component, <code>CONFIG_NROS=y</code> in <code>prj.conf</code>) and build it, naming the
-nano-ros module on the line, plus the <code>native_sim</code> network overlay the SDK
-ships: it routes the app’s sockets to the host’s (Zephyr’s NSOS) instead of a
-TAP interface. Without it <code>native_sim</code> tries to create one (<code>eth_posix: Cannot create zeth</code>), which needs privileges a container or an ordinary user does not
-have, and the image never reaches the router:</p>
+nano-ros module on the line, plus the module’s <code>nros-nsos</code> snippet: it routes
+the app’s sockets to the host’s (Zephyr’s NSOS) instead of a TAP interface.
+Without it <code>native_sim</code> tries to create one (<code>eth_posix: Cannot create zeth</code>),
+which needs privileges a container or an ordinary user does not have, and the
+image never reaches the router. The snippet is one file for every Zephyr line,
+and an app whose <code>system.toml</code> names board <code>zephyr</code> gets it from the board
+package even without the flag:</p>
 <pre><code class="language-bash probe=40 variant=native-sim">nros new my_app --platform zephyr --lang c
-west build -b native_sim/native/64 my_app -- -DZEPHYR_EXTRA_MODULES="$(nros sdk-root)" \
-    -DEXTRA_CONF_FILE="$(nros sdk-root)/cmake/zephyr/native-sim-line-3.7.conf"
+west build -b native_sim/native/64 -S nros-nsos my_app -- \
+    -DZEPHYR_EXTRA_MODULES="$(nros sdk-root)"
 </code></pre>
 <p>Run it against a router on the host’s loopback — <code>native_sim</code> uses the host’s
 sockets, and the image dials <code>tcp/127.0.0.1:7447</code> unless <code>system.toml</code> states a
@@ -6262,11 +6265,10 @@ steer by hand. The transports + <code>px4-rs</code> come from the
 prerequisites), build your app — <code>nros</code> on PATH is auto-resolved as the
 codegen tool, and the module is the installed SDK root:</p>
 <pre><code class="language-bash">sdk="$(nros sdk-root)"
-# native_sim (POSIX, no QEMU). The 3.7 line needs the NSOS line overlay; apply
-# the NSOS patches first (see "apply nano-ros's patches" below).
-overlay="$sdk/cmake/zephyr/native-sim-line-3.7.conf"
-west build -b native_sim/native/64 apps/my_app -- \
-    -DZEPHYR_EXTRA_MODULES="$sdk" -DCONF_FILE="prj.conf;$overlay"
+# native_sim (POSIX, no QEMU), on the host-socket network (the `nros-nsos`
+# snippet; apply the NSOS patches first, see "apply nano-ros's patches" below).
+west build -b native_sim/native/64 -S nros-nsos apps/my_app -- \
+    -DZEPHYR_EXTRA_MODULES="$sdk" -DCONF_FILE="prj.conf"
 
 # An emulated Cortex-A9 — `qemu_cortex_a9` is a QEMU machine, not a real
 # board (no native_sim overlay):
@@ -24710,11 +24712,17 @@ delegates to <code>nros setup zephyr</code> under the hood.</p>
 the Micro-XRCE-DDS agent for xrce. <code>nros setup zephyr --rmw &lt;rmw&gt;</code> installs it.</p>
 <h2 id="step-2-networking"><a class="header" href="#step-2-networking">Step 2: Networking</a></h2>
 <p>No network setup is required. <code>native_sim</code> uses the NSOS offloaded-sockets
-driver, enabled by <code>boards/native_sim_native_64.conf</code> in each example:</p>
-<pre><code>CONFIG_ETH_NATIVE_POSIX=n
+driver, enabled by the module’s <code>nros-nsos</code> snippet
+(<code>zephyr/snippets/nros-nsos/nsos.conf</code>), which board <code>zephyr</code> names, so every
+example on it gets it with no file of its own; anything else passes
+<code>-S nros-nsos</code>:</p>
+<pre><code>CONFIG_ETH_DRIVER=n
+CONFIG_NET_DRIVERS=y
 CONFIG_NET_SOCKETS_OFFLOAD=y
 CONFIG_NET_NATIVE_OFFLOADED_SOCKETS=y
 </code></pre>
+<p><code>ETH_DRIVER=n</code> rather than naming the TAP driver, because that symbol is
+<code>ETH_NATIVE_POSIX</code> on 3.7 and <code>ETH_NATIVE_TAP</code> on 4.4 (issue 2157).</p>
 <p>With NSOS, Zephyr’s socket API goes straight to host syscalls. Bind to
 <code>127.0.0.1</code> and reach <code>zenohd</code> / the XRCE Agent on the host loopback just
 like any other native test. Multiple <code>native_sim</code> processes can coexist
