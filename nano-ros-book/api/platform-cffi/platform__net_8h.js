@@ -4,7 +4,6 @@ var platform__net_8h =
     [ "nros_platform_network_poll", "platform__net_8h.html#a3ac8b53ea5f0ae45af7517c6c33f4917", null ],
     [ "nros_platform_socket_accept", "platform__net_8h.html#a0cc36253434c6715c74ea6edb9a9ad0d", null ],
     [ "nros_platform_socket_close", "platform__net_8h.html#afbf4ae2a2506ab6f16f0038e05c3f2c4", null ],
-    [ "nros_platform_socket_get_fd", "platform__net_8h.html#a7b41e1f2836ce0324c67084ae288a428", null ],
     [ "nros_platform_socket_set_non_blocking", "platform__net_8h.html#a9cbe53df39c19fc5322cca75b2ddb733", null ],
     [ "nros_platform_socket_wait_event", "platform__net_8h.html#a2c456db3d6c3526c40ce802df1fb5e9c", null ],
     [ "nros_platform_tcp_close", "platform__net_8h.html#acd869cd36b6c831fbaf4dcb098d0d58e", null ],
