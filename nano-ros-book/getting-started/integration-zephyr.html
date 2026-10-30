@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-1c82a7cb.js";
+            window.path_to_searchindex_js = "../searchindex-a824ffcd.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-191e012a.js"></script>
@@ -370,19 +370,19 @@ order, for a C talker on <code>native_sim</code> (a host executable, so no emula
 Zephyr’s own host tools come first — <code>west</code> and the build tools
 <a href="https://docs.zephyrproject.org/3.7.0/develop/getting_started/index.html">Zephyr’s Getting Started</a>
 lists; <code>nros setup</code> installs no system packages. On Debian/Ubuntu:</p>
-<pre><code class="language-bash probe=30 variant=native-sim">sudo apt-get install -y --no-install-recommends git cmake ninja-build gperf \
+<pre><code class="language-bash probe=30 variant=native-sim native-sim-rust">sudo apt-get install -y --no-install-recommends git cmake ninja-build gperf \
     device-tree-compiler python3-pip python3-venv xz-utils file wget
 pip3 install --user west
 export PATH="$HOME/.local/bin:$PATH"
 </code></pre>
 <p>Provision the board and RMW (the Zephyr SDK, zenoh-pico, mbedtls):</p>
-<pre><code class="language-bash probe=32 variant=native-sim">nros setup zephyr --rmw zenoh
+<pre><code class="language-bash probe=32 variant=native-sim native-sim-rust">nros setup zephyr --rmw zenoh
 export ZEPHYR_SDK_INSTALL_DIR="$(nros sdk-path zephyr-sdk --require)"
 </code></pre>
 <p>A west workspace that pins Zephyr 3.7 and fetches only the modules nano-ros’s
 boards build with (<code>nros setup zephyr</code> lists them; <code>import: true</code> would fetch
 every vendor HAL, ~2.5 GB more):</p>
-<pre><code class="language-bash probe=34 variant=native-sim">mkdir -p my_zephyr_ws/manifest &amp;&amp; cd my_zephyr_ws
+<pre><code class="language-bash probe=34 variant=native-sim native-sim-rust">mkdir -p my_zephyr_ws/manifest &amp;&amp; cd my_zephyr_ws
 cat &gt; manifest/west.yml &lt;&lt;'WEST_YML'
 manifest:
   remotes:
@@ -421,11 +421,11 @@ west build -b native_sim/native/64 my_app -- -DZEPHYR_EXTRA_MODULES="$(nros sdk-
 <p>Run it against a router on the host’s loopback — <code>native_sim</code> uses the host’s
 sockets, and the image dials <code>tcp/127.0.0.1:7447</code> unless <code>system.toml</code> states a
 <code>locator</code>:</p>
-<pre><code class="language-bash probe=60 probe-run=60 probe-keep variant=native-sim">source /opt/ros/humble/setup.bash
+<pre><code class="language-bash probe=60 probe-run=60 probe-keep variant=native-sim native-sim-rust">source /opt/ros/humble/setup.bash
 ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:7447"];scouting/multicast/enabled=false' \
     ros2 run rmw_zenoh_cpp rmw_zenohd
 </code></pre>
-<pre><code class="language-text probe-expect=60 variant=native-sim">Started Zenoh router with id
+<pre><code class="language-text probe-expect=60 variant=native-sim native-sim-rust">Started Zenoh router with id
 </code></pre>
 <pre><code class="language-bash probe=70 probe-run=120 variant=native-sim">./build/zephyr/zephyr.exe
 </code></pre>
@@ -434,35 +434,33 @@ Publishing: 'Hello World: 2'
 ...
 </code></pre>
 <p><strong>The same talker in Rust.</strong> A Rust image on Zephyr is a workspace: a node
-package plus a Zephyr entry, which <code>nros new entry</code> scaffolds. This road
-does not build outside a nano-ros checkout yet: the scaffolded entry never
-gets the selection package its <code>nros::main!</code> needs
-(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/2152-zephyr-entry-scaffold-no-selection.md">issue 2152</a>).
-The steps are (see
+package plus a Zephyr entry, which <code>nros new entry</code> scaffolds (see
 <a href="#the-entry-nros-new-entry">The entry: <code>nros new entry</code></a>). From the west
-workspace above, beside it:</p>
-<p>zephyr-lang-rust needs two things the C app does not: clang and libclang, for the
-bindings it generates from Zephyr’s headers, and the Rust target the Zephyr
-board implies (<code>x86_64-unknown-none</code> for native_sim/64). <code>nros setup zephyr</code>
-installs neither yet
-(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/2151-zephyr-rust-target-not-provisioned.md">issue 2151</a>):</p>
-<pre><code class="language-bash">sudo apt-get install -y --no-install-recommends clang libclang-dev
-. "$HOME/.cargo/env"     # the rustup `nros setup` installed (Installation)
-rustup target add x86_64-unknown-none
+workspace above, beside it.</p>
+<p>zephyr-lang-rust needs three things the C app does not: the Rust target the
+Zephyr board implies (<code>x86_64-unknown-none</code> for native_sim/64 on an x86_64
+host), rustup’s <code>clippy</code> (it lints every Rust app as part of the build), and
+clang and libclang, for the bindings it generates from Zephyr’s headers.
+<code>nros setup</code> in the workspace installs the target and <code>clippy</code>, and with
+<code>--sudo</code> the two packages (without it, it prints the install command).
+<code>nros build</code> refuses a Rust Zephyr image that lacks any of them, naming the
+command.</p>
+<pre><code class="language-bash probe=40 variant=native-sim-rust">. "$HOME/.cargo/env"     # the cargo `nros setup` installed (Installation)
 export NROS_ZEPHYR_WORKSPACE="$PWD"
 cd ..
 nros new rs_ws --workspace --lang rust --rmw zenoh
 cd rs_ws
 nros new entry zephyr_entry --platform zephyr
+nros setup --sudo
 nros sync
 nros build demo_bringup:zephyr_entry
 </code></pre>
 <p>With the router above running, run the image <code>nros build</code> wrote (it prints
 this path):</p>
-<pre><code class="language-bash">./build/zephyr-zenoh/demo_bringup__zephyr_entry_west/zephyr/zephyr.exe
+<pre><code class="language-bash probe=70 probe-run=120 variant=native-sim-rust">./build/zephyr-zenoh/demo_bringup__zephyr_entry_west/zephyr/zephyr.exe
 </code></pre>
 <p>The workspace’s talker and listener run in the one image:</p>
-<pre><code class="language-text">Publishing: 0
+<pre><code class="language-text probe-expect=70 variant=native-sim-rust">Publishing: 0
 I heard: 0
 </code></pre>
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
