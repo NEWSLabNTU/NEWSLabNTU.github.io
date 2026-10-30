@@ -1,5 +1,7 @@
 var NAVTREEINDEX4 =
 {
+"classrclcpp_1_1detail_1_1timer__takes__info.html":[14,0,0,0,28],
+"classrclcpp_1_1detail_1_1timer__takes__info.html#a9646531131acf45a70a492e73f84eeea":[13,0,0,1,28,0],
 "classrclcpp_1_1detail_1_1timer__takes__info.html#a9646531131acf45a70a492e73f84eeea":[14,0,0,0,28,0],
 "classrclcpp_1_1executors_1_1MultiThreadedExecutorRefused.html":[13,0,0,2,0],
 "classrclcpp_1_1executors_1_1MultiThreadedExecutorRefused.html":[14,0,0,1,0],
@@ -247,7 +249,5 @@ var NAVTREEINDEX4 =
 "error_codes.html#autotoc_md36":[11,7,4],
 "executor_8hpp.html":[12,5,0],
 "files.html":[15,0],
-"fixed__sequence_8hpp.html":[12,9,1],
-"fixed__string_8hpp.html":[12,9,2],
-"functions.html":[14,3,0]
+"fixed__sequence_8hpp.html":[12,9,1]
 };

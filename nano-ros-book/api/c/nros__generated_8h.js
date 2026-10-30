@@ -525,6 +525,7 @@ var nros__generated_8h =
     [ "rclc_executor_get_client_names_and_types_by_node", "nros__generated_8h.html#a2f767077e8145ecf0fbc52615117cb91", null ],
     [ "rclc_executor_get_handle_count", "nros__generated_8h.html#aa7f22e94f526bd4ddbf6920c95d09661", null ],
     [ "rclc_executor_get_level", "nros__generated_8h.html#aef6e034b3510a392584af39f8ac20583", null ],
+    [ "rclc_executor_get_next_deadline_ns", "nros__generated_8h.html#aa6a86d10d66d3e962b21bd72fe91fa87", null ],
     [ "rclc_executor_get_node_names", "nros__generated_8h.html#a831d640cb1f838f01d5221c1ddbbb31c", null ],
     [ "rclc_executor_get_publisher_names_and_types_by_node", "nros__generated_8h.html#ae16f02b8a3e409f94bced76ec06444b9", null ],
     [ "rclc_executor_get_publishers_info_by_topic", "nros__generated_8h.html#a320502f36c897102c57f2f64f358ddc0", null ],

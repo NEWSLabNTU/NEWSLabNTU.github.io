@@ -26,6 +26,7 @@ var classrclcpp_1_1Executor =
     [ "get_topic_names_and_types", "classrclcpp_1_1Executor.html#a552732cb2891fa6b46d77cb168ed5a83", null ],
     [ "handle", "classrclcpp_1_1Executor.html#a5a2c78f04281c1952b406819c059b08c", null ],
     [ "is_spinning", "classrclcpp_1_1Executor.html#ad34073f58dfc2cb3eb2e323a6ffa9cb4", null ],
+    [ "next_deadline_us", "classrclcpp_1_1Executor.html#af7633ef974da14b9abccbee973853b98", null ],
     [ "node_builder", "classrclcpp_1_1Executor.html#a4e72f2006d2a9b493da09512cfa12514", null ],
     [ "ok", "classrclcpp_1_1Executor.html#a16e478067bb51819598f67d1f474e98c", null ],
     [ "operator=", "classrclcpp_1_1Executor.html#a3067258627221cb3c0da562194575f1a", null ],
