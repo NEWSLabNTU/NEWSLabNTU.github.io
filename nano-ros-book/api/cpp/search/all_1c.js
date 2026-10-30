@@ -9,6 +9,5 @@ var searchData=
   ['weakptr_6',['WeakPtr',['../classrclcpp_1_1Node.html#a3fd3e53f87bcc308185287e2a2a1496b',1,'rclcpp::Node']]],
   ['wrap_7',['wrap',['../structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__REF_01_4.html#aa688a6df039adbc7acb7314d9413e5c8',1,'rclcpp::detail::subscription_callback_adapter&lt; M, F, SUB_SHAPE_REF &gt;::wrap()'],['../structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__NONE_01_4.html#adb4f33612d928c77514a30a0bac17096',1,'rclcpp::detail::subscription_callback_adapter&lt; M, F, SUB_SHAPE_NONE &gt;::wrap()']]],
   ['wrappedresult_8',['WrappedResult',['../classrclcpp__action_1_1ClientGoalHandle.html#ac66b315e41792b2a4c8edb9577149ec1',1,'rclcpp_action::ClientGoalHandle::WrappedResult'],['../classrclcpp__action_1_1Client.html#ac960663fd6ceab3081e64b109d5c2e2f',1,'rclcpp_action::Client::WrappedResult'],['../rclcpp__action_2client_8hpp.html#a3b7fda9af92f6b4480bb7ba27fbc1026',1,'WrappedResult:&#160;client.hpp']]],
-  ['write_20a_20talker_9',['4. Write a Talker',['../getting_started.html#autotoc_md9',1,'']]],
-  ['writer_5fguid_10',['writer_guid',['../structrmw__request__id__t.html#aba6c70c897146c4e88410c13e54d8af7',1,'rmw_request_id_t']]]
+  ['write_20a_20talker_9',['4. Write a Talker',['../getting_started.html#autotoc_md9',1,'']]]
 ];

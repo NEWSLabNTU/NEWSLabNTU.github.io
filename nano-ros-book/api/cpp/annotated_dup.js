@@ -103,7 +103,6 @@ var annotated_dup =
     [ "GuardCondition", "classGuardCondition.html", "classGuardCondition" ],
     [ "nros_cpp_qos_t", "structnros__cpp__qos__t.html", "structnros__cpp__qos__t" ],
     [ "rmw_qos_profile_s", "structrmw__qos__profile__s.html", "structrmw__qos__profile__s" ],
-    [ "rmw_request_id_t", "structrmw__request__id__t.html", "structrmw__request__id__t" ],
     [ "rmw_time_s", "structrmw__time__s.html", "structrmw__time__s" ],
     [ "Timer", "classTimer.html", "classTimer" ]
 ];

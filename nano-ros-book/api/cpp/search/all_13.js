@@ -82,7 +82,6 @@ var searchData=
   ['nros_5fcpp_5ftime_5fns_79',['nros_cpp_time_ns',['../future_8hpp.html#abf4799c6d4d352c4d93e57fa83fdb902',1,'nros_cpp_time_ns(void):&#160;future.hpp'],['../stream_8hpp.html#abf4799c6d4d352c4d93e57fa83fdb902',1,'nros_cpp_time_ns(void):&#160;stream.hpp']]],
   ['nros_5fnode_80',['nros_node',['../classrclcpp_1_1Node.html#a772daff9ea07875f29b2743ad86f1855',1,'rclcpp::Node::nros_node()'],['../classrclcpp_1_1Node.html#ab0b6881d1912a4936e2029363a8722f0',1,'rclcpp::Node::nros_node() const']]],
   ['nros_5fnodiscard_81',['NROS_NODISCARD',['../result_8hpp.html#a62112967a4dd6f971c07acf9ded20a9a',1,'result.hpp']]],
-  ['nros_5frmw_5frequest_5fid_5ft_5fdefined_82',['NROS_RMW_REQUEST_ID_T_DEFINED',['../service_8hpp.html#a6efb588cb0ffebb022a13e8f31e16ccc',1,'service.hpp']]],
-  ['nros_5fvoid_5f_83',['nros_void_',['../structrclcpp_1_1detail_1_1nros__void__.html',1,'rclcpp::detail']]],
-  ['nsec_84',['nsec',['../structrmw__time__s.html#a5725c44a7dc9f886101837ed1eedaae2',1,'rmw_time_s']]]
+  ['nros_5fvoid_5f_82',['nros_void_',['../structrclcpp_1_1detail_1_1nros__void__.html',1,'rclcpp::detail']]],
+  ['nsec_83',['nsec',['../structrmw__time__s.html#a5725c44a7dc9f886101837ed1eedaae2',1,'rmw_time_s']]]
 ];

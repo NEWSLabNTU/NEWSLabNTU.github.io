@@ -71,7 +71,6 @@ var hierarchy =
     [ "rclcpp::ResultOf&lt; T &gt;", "classrclcpp_1_1ResultOf.html", null ],
     [ "rclcpp::ResultOf&lt; void &gt;", "classrclcpp_1_1ResultOf_3_01void_01_4.html", null ],
     [ "rmw_qos_profile_s", "structrmw__qos__profile__s.html", null ],
-    [ "rmw_request_id_t", "structrmw__request__id__t.html", null ],
     [ "rmw_time_s", "structrmw__time__s.html", null ],
     [ "rclcpp_action::SendGoalOptions", "structrclcpp__action_1_1SendGoalOptions.html", null ],
     [ "rclcpp_action::Server&lt; A &gt;", "classrclcpp__action_1_1Server.html", null ],
