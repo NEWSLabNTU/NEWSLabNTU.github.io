@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-ab769bc2.js";
+            window.path_to_searchindex_js = "searchindex-1d3399b4.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-191e012a.js"></script>
@@ -21970,6 +21970,40 @@ arrives uses both.</li>
 (Embassy, a superloop) that is the same task; across tasks, the executor is
 the shared resource the host already guards for spinning.</li>
 </ul>
+<h3 id="through-nrossetup"><a class="header" href="#through-nrossetup">Through <code>nros::setup!</code></a></h3>
+<p>A host that builds its image from <code>system.toml</code> with <code>nros::setup!()</code> (the
+Tier 0 road, phase-520) does not name handles at all. It writes
+<code>dispatch = "deferred"</code> on the component:</p>
+<pre><code class="language-toml">[[component]]
+pkg = "my_listener"
+class = "my_listener::Listener"
+name = "listener"
+dispatch = "deferred"
+</code></pre>
+<p>and the emitted <code>nros_setup</code> installs that component deferred — the
+executor’s <code>callback_mark()</code> before its <code>register</code>, <code>set_deferred_since(mark, true)</code> after, so every callback the component registered is deferred and
+nothing else is (timers stay inline; they cannot be deferred). The host gets
+the drain beside <code>nros_setup</code>:</p>
+<pre class="playground"><code class="language-rust">nros::setup!();
+
+fn main() {
+    nros_boot(|rt| {
+        nros_setup(&amp;mut *rt)?;
+        while !nros_stop_requested() {
+            let _ = rt.spin_once(10);       // queues the listener's callback
+            let _ran = nros_run_deferred(&amp;mut *rt); // runs it, here
+        }
+        Ok(())
+    })
+    .expect("boot");
+}</code></pre>
+<p><code>nros_has_deferred(rt)</code> polls the queue, <code>nros_set_defer_notifier(rt, f, ctx)</code>
+installs the notifier above for a host that pends a task per callback, and
+<code>NROS_DEFERRED_COMPONENTS</code> lists what was deferred. <code>nros::main!</code> ignores the
+key: the board’s loop is the only task there, so a deferral would queue
+callbacks nothing drains (RTIC’s queue is issue 2161). The worked example is
+<code>examples/linux/rust/listener-host-loop</code>, whose cell asserts both the
+deliveries and the drain’s marker line.</p>
 <h2 id="the-__nros_node_pkg_dispatch_strategy-abi-symbol"><a class="header" href="#the-__nros_node_pkg_dispatch_strategy-abi-symbol">The <code>__nros_node_&lt;pkg&gt;_dispatch_strategy()</code> ABI symbol</a></h2>
 <p>The <code>nros::node!()</code> macro emits, per Node pkg:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
