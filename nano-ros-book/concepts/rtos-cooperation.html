@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-5a253f94.js";
+            window.path_to_searchindex_js = "../searchindex-0a5ddc1d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-191e012a.js"></script>
@@ -179,9 +179,14 @@
                     <main>
                         <h1 id="rtos-cooperation"><a class="header" href="#rtos-cooperation">RTOS Cooperation</a></h1>
 <p>nano-ros runs on platforms that span pure cooperative bare-metal
-through multi-task preemptive RTOS to fully async / Future-driven
-runtimes. The executor’s spin loop has to cooperate with each of
-these without imposing a single execution model on all of them.</p>
+through multi-task preemptive RTOS. The executor’s spin loop has to
+cooperate with each of these without imposing a single execution model
+on all of them.</p>
+<p>Every shape on this page keeps nano-ros’s real-time promise: nano-ros
+decides which callback runs and at what priority. A loop owned by a
+foreign async runtime or event loop (tokio, Embassy, Qt, GLib) cannot
+keep it, so it is not supported
+(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0113-rt-unified-wait.md">RFC-0113</a>).</p>
 <p>This page maps the common RTOS / runtime execution profiles to the
 configuration knobs the executor exposes. New apps pick a profile
 that matches their target’s scheduling discipline; the knobs
@@ -195,9 +200,8 @@ translate that choice into bounded behaviour from <code>drive_io</code>.</p>
 <tbody>
 <tr><td><strong>Cooperative single-task</strong></td><td>One task / thread does all ROS work. No preemption from other tasks (there are none, or they’re all lower priority). Yielding happens at task boundaries.</td><td>Bare-metal MPS2-AN385, single FreeRTOS task, single Zephyr thread</td></tr>
 <tr><td><strong>Preemptive priority</strong></td><td>ROS task runs at a fixed priority. Higher-priority tasks preempt mid-call by the kernel. ROS-internal entities (subs, timers, services, GCs) all share that priority — they don’t preempt each other.</td><td>Typical FreeRTOS / ThreadX / Zephyr deployment with worker tasks</td></tr>
-<tr><td><strong>WCET-bounded real-time</strong></td><td>Each “task” has a provable worst-case execution time. Tasks are dispatched directly from interrupts; no spin loops in the hot path.</td><td>RTIC, Embassy, avionics WCET-validated code</td></tr>
+<tr><td><strong>WCET-bounded real-time</strong></td><td>Each “task” has a provable worst-case execution time. Tasks are dispatched directly from interrupts; no spin loops in the hot path.</td><td>RTIC, avionics WCET-validated code</td></tr>
 <tr><td><strong>Time-triggered cyclic</strong></td><td>Fixed schedule. Each cycle does a fixed amount of work in a fixed time slot; ROS gets a fraction of the cycle and must yield.</td><td>DO-178C / IEC 61508 controller frames</td></tr>
-<tr><td><strong>Async runtime</strong></td><td>Futures registered with wakers; reactor drives. No spin loop visible to user code.</td><td>tokio, Embassy futures, custom async runtimes</td></tr>
 </tbody>
 </table>
 </div>
@@ -208,10 +212,8 @@ returning. After <code>drive_io</code> returns, the executor processes any
 expired timers and triggered guard conditions. If 10 messages
 arrived during the wait, all 10 callbacks fire in a single
 <code>spin_once</code>, then timer / GC dispatch happens once afterwards.</p>
-<p>This is the right default for <strong>cooperative single-task</strong> apps and
-for <strong>async-runtime</strong> apps using <code>spin_async</code> /
-<code>spin_async_with_sleep</code> (see <a href="#async-runtime">Async runtime</a>). Both want
-throughput; neither benefits from per-callback scheduling
+<p>This is the right default for <strong>cooperative single-task</strong> apps, which
+want throughput and do not benefit from per-callback scheduling
 opportunities.</p>
 <p>For the other three models, the default has trade-offs the
 configuration knobs address.</p>
@@ -262,21 +264,11 @@ WCET, not the sum across all ready callbacks.</p>
 (e.g., a single callback is slow), the remaining bound is that one
 callback’s WCET — split the slow callback, or move it to its own
 tier/task (see <a href="../internals/scheduling-models.html">Scheduling Models</a>).</p>
-<h3 id="wcet-bounded-real-time-rtic--embassy"><a class="header" href="#wcet-bounded-real-time-rtic--embassy">WCET-bounded real-time (RTIC / Embassy)</a></h3>
-<p>Don’t use the spin loop. Use the async path — a buffered subscription
-handle whose <code>recv()</code> is an async fn with waker integration:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let mut sub = node.create_polling_subscription::&lt;MyMsg&gt;("/topic")?;
-loop {
-    let msg = sub.recv().await?;        // suspends; waker integration
-    handle(msg);
-}
-<span class="boring">}</span></code></pre>
-<p>The async path doesn’t go through <code>drive_io</code> at all. Subscriptions
-register a <code>Waker</code>; the backend’s RX path wakes the waker; the
-async runtime schedules the receiving task. Per-task WCET analysis
-applies to each <code>recv().await</code> continuation, not to a spin loop.</p>
+<h3 id="wcet-bounded-real-time-rtic"><a class="header" href="#wcet-bounded-real-time-rtic">WCET-bounded real-time (RTIC)</a></h3>
+<p>Don’t hand-write the spin loop. <code>nros::main!</code> generates the RTIC app: each
+callback becomes an RTIC task at the priority nano-ros derives for it, and
+the executor’s deferred-dispatch queue hands ready callbacks to those tasks.
+Per-task WCET analysis applies to each RTIC task, not to a spin loop.</p>
 <h3 id="time-triggered-cyclic"><a class="header" href="#time-triggered-cyclic">Time-triggered cyclic</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -288,40 +280,6 @@ returns control when the slot expires regardless of pending work.
 Pending work resumes next cycle. (There is no finer-grained
 per-callback budget knob today — if a single callback can overrun the
 slot, that callback’s WCET is your design constraint.)</p>
-<h3 id="async-runtime"><a class="header" href="#async-runtime">Async runtime</a></h3>
-<p>Each poll runs one non-blocking <code>spin_once(Duration::ZERO)</code> pass. It
-never parks the runtime’s thread, so sibling futures on a
-single-threaded runtime are not held up by it (issue 2145). After a pass
-that did no work, the task sleeps until it is woken by either:</p>
-<ul>
-<li><strong>an arrival.</strong> The task’s <code>Waker</code> is registered with the executor’s
-readiness path, the same one <code>set_ready_notifier</code> uses (issue 2144).</li>
-<li><strong>the next deadline.</strong> This needs the runtime’s sleep, so it applies
-only to <code>spin_async_with_sleep</code>. The deadline is the next timer or
-backend keepalive (<code>next_deadline_us</code>, issue 2143).</li>
-</ul>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// tokio
-executor.spin_async_with_sleep(tokio::time::sleep).await
-// Embassy
-executor
-    .spin_async_with_sleep(|d| embassy_time::Timer::after_micros(d.as_micros() as u64))
-    .await
-<span class="boring">}</span></code></pre>
-<p>Two cases still wake themselves on every poll, which keeps one core at
-100 %:</p>
-<ul>
-<li><strong>A poll-only backend</strong> (XRCE, uORB’s polling build, a bare-metal
-smoltcp session). It learns of an arrival only inside a pass, so
-<code>ready_notifier_supported()</code> is <code>false</code>.</li>
-<li><strong>Plain <code>spin_async()</code> with any deadline pending.</strong> It has no timer to
-sleep on. zenoh always has one, its keepalive, so on zenoh use
-<code>spin_async_with_sleep</code>.</li>
-</ul>
-<p>Where neither variant can sleep and idle CPU matters, drive the executor
-from a blocking task with <code>spin</code> / <code>spin_once(timeout)</code> and hand results
-to async code over a channel.</p>
 <h2 id="trade-offs-at-a-glance"><a class="header" href="#trade-offs-at-a-glance">Trade-offs at a glance</a></h2>
 <div class="table-wrapper">
 <table>
@@ -332,7 +290,6 @@ to async code over a channel.</p>
 <tr><td>drain-all (default)</td><td>High</td><td>Bounded by ALL ready callbacks’ total WCET</td><td>Poor under load</td><td>Smallest</td></tr>
 <tr><td><code>max_callbacks(1)</code></td><td>Slightly lower (more spin loop iterations)</td><td>Bounded by ONE callback’s WCET</td><td>Good</td><td>Same — the cap is just an integer</td></tr>
 <tr><td><code>timeout_ms(N)</code> per cycle</td><td>Lower</td><td>Bounded by N ms wall clock + one callback’s WCET</td><td>Good if N tight</td><td>One clock read per iteration</td></tr>
-<tr><td>async / <code>spin_async_with_sleep</code></td><td>High; idle costs nothing where the backend wakes on arrival (100 % of a core on a poll-only backend, issue 2145)</td><td>One non-blocking pass per poll; never parks the runtime thread</td><td>Cooperative — futures yield voluntarily</td><td>Async runtime cost</td></tr>
 </tbody>
 </table>
 </div>

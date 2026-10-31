@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-5a253f94.js";
+            window.path_to_searchindex_js = "searchindex-0a5ddc1d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-191e012a.js"></script>
@@ -11197,7 +11197,7 @@ sub.on_message_lost(|status| {
     log::warn!("dropped {} samples", status.total_count_change);
 })?;
 <span class="boring">}</span></code></pre>
-<p>Async equivalents (<code>spin_async</code> / Embassy / tokio):</p>
+<p>Async equivalents, which complete only while the executor spins elsewhere:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>let status = sub.next_liveliness_change().await?;
@@ -12388,8 +12388,8 @@ the implementation is deferred.</p>
 <ul>
 <li><a href="#dispatch-strategy">Dispatch Strategy (internals)</a> —
 the trichotomy and the per-Node-vs-per-callback rationale.</li>
-<li><a href="#embassy-integration">Embassy Integration</a> — the async sibling
-of this chapter.</li>
+<li><a href="#embassy-integration">Embassy Integration</a> — why Embassy, unlike
+RTIC, is not supported.</li>
 <li><a href="#role-reference-node-pkgs-bringup-pkgs-and-images">Role reference</a> —
 the 3-pkg-role taxonomy in full.</li>
 <li><a href="#rtic-arm-cortex-m">Scheduling Models</a> —
@@ -12397,97 +12397,27 @@ the RTIC scheduling model in real-time-systems terms.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="embassy-integration"><a class="header" href="#embassy-integration">Embassy Integration</a></h1>
-<blockquote>
-<p><strong>Embassy is not an <code>nros::main!</code> framework.</strong> It was one, as an
-out-of-tree seam: an <code>EmbassyBoardEntry</code> trait and an <code>nros::main!()</code> branch
-a board selected with <code>[package.metadata.nros.board] framework = "embassy"</code>.
-No in-tree board had used it since phase-337 W7.a deleted
-<code>nros-board-embassy-stm32f4</code>, no fixture or CI cell expanded it, and the code
-it emitted called board methods no trait declared. Issue 2134 retired it
-under RFC-0112 D3, which admits a framework to <code>nros::main!</code> codegen only
-with an in-tree board and a CI cell. A board that still declares
-<code>framework = "embassy"</code> is refused at expansion with a pointer to this page.</p>
-</blockquote>
-<p><a href="https://embassy.dev">Embassy</a> is an async/await framework for embedded Rust.
-It owns <code>fn main</code>, the spawner and a cooperative executor that polls futures
-from one context per priority. nano-ros runs under it the way it runs under
-any other host that owns the loop (RFC-0112’s Tier 0, “a host drives it”):
-your <code>#[embassy_executor::main]</code> opens the nano-ros <code>Executor</code>, creates the
-nodes, and spawns one task that spins it.</p>
-<h2 id="the-shape"><a class="header" href="#the-shape">The shape</a></h2>
-<pre class="playground"><code class="language-rust">#![no_std]
-#![no_main]
-
-use core::time::Duration;
-use embassy_executor::Spawner;
-use embassy_time::Timer;
-use nros::prelude::*;
-use std_msgs::msg::Int32;
-
-#[embassy_executor::task]
-async fn spin_task(mut executor: Executor&lt;'static&gt;) -&gt; ! {
-    loop {
-        // Never blocks: dispatch whatever is ready, then yield.
-        let _ = executor.spin_some(Duration::ZERO);
-        Timer::after_millis(1).await;
-    }
-}
-
-#[embassy_executor::main]
-async fn main(spawner: Spawner) {
-    // Board bring-up (clocks, network, ...) and backend registration are
-    // yours: call your RMW backend's `register()` here, as an embedded
-    // board's boot path does.
-    let config = ExecutorConfig::new("tcp/192.168.1.1:7447").node_name("listener");
-    let mut executor = Executor::open(&amp;config).expect("open executor");
-    {
-        let mut node = executor.create_node("listener").expect("node");
-        node.create_subscription::&lt;Int32, _&gt;("/chatter", |msg: &amp;Int32| {
-            let _ = msg.data; // runs inside `spin_some`, on the spin task
-        })
-        .expect("subscription");
-    }
-    spawner.spawn(spin_task(executor)).unwrap();
-}</code></pre>
-<p>Adapt the locator and the backend registration to your board; the
-<a href="#worked-example--stm32f4-out-of-tree">STM32F4 out-of-tree example</a> shows the
-board-side half.</p>
-<h2 id="what-this-does-not-give-you-yet"><a class="header" href="#what-this-does-not-give-you-yet">What this does not give you yet</a></h2>
+<p><strong>Embassy is not supported.</strong> nano-ros supports a way of running only if it
+can keep its real-time promise there: nano-ros decides which callback runs
+next and at what priority, so it can state when a callback runs, how late it
+can be, and that a low-priority callback never holds up a high-priority one
+(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0113-rt-unified-wait.md">RFC-0113</a>).</p>
+<p>Under Embassy the executor would run inside an Embassy task, and Embassy’s
+scheduler, configured by the application, would decide when that task and
+every callback in it run. nano-ros cannot analyse that schedule, so it cannot
+make the promise, and a supported shape whose timing nobody can state is a
+promise nobody can check.</p>
+<p>What this page used to describe is gone with it: the hand-driven spin task,
+<code>Executor::spin_async</code> / <code>spin_async_with_sleep</code>, the readiness notifier and
+the host-owned <code>nros::setup!</code> assembly (RFC-0113 D7, D10).</p>
+<h2 id="what-to-use-instead"><a class="header" href="#what-to-use-instead">What to use instead</a></h2>
 <ul>
-<li><strong>Sleeping until there is work.</strong> The loop polls every millisecond when
-idle. The timer half exists: <code>Executor::next_deadline_us()</code> says how long
-until the next timer or backend deadline, <code>None</code> when nothing is scheduled
-(issue 2143). The “work arrived” half is <code>Executor::set_ready_notifier()</code>
-(issue 2144), but it needs <code>alloc</code> and a backend with a live async wake
-(<code>ready_notifier_supported()</code>), and no example wires it to an Embassy
-signal yet. With both, the task can wait on
-<code>select(notified, Timer::after_micros(next_deadline))</code> and sleep.
-<code>Executor::spin_async_with_sleep(|d| Timer::after_micros(d.as_micros() as u64))</code>
-is that loop already written (issue 2145). It never blocks the Embassy
-thread inside a poll, and it sleeps until an arrival or the next deadline.
-Plain <code>spin_async()</code> has no timer, so with any deadline pending it wakes
-itself on every poll and never lets the Embassy executor sleep. On a
-poll-only backend both variants busy-loop.</li>
-<li><strong>Deferred dispatch across tasks.</strong> Callbacks run inline, inside
-<code>spin_some</code>, unless you mark them with <code>Executor::set_deferred</code>; then the
-spin queues them and calls your <code>set_defer_notifier</code> function, and
-<code>run_deferred()</code> runs them (see
-<a href="#deferring-callbacks-without-the-macros">Deferring callbacks without the macros</a>).
-Both calls need <code>&amp;mut Executor</code>, so with the executor moved into the spin
-task the drain runs in that task too. To run work in ANOTHER task, keep
-callbacks short and have them signal an <code>embassy_sync</code> channel that task
-drains.</li>
-<li><strong><code>system.toml</code> assembly.</strong> Nodes are created by hand. Issue 2150 splits the
-model-driven assembly out of <code>nros::main!</code> so a host-driven entry can reuse
-it.</li>
-</ul>
-<h2 id="see-also-6"><a class="header" href="#see-also-6">See also</a></h2>
-<ul>
-<li><a href="#dispatch-strategy">Dispatch Strategy (internals)</a></li>
-<li><a href="#rtic-integration">RTIC Integration</a> — the framework that IS an
-<code>nros::main!</code> entry shape, with an in-tree board.</li>
-<li>RFC-0112 (<code>docs/design/0112-framework-support-tiers.md</code>) — why frameworks
-are integrated through one host-driven contract.</li>
+<li><strong>An RTOS or bare-metal board through <code>nros::main!</code>.</strong> Tiers become OS
+threads (or the bare-metal loop) at priorities nano-ros derives from your
+launch contracts.</li>
+<li><strong>RTIC</strong> (<a href="#rtic-integration">RTIC Integration</a>). RTIC’s scheduling is
+analysable and <code>nros::main!</code> generates the task mapping, so the promise
+holds there.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="troubleshooting-3"><a class="header" href="#troubleshooting-3">Troubleshooting</a></h1>
@@ -13863,23 +13793,14 @@ says whether the backend reported metadata for that sample at all.</p>
 poll inside a real-time loop. Callback dispatch is great for
 event-driven services but adds indirection that real-time engineers
 have to bound by hand. Offering both means the application picks.</p>
-<h3 id="3-async-pubsubserviceaction"><a class="header" href="#3-async-pubsubserviceaction">3. Async pub/sub/service/action</a></h3>
-<p><code>rclcpp</code> has no real <code>async/await</code>. <code>rclrs</code> 0.7+ added async but it
-sits next to the synchronous executor, not in it. <code>rclc</code> has none.</p>
-<p>nano-ros has it as a first-class path: <code>Executor::spin_async()</code> drives
-the executor from inside a <code>Future</code>. Each poll is one non-blocking
-<code>spin_once(Duration::ZERO)</code> pass, so it never blocks the runtime’s thread.
-With <code>spin_async_with_sleep(&lt;runtime sleep&gt;)</code>, an idle executor sleeps until
-an arrival or its next deadline. A poll-only backend still keeps a core busy;
-see its rustdoc and issue 2145. The handles are async too:
-<code>Subscription::recv().await</code>, <code>Client::call().await</code>,
-<code>ActionClient::send_goal().await</code>, etc. Runs on tokio (POSIX),
-Embassy (FreeRTOS / RTIC), or any external <code>Future</code>-driver.</p>
-<p><strong>Why.</strong> Robotic control loops are stitched together from many
-concurrent waits — sensor data, service replies, action feedback,
-parameter updates. Async lets you write them as one straight-line
-function instead of hand-rolling state machines on top of a
-poll-based executor.</p>
+<h3 id="3-no-foreign-async-runtime-on-purpose"><a class="header" href="#3-no-foreign-async-runtime-on-purpose">3. No foreign async runtime, on purpose</a></h3>
+<p><code>rclrs</code> 0.7+ added <code>spin_async</code> beside its synchronous executor. nano-ros
+does not offer one. A future polled by tokio or Embassy runs when THAT
+scheduler decides, so nano-ros could not state when a callback runs or at
+what priority, and the real-time promise is the first thing nano-ros offers
+(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0113-rt-unified-wait.md">RFC-0113</a>).
+Concurrent waits are written as callbacks on tiers instead, each tier an OS
+thread at a priority nano-ros derives.</p>
 <h3 id="4-heap-is-optional"><a class="header" href="#4-heap-is-optional">4. Heap is optional</a></h3>
 <p>ROS 2 RMW implementations all assume <code>std</code> + a heap. Even rclrs’s
 <code>no_std</code> story is “soon”.</p>
@@ -14289,7 +14210,7 @@ transport pattern via <code>nros_platform_*</code> C ABI (see
 <li>XRCE Agent deployment stays the same — point nano-ros’s XRCE
 backend at the same Agent.</li>
 </ul>
-<h2 id="see-also-7"><a class="header" href="#see-also-7">See also</a></h2>
+<h2 id="see-also-6"><a class="header" href="#see-also-6">See also</a></h2>
 <ul>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/research/build-config-deploy-comparison.md">Build / config / deploy workflow comparison</a>
 — historical comparison of the three workflow axes vs micro-ROS, Zenoh-pico,
@@ -14900,7 +14821,7 @@ std or alloc.</p>
 <tr><td>nros-core</td><td>Time, Duration, Clock (atomic fallback), lifecycle, logger, error types, action types</td><td>(none)</td><td><code>Clock::now()</code> via <code>SystemTime</code>, <code>std::error::Error</code> impls</td></tr>
 <tr><td>nros-rmw</td><td>All traits, QoS, sync primitives, safety/E2E protocol</td><td><code>handle_request_boxed()</code> (Box&lt;Reply&gt;)</td><td>(none)</td></tr>
 <tr><td>nros-params</td><td><code>ParameterServer</code>, <code>ParameterValue</code>, all parameter types (heapless)</td><td>(none)</td><td><code>ParameterVariant</code> impls for <code>std::string::String</code>, <code>std::vec::Vec</code></td></tr>
-<tr><td>nros-node</td><td><code>Executor::open()</code>, <code>create_node()</code>, <code>spin_once()</code>, <code>spin_async()</code>, <code>Promise</code>, pub/sub/service/action, timers (fn pointer callbacks)</td><td>Boxed timer callbacks, <code>handle_request_boxed()</code>, parameter services</td><td><code>spin()</code>, <code>spin_period()</code>, <code>ExecutorConfig::from_env()</code>, halt flag</td></tr>
+<tr><td>nros-node</td><td><code>Executor::open()</code>, <code>create_node()</code>, <code>spin_once()</code>, <code>Promise</code>, pub/sub/service/action, timers (fn pointer callbacks)</td><td>Boxed timer callbacks, <code>handle_request_boxed()</code>, parameter services</td><td><code>spin()</code>, <code>spin_period()</code>, <code>ExecutorConfig::from_env()</code>, halt flag</td></tr>
 <tr><td>nros</td><td>Re-exports from above</td><td>(same as above)</td><td><code>SpinPeriodResult</code> re-export</td></tr>
 </tbody>
 </table>
@@ -14972,13 +14893,11 @@ exists for byte-level use).</li>
 and completing goals. Action clients keep the L1 <code>Promise</code>
 shape for the same reason as service clients.</li>
 </ul>
-<p><strong>Async:</strong></p>
+<p><strong>Promises:</strong></p>
 <ul>
-<li><code>executor.spin_async()</code> / <code>spin_async_with_sleep(sleep)</code> – async spin loop (one non-blocking pass per poll, never blocks the runtime thread; sleeps on arrivals, and with the runtime’s <code>sleep</code> on the next deadline too — issue 2145)</li>
 <li><code>Promise&lt;'a, T, Cli&gt;</code> – allocation-free promise, borrows client’s reply slot</li>
-<li><code>Promise::take()</code> – non-blocking poll for reply</li>
-<li><code>Promise: Future</code> – implements <code>core::future::Future</code> for <code>.await</code></li>
-<li>Uses only <code>core::future</code> and <code>core::task</code> – no external async runtime dependency</li>
+<li><code>Promise::take()</code> – non-blocking poll for reply, while the executor spins</li>
+<li>No async runtime drives the executor: RFC-0113 retired <code>spin_async</code>, because a foreign scheduler, not nano-ros, would decide when callbacks run</li>
 </ul>
 <p><strong>Timers:</strong></p>
 <ul>
@@ -15077,8 +14996,8 @@ crate’s <code>#[ctor]</code> registers its vtable before <code>main</code>.</p
 nros-rmw-zenoh = { path = "…/nros-rmw-zenoh", features = ["platform-bare-metal"] }
 </code></pre>
 <p>Full pub/sub, services, actions, timers (fn pointers), parameters (local).
-Async: <code>spin_async()</code>, <code>Promise</code>, <code>take()</code>, <code>.await</code> – all available without std or alloc.
-Use <code>spin_once()</code> or <code>spin_period()</code> in your main loop, or <code>spin_async()</code> with an async runtime (Embassy, RTIC v2).</p>
+Promises (<code>Promise</code>, <code>take()</code>) are available without std or alloc.
+Use <code>spin_once()</code> or <code>spin_period()</code> in your main loop.</p>
 <p><strong>Embedded with allocator (e.g., Zephyr with heap):</strong></p>
 <pre><code class="language-toml">nros = { path = "…/nros", default-features = false, features = ["alloc", "rmw-cffi", "platform-zephyr"] }
 nros-rmw-zenoh = { path = "…/nros-rmw-zenoh", features = ["platform-zephyr"] }
@@ -15137,9 +15056,14 @@ enable <code>alloc</code> — so run it against your own image, not against one 
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="rtos-cooperation"><a class="header" href="#rtos-cooperation">RTOS Cooperation</a></h1>
 <p>nano-ros runs on platforms that span pure cooperative bare-metal
-through multi-task preemptive RTOS to fully async / Future-driven
-runtimes. The executor’s spin loop has to cooperate with each of
-these without imposing a single execution model on all of them.</p>
+through multi-task preemptive RTOS. The executor’s spin loop has to
+cooperate with each of these without imposing a single execution model
+on all of them.</p>
+<p>Every shape on this page keeps nano-ros’s real-time promise: nano-ros
+decides which callback runs and at what priority. A loop owned by a
+foreign async runtime or event loop (tokio, Embassy, Qt, GLib) cannot
+keep it, so it is not supported
+(<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0113-rt-unified-wait.md">RFC-0113</a>).</p>
 <p>This page maps the common RTOS / runtime execution profiles to the
 configuration knobs the executor exposes. New apps pick a profile
 that matches their target’s scheduling discipline; the knobs
@@ -15153,9 +15077,8 @@ translate that choice into bounded behaviour from <code>drive_io</code>.</p>
 <tbody>
 <tr><td><strong>Cooperative single-task</strong></td><td>One task / thread does all ROS work. No preemption from other tasks (there are none, or they’re all lower priority). Yielding happens at task boundaries.</td><td>Bare-metal MPS2-AN385, single FreeRTOS task, single Zephyr thread</td></tr>
 <tr><td><strong>Preemptive priority</strong></td><td>ROS task runs at a fixed priority. Higher-priority tasks preempt mid-call by the kernel. ROS-internal entities (subs, timers, services, GCs) all share that priority — they don’t preempt each other.</td><td>Typical FreeRTOS / ThreadX / Zephyr deployment with worker tasks</td></tr>
-<tr><td><strong>WCET-bounded real-time</strong></td><td>Each “task” has a provable worst-case execution time. Tasks are dispatched directly from interrupts; no spin loops in the hot path.</td><td>RTIC, Embassy, avionics WCET-validated code</td></tr>
+<tr><td><strong>WCET-bounded real-time</strong></td><td>Each “task” has a provable worst-case execution time. Tasks are dispatched directly from interrupts; no spin loops in the hot path.</td><td>RTIC, avionics WCET-validated code</td></tr>
 <tr><td><strong>Time-triggered cyclic</strong></td><td>Fixed schedule. Each cycle does a fixed amount of work in a fixed time slot; ROS gets a fraction of the cycle and must yield.</td><td>DO-178C / IEC 61508 controller frames</td></tr>
-<tr><td><strong>Async runtime</strong></td><td>Futures registered with wakers; reactor drives. No spin loop visible to user code.</td><td>tokio, Embassy futures, custom async runtimes</td></tr>
 </tbody>
 </table>
 </div>
@@ -15166,10 +15089,8 @@ returning. After <code>drive_io</code> returns, the executor processes any
 expired timers and triggered guard conditions. If 10 messages
 arrived during the wait, all 10 callbacks fire in a single
 <code>spin_once</code>, then timer / GC dispatch happens once afterwards.</p>
-<p>This is the right default for <strong>cooperative single-task</strong> apps and
-for <strong>async-runtime</strong> apps using <code>spin_async</code> /
-<code>spin_async_with_sleep</code> (see <a href="#async-runtime">Async runtime</a>). Both want
-throughput; neither benefits from per-callback scheduling
+<p>This is the right default for <strong>cooperative single-task</strong> apps, which
+want throughput and do not benefit from per-callback scheduling
 opportunities.</p>
 <p>For the other three models, the default has trade-offs the
 configuration knobs address.</p>
@@ -15220,21 +15141,11 @@ WCET, not the sum across all ready callbacks.</p>
 (e.g., a single callback is slow), the remaining bound is that one
 callback’s WCET — split the slow callback, or move it to its own
 tier/task (see <a href="#scheduling-models">Scheduling Models</a>).</p>
-<h3 id="wcet-bounded-real-time-rtic--embassy"><a class="header" href="#wcet-bounded-real-time-rtic--embassy">WCET-bounded real-time (RTIC / Embassy)</a></h3>
-<p>Don’t use the spin loop. Use the async path — a buffered subscription
-handle whose <code>recv()</code> is an async fn with waker integration:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let mut sub = node.create_polling_subscription::&lt;MyMsg&gt;("/topic")?;
-loop {
-    let msg = sub.recv().await?;        // suspends; waker integration
-    handle(msg);
-}
-<span class="boring">}</span></code></pre>
-<p>The async path doesn’t go through <code>drive_io</code> at all. Subscriptions
-register a <code>Waker</code>; the backend’s RX path wakes the waker; the
-async runtime schedules the receiving task. Per-task WCET analysis
-applies to each <code>recv().await</code> continuation, not to a spin loop.</p>
+<h3 id="wcet-bounded-real-time-rtic"><a class="header" href="#wcet-bounded-real-time-rtic">WCET-bounded real-time (RTIC)</a></h3>
+<p>Don’t hand-write the spin loop. <code>nros::main!</code> generates the RTIC app: each
+callback becomes an RTIC task at the priority nano-ros derives for it, and
+the executor’s deferred-dispatch queue hands ready callbacks to those tasks.
+Per-task WCET analysis applies to each RTIC task, not to a spin loop.</p>
 <h3 id="time-triggered-cyclic"><a class="header" href="#time-triggered-cyclic">Time-triggered cyclic</a></h3>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -15246,40 +15157,6 @@ returns control when the slot expires regardless of pending work.
 Pending work resumes next cycle. (There is no finer-grained
 per-callback budget knob today — if a single callback can overrun the
 slot, that callback’s WCET is your design constraint.)</p>
-<h3 id="async-runtime"><a class="header" href="#async-runtime">Async runtime</a></h3>
-<p>Each poll runs one non-blocking <code>spin_once(Duration::ZERO)</code> pass. It
-never parks the runtime’s thread, so sibling futures on a
-single-threaded runtime are not held up by it (issue 2145). After a pass
-that did no work, the task sleeps until it is woken by either:</p>
-<ul>
-<li><strong>an arrival.</strong> The task’s <code>Waker</code> is registered with the executor’s
-readiness path, the same one <code>set_ready_notifier</code> uses (issue 2144).</li>
-<li><strong>the next deadline.</strong> This needs the runtime’s sleep, so it applies
-only to <code>spin_async_with_sleep</code>. The deadline is the next timer or
-backend keepalive (<code>next_deadline_us</code>, issue 2143).</li>
-</ul>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>// tokio
-executor.spin_async_with_sleep(tokio::time::sleep).await
-// Embassy
-executor
-    .spin_async_with_sleep(|d| embassy_time::Timer::after_micros(d.as_micros() as u64))
-    .await
-<span class="boring">}</span></code></pre>
-<p>Two cases still wake themselves on every poll, which keeps one core at
-100 %:</p>
-<ul>
-<li><strong>A poll-only backend</strong> (XRCE, uORB’s polling build, a bare-metal
-smoltcp session). It learns of an arrival only inside a pass, so
-<code>ready_notifier_supported()</code> is <code>false</code>.</li>
-<li><strong>Plain <code>spin_async()</code> with any deadline pending.</strong> It has no timer to
-sleep on. zenoh always has one, its keepalive, so on zenoh use
-<code>spin_async_with_sleep</code>.</li>
-</ul>
-<p>Where neither variant can sleep and idle CPU matters, drive the executor
-from a blocking task with <code>spin</code> / <code>spin_once(timeout)</code> and hand results
-to async code over a channel.</p>
 <h2 id="trade-offs-at-a-glance"><a class="header" href="#trade-offs-at-a-glance">Trade-offs at a glance</a></h2>
 <div class="table-wrapper">
 <table>
@@ -15290,7 +15167,6 @@ to async code over a channel.</p>
 <tr><td>drain-all (default)</td><td>High</td><td>Bounded by ALL ready callbacks’ total WCET</td><td>Poor under load</td><td>Smallest</td></tr>
 <tr><td><code>max_callbacks(1)</code></td><td>Slightly lower (more spin loop iterations)</td><td>Bounded by ONE callback’s WCET</td><td>Good</td><td>Same — the cap is just an integer</td></tr>
 <tr><td><code>timeout_ms(N)</code> per cycle</td><td>Lower</td><td>Bounded by N ms wall clock + one callback’s WCET</td><td>Good if N tight</td><td>One clock read per iteration</td></tr>
-<tr><td>async / <code>spin_async_with_sleep</code></td><td>High; idle costs nothing where the backend wakes on arrival (100 % of a core on a poll-only backend, issue 2145)</td><td>One non-blocking pass per poll; never parks the runtime thread</td><td>Cooperative — futures yield voluntarily</td><td>Async runtime cost</td></tr>
 </tbody>
 </table>
 </div>
@@ -15315,7 +15191,7 @@ spin loop’s “where does the thread sleep” question maps as:</p>
 </div>
 <p>In all cases the user-visible API is <code>Executor::spin_once(timeout)</code>;
 the platform-correct sleep happens transparently underneath.</p>
-<h2 id="see-also-8"><a class="header" href="#see-also-8">See also</a></h2>
+<h2 id="see-also-7"><a class="header" href="#see-also-7">See also</a></h2>
 <ul>
 <li><a href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design</a> — the architectural reasons
 the runtime / RMW boundary is shaped the way it is.</li>
@@ -15868,7 +15744,7 @@ compile_error!("Enable at least one transport: `ethernet` or `serial`");</code><
 </table>
 </div>
 <p>The bare-metal <code>nros-board-mps2-an385</code> is the simplest starting point. The FreeRTOS variant shows how to add RTOS task creation and lwIP networking.</p>
-<h2 id="see-also-9"><a class="header" href="#see-also-9">See also</a></h2>
+<h2 id="see-also-8"><a class="header" href="#see-also-8">See also</a></h2>
 <ul>
 <li><a href="#custom-platform">Custom Platform</a> – writing the platform crate that sits underneath a board crate</li>
 <li><a href="#porting-overview">Porting Overview</a> – the three customization axes (RMW, platform, board)</li>
@@ -17138,7 +17014,7 @@ The board layer owns:</p>
 stay at <code>packages/api/nros-c/cmake/nros-&lt;rtos&gt;.cmake</code>. The
 modules <code>include(...)</code> those helpers — the per-platform file is the
 <strong>dispatch entry</strong>, not the implementation.</p>
-<h2 id="see-also-10"><a class="header" href="#see-also-10">See also</a></h2>
+<h2 id="see-also-9"><a class="header" href="#see-also-9">See also</a></h2>
 <ul>
 <li><a href="#custom-platform">Custom Platform</a> — Rust-side trait
 implementations (clock, alloc, threading, networking)</li>
@@ -17362,7 +17238,7 @@ real session). Run via:</p>
 <pre><code class="language-bash">cargo test -p nros-rmw-xrce --features platform-posix \
     --test custom_transport
 </code></pre>
-<h2 id="see-also-11"><a class="header" href="#see-also-11">See also</a></h2>
+<h2 id="see-also-10"><a class="header" href="#see-also-10">See also</a></h2>
 <ul>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/packages/api/nros-c/include/rclc/detail/nros_generated.h"><code>&lt;nros/transport.h&gt;</code></a> — C header</li>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/packages/api/nros-cpp/include/rclcpp/transport.hpp"><code>&lt;rclcpp/transport.hpp&gt;</code></a> — C++ header</li>
@@ -18893,9 +18769,9 @@ a timer that should have fired 5 ms in is delayed 75 ms.</p>
 </thead>
 <tbody>
 <tr><td>Cooperative single-task (one task does ROS, no priority competition)</td><td>Yes — no other task to preempt; entity scheduling fairness is moot</td></tr>
-<tr><td>Async / tokio / Embassy (futures, wakers)</td><td>Yes. <code>spin_async_with_sleep(&lt;runtime sleep&gt;)</code> runs one non-blocking pass per poll and then sleeps until an arrival or the next deadline (issue 2145). On a poll-only backend it busy-loops</td></tr>
+<tr><td>Async / tokio / Embassy (futures, wakers)</td><td><strong>Not supported</strong> — the runtime’s scheduler, not nano-ros, would decide when callbacks run, so no real-time bound could be stated (RFC-0113)</td></tr>
 <tr><td>Preemptive priority RTOS, ROS at one priority (FreeRTOS / ThreadX / Zephyr typical)</td><td><strong>Partial</strong> — kernel preemption from higher-priority tasks works; ROS-internal entity scheduling is batch-FIFO, timer expiries can be delayed by long sub callbacks at the same priority</td></tr>
-<tr><td>WCET-bounded real-time (RTIC, DO-178C)</td><td><strong>No</strong> — <code>drive_io</code> has unbounded execution time; callers needing per-callback WCET use the async path with explicit Waker integration instead</td></tr>
+<tr><td>WCET-bounded real-time (RTIC, DO-178C)</td><td><strong>No</strong> — <code>drive_io</code> has unbounded execution time; callers needing per-callback WCET use RTIC, whose tasks <code>nros::main!</code> generates</td></tr>
 <tr><td>Time-triggered cyclic</td><td><strong>No</strong> — no way to bound <code>drive_io</code> to a fixed wall-clock budget</td></tr>
 </tbody>
 </table>
@@ -19628,7 +19504,7 @@ future, so the header is what a caller correlates on. It returns a
 <code>bool</code> and throws. The timestamps are not surfaced in C++, as upstream
 rclcpp surfaces none on a client.</li>
 </ul>
-<h2 id="see-also-12"><a class="header" href="#see-also-12">See also</a></h2>
+<h2 id="see-also-11"><a class="header" href="#see-also-11">See also</a></h2>
 <ul>
 <li><a href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design</a> — deeper architectural rationale (heap,
 threading, dispatch model) shared across all the points above.</li>
@@ -20704,7 +20580,7 @@ bar to this table.</p>
 (when present); reach out to the backend’s maintainer for
 fresh microbench numbers on a different target class than
 the ones above.</p>
-<h2 id="see-also-13"><a class="header" href="#see-also-13">See also</a></h2>
+<h2 id="see-also-12"><a class="header" href="#see-also-12">See also</a></h2>
 <ul>
 <li><a href="../../docs/roadmap/archived/phase-115-runtime-transport-vtable.html">roadmap doc</a>
 — Appendix D carries LOC sizing, port shapes, and risk notes.</li>
@@ -21250,7 +21126,7 @@ header.</li>
 <p>Cross-target verification: the same probe runs for every target
 triple. There’s no per-platform branching — <code>size_of::&lt;T&gt;()</code> resolves
 to the right value at the target’s compile time.</p>
-<h2 id="see-also-14"><a class="header" href="#see-also-14">See also</a></h2>
+<h2 id="see-also-13"><a class="header" href="#see-also-13">See also</a></h2>
 <ul>
 <li><code>packages/tooling/nros-sizes-build/src/lib.rs</code> for the rlib probe
 implementation.</li>
@@ -21726,8 +21602,9 @@ priorities.</p>
 per-Node granularity, the tag-based callback API, the
 <code>__nros_node_&lt;pkg&gt;_dispatch_strategy()</code> ABI symbol, and the
 backward-compat contract. For the user-facing tutorials see
-<a href="#rtic-integration">RTIC Integration</a> and
-<a href="#embassy-integration">Embassy Integration</a>.</p>
+<a href="#rtic-integration">RTIC Integration</a>. Embassy is not
+supported (<a href="#embassy-integration">Embassy Integration</a> says
+why).</p>
 </blockquote>
 <h2 id="the-inline--deferred--fromisr-trichotomy"><a class="header" href="#the-inline--deferred--fromisr-trichotomy">The Inline / Deferred / FromIsr trichotomy</a></h2>
 <p>A nano-ros Node declares <code>Node::DISPATCH: DispatchStrategy</code> to tell the
@@ -21928,10 +21805,11 @@ using <code>_static</code> is allowed — but Deferred → closure is rejected.
 Zero migration cost for pre-216 Node pkgs (all defaulted to Inline)
 and a forced-correct API for the Deferred path.</p>
 <h2 id="deferring-callbacks-without-the-macros"><a class="header" href="#deferring-callbacks-without-the-macros">Deferring callbacks without the macros</a></h2>
-<p><code>Node::DISPATCH</code> and the RTIC queue above belong to <code>nros::node!</code> nodes. A
-host that builds its executor by hand (a Tier 0 integration, RFC-0112 D2) defers
-callbacks through the executor itself, with three calls and no macro-private
-type (issue 2146):</p>
+<p><code>Node::DISPATCH</code> and the RTIC queue above belong to <code>nros::node!</code> nodes. The
+queue under them is the executor’s own, with three calls and no macro-private
+type (issue 2146). A loop that drains it is a priority mapping nano-ros
+generates (RTIC) or owns; a foreign host’s loop would decide when the
+callbacks run, which RFC-0113 does not support:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>use nros::{Executor, HandleId};
@@ -21964,49 +21842,11 @@ is found by the next spin, which queues it again.</li>
 <li>A deferred callback takes no part in the spin’s <code>Trigger</code>.</li>
 <li>Timers cannot be deferred (<code>set_deferred</code> returns <code>false</code>): a timer’s
 readiness is decided inside its own dispatch.</li>
-<li>It is a different hook from <code>set_ready_notifier</code> (issue 2144). That one
-fires when data arrives and says “spin now”; the defer notifier fires during
-the spin and says which callback to run. A host that sleeps until work
-arrives uses both.</li>
-<li>The drain needs <code>&amp;mut Executor</code>, like <code>spin_once</code>. On a single-thread host
-(Embassy, a superloop) that is the same task; across tasks, the executor is
-the shared resource the host already guards for spinning.</li>
+<li>The defer notifier fires during the spin and says which callback to run.</li>
+<li>The drain needs <code>&amp;mut Executor</code>, like <code>spin_once</code>. On a single task that is
+the same task; across tasks (RTIC’s), the executor is the shared resource
+already guarded for spinning.</li>
 </ul>
-<h3 id="through-nrossetup"><a class="header" href="#through-nrossetup">Through <code>nros::setup!</code></a></h3>
-<p>A host that builds its image from <code>system.toml</code> with <code>nros::setup!()</code> (the
-Tier 0 road, phase-520) does not name handles at all. It writes
-<code>dispatch = "deferred"</code> on the component:</p>
-<pre><code class="language-toml">[[component]]
-pkg = "my_listener"
-class = "my_listener::Listener"
-name = "listener"
-dispatch = "deferred"
-</code></pre>
-<p>and the emitted <code>nros_setup</code> installs that component deferred — the
-executor’s <code>callback_mark()</code> before its <code>register</code>, <code>set_deferred_since(mark, true)</code> after, so every callback the component registered is deferred and
-nothing else is (timers stay inline; they cannot be deferred). The host gets
-the drain beside <code>nros_setup</code>:</p>
-<pre class="playground"><code class="language-rust">nros::setup!();
-
-fn main() {
-    nros_boot(|rt| {
-        nros_setup(&amp;mut *rt)?;
-        while !nros_stop_requested() {
-            let _ = rt.spin_once(10);       // queues the listener's callback
-            let _ran = nros_run_deferred(&amp;mut *rt); // runs it, here
-        }
-        Ok(())
-    })
-    .expect("boot");
-}</code></pre>
-<p><code>nros_has_deferred(rt)</code> polls the queue, <code>nros_set_defer_notifier(rt, f, ctx)</code>
-installs the notifier above for a host that pends a task per callback, and
-<code>NROS_DEFERRED_COMPONENTS</code> lists what was deferred. <code>nros::main!</code> ignores the
-key: the board’s loop is the only task there, so a deferral would queue
-callbacks nothing drains. RTIC’s <code>nros::main!</code> runs callbacks inline in its
-<code>__nros_run</code> task too (issue 2161). The worked example is
-<code>examples/linux/rust/listener-host-loop</code>, whose cell asserts both the
-deliveries and the drain’s marker line.</p>
 <h2 id="the-__nros_node_pkg_dispatch_strategy-abi-symbol"><a class="header" href="#the-__nros_node_pkg_dispatch_strategy-abi-symbol">The <code>__nros_node_&lt;pkg&gt;_dispatch_strategy()</code> ABI symbol</a></h2>
 <p>The <code>nros::node!()</code> macro emits, per Node pkg:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -22149,13 +21989,12 @@ impl ExecutableNode for Listener {
 <code>State</code> field, and the <code>on_callback</code> body. The closure body in the
 “before” version becomes the <code>if state.sub_chatter == cb { ... }</code>
 branch in the “after” version — same code, hoisted to a method.</p>
-<h2 id="see-also-15"><a class="header" href="#see-also-15">See also</a></h2>
+<h2 id="see-also-14"><a class="header" href="#see-also-14">See also</a></h2>
 <ul>
 <li><a href="#rtic-integration">RTIC Integration</a> — user-facing
 tutorial for the RTIC side of dispatch.</li>
-<li><a href="#embassy-integration">Embassy Integration</a> —
-user-facing tutorial for the Embassy side of dispatch +
-spawn-from-sync.</li>
+<li><a href="#embassy-integration">Embassy Integration</a> — why
+Embassy is not supported (RFC-0113).</li>
 <li><a href="#scheduling-models">Scheduling Models</a> — the real-time
 scheduling backdrop against which dispatch strategy choices are
 made.</li>
@@ -22949,7 +22788,7 @@ self-heals rather than hard-failing.</p>
 by <code>just qemu setup-qemu</code> into <code>build/qemu/bin/</code>. The harness picks it up
 automatically (<code>nros_tests::qemu::qemu_system_arm_cmd()</code>); the system binary is
 the fallback. See <a href="#patched-qemu-system-arm-binary">Patched qemu-system-arm</a>.</p>
-<h2 id="see-also-16"><a class="header" href="#see-also-16">See also</a></h2>
+<h2 id="see-also-15"><a class="header" href="#see-also-15">See also</a></h2>
 <ul>
 <li><a href="#quick-reference-2">Build Commands</a> — the user-facing quick reference.</li>
 <li><a href="#zpico-sys-build-architecture">zpico-sys Build Architecture</a> — the zenoh-pico cross-compile.</li>
@@ -23006,7 +22845,7 @@ every active branch lands on 218)</li>
 <p>The Phase 218.E ABI guard checks the in-tree CLI build matches the
 runtime crates’ codegen ABI hash; opt out via <code>NROS_SKIP_VERSION_CHECK=1</code>
 when intentionally bisecting a CLI mismatch.</p>
-<h2 id="see-also-17"><a class="header" href="#see-also-17">See also</a></h2>
+<h2 id="see-also-16"><a class="header" href="#see-also-16">See also</a></h2>
 <ul>
 <li><a href="#build-system--caching">Build System &amp; Caching</a></li>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/development/sdk-tiers.md">SDK Tiers</a></li>
@@ -23874,7 +23713,7 @@ Suggested gates:</p>
 <p>Sum across all 9 sections (§1–9). Below ~32 / 45 you have
 foundational work to do; above ~40 / 45 you’re at production
 quality on every axis where nano-ros can be validated externally.</p>
-<h2 id="see-also-18"><a class="header" href="#see-also-18">See also</a></h2>
+<h2 id="see-also-17"><a class="header" href="#see-also-17">See also</a></h2>
 <ul>
 <li><a href="#real-time-analysis">Real-Time Analysis</a> — RT scheduling
 background + response-time formulas.</li>
@@ -24334,7 +24173,7 @@ Intentionally empty cells (bare-metal C/C++, PX4 Rust, …) are listed
 in the same file; do not fill them without lifting the underlying
 constraint.</p>
 <p>Variant naming uses <strong>suffix form</strong> so peers sort together:
-<code>talker-rtic</code>, <code>service-client-async</code>, <code>talker-rtic-mixed</code>. Avoid
+<code>talker-rtic</code>, <code>service-client-rtic</code>, <code>talker-rtic-mixed</code>. Avoid
 parallel parent directories like <code>async-*/</code> or <code>rtic-*/</code>.</p>
 <h2 id="non-example-binaries"><a class="header" href="#non-example-binaries">Non-example binaries</a></h2>
 <p>Tests / benches / smokes are <strong>not</strong> under <code>examples/</code>. They live
@@ -24594,7 +24433,7 @@ previously-empty cell.</li>
 <code>build/mps2-an385-baremetal/target/thumbv7m-none-eabi/debug/qemu-bsp-talker</code>.</p>
 <p>Per-platform deep-dives — toolchain setup, Kconfig variables,
 runner scripts — live in the <a href="getting-started">Platform Guides</a>.</p>
-<h2 id="see-also-19"><a class="header" href="#see-also-19">See Also</a></h2>
+<h2 id="see-also-18"><a class="header" href="#see-also-18">See Also</a></h2>
 <ul>
 <li><a href="#build-as-a-cmake-subdirectory">Build as a CMake subdirectory</a></li>
 <li><a href="#message-binding-generation">Message Generation</a></li>
@@ -26194,7 +26033,6 @@ plus the <code>nros::prelude</code> glob-import.</p>
 <a href="#two-layer-api">Two-Layer API</a> — concept page
 with the verb discipline and per-layer use cases.</li>
 <li>Executor-driven app? → <a href="api/rust/nros/struct.Executor.html"><code>nros::Executor</code></a></li>
-<li>Async/<code>spin_async</code>? → the async surface lives on <a href="api/rust/nros/struct.Executor.html"><code>nros::Executor</code></a> and the entity handles (<code>recv().await</code>, <code>call().await</code>) — see the crate root docs</li>
 </ul>
 <h2 id="generating-locally"><a class="header" href="#generating-locally">Generating locally</a></h2>
 <pre><code class="language-bash">cargo doc --no-deps -p nros --open
@@ -26338,26 +26176,6 @@ the example layouts in <code>examples/linux/c/action-client/</code> and
 that stores <code>ActionClientCore</code> inline in the separate type
 <code>rclc_polling_action_client_t</code> (phase-487 W4) and skips the executor entirely;
 see the Doxygen for the full L1 verb list.</p>
-<h2 id="driving-the-executor-from-your-own-loop"><a class="header" href="#driving-the-executor-from-your-own-loop">Driving the executor from your own loop</a></h2>
-<p>A program that owns its loop (a <code>while</code>, an Arduino <code>loop()</code>, a PX4 work item)
-does not hand the thread to <code>rclc_executor_spin()</code>. It drains what is ready
-with a zero-timeout spin, then asks how long it may sleep:</p>
-<pre><code class="language-c">for (;;) {
-    rclc_executor_spin_some(&amp;executor, 0);
-    uint64_t next_ns;
-    rclc_executor_get_next_deadline_ns(&amp;executor, &amp;next_ns);
-    /* UINT64_MAX: nothing is scheduled; wait for your own events. */
-    my_loop_wait(next_ns == UINT64_MAX ? MY_IDLE_NS : next_ns);
-}
-</code></pre>
-<p><code>rclc_executor_get_next_deadline_ns()</code> (issue 2143, a nano-ros extension) is
-the bound the executor’s own park uses: the next wall timer, the backend’s
-next internal event, a supervised route’s deadline and every registered wake
-source. It answers from now, so time your loop spent between spins is already
-counted; <code>0</code> means something is due. A ROS-time timer does not bound it (its
-wake is a <code>/clock</code> message). <code>UINT64_MAX</code> is “no deadline”, not “never”: a
-sample can still arrive. The C++ form is <code>rclcpp::Executor::next_deadline_us</code>,
-and the Rust form <code>Executor::next_deadline_us</code>.</p>
 <h2 id="cmake-integration"><a class="header" href="#cmake-integration">CMake integration</a></h2>
 <p>Out-of-tree projects link the <code>NanoRos::NanoRos</code> CMake target and
 generate C bindings with <code>nano_ros_generate_interfaces(&lt;pkg&gt; LANGUAGE C)</code>
@@ -29079,7 +28897,7 @@ libc required; bare-metal Cortex-A is not in the coverage matrix.</li>
 template is the canonical entry path — see
 <a href="#px4-autopilot-external-module">PX4 Autopilot</a>.</li>
 </ul>
-<h2 id="see-also-20"><a class="header" href="#see-also-20">See also</a></h2>
+<h2 id="see-also-19"><a class="header" href="#see-also-19">See also</a></h2>
 <ul>
 <li><a href="#introduction">Quick board check (intro)</a> — hobbyist-grade
 one-liner per chip.</li>
