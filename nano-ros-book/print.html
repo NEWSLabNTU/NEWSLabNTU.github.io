@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-6a8e8fe6.js";
+            window.path_to_searchindex_js = "searchindex-bd315825.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-700e4fc5.js"></script>
@@ -11264,12 +11264,6 @@ sub.on_message_lost(|status| {
     log::warn!("dropped {} samples", status.total_count_change);
 })?;
 <span class="boring">}</span></code></pre>
-<p>Async equivalents, which complete only while the executor spins elsewhere:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>let status = sub.next_liveliness_change().await?;
-let status = sub.next_deadline_miss().await?;
-<span class="boring">}</span></code></pre>
 <h3 id="c-3"><a class="header" href="#c-3">C</a></h3>
 <pre><code class="language-c">static void on_liveliness_changed(
         rcl_subscription_t *sub,
@@ -14485,7 +14479,7 @@ types work across Rust, C, and C++ APIs.</p>
 </table>
 </div>
 <h2 id="rationale"><a class="header" href="#rationale">Rationale</a></h2>
-<p>Embedded callers want both. RTIC owns scheduling and refuses to hand its loop to a library; an embassy task wants to <code>.await</code> a <code>Promise</code>; a FreeRTOS task-per-entity port wants tight <code>take</code> polling. None of those fit the L2 callback model.</p>
+<p>Embedded callers want both. RTIC owns scheduling and refuses to hand its loop to a library; a FreeRTOS task-per-entity port wants tight <code>take</code> polling. None of those fit the L2 callback model.</p>
 <p>But a posix app that handles a dozen topics + a couple of services + an action server wants L2 — write one closure per entity and let <code>spin_once()</code> route events. Forcing it through L1 means writing a manual dispatcher.</p>
 <p>The two layers are deliberately <strong>separate verb sets</strong> so the choice is explicit in source:</p>
 <ul>
@@ -14943,7 +14937,7 @@ Good for callback-shaped applications.</li>
 <li>L1 — <code>node.create_service::&lt;S&gt;(name)</code> (poll with
 <code>handle_request()</code>), <code>node.create_client::&lt;S&gt;(name)</code> +
 <code>client.call(&amp;request)</code> → <code>Promise&lt;Reply&gt;</code> (poll with
-<code>promise.take()</code> or <code>.await</code>).</li>
+<code>promise.take()</code>, or block on it with <code>promise.wait(&amp;mut executor, timeout)</code>).</li>
 <li>L2 — <code>executor.register_service::&lt;S, _&gt;(name, |req| reply)</code>.
 Service clients keep the L1 <code>Promise</code> shape; the typed
 callback API isn’t surfaced (only <code>register_service_client_raw</code>
@@ -18226,14 +18220,14 @@ cause 4-tuple collisions when the next QEMU instance reuses the same source port
 <tr><td>Executor model</td><td>Single-threaded, polled</td><td>Single-/multi-threaded, owned thread</td><td>Single-threaded, polled</td><td>Single-threaded, polled</td></tr>
 <tr><td>Spin entry point</td><td><code>rclc_executor_spin_some(&amp;exec, timeout)</code></td><td><code>rclcpp::spin(node)</code> (blocks, owns thread)</td><td><code>executor.spin()</code> (blocks current thread)</td><td><code>executor.spin_once(timeout_ms)</code></td></tr>
 <tr><td>Blocking primitive</td><td>None (callback-only)</td><td><code>std::shared_future::wait_for(timeout)</code></td><td><code>Promise::wait(timeout)</code> (Tokio-style)</td><td><code>Promise::wait(&amp;mut executor, timeout_ms)</code></td></tr>
-<tr><td>Async primitive</td><td>None</td><td><code>std::shared_future</code> + <code>spin_until_future_complete</code></td><td><code>impl Future</code></td><td><code>Promise&lt;T&gt;</code> (impls <code>Future</code> + manual poll + executor-driven blocking wait)</td></tr>
+<tr><td>Async primitive</td><td>None</td><td><code>std::shared_future</code> + <code>spin_until_future_complete</code></td><td><code>impl Future</code></td><td><code>Promise&lt;T&gt;</code> (manual poll + executor-driven blocking wait; no <code>Future</code> impl, RFC-0113)</td></tr>
 <tr><td>Heap requirement</td><td>Optional (static allocator)</td><td>Required</td><td>Required</td><td>Optional (caller buffers; only zenoh-pico transport heap)</td></tr>
 <tr><td>Threading requirement</td><td>None</td><td>Required (<code>std::thread</code>)</td><td>Required (<code>std::thread</code>)</td><td>None (single-threaded valid)</td></tr>
 </tbody>
 </table>
 </div>
-<h2 id="future--promise-as-the-unifying-primitive"><a class="header" href="#future--promise-as-the-unifying-primitive">Future / Promise as the unifying primitive</a></h2>
-<p>The same <code>Promise&lt;T&gt;</code> value serves three usage patterns. None of the other client libraries achieves this with a single type.</p>
+<h2 id="promise-as-the-unifying-primitive"><a class="header" href="#promise-as-the-unifying-primitive">Promise as the unifying primitive</a></h2>
+<p>The same <code>Promise&lt;T&gt;</code> value serves two usage patterns. None of the other client libraries achieves this with a single type.</p>
 <p><strong>Pattern 1 – callback-driven (no blocking call):</strong></p>
 <pre><code class="language-rust ignore">let promise = client.call(&amp;request)?;
 // ... continue running other work ...
@@ -18244,15 +18238,17 @@ if let Some(reply) = promise.take()? {
 <p><strong>Pattern 2 – blocking with timeout:</strong></p>
 <pre><code class="language-rust ignore">let mut promise = client.call(&amp;request)?;
 let reply = promise.wait(&amp;mut executor, 5000)?;  // blocks up to 5s, drives I/O</code></pre>
-<p><strong>Pattern 3 – async runtime (Tokio, Embassy, smol):</strong></p>
-<pre><code class="language-rust ignore">let reply = client.call(&amp;request)?.await;  // Promise: Future&lt;Output = T&gt;</code></pre>
+<p>There is deliberately no third, <code>.await</code>-on-a-foreign-runtime pattern: a
+<code>Future</code> impl completes only while something else spins the executor, and then
+that runtime’s scheduler, not nano-ros, decides when the reply is handled
+(RFC-0113 D1/D7).</p>
 <p>Contrast this with the alternatives:</p>
 <ul>
 <li><strong>rclcpp</strong> uses <code>std::shared_future&lt;Response&gt;</code>, which is bound to <code>std::thread</code> and <code>std::condition_variable</code>. There is no way to drive it on a cooperative single-threaded MCU. The blocking helper <code>rclcpp::spin_until_future_complete()</code> <em>requires</em> an owned thread.</li>
 <li><strong>rclc</strong> has no future or promise concept. The only way to receive a service reply is to register a callback that fires from <code>rclc_executor_spin_some()</code>. Building request/response chains becomes an explicit state machine.</li>
 <li><strong>rclrs</strong> has <code>impl Future</code> but no callback-poll path; you must <code>.await</code> from a Tokio task. No blocking-with-timeout helper that drives I/O internally.</li>
 </ul>
-<p>In nano-ros, the same <code>Promise</code> carries a borrow of the standalone service client and a sequence number; <code>take()</code> polls it, <code>wait()</code> polls it in a loop while spinning the executor, and the <code>Future</code> impl integrates with any executor that calls <code>register_waker(&amp;Waker)</code> underneath.</p>
+<p>In nano-ros, the same <code>Promise</code> carries a borrow of the standalone service client and a sequence number; <code>take()</code> polls it, and <code>wait()</code> polls it in a loop while spinning the executor.</p>
 <h2 id="no-internal-spin"><a class="header" href="#no-internal-spin">No internal spin</a></h2>
 <p><code>rclcpp::spin(node)</code> blocks the calling thread inside the library and owns the dispatch loop. This works on Linux but cannot work on bare-metal: there is no thread to give up, and the application loop must remain in user code (for power management, interrupt servicing, smoltcp polling, RTIC integration).</p>
 <p>nano-ros never owns the spin loop. The user <em>always</em> writes the loop:</p>
@@ -18300,7 +18296,7 @@ rclc_action_client_set_result_callback(client, on_result);
 <li><strong>Single executor type</strong> that owns the session – no separate context object, no executor variants.</li>
 <li><strong>No internal spin</strong> – the user always owns the spin loop; blocking helpers exist but are wrappers.</li>
 <li><strong>Explicit <code>&amp;mut Executor</code> on every blocking op</strong> – the API enforces the I/O dependency at the call site.</li>
-<li><strong>Future/Promise as the unifying primitive</strong> – one type for callback-drive, blocking-with-timeout, and <code>.await</code>.</li>
+<li><strong>Promise as the unifying primitive</strong> – one type for callback-drive and blocking-with-timeout.</li>
 </ol>
 <p>These choices are what make the same client library viable on a Cortex-M3 and a Linux workstation without a separate “MCU client library” like rclc.</p>
 <div style="break-before: page; page-break-before: always;"></div>
