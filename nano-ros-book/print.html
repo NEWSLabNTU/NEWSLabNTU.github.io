@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-be3aafb4.js";
+            window.path_to_searchindex_js = "searchindex-ab769bc2.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-191e012a.js"></script>
@@ -12459,10 +12459,13 @@ until the next timer or backend deadline, <code>None</code> when nothing is sche
 (issue 2144), but it needs <code>alloc</code> and a backend with a live async wake
 (<code>ready_notifier_supported()</code>), and no example wires it to an Embassy
 signal yet. With both, the task can wait on
-<code>select(notified, Timer::after_micros(next_deadline))</code> and sleep. Do not use
-<code>Executor::spin_async()</code> here: it no longer blocks the Embassy thread
-inside a poll (issue 2145), but it still wakes itself on every poll, so
-it is a busy loop that never lets the Embassy executor sleep.</li>
+<code>select(notified, Timer::after_micros(next_deadline))</code> and sleep.
+<code>Executor::spin_async_with_sleep(|d| Timer::after_micros(d.as_micros() as u64))</code>
+is that loop already written (issue 2145). It never blocks the Embassy
+thread inside a poll, and it sleeps until an arrival or the next deadline.
+Plain <code>spin_async()</code> has no timer, so with any deadline pending it wakes
+itself on every poll and never lets the Embassy executor sleep. On a
+poll-only backend both variants busy-loop.</li>
 <li><strong>Deferred dispatch across tasks.</strong> Callbacks run inline, inside
 <code>spin_some</code>, unless you mark them with <code>Executor::set_deferred</code>; then the
 spin queues them and calls your <code>set_defer_notifier</code> function, and
@@ -13862,10 +13865,12 @@ have to bound by hand. Offering both means the application picks.</p>
 <p><code>rclcpp</code> has no real <code>async/await</code>. <code>rclrs</code> 0.7+ added async but it
 sits next to the synchronous executor, not in it. <code>rclc</code> has none.</p>
 <p>nano-ros has it as a first-class path: <code>Executor::spin_async()</code> drives
-the executor from inside a <code>Future</code> (it does not park on RMW I/O: each
-poll is one non-blocking <code>spin_once(Duration::ZERO)</code> pass and an immediate
-self-wake, so it never blocks the runtime’s thread but keeps a core busy —
-see its rustdoc and issue 2145), <code>Subscription::recv().await</code>, <code>Client::call().await</code>,
+the executor from inside a <code>Future</code>. Each poll is one non-blocking
+<code>spin_once(Duration::ZERO)</code> pass, so it never blocks the runtime’s thread.
+With <code>spin_async_with_sleep(&lt;runtime sleep&gt;)</code>, an idle executor sleeps until
+an arrival or its next deadline. A poll-only backend still keeps a core busy;
+see its rustdoc and issue 2145. The handles are async too:
+<code>Subscription::recv().await</code>, <code>Client::call().await</code>,
 <code>ActionClient::send_goal().await</code>, etc. Runs on tokio (POSIX),
 Embassy (FreeRTOS / RTIC), or any external <code>Future</code>-driver.</p>
 <p><strong>Why.</strong> Robotic control loops are stitched together from many
@@ -14967,7 +14972,7 @@ shape for the same reason as service clients.</li>
 </ul>
 <p><strong>Async:</strong></p>
 <ul>
-<li><code>executor.spin_async()</code> – async spin loop (one non-blocking pass per poll, then a self-wake: never blocks the runtime thread, but busy-loops — issue 2145)</li>
+<li><code>executor.spin_async()</code> / <code>spin_async_with_sleep(sleep)</code> – async spin loop (one non-blocking pass per poll, never blocks the runtime thread; sleeps on arrivals, and with the runtime’s <code>sleep</code> on the next deadline too — issue 2145)</li>
 <li><code>Promise&lt;'a, T, Cli&gt;</code> – allocation-free promise, borrows client’s reply slot</li>
 <li><code>Promise::take()</code> – non-blocking poll for reply</li>
 <li><code>Promise: Future</code> – implements <code>core::future::Future</code> for <code>.await</code></li>
@@ -15160,8 +15165,8 @@ expired timers and triggered guard conditions. If 10 messages
 arrived during the wait, all 10 callbacks fire in a single
 <code>spin_once</code>, then timer / GC dispatch happens once afterwards.</p>
 <p>This is the right default for <strong>cooperative single-task</strong> apps and
-for <strong>async-runtime</strong> apps using <code>spin_async</code> (a busy loop today —
-see <a href="#async-runtime">Async runtime</a>). Both want
+for <strong>async-runtime</strong> apps using <code>spin_async</code> /
+<code>spin_async_with_sleep</code> (see <a href="#async-runtime">Async runtime</a>). Both want
 throughput; neither benefits from per-callback scheduling
 opportunities.</p>
 <p>For the other three models, the default has trade-offs the
@@ -15240,24 +15245,39 @@ Pending work resumes next cycle. (There is no finer-grained
 per-callback budget knob today — if a single callback can overrun the
 slot, that callback’s WCET is your design constraint.)</p>
 <h3 id="async-runtime"><a class="header" href="#async-runtime">Async runtime</a></h3>
-<p><code>spin_async</code> is NOT waker-driven. Each poll runs one non-blocking
-<code>spin_once(Duration::ZERO)</code> pass — it never parks the runtime’s thread,
-so sibling futures on a single-threaded runtime are not held up by it —
-and then wakes ITSELF before returning <code>Pending</code>. Any runtime that
-honours wakes polls it again at once, so an idle app keeps one core at
-100 % (issue 2145). The executor now has what sleeping until work
-arrives needs — a readiness notifier (<code>set_ready_notifier</code>, issue 2144)
-and a public next deadline (<code>next_deadline_us</code>, issue 2143) — but
-<code>spin_async</code> does not register the task’s <code>Waker</code> with them yet.</p>
+<p>Each poll runs one non-blocking <code>spin_once(Duration::ZERO)</code> pass. It
+never parks the runtime’s thread, so sibling futures on a
+single-threaded runtime are not held up by it (issue 2145). After a pass
+that did no work, the task sleeps until it is woken by either:</p>
+<ul>
+<li><strong>an arrival.</strong> The task’s <code>Waker</code> is registered with the executor’s
+readiness path, the same one <code>set_ready_notifier</code> uses (issue 2144).</li>
+<li><strong>the next deadline.</strong> This needs the runtime’s sleep, so it applies
+only to <code>spin_async_with_sleep</code>. The deadline is the next timer or
+backend keepalive (<code>next_deadline_us</code>, issue 2143).</li>
+</ul>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>executor.spin_async().await
+</span>// tokio
+executor.spin_async_with_sleep(tokio::time::sleep).await
+// Embassy
+executor
+    .spin_async_with_sleep(|d| embassy_time::Timer::after_micros(d.as_micros() as u64))
+    .await
 <span class="boring">}</span></code></pre>
-<p>No knobs apply. Pick it when the app is async anyway and a busy core
-is acceptable (a host process, a short-lived tool). Where idle CPU or
-power matters, drive the executor from a blocking task with <code>spin</code> /
-<code>spin_once(timeout)</code> instead, and hand results to async code over a
-channel.</p>
+<p>Two cases still wake themselves on every poll, which keeps one core at
+100 %:</p>
+<ul>
+<li><strong>A poll-only backend</strong> (XRCE, uORB’s polling build, a bare-metal
+smoltcp session). It learns of an arrival only inside a pass, so
+<code>ready_notifier_supported()</code> is <code>false</code>.</li>
+<li><strong>Plain <code>spin_async()</code> with any deadline pending.</strong> It has no timer to
+sleep on. zenoh always has one, its keepalive, so on zenoh use
+<code>spin_async_with_sleep</code>.</li>
+</ul>
+<p>Where neither variant can sleep and idle CPU matters, drive the executor
+from a blocking task with <code>spin</code> / <code>spin_once(timeout)</code> and hand results
+to async code over a channel.</p>
 <h2 id="trade-offs-at-a-glance"><a class="header" href="#trade-offs-at-a-glance">Trade-offs at a glance</a></h2>
 <div class="table-wrapper">
 <table>
@@ -15268,7 +15288,7 @@ channel.</p>
 <tr><td>drain-all (default)</td><td>High</td><td>Bounded by ALL ready callbacks’ total WCET</td><td>Poor under load</td><td>Smallest</td></tr>
 <tr><td><code>max_callbacks(1)</code></td><td>Slightly lower (more spin loop iterations)</td><td>Bounded by ONE callback’s WCET</td><td>Good</td><td>Same — the cap is just an integer</td></tr>
 <tr><td><code>timeout_ms(N)</code> per cycle</td><td>Lower</td><td>Bounded by N ms wall clock + one callback’s WCET</td><td>Good if N tight</td><td>One clock read per iteration</td></tr>
-<tr><td>async / <code>spin_async</code></td><td>High, at 100 % of one core even when idle (self-waking poll, issue 2145)</td><td>One non-blocking pass per poll; never parks the runtime thread</td><td>Cooperative — futures yield voluntarily</td><td>Async runtime cost</td></tr>
+<tr><td>async / <code>spin_async_with_sleep</code></td><td>High; idle costs nothing where the backend wakes on arrival (100 % of a core on a poll-only backend, issue 2145)</td><td>One non-blocking pass per poll; never parks the runtime thread</td><td>Cooperative — futures yield voluntarily</td><td>Async runtime cost</td></tr>
 </tbody>
 </table>
 </div>
@@ -18871,7 +18891,7 @@ a timer that should have fired 5 ms in is delayed 75 ms.</p>
 </thead>
 <tbody>
 <tr><td>Cooperative single-task (one task does ROS, no priority competition)</td><td>Yes — no other task to preempt; entity scheduling fairness is moot</td></tr>
-<tr><td>Async / tokio / Embassy (futures, wakers)</td><td>Yes, as a busy loop — <code>spin_async</code> runs one non-blocking pass per poll and wakes itself; the readiness notifier and next deadline it would sleep on exist (issues 2143/2144), but it does not use them yet (issue 2145)</td></tr>
+<tr><td>Async / tokio / Embassy (futures, wakers)</td><td>Yes. <code>spin_async_with_sleep(&lt;runtime sleep&gt;)</code> runs one non-blocking pass per poll and then sleeps until an arrival or the next deadline (issue 2145). On a poll-only backend it busy-loops</td></tr>
 <tr><td>Preemptive priority RTOS, ROS at one priority (FreeRTOS / ThreadX / Zephyr typical)</td><td><strong>Partial</strong> — kernel preemption from higher-priority tasks works; ROS-internal entity scheduling is batch-FIFO, timer expiries can be delayed by long sub callbacks at the same priority</td></tr>
 <tr><td>WCET-bounded real-time (RTIC, DO-178C)</td><td><strong>No</strong> — <code>drive_io</code> has unbounded execution time; callers needing per-callback WCET use the async path with explicit Waker integration instead</td></tr>
 <tr><td>Time-triggered cyclic</td><td><strong>No</strong> — no way to bound <code>drive_io</code> to a fixed wall-clock budget</td></tr>
