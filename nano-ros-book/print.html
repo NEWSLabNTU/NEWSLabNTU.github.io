@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-3338aba2.js";
+            window.path_to_searchindex_js = "searchindex-af430b63.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-6e90cc93.js"></script>
@@ -11858,17 +11858,20 @@ run(config, |config| {
 └──────────────────────────────────────────────────────────┘
 </code></pre>
 <h3 id="qemu-flags"><a class="header" href="#qemu-flags">QEMU Flags</a></h3>
-<p>The runner is the <strong>board’s</strong>, not the example’s. <code>nros sync</code> writes it into
+<p>The runner is the <strong>board’s</strong>, not the example’s: the board descriptor states
+it once as <code>[board.run]</code> / <code>[board.run.qemu]</code>, and <code>nros sync</code> renders it into
 the image’s generated settings file,
 <code>build/mps2-an385-baremetal/nros-cargo.toml</code>, where it reads:</p>
 <pre><code class="language-toml">[target.thumbv7m-none-eabi]
-runner = "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -semihosting-config enable=on,target=native -kernel"
+runner = "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -icount shift=auto -semihosting-config enable=on,target=native -nic user,model=lan9118 -kernel"
 </code></pre>
 <p>Key flags:</p>
 <ul>
 <li><code>-nographic</code> — No display window</li>
 <li><code>-semihosting-config enable=on,target=native</code> — Debug output via semihosting (separate from UART)</li>
-<li>No <code>-netdev</code> / <code>-net</code> — Serial transport doesn’t need Ethernet</li>
+<li><code>-icount shift=auto</code> — keeps the guest clock on wall-clock time (below)</li>
+<li><code>-nic user,model=lan9118</code> — the board’s Ethernet on QEMU’s user network;
+a serial-transport image does not use it</li>
 </ul>
 <p>That runner wires <strong>no serial device</strong>: it is the board’s general-purpose
 one, good for <code>cargo run</code> on any image for this board, and it is generated —
@@ -16512,14 +16515,6 @@ entry_kind          = "board-run"
 supported_netstacks = ["smoltcp"]
 chip                = "stm32f429"
 board_crate         = "my-stm32f4-board"
-
-# entry_kind = "board-run" needs the matching [board.entry] block —
-# copy the one from packages/boards/nros-board-mps2-an385/nros-board.toml
-# and swap the crate name.
-[board.entry]
-crate_name = "my_stm32f4_board"
-signature  = "#[my_stm32f4_board::entry]\nfn main() -&gt; !"
-
 cargo_config = '''
 [build]
 target = "thumbv7em-none-eabihf"
@@ -16527,11 +16522,47 @@ target = "thumbv7em-none-eabihf"
 [target.thumbv7em-none-eabihf]
 rustflags = ["-C", "link-arg=-Tlink.x"]
 '''
+
+# entry_kind = "board-run" needs the matching [board.entry] block —
+# copy the one from packages/boards/nros-board-mps2-an385/nros-board.toml
+# and swap the crate name. (A `[board.*]` table ends the `[[board]]` keys
+# above it, so `cargo_config` goes before it.)
+[board.entry]
+crate_name = "my_stm32f4_board"
+signature  = "#[my_stm32f4_board::entry]\nfn main() -&gt; !"
 </code></pre>
 <p><code>supported_netstacks</code> names who brings up the link (here your crate’s
-smoltcp glue — nothing outside it). Beware unknown keys: the descriptor
-parser ignores what it does not know rather than erroring, so a typo’d
-key silently does nothing.</p>
+smoltcp glue — nothing outside it). Unknown keys are refused when the
+catalog loads, naming the key and the file, so a typo fails loudly rather
+than doing nothing.</p>
+<h3 id="how-the-board-runs-boardrun-and-boardconsole"><a class="header" href="#how-the-board-runs-boardrun-and-boardconsole">How the board runs: <code>[board.run]</code> and <code>[board.console]</code></a></h3>
+<p>A board states its launch once, in <code>[board.run]</code> (RFC-0118 D4). Real silicon
+with no emulator twin leaves it out. Otherwise it holds either
+<code>emulator = "&lt;kind&gt;:&lt;machine&gt;"</code> (kind <code>qemu</code>, <code>fvp</code>, <code>renode</code> or <code>wokwi</code>) or
+<code>host = true</code> for a host process, never both. A runner-specific sub-table
+holds what only that runner reads; for QEMU it is <code>[board.run.qemu]</code>:</p>
+<pre><code class="language-toml">[board.run]
+emulator = "qemu:mps2-an385"
+
+[board.run.qemu]
+system      = "arm"          # qemu-system-&lt;system&gt;
+cpu         = "cortex-m3"    # -cpu
+# machine   = "…"            # -machine, when it differs from the emulator's word
+icount      = "shift=auto"   # -icount
+semihosting = true           # -semihosting-config enable=on,target=native
+nic_model   = "lan9118"      # -nic user,model=&lt;m&gt;
+
+[board.console]
+kind = "semihosting"         # stdio | serial | rtt | semihosting
+# usb  = "0483:374b"         # serial only
+# baud = 115200              # serial only
+</code></pre>
+<p>Three things read it, so none of them states it again. <code>nros build</code> prints the
+QEMU line (program from the SDK store, then the image) as its next step. The
+generated cargo settings file gives the same line to cargo as the triple’s
+<code>runner</code>, so <code>cargo run --config &lt;that file&gt;</code> boots the image. The board-support
+registry reads <code>emulator</code> from it rather than typing its own copy. A <code>runner</code> in
+<code>cargo_config</code>, or <code>[board.zephyr] runner</code>, is refused naming these tables.</p>
 <h2 id="what-you-take-on"><a class="header" href="#what-you-take-on">What you take on</a></h2>
 <p>Be clear-eyed about the trade, because it is the reason this page exists rather
 than a crate:</p>
@@ -16611,7 +16642,7 @@ a fatal ambiguity, never shadowed by search order.</p>
 <tr><td><code>EXTRA_CONF_FILE</code></td><td>The board crate’s <code>prj.conf</code> and any per-board Kconfig fragments (e.g. an HWv2 snippet) are appended. Any consumer-supplied <code>EXTRA_CONF_FILE</code> is preserved and layered AFTER the board’s.</td></tr>
 <tr><td><code>DTC_OVERLAY_FILE</code></td><td>The board crate’s per-board DTS overlay is appended. Consumer overlays are preserved and layered after.</td></tr>
 <tr><td><code>NROS_RMW</code></td><td>Defaulted to <code>NROS_BOARD_DEFAULT_RMW</code> (from the board’s descriptor) when the consumer did not pass <code>-DNROS_RMW=...</code>.</td></tr>
-<tr><td><code>NROS_BOARD_RUNNER</code></td><td>Cached so a launcher can pick up the right simulator binary / target-launcher.</td></tr>
+<tr><td><code>NROS_BOARD_RUNNER</code></td><td>The Zephyr emulator name derived from the descriptor’s <code>[board.run] emulator</code> (<code>fvp:</code> gives <code>armfvp</code>), cached. Zephyr does not read it; <code>nano_ros_entry()</code> reads it as “an embedded board was imported”.</td></tr>
 <tr><td><code>NROS_BOARD_RUST_SUPPORT_MODULE</code></td><td>Appended to <code>ZEPHYR_EXTRA_MODULES</code> when the board carries a Rust support module. (Not yet in the <code>board.cmake</code> ↔ <code>Cargo.toml</code> drift-audit field list — drift here is unaudited.)</td></tr>
 </tbody>
 </table>
@@ -16634,8 +16665,9 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(my_app LANGUAGES CXX)
 </code></pre>
 <h2 id="running"><a class="header" href="#running">Running</a></h2>
-<p>The board’s <code>[board.zephyr] runner</code> reaches cmake as <code>NROS_BOARD_RUNNER</code>, and
-Zephyr’s own emulator target does the rest:</p>
+<p>The board states its emulator once, in <code>[board.run] emulator</code> (for the FVP,
+<code>fvp:FVP_BaseR_AEMv8R</code>), which reaches cmake as <code>NROS_BOARD_RUNNER</code>. Zephyr’s own
+board definition selects the emulator, and its run target does the rest:</p>
 <pre><code class="language-sh">west build -d build
 west build -d build -t run
 </code></pre>
