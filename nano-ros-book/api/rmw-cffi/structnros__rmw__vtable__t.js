@@ -51,6 +51,7 @@ var structnros__rmw__vtable__t =
     [ "publisher_get_actual_qos", "structnros__rmw__vtable__t.html#af7a82bd9d467d037f8ceb87707c9ca9e", null ],
     [ "publisher_take_event", "structnros__rmw__vtable__t.html#a67db2d73465e884593ffbd0abd49a551", null ],
     [ "publisher_wait_for_all_acked", "structnros__rmw__vtable__t.html#a5b5174a77fc54fb1ab532dccf465cd90", null ],
+    [ "readiness_source", "structnros__rmw__vtable__t.html#ab682b90a4746751e5ebba1123d5f036f", null ],
     [ "return_loaned_message_from_publisher", "structnros__rmw__vtable__t.html#ad23de3f5a0e0e3a67fa2a80eb5dfe172", null ],
     [ "return_loaned_message_from_subscription", "structnros__rmw__vtable__t.html#a6aa22060a4fe0c6e7af809d41a256530", null ],
     [ "send_request", "structnros__rmw__vtable__t.html#acbbb26de89a189858fa18b9109ecd271", null ],

@@ -27,6 +27,7 @@ var platform__net_8h =
     [ "nros_platform_udp_open", "platform__net_8h.html#a078634f56d731bae7cc3b1bea55a6abb", null ],
     [ "nros_platform_udp_read", "platform__net_8h.html#a2d94db98a80a6d01cd4a0ca4e44cfa42", null ],
     [ "nros_platform_udp_read_exact", "platform__net_8h.html#a2cc1cf70e8d3b2250846236aae2c4947", null ],
+    [ "nros_platform_udp_readiness_handle", "platform__net_8h.html#aff3f570816cc4a87ed8f6393678d32ef", null ],
     [ "nros_platform_udp_send", "platform__net_8h.html#ad0c2edc381a4d21b4521d00415e2249b", null ],
     [ "nros_platform_udp_set_recv_timeout", "platform__net_8h.html#a81fb3f65fab2b793a61c731b82cd1fec", null ]
 ];

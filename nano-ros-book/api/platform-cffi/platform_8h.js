@@ -88,6 +88,7 @@ var platform_8h =
     [ "nros_platform_wake_drop", "platform_8h.html#a622ddec5af60b07eb1906d76e83bba05", null ],
     [ "nros_platform_wake_init", "platform_8h.html#a1242421f3a4c2da2bd98459106f15d4c", null ],
     [ "nros_platform_wake_park_granularity_us", "platform_8h.html#a1935ac91694009b97890cbaa4f4fa8dc", null ],
+    [ "nros_platform_wake_park_handles_us", "platform_8h.html#a956387e0942f200e9a91d6332cc52ac9", null ],
     [ "nros_platform_wake_park_until_us", "platform_8h.html#af0b51d61df44a1c582dfc1f77944bc82", null ],
     [ "nros_platform_wake_signal", "platform_8h.html#aa78ad983e89987d83d0d706edf6f0ce6", null ],
     [ "nros_platform_wake_signal_from_isr", "platform_8h.html#a380cca3d9b4819697600c8113e4f0b61", null ],
