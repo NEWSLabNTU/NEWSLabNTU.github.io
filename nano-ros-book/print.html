@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-6a34f1a2.js";
+            window.path_to_searchindex_js = "searchindex-a8f123a7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-6e90cc93.js"></script>
@@ -9311,7 +9311,7 @@ readers refuse them rather than reading them. Design of record:
 <tr><th>File</th><th>Owns</th><th>Per</th></tr>
 </thead>
 <tbody>
-<tr><td><strong><code>system.toml</code></strong></td><td><strong>Everything about the deployment</strong> — <code>[system]</code> (RMW, domain, capability axes like <code>features = ["param_services"]</code> and the <code>[safety]</code> block, tiers), <code>[[component]]</code> (what runs, and its entities), and one <code>[image.&lt;id&gt;]</code> per target (<code>board</code>, <code>locator</code>, the board network file holding its address, <code>os_config = ["board-net.toml"]</code>, and how it runs, <code>[image.&lt;id&gt;.run]</code>). One schema for Rust, C and C++, and the same file whether the project is one package or a workspace.</td><td>package, or bringup pkg</td></tr>
+<tr><td><strong><code>system.toml</code></strong></td><td><strong>Everything about the deployment</strong> — <code>[system]</code> (RMW, domain, capability axes like <code>features = ["param_services"]</code> and the <code>[safety]</code> block, tiers), <code>[[component]]</code> (what runs, and its entities), and one <code>[image.&lt;id&gt;]</code> per target (<code>board</code>, <code>locator</code>, the board network file holding its address, <code>os_config = ["board-net.toml"]</code>, and how it runs, is flashed and is watched, <code>[image.&lt;id&gt;.run]</code>, <code>[image.&lt;id&gt;.flash]</code>, <code>[image.&lt;id&gt;.console]</code>). One schema for Rust, C and C++, and the same file whether the project is one package or a workspace.</td><td>package, or bringup pkg</td></tr>
 <tr><td><code>Cargo.toml</code></td><td>Rust toolchain facts only: crate, language deps, the RMW <strong>feature menu</strong> (<code>rmw-zenoh</code>/<code>rmw-cyclonedds</code>/<code>rmw-xrce</code>) the generated entry selects from. No board, no target triple, no deploy block.</td><td>Rust project</td></tr>
 <tr><td><code>CMakeLists.txt</code></td><td>C/C++ toolchain facts only: targets and language deps, via <code>find_package(nano_ros)</code> + <code>nano_ros_add_executable</code> / <code>nano_ros_auto_add_library</code> + <code>nros_components_register_node</code> (RFC-0057; <code>nano_ros_node_register</code> remains as the compat spelling) / <code>nano_ros_entry</code>. No platform, board or RMW <code>set()</code>.</td><td>C/C++ project</td></tr>
 <tr><td><code>build/&lt;image&gt;/nros-cargo.toml</code></td><td><strong>GENERATED, never edited</strong> — every cargo setting the board choice implies: <code>[build] target</code>, <code>[target.*]</code> runner and rustflags, the cross compiler, the derived pool sizes as <code>[env]</code>, the nano-ros profiles, and the <code>[patch.crates-io]</code> rows that resolve nano-ros’s registry-style names into your checkout. Written by <code>nros sync</code>, passed to cargo with <code>--config</code>.</td><td>image</td></tr>
@@ -9470,6 +9470,20 @@ nic = { bridge = "qemu-br" }   # QEMU: -nic bridge,br=qemu-br,…
 image’s first interface. An image on any other network with no <code>nic</code> is
 physical only, and launching it under QEMU is refused. <code>nros ws qemu-nic &lt;leaf&gt; --model &lt;nic-model&gt;</code> prints the <code>-nic</code> value for a leaf’s image, for a script
 that starts QEMU itself.</p>
+<p>The same goes for a board that is flashed and watched on a serial port: the
+board’s descriptor states its flasher and console (<code>[board.flash]</code>,
+<code>[board.console]</code>, see
+<a href="#how-the-board-is-flashed-boardflash">the descriptor section</a>),
+and an image overrides any key of them in its own tables:</p>
+<pre><code class="language-toml">[image.lab.flash]
+command = "pyocd flash -t stm32f767zi {hex}"     # replaces the board's method
+prepare = [{ say = "Set BOOT0 to 1, then press RESET", wait_for = "usb:0483:df11" }]
+
+[image.lab.console]
+baud = 921600                                     # kind stays the board's
+</code></pre>
+<p>Both are checked when <code>system.toml</code> is read (an unknown key, <code>wait_for</code> event
+or <code>{placeholder}</code> is refused) and are read by <code>nros flash</code> (phase-529 W3).</p>
 <h3 id="the-middlewares-own-file"><a class="header" href="#the-middlewares-own-file">The middleware’s own file</a></h3>
 <p>How a session finds its peers — which router to dial, which endpoints to
 listen on — is the middleware’s own configuration, written in its own
@@ -16563,6 +16577,44 @@ generated cargo settings file gives the same line to cargo as the triple’s
 <code>runner</code>, so <code>cargo run --config &lt;that file&gt;</code> boots the image. The board-support
 registry reads <code>emulator</code> from it rather than typing its own copy. A <code>runner</code> in
 <code>cargo_config</code>, or <code>[board.zephyr] runner</code>, is refused naming these tables.</p>
+<h3 id="how-the-board-is-flashed-boardflash"><a class="header" href="#how-the-board-is-flashed-boardflash">How the board is flashed: <code>[board.flash]</code></a></h3>
+<p>Real silicon states how it is programmed in <code>[board.flash]</code> (RFC-0118 D4): a
+flasher <code>method</code> (<code>west</code>, <code>espflash</code>, <code>probe-rs</code>, <code>openocd</code>, <code>picotool</code>, <code>uf2</code>,
+<code>dfu-util</code>, …), the <code>chip</code> in that flasher’s own spelling, and the <code>prepare</code>
+steps a person or a relay performs first, in order:</p>
+<pre><code class="language-toml">[board.flash]
+method  = "probe-rs"
+chip    = "STM32F429ZITx"
+prepare = [
+    { say = "Set BOOT0 to 1, then press RESET", wait_for = "usb:0483:df11" },
+    { run = "relay-ctl on 1" },
+]
+
+[board.console]
+kind = "serial"
+usb  = "0483:374b"           # the USB serial adapter, &lt;vid&gt;:&lt;pid&gt; hex
+baud = 115200
+</code></pre>
+<p>A step is one of <code>say</code> (print an instruction), <code>wait_for</code> (block on an event:
+<code>usb:&lt;vid&gt;:&lt;pid&gt;</code>, <code>port:&lt;path&gt;</code>, <code>volume:&lt;label&gt;</code> for a UF2 drive, or
+<code>line:&lt;text&gt;</code> on the console) and <code>run</code> (a host command); only <code>say</code> and
+<code>wait_for</code> share a step. For a tool no runner covers, <code>command</code> replaces
+<code>method</code> with a template, filled from the plan’s own placeholders only
+(<code>{elf}</code> <code>{bin}</code> <code>{hex}</code> <code>{uf2}</code> <code>{build_dir}</code> <code>{port}</code> <code>{baud}</code> <code>{probe}</code>
+<code>{nic}</code>, and <code>{tool:&lt;name&gt;}</code> from the SDK store):</p>
+<pre><code class="language-toml">[board.flash]
+command = "{tool:pyocd} flash -t stm32f429zi {hex}"
+</code></pre>
+<p>An unknown key, an unknown event kind or an unknown placeholder fails when the
+catalog loads. The <code>method</code> word is checked for shape only: flashers are
+runner packages, so which words exist is the installed runners’ answer. A
+Zephyr board says <code>method = "west"</code> and no more, because which runner and
+probe <code>west flash</code> uses is Zephyr’s own <code>runners.yaml</code>. A board may state
+both <code>[board.run]</code> and <code>[board.flash]</code> when it has an emulator twin: <code>nros run</code> takes the twin and <code>nros flash</code> the silicon.</p>
+<p>An image overrides any of this in its <code>system.toml</code> with
+<code>[image.&lt;id&gt;.flash]</code> and <code>[image.&lt;id&gt;.console]</code>, which take the same keys
+(see <a href="#configuration-guide">Configuration</a>). <code>nros flash</code>, which
+runs these steps, is phase-529 W3.</p>
 <h2 id="what-you-take-on"><a class="header" href="#what-you-take-on">What you take on</a></h2>
 <p>Be clear-eyed about the trade, because it is the reason this page exists rather
 than a crate:</p>
