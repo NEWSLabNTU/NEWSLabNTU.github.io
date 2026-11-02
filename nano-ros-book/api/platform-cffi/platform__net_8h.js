@@ -14,6 +14,7 @@ var platform__net_8h =
     [ "nros_platform_tcp_read", "platform__net_8h.html#a4842adf25216d79abad1ca023a51a77d", null ],
     [ "nros_platform_tcp_read_exact", "platform__net_8h.html#ab1b695f85edeaba3dbe8a34c2b388cb8", null ],
     [ "nros_platform_tcp_send", "platform__net_8h.html#a2bb29758b76f7f2bd1d0f0eafeb28ebf", null ],
+    [ "nros_platform_tcp_set_rx_notify", "platform__net_8h.html#ad9c5eb28ea31454a0eb1ee93545714c2", null ],
     [ "nros_platform_udp_close", "platform__net_8h.html#af7b34dece0ed321eccec632207c3f9fa", null ],
     [ "nros_platform_udp_create_endpoint", "platform__net_8h.html#a3e19bf3e1385196ddf3298dc227bf033", null ],
     [ "nros_platform_udp_free_endpoint", "platform__net_8h.html#a4cb572d57c3e656f55412fa68580fda4", null ],
