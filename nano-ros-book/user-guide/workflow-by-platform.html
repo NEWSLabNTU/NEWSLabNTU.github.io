@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-016f660c.js";
+            window.path_to_searchindex_js = "../searchindex-587708c0.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-72f09d09.js"></script>
@@ -211,27 +211,25 @@ once it depends on its generated <code>&lt;pkg&gt;_nros_selection</code> package
 a board crate, as every in-tree single-package example on a supported board
 does
 (<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/issues/archived/1305-single-package-board-crate-dep-not-generated.md">issue 1305</a>).</p>
-<h2 id="the-step-that-is-easy-to-miss"><a class="header" href="#the-step-that-is-easy-to-miss">The step that is easy to miss</a></h2>
-<p><strong>Rust leaves need <code>nros sync</code> before their first build. C and C++
-leaves do not.</strong></p>
-<p>That split is a property of the two languages, not an inconsistency.
-CMake generates a C/C++ leaf’s message bindings <em>during configure</em>, so
-there is nothing to prepare first. Cargo has no such stage: the message
-crates a Rust leaf path-depends on, and the settings file that carries
-its board facts, both have to exist before cargo parses the manifest.
-<code>nros sync</code> produces them:</p>
+<h2 id="configure-is-part-of-the-build"><a class="header" href="#configure-is-part-of-the-build">Configure is part of the build</a></h2>
+<p><strong><code>nros build</code> and <code>nros run</code> configure for you, the way <code>cargo build</code>
+fetches what it needs.</strong> You do not type a separate step first, for Rust, C
+or C++ leaves alike.</p>
+<p><code>nros configure</code> is the step they run: it generates the message crates a
+Rust leaf path-depends on, writes the settings file that carries its board
+facts, and resolves each image’s build inputs. Cargo has no stage of its own
+for that, so the files have to exist before cargo parses the manifest:</p>
 <pre><code class="language-text">&lt;leaf&gt;/generated/&lt;pkg&gt;/                  # message crates
 &lt;leaf&gt;/build/&lt;image&gt;/nros-cargo.toml     # every cargo setting the board implies
 </code></pre>
-<p><strong>Skipping it fails in three ways, and they read very differently.</strong>
-<code>nros build</code> says so in one line and names the remedy:</p>
-<pre><code class="language-text">Error: &lt;leaf&gt; has not been synced — missing the resolved model under
-`build/nros/models/`, the generated message crate `std_msgs`
-(generated/std_msgs).
-  Run `nros sync` in &lt;leaf&gt; (RFC-0098 D2), then build again.
-</code></pre>
-<p>A plain <code>cargo build</code> gets as far as the manifest and stops on the
-missing message crate, without mentioning nano-ros at all:</p>
+<p>It records a stamp per image under <code>build/nros/configured/</code>, so a build with
+nothing changed skips it. It re-runs on its own when <code>package.xml</code>,
+<code>Cargo.toml</code>, <code>system.toml</code>, a launch file or the ROS install changed. Run
+<code>nros configure</code> yourself when you want the files without a build, for an
+IDE or a CI step, or add <code>--force</code> to redo it.</p>
+<p><strong>Driving cargo directly skips that.</strong> A plain <code>cargo build</code> before any
+configure gets as far as the manifest and stops on the missing message
+crate, without mentioning nano-ros at all:</p>
 <pre><code class="language-text">error: failed to load manifest for dependency `std_msgs`
 Caused by:
   failed to read `&lt;leaf&gt;/generated/std_msgs/Cargo.toml`
@@ -240,7 +238,7 @@ Caused by:
 </code></pre>
 <p>And a <code>cargo build --config &lt;leaf&gt;/build/&lt;image&gt;/nros-cargo.toml</code> whose
 settings file does not exist yet produces the one that does not look
-like a missing file at all — cargo falls back to reading the argument as
+like a missing file at all, because cargo falls back to reading the argument as
 an inline setting:</p>
 <pre><code class="language-text">error: failed to parse value from --config argument
 `&lt;leaf&gt;/build/&lt;image&gt;/nros-cargo.toml` as a dotted key expression
@@ -248,11 +246,10 @@ Caused by:
   TOML parse error at line 1, column 39
   key with no value, expected `=`
 </code></pre>
-<p>If you see any of the three, run <code>nros sync</code>.</p>
+<p>If you see either, run <code>nros configure</code> (or build once with <code>nros build</code>).</p>
 <p><strong>Contributors (in-tree checkout):</strong> the <code>just</code> recipes —
-<code>just &lt;module&gt; build-fixtures</code> and friends — run <code>nros sync</code> for you, so
-they work from a fresh clone. It is the hand-run build in a leaf that
-needs you to run it yourself.</p>
+<code>just &lt;module&gt; build-fixtures</code> and friends — run <code>nros configure</code> for you, so
+they work from a fresh clone.</p>
 <p>You need it <strong>once per project location</strong>, not once per build. Re-run
 it after editing a <code>.msg</code>, <code>.srv</code>, or <code>.action</code> file, after changing
 <code>system.toml</code>, after moving the project, and after installing another
@@ -296,7 +293,7 @@ that live on the platform’s own starter page.</p>
 <pre><code class="language-bash">nros setup &lt;board&gt; --rmw zenoh  # toolchain + SDK for the target
 
 cd &lt;leaf&gt;
-nros sync                       # ← the step above; once per location
+nros configure                       # ← the step above; once per location
 nros build                      # every [image.*]; or: nros build &lt;image-id&gt;
 </code></pre>
 <p>(<code>nros</code> is the installed CLI — <a href="../getting-started/installation.html">Installation</a>.)</p>
@@ -306,8 +303,8 @@ nros build                      # every [image.*]; or: nros build &lt;image-id&g
 is in the generated settings file, which is also where its linker flags
 and its QEMU runner live.</p>
 <p>If you would rather drive cargo yourself — an IDE, a CI step,
-<code>--release</code> — run <code>nros sync</code>; then a plain <code>cargo build</code> inside the
-package works, because sync wires that file into the package’s
+<code>--release</code> — run <code>nros configure</code>; then a plain <code>cargo build</code> inside the
+package works, because configure wires that file into the package’s
 gitignored <code>.cargo/config.toml</code>. To name the file explicitly instead,
 run from the directory <em>above</em> the package — inside it cargo would read
 the settings twice and join the board’s rustflags onto themselves:</p>
@@ -325,7 +322,7 @@ nros build                      # configures + builds into build/&lt;image&gt;/c
 </code></pre>
 <p>The executable lands at <code>&lt;leaf&gt;/build/&lt;image-id&gt;/cmake/&lt;name&gt;</code>, where
 <code>&lt;name&gt;</code> is what the leaf’s <code>nano_ros_add_executable(&lt;name&gt; …)</code> calls it;
-<code>nros build</code> prints that path and the command that runs it. No <code>nros sync</code>,
+<code>nros build</code> prints that path and the command that runs it. No <code>nros configure</code>,
 and no <code>-DNROS_BOARD</code> / <code>-DNROS_RMW</code> either: <code>find_package(nano_ros)</code> reads
 the leaf’s <code>system.toml</code> and derives the platform from the board it names,
 and <code>nros build</code> passes the board’s cross-toolchain file and the SDK root
@@ -346,15 +343,14 @@ resolves it. A CMake tree with no <code>system.toml</code> at all is
 <pre><code class="language-bash">nros setup zephyr --rmw zenoh
 
 cd &lt;leaf-or-workspace&gt;
-nros sync
+nros configure
 nros build &lt;image&gt;              # runs `west build -d build/&lt;coordinate&gt;/&lt;bringup&gt;__&lt;image&gt;_west`
 </code></pre>
 <p><code>nros build</code> resolves the west application and the image’s overlays, runs
 <code>west build</code> with that image’s own build directory, and prints Zephyr’s next
 command for it — <code>west build -d &lt;dir&gt; -t run</code> for an emulated board,
-<code>west flash -d &lt;dir&gt;</code> for one with a flash runner. <code>nros sync</code> comes first on
-Zephyr whatever the language, because the build stops at its preflight on a
-workspace that was never synced. Driving <code>west build</code> yourself is the escape
+<code>west flash -d &lt;dir&gt;</code> for one with a flash runner. <code>nros build</code> configures first
+on Zephyr too, whatever the language. Driving <code>west build</code> yourself is the escape
 hatch; see <a href="../getting-started/integration-zephyr.html">Zephyr (west module)</a>.</p>
 <h3 id="where-a-leaf-comes-from"><a class="header" href="#where-a-leaf-comes-from">Where a leaf comes from</a></h3>
 <p><code>&lt;leaf&gt;</code> above is a package of yours: <code>nros new &lt;name&gt; --platform &lt;platform&gt; --lang &lt;lang&gt;</code> scaffolds one, and the examples on
@@ -398,7 +394,7 @@ different boards.</p>
 <p>The sequence above builds one leaf. A project with several nodes adds a
 Bringup package carrying the same <code>system.toml</code> — and nothing else: no
 root build file, and no entry package to write, because the entry is
-generated per <code>[image.*]</code>. The commands stay <code>nros sync</code> and
+generated per <code>[image.*]</code>. The commands stay <code>nros configure</code> and
 <code>nros build</code>, which then drive one of the three shapes above for you.
 See <a href="../getting-started/workspace-from-app-node.html">Project layout</a>.</p>
 <h2 id="if-it-does-not-work"><a class="header" href="#if-it-does-not-work">If it does not work</a></h2>
