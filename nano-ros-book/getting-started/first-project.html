@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-1b732254.js";
+            window.path_to_searchindex_js = "../searchindex-016f660c.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-a423a88d.js"></script>
+        <script src="../toc-72f09d09.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -179,104 +179,106 @@
                     <main>
                         <h1 id="first-project"><a class="header" href="#first-project">First Project</a></h1>
 <blockquote>
-<p><strong>Support level:</strong> <a href="../reference/boards/linux.html">the Linux host</a>. Each page states what nano-ros can show for the board (where it runs, how often, and its breadth), generated from the board support registry; <a href="../reference/board-support-levels.html">Board Support Levels</a> explains the words.</p>
+<p><strong>Support level:</strong> <a href="../reference/boards/mps2-an385.html"><code>mps2-an385-baremetal</code></a>. Each page states what nano-ros can show for the board (where it runs, how often, and its breadth), generated from the board support registry; <a href="../reference/board-support-levels.html">Board Support Levels</a> explains the words.</p>
 </blockquote>
-<p>One command scaffolds a working multi-node workspace; two more build and
-run it. C++ and CMake, publishing on your machine, with <strong>nothing else
-running</strong> — no router, no daemon, no ROS 2 installation.</p>
-<p>This assumes the <a href="installation.html">install</a> is done: <code>nros</code> is on your
-PATH, a release installed with <code>scripts/install.sh</code>.</p>
-<h2 id="scaffold"><a class="header" href="#scaffold">Scaffold</a></h2>
-<pre><code class="language-bash probe=50 track=installed">nros new my_robot --workspace
-cd my_robot
+<p>One node on one board, talking to ROS 2 over a serial cable: you scaffold a
+talker, run it, and watch its messages arrive in <code>ros2 topic echo</code>. The board
+is an Arm Cortex-M3 (MPS2-AN385) that QEMU emulates on your machine, so no
+hardware is needed, and its serial port is wired to your host the way a USB
+serial cable would be. No network is configured anywhere in this chapter.</p>
+<p>This chapter assumes a Linux x86_64 host (or the
+<a href="installation.html#do-i-need-ros-2-installed">container</a> the install page
+describes) with a C/C++ compiler, ROS 2 Humble with
+<code>ros-humble-rmw-zenoh-cpp</code>, and the <a href="installation.html">install</a> done, so
+<code>nros</code> is on your PATH.
+WiFi is deferred to the Zephyr 4.4 line, where the Pico W’s WiFi driver
+exists, so no chapter here opens over WiFi yet.</p>
+<h2 id="provision-the-board"><a class="header" href="#provision-the-board">Provision the board</a></h2>
+<pre><code class="language-bash probe=30 track=installed">nros setup mps2-an385-baremetal --rmw zenoh
 </code></pre>
-<p>That wrote a complete workspace, not a hello-world stub:</p>
-<pre><code class="language-text">my_robot/
-├── .colcon_workspace           # marks the workspace root; there is no root build file
+<p>This fetches what the board needs into a shared store under <code>~/.nros</code>: the
+Arm cross-compiler, the Rust target, and the QEMU that emulates the board.
+It installs no router: the router is ROS’s <code>rmw_zenohd</code>, from the ROS 2
+install above.</p>
+<h2 id="scaffold-the-talker"><a class="header" href="#scaffold-the-talker">Scaffold the talker</a></h2>
+<pre><code class="language-bash probe=40 track=installed">nros new sensor_node --board mps2-an385-baremetal --template talker
+cd sensor_node
+</code></pre>
+<p>That wrote one package:</p>
+<pre><code class="language-text">sensor_node/
+├── system.toml      # what this package runs on: the board, and how it reaches ROS 2
+├── Cargo.toml       # the package manifest
+├── package.xml      # its ROS name and message dependencies
+├── README.md        # these steps, for whoever opens the package next
 └── src/
-    ├── talker_pkg/             # a C++ node: publishes std_msgs/Int32 on /chatter
-    ├── listener_pkg/           # a C++ node: subscribes to /chatter
-    └── demo_bringup/           # launch file + system.toml — no code
+    ├── lib.rs       # the talker node: publishes on /chatter once a second
+    └── main.rs      # boots the board and starts the node
 </code></pre>
-<p>There is no entry package and no root <code>CMakeLists.txt</code>: the binary is
-<em>generated</em> from the bringup’s <code>system.toml</code> when you build. What each
-directory is <em>for</em> is the next chapter,
-<a href="anatomy.html">Anatomy of What You Just Built</a>. You don’t need it to run.</p>
-<h2 id="provision"><a class="header" href="#provision">Provision</a></h2>
-<p>Inside the workspace, <code>nros setup</code> needs no board name. It reads every
-<code>[image.*]</code> in the workspace’s <code>system.toml</code> files and installs what those
-images need: here, the Linux host build on Cyclone DDS.</p>
-<pre><code class="language-bash probe=55 track=installed">nros setup
+<p>The board talks to ROS 2 through a zenoh router on your host. Tell it to
+reach the router over its first serial port (<code>UART_0</code>, at 115200 baud) by
+adding one line at the end of <code>system.toml</code>:</p>
+<pre><code class="language-bash probe=45 track=installed">echo 'locator = "serial/UART_0#baudrate=115200"' &gt;&gt; system.toml
 </code></pre>
-<p>If you already ran <code>nros setup linux --rmw cyclonedds</code>, it finds everything
-present and installs nothing.</p>
-<h2 id="build"><a class="header" href="#build">Build</a></h2>
-<pre><code class="language-bash probe=60 track=installed">nros sync
-nros build
+<p>The line lands under the <code>board = "mps2-an385-baremetal"</code> line the scaffold
+wrote. Leave it out and the board looks for the router over QEMU’s network
+instead, which is the <a href="bare-metal.html">network chapter</a>.</p>
+<h2 id="run-it"><a class="header" href="#run-it">Run it</a></h2>
+<p>First generate what the build reads: the message code the talker uses and
+the board’s build settings, all under <code>build/</code>. Run it again whenever you
+edit <code>system.toml</code>:</p>
+<pre><code class="language-bash probe=48 track=installed">nros sync
 </code></pre>
-<p><code>nros sync</code> resolves the launch file into the system model; <code>nros build</code>
-generates the entry for each <code>[image.*]</code> in <code>system.toml</code> and drives
-CMake under <code>build/</code>. The first build compiles nano-ros’s runtime into
-the build tree (~3 minutes); rebuilds are seconds. Inside a nano-ros
-checkout that checkout is used; anywhere else <code>nros</code> uses its own SDK
-(a release’s <code>share/nano-ros</code>, or the checkout an in-tree <code>nros</code> was
-built in), and <code>--nano-ros-path &lt;dir&gt;</code> names one explicitly. Nothing is
-exported. <code>nros dev sdk root --explain</code> prints the root it would use and
-where that came from.</p>
-<h2 id="run"><a class="header" href="#run">Run</a></h2>
-<p>The build’s last lines name what it produced and how to start it —
-<code>nros build: next for …</code>, an <code>artifact:</code> path and a <code>run:</code> command. On the
-host board the command is the program itself:</p>
-<pre><code class="language-bash">./build/posix-cyclonedds-linux/cmake/linux_entry
+<p>Then build and run:</p>
+<pre><code class="language-bash probe=50 probe-run=1500 track=installed">nros run --expect 'Publishing:'
 </code></pre>
-<pre><code class="language-text">Published: 0
-Received: 0
-Published: 1
-Received: 1
-Published: 2
-Received: 2
+<pre><code class="language-text probe-expect=50">Publishing: 'Hello World: 1'
+nros run: matched after
 </code></pre>
-<p>One process, two nodes: the talker publishes <code>std_msgs/Int32</code> on
-<code>/chatter</code> every 500 ms and the listener prints each one it receives —
-the interleaved <code>Received:</code> lines are your proof of delivery — exactly as a ROS 2
-composition container would run two composable nodes. <code>Ctrl-C</code> stops it.</p>
-<p>Why nothing else needed to be running: the default RMW is
-<strong>CycloneDDS</strong>, which discovers peers directly — there is no router or
-daemon in the picture. The zenoh backend (for talking to a ROS 2 system)
-and XRCE (for the smallest targets) are one page away:
-<a href="../user-guide/rmw-choosing.html">Choosing an RMW</a>, and switching is a
-one-word edit — <a href="../user-guide/rmw-switching.html">Switching RMW in Config</a>.</p>
-<h2 id="same-thing-in-rust"><a class="header" href="#same-thing-in-rust">Same thing in Rust</a></h2>
-<pre><code class="language-bash">nros new my_rust_robot --workspace --lang rust
-cd my_rust_robot
-nros sync
-nros build
-RUST_LOG=info ./build/posix-cyclonedds/linux_entry/target/debug/linux_entry
+<p><code>nros run</code> does everything between your source and a running board: it
+builds the firmware (the first build compiles nano-ros for the Cortex-M3 and
+takes a few minutes; later builds take seconds), boots it in QEMU with the
+board’s serial port connected to a terminal device on your host, and starts
+<code>rmw_zenohd</code> on that device. The talker’s own output, <code>Publishing: 'Hello World: 1'</code> and on, is the board’s console. With <code>--expect</code>, <code>nros run</code> stops
+everything and exits 0 the moment the console prints a line containing that
+text, and exits 1 if the board stops first, which makes it a one-line check
+that the whole path works.</p>
+<p>Without <code>--expect</code> it keeps running until you press <code>Ctrl-C</code>. Start it that
+way in one terminal:</p>
+<pre><code class="language-bash probe=60 probe-run=300 probe-keep track=installed">nros run
 </code></pre>
-<pre><code class="language-text">[INFO  talker_pkg] Publishing: 0
-[INFO  listener_pkg] I heard: 0
-[INFO  talker_pkg] Publishing: 1
+<pre><code class="language-text probe-expect=60">Publishing: 'Hello World: 2'
 </code></pre>
-<p>(The Rust talker ticks at 1 s.)</p>
-<p>Same workspace shape, same <code>system.toml</code>, same launch file, same two
-commands — only the node implementations and the driver <code>nros build</code>
-picks (cargo instead of CMake) differ. Neither workspace has a root build
-file: the entry is generated per image under <code>build/</code>.</p>
+<h2 id="see-it-from-ros-2"><a class="header" href="#see-it-from-ros-2">See it from ROS 2</a></h2>
+<p>In a second terminal, ask ROS 2 for the topic. The router <code>nros run</code> started
+also listens where a ROS 2 node on this machine looks for one, so nothing
+needs to be configured:</p>
+<pre><code class="language-bash probe=70 probe-run=120 track=installed">source /opt/ros/humble/setup.bash
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
+</code></pre>
+<pre><code class="language-text probe-expect=70">data: 'Hello World:
+</code></pre>
+<p>The talker publishes best-effort, so the echo asks for best-effort too: a
+plain <code>ros2 topic echo</code> asks for reliable delivery, matches no publisher, and
+prints nothing. <code>Ctrl-C</code> in the first terminal stops QEMU and the router
+together.</p>
 <h2 id="if-it-didnt-work"><a class="header" href="#if-it-didnt-work">If it didn’t work</a></h2>
 <ul>
-<li><code>nros: RMW session open failed</code> on a busy machine usually means the
-DDS port range on your <code>ROS_DOMAIN_ID</code> is contended — pick another:
-<code>ROS_DOMAIN_ID=57 ./build/posix-cyclonedds-linux/cmake/linux_entry</code>.</li>
+<li><code>nros run</code> names what failed and the log it wrote. A router that would not
+start usually means <code>rmw_zenohd</code> was not found (source your ROS 2 setup in
+that terminal) or another router already holds port 7447 on this machine.</li>
+<li>No <code>data:</code> lines in the second terminal: check <code>RMW_IMPLEMENTATION</code> and
+the <code>--qos-reliability best_effort</code> flag.</li>
 <li>Everything else: <a href="troubleshooting-first-10-min.html">Troubleshooting — First 10 Minutes</a>.</li>
 </ul>
 <h2 id="where-to-go-next"><a class="header" href="#where-to-go-next">Where to go next</a></h2>
 <ul>
-<li><strong>Understand the four directories</strong> — <a href="anatomy.html">Anatomy</a>.</li>
+<li><strong>The same board over a network</strong> — <a href="bare-metal.html">Bare-metal Cortex-M3 (QEMU)</a>
+connects the talker through QEMU’s network instead of the serial port.</li>
+<li><strong>More than one node, on your Linux host</strong> —
+<a href="multi-node-linux.html">Several Nodes on the Linux Host</a>.</li>
 <li><strong>Talk to a real ROS 2 system</strong> — <a href="ros2-interop.html">ROS 2 Interoperability</a>.</li>
-<li><strong>Put it on a board</strong> — <a href="how-integration-works.html">How Integration Works</a>.</li>
-<li><strong>Add nodes, parameters, more targets</strong> —
-<a href="workspace-from-app-node.html">Project layout</a> and the Multi-Node
-Projects section.</li>
+<li><strong>Put it on another board</strong> — <a href="how-integration-works.html">How Integration Works</a>.</li>
 </ul>
 
                     </main>
@@ -287,7 +289,7 @@ Projects section.</li>
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../getting-started/anatomy.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../getting-started/multi-node-linux.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -301,7 +303,7 @@ Projects section.</li>
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../getting-started/anatomy.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../getting-started/multi-node-linux.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
