@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["check","declared_depth","declared_durability","declared_ingress_rate_mhz","declared_publisher","declared_reliability","honour","honour_publisher","with_declared_ingress"],"struct":["DeclaredEndpoint"]};
+window.SIDEBAR_ITEMS = {"fn":["check","declared_arrival_rate_mhz","declared_depth","declared_durability","declared_publisher","declared_reliability","honour","honour_publisher","with_declared_arrival_rate"],"struct":["DeclaredEndpoint"]};
