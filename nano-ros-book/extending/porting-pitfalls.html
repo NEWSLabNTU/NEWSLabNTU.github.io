@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-eca4cbbb.js";
+            window.path_to_searchindex_js = "../searchindex-9c7dc0a3.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-1f3ac882.js"></script>
+        <script src="../toc-c97eee72.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -200,7 +200,7 @@ corruption with no error interrupt.</p>
 static mut ETH_DMA_DESC: MaybeUninit&lt;[u32; 256]&gt; = MaybeUninit::uninit();
 <span class="boring">}</span></code></pre>
 <h3 id="stack-sizing"><a class="header" href="#stack-sizing">Stack sizing</a></h3>
-<p>Bare-metal and RTIC applications share a single stack. FreeRTOS/Zephyr give each
+<p>Bare-metal applications share a single stack. FreeRTOS/Zephyr give each
 task its own stack. In both cases, zenoh-pico’s internal processing needs
 significant stack space:</p>
 <div class="table-wrapper">
@@ -209,7 +209,7 @@ significant stack space:</p>
 <tr><th>Context</th><th>Minimum stack</th></tr>
 </thead>
 <tbody>
-<tr><td>Bare-metal / RTIC main stack</td><td>8 KB</td></tr>
+<tr><td>Bare-metal main stack</td><td>8 KB</td></tr>
 <tr><td>FreeRTOS zenoh read task</td><td>2 KB</td></tr>
 <tr><td>FreeRTOS zenoh lease task</td><td>1 KB</td></tr>
 <tr><td>Zephyr zpico work queue thread</td><td>2 KB</td></tr>
@@ -258,8 +258,9 @@ query timeout, and transport timeout. If the clock only advances during poll, id
 (waiting for network I/O, sleeping between spins) are invisible to the timeout logic.</li>
 <li><strong>Timeout storms:</strong> After a long idle period, the next poll advances the clock by a large
 jump, causing multiple timeouts to fire simultaneously.</li>
-<li><strong>Broken RTIC integration:</strong> RTIC tasks yield with <code>Mono::delay()</code> between spins. A
-poll-driven clock doesn’t advance during the delay, making all timeouts effectively infinite.</li>
+<li><strong>Broken idle waits:</strong> a loop that sleeps between spins (<code>wfi()</code>, a timer delay) gets
+no clock advance from a poll-driven clock during the sleep, making all timeouts
+effectively infinite.</li>
 </ul>
 <h3 id="platform-clock-status"><a class="header" href="#platform-clock-status">Platform clock status</a></h3>
 <div class="table-wrapper">
@@ -328,19 +329,21 @@ event loop, and the TAP file descriptor is never serviced.</p>
 <p><strong>Symptom:</strong> First few packets work (buffered), then all networking stops.
 Services and actions time out. Pub/sub may appear to work because subscriber
 callbacks fire inline during <code>zp_read()</code>.</p>
-<p><strong>Fix:</strong> In RTIC, yield between <code>spin_once()</code> calls:</p>
+<p><strong>Fix:</strong> reach WFI between <code>spin_once()</code> calls:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>// CORRECT — yields to idle task → WFI → QEMU processes TAP
-cx.local.executor.spin_once(0);
-Mono::delay(10.millis()).await;
+</span>// CORRECT — idles between spins → WFI → QEMU processes TAP
+loop {
+    executor.spin_once(core::time::Duration::from_millis(0));
+    cortex_m::asm::wfi();
+}
 
 // WRONG — busy-loops, starving QEMU I/O
 loop {
-    cx.local.executor.spin_once(0);
+    executor.spin_once(core::time::Duration::from_millis(0));
 }
 <span class="boring">}</span></code></pre>
-<p>In bare-metal (no RTIC), call <code>cortex_m::asm::wfi()</code> in your idle loop.</p>
+<p>A board that implements <code>BoardIdle</code> does this for you in the generated loop.</p>
 <h3 id="tap-device-assignment"><a class="header" href="#tap-device-assignment">TAP device assignment</a></h3>
 <p>Each QEMU peer <strong>must</strong> use a different TAP device. Two QEMU instances on the
 same TAP cause packet collision and loss.</p>
@@ -388,15 +391,16 @@ cmake::Config::new(&amp;zenoh_pico_path)
 <p>See <a href="../operate/troubleshooting.html#zenoh-pico-multiple-client-issues">Troubleshooting: zenoh-pico Multiple Client Issues</a>.</p>
 <h3 id="blocking-tcp-reads-in-cooperative-schedulers"><a class="header" href="#blocking-tcp-reads-in-cooperative-schedulers">Blocking TCP reads in cooperative schedulers</a></h3>
 <p><code>_z_read_tcp()</code> can block for up to <code>SOCKET_TIMEOUT_MS</code> (default 10 seconds).
-In cooperative schedulers (RTIC, bare-metal main loop), this blocks the entire
+In a cooperative scheduler (a bare-metal main loop), this blocks the entire
 system since C FFI cannot yield.</p>
 <p><strong>Impact:</strong> Pub/sub works (callbacks fire inline during <code>zp_read()</code>), but
 services and actions fail because <code>z_get()</code> query replies need multiple
 <code>zp_read()</code> cycles, and the 5-second query timeout expires while <code>_z_read_tcp</code>
 blocks.</p>
 <p><strong>Current status:</strong> <code>zpico_spin_once(0)</code> is non-blocking (<code>single_read=true</code>),
-but the underlying <code>z_get()</code> timeout is still 5 seconds. RTIC service/action E2E
-tests are <code>#[ignore]</code>d pending a fully non-blocking TCP read path.</p>
+but the underlying <code>z_get()</code> timeout is still 5 seconds, so a service or action
+call from a cooperative loop can still time out this way until the TCP read path
+is fully non-blocking.</p>
 <h3 id="version-pinning"><a class="header" href="#version-pinning">Version pinning</a></h3>
 <p>The zenoh router is ROS 2’s own (<code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>)
 — nano-ros no longer vendors one, so the router version always

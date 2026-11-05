@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-6dcd35b5.js";
+            window.path_to_searchindex_js = "searchindex-137c01c7.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-5afa0c98.js"></script>
+        <script src="toc-43cf481a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -7828,6 +7828,493 @@ just mem-report my-binary --baseline before.json
 and the L3 CI lane runs <code>nros-mem-report.py &lt;elf&gt; --check</code> over the cross
 images it built.</p>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="rtic-integration"><a class="header" href="#rtic-integration">RTIC Integration</a></h1>
+<blockquote>
+<p><strong>For implementers.</strong> This page documents a feature with no support-level
+evidence row: RTIC is the <code>rtic</code> feature of the <code>nros-board-mps2-an385</code>
+crate, it has no row of its own in <code>packages/boards/board-support.toml</code>, and
+no probe track or book run exercises it. So the nano-ros Book does not teach
+it (RFC-0114 D10: the book claims only what the registry backs). What
+follows is the integration as built, for whoever maintains it or gives it a
+registry row.</p>
+</blockquote>
+<p>RTIC (<a href="https://rtic.rs">Real-Time Interrupt-driven Concurrency</a>) is a
+concurrency framework for ARM Cortex-M that compiles tasks directly to
+hardware interrupt handlers — no RTOS kernel, no task control blocks, no
+software scheduler. nano-ros runs on top of RTIC by letting the framework
+own <code>fn main</code>, the scheduler, and the dispatchers, while nano-ros
+contributes one spin task and (optionally) one callback-dispatch task.</p>
+<p>For the underlying design — why per-Node dispatch strategies, why tags
+instead of closures, why no <code>AsyncNode</code> trait yet — see the user book’s
+<a href="../realtime/dispatch-strategy.html">Dispatch Strategy</a>.</p>
+<h2 id="the-board-key-chooses-rtic"><a class="header" href="#the-board-key-chooses-rtic">The board key chooses RTIC</a></h2>
+<p>An RTIC program is a workspace like any other: a node package and the bringup
+that runs it. The scaffold writes both:</p>
+<pre><code class="language-bash">nros setup mps2-an385-baremetal --rmw zenoh   # the same board; RTIC needs nothing extra
+nros new rtic_ws --board rtic-mps2-an385 --template talker
+cd rtic_ws
+nros run rtic_node
+</code></pre>
+<pre><code class="language-text">rtic_ws/
+└── src/
+    ├── rtic_node/            # the node: package.xml, Cargo.toml, src/lib.rs
+    └── rtic_node_bringup/    # package.xml and system.toml: the board, so RTIC
+</code></pre>
+<p><code>nros run</code> builds the image, boots it in QEMU and starts the router, as in
+<a href="../get-started/first-project.html">First Project</a>. The bringup’s <code>system.toml</code>
+is the only place RTIC is named:</p>
+<pre><code class="language-toml"># src/rtic_node_bringup/system.toml
+[system]
+name = "rtic_node"
+rmw = "zenoh"
+domain_id = 0
+
+[[component]]
+pkg = "rtic_node"
+class = "rtic_node::Talker"
+name = "rtic_node"
+
+[image.baremetal]
+board = "rtic-mps2-an385"
+</code></pre>
+<p>The framework is a property of the <strong>board key</strong>, never something you spell
+in a manifest, and there is no image key that picks it. One board crate serves
+the MPS2-AN385 under two keys:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th><code>[image.&lt;id&gt;] board =</code></th><th>Entry the build generates</th></tr>
+</thead>
+<tbody>
+<tr><td><code>"mps2-an385-baremetal"</code></td><td>the plain entry: an owned spin loop in <code>fn main</code></td></tr>
+<tr><td><code>"rtic-mps2-an385"</code></td><td>the RTIC entry: a <code>#[rtic::app]</code> module</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>zephyr</code> resolves to Zephyr, <code>esp32-qemu</code> and <code>esp32-c3-baremetal</code> to the
+ESP32 shape, and every other board — Linux, FreeRTOS, NuttX, ThreadX, non-RTIC
+bare-metal — to the default owned-spin <code>fn main</code>. An out-of-tree board crate
+declares its own framework in <code>[package.metadata.nros.board]</code>. So moving a
+program between RTIC and a plain spin loop is a board change, not a code
+change: change <code>board</code> and nothing else, not the node source and not a build
+command.</p>
+<h2 id="where-the-pieces-live"><a class="header" href="#where-the-pieces-live">Where the pieces live</a></h2>
+<pre><code class="language-text">rtic_ws/
+└── src/
+    ├── rtic_node/                     # Node pkg — board-agnostic
+    │   ├── package.xml
+    │   ├── Cargo.toml
+    │   └── src/lib.rs                 # impl Component for Talker + nros::node!(Talker)
+    └── rtic_node_bringup/             # Bringup pkg — no code
+        ├── package.xml
+        └── system.toml
+</code></pre>
+<ul>
+<li><strong>Node pkg</strong> — declares what the node does (publishers,
+subscriptions, services, actions). No <code>main</code>, no <code>#[rtic::app]</code>, no
+board choice. It is a library, linked into the generated entry.</li>
+<li><strong>Bringup pkg</strong> — holds <code>system.toml</code> (and launch files, once it has
+more than one node). This is where the board, and therefore RTIC, is
+chosen.</li>
+<li><strong>Entry</strong> — generated under <code>build/</code>, not authored. It is the
+<code>#[rtic::app(device = mps2_an385_pac, dispatchers = [UARTRX0, UARTTX0])]</code>
+module, with <code>#[init]</code>, the <code>__nros_spin</code> task, per-Node state slots and,
+when any node in the image declares <code>DispatchStrategy::Deferred</code>, the
+<code>__nros_dispatch</code> task. It depends on the board crate with its <code>rtic</code>
+feature, the RMW backend, <code>rtic</code> and the PAC, so the node package names none
+of them.</li>
+</ul>
+<p>The split exists so the same <code>rtic_node/</code> can be deployed under RTIC
+on bare-metal Cortex-M, under FreeRTOS on QEMU, and under POSIX on a Linux host
+without any per-target Node-pkg fork.</p>
+<h3 id="a-minimal-node-pkg--pub-only-talker"><a class="header" href="#a-minimal-node-pkg--pub-only-talker">A minimal Node pkg — pub-only Talker</a></h3>
+<p>A pub-only Node declares <code>DispatchStrategy::Inline</code> (the default) — it
+publishes from its own RTIC task and never enters <code>on_callback</code>.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// File: src/rtic_node/src/lib.rs
+#![no_std]
+
+use core::time::Duration;
+use nros::prelude::*;
+use std_msgs::msg::Int32;
+
+pub struct Talker;
+
+pub struct TalkerState {
+    publisher: Publisher&lt;Int32&gt;,
+    counter: i32,
+}
+
+impl Component for Talker {
+    const NAME: &amp;'static str = "talker";
+    // Inline is the default; spelled out here for clarity.
+    const DISPATCH: DispatchStrategy = DispatchStrategy::Inline;
+
+    fn register(ctx: &amp;mut NodeContext&lt;'_&gt;) -&gt; NodeResult&lt;()&gt; {
+        ctx.create_publisher::&lt;Int32&gt;("/chatter")?;
+        Ok(())
+    }
+}
+
+impl ExecutableNode for Talker {
+    type State = TalkerState;
+
+    fn init() -&gt; Self::State {
+        TalkerState { publisher: Publisher::placeholder(), counter: 0 }
+    }
+
+    fn tick(state: &amp;mut Self::State, _ctx: &amp;mut TickCtx&lt;'_&gt;) {
+        state.counter = state.counter.wrapping_add(1);
+        let _ = state.publisher.publish(&amp;Int32 { data: state.counter });
+    }
+
+    fn tick_period(_state: &amp;Self::State) -&gt; Option&lt;Duration&gt; {
+        Some(Duration::from_millis(1000))
+    }
+}
+
+nros::node!(Talker);
+<span class="boring">}</span></code></pre>
+<pre><code class="language-toml"># File: src/rtic_node/Cargo.toml
+[package]
+name    = "rtic_node"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[package.metadata.nros.node]
+class = "rtic_node::Talker"
+name  = "rtic_node"
+
+[dependencies]
+nros     = { version = "*", default-features = false }
+std_msgs = { path = "../../generated/std_msgs", default-features = false }  # nros-managed
+</code></pre>
+<p>Dependencies and the class registration, nothing else. The <code>std_msgs</code> row is
+not even yours: the build writes it from <code>&lt;depend&gt;std_msgs&lt;/depend&gt;</code> in
+<code>package.xml</code> (<a href="../build/growing-your-workspace.html#the-manifests">The manifests</a>).
+No board crate, no <code>rtic</code>, no PAC: those are the generated entry’s.</p>
+<h2 id="dispatchstrategyinline-vs-deferred"><a class="header" href="#dispatchstrategyinline-vs-deferred"><code>DispatchStrategy::Inline</code> vs <code>Deferred</code></a></h2>
+<p>A Node pkg declares <code>DispatchStrategy</code> via the <code>Node::DISPATCH</code> const.
+Two variants matter today; <code>FromIsr</code> is reserved as a design slot (see
+<a href="#dispatchstrategyfromisr-not-yet"><code>DispatchStrategy::FromIsr</code></a>).</p>
+<h3 id="inline--pub-only-or-tick-only-nodes"><a class="header" href="#inline--pub-only-or-tick-only-nodes"><code>Inline</code> — pub-only or <code>tick</code>-only Nodes</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl Component for Talker {
+    const NAME: &amp;'static str = "talker";
+    const DISPATCH: DispatchStrategy = DispatchStrategy::Inline;
+    // ...
+}
+<span class="boring">}</span></code></pre>
+<p>Inline means: callbacks (if any) fire from the executor’s spin loop —
+the same RTIC task that polls the network transport. On RTIC that’s
+<code>__nros_spin</code> running at <code>priority = 1</code>.</p>
+<p>Pick Inline when:</p>
+<ul>
+<li>The Node has no subscriptions, no service handlers, no action
+handlers. Its only output is <code>Publisher::publish</code> calls from <code>tick</code>
+or from a custom RTIC task you spawn yourself.</li>
+<li>The Node has subscriptions, but the per-message work is so cheap
+(microseconds, no locks, no shared-state touches) that running it
+inline with the spin loop is acceptable.</li>
+</ul>
+<p>The Talker above is the canonical Inline shape: it publishes from
+<code>tick</code> at 1 Hz, never receives anything, and never blocks the spin
+loop.</p>
+<h3 id="deferred--callback-driven-nodes"><a class="header" href="#deferred--callback-driven-nodes"><code>Deferred</code> — callback-driven Nodes</a></h3>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl Component for Listener {
+    const NAME: &amp;'static str = "listener";
+    const DISPATCH: DispatchStrategy = DispatchStrategy::Deferred;
+    // ...
+}
+<span class="boring">}</span></code></pre>
+<p>Deferred means: when a callback arrives, the spin loop enqueues a callback
+token plus context into a <code>heapless::spsc::Queue</code> and returns immediately.
+A separate <code>__nros_dispatch</code> RTIC task (typically <code>priority = 2</code>, one
+above spin) drains the queue and calls <code>ExecutableNode::on_callback</code> from
+its own task context.</p>
+<p>Pick Deferred when:</p>
+<ul>
+<li>The Node’s <code>on_callback</code> handler must hold an RTIC lock on a
+<code>#[shared]</code> resource — running it from the spin task would force
+every other dispatcher at the spin’s priority to wait on the
+lock.</li>
+<li>The handler does non-trivial work (parses, integrates, posts to a
+hardware peripheral) and you want it scheduled independently from
+network polling.</li>
+<li>The Node sits at a different priority tier than the spin task.</li>
+</ul>
+<h3 id="the-tag-based-registration-api-for-deferred-nodes"><a class="header" href="#the-tag-based-registration-api-for-deferred-nodes">The tag-based registration API for Deferred Nodes</a></h3>
+<p>Deferred Nodes can’t use the closure form <code>ctx.create_subscription("/chatter", |msg| { ... })</code> —
+the closure captures state by value, and a no-alloc framework
+runtime has no place to store an unknown closure type. Instead, you
+register with <code>_static</code> and dispatch via tag match in <code>on_callback</code>:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// File: src/listener_pkg/src/lib.rs
+#![no_std]
+
+use nros::prelude::*;
+use std_msgs::msg::Int32;
+
+pub struct Listener;
+
+pub struct ListenerState {
+    sub_chatter: SubscriptionTag,
+}
+
+impl Component for Listener {
+    const NAME: &amp;'static str = "listener";
+    const DISPATCH: DispatchStrategy = DispatchStrategy::Deferred;
+
+    fn register(ctx: &amp;mut NodeContext&lt;'_&gt;) -&gt; NodeResult&lt;()&gt; {
+        let _tag = ctx.create_subscription_static::&lt;Int32&gt;("/chatter")?;
+        Ok(())
+    }
+}
+
+impl ExecutableNode for Listener {
+    type State = ListenerState;
+
+    fn init() -&gt; Self::State {
+        // The macro-emitted glue overwrites the placeholder with the
+        // real tag at register time.
+        ListenerState { sub_chatter: SubscriptionTag::placeholder() }
+    }
+
+    fn on_callback(
+        state: &amp;mut Self::State,
+        cb: Callback&lt;'_&gt;,
+        ctx: &amp;mut CallbackCtx&lt;'_&gt;,
+    ) {
+        if state.sub_chatter == cb {
+            let msg: Int32 = ctx.downcast().unwrap();
+            defmt::info!("Received: {}", msg.data);
+        }
+    }
+}
+
+nros::node!(Listener);
+<span class="boring">}</span></code></pre>
+<p>The same shape applies to services (<code>ServiceTag</code> /
+<code>create_service_static</code>) and actions (<code>ActionTag</code> /
+<code>create_action_static</code>). The macro rejects mixing
+closure registration into a Deferred Node — the error spans the
+offending call and suggests switching to the <code>_static</code> form.</p>
+<h2 id="your-own-rtic-tasks-the-escapes-smallest-first"><a class="header" href="#your-own-rtic-tasks-the-escapes-smallest-first">Your own RTIC tasks: the escapes, smallest first</a></h2>
+<p>Real RTIC applications don’t only have nano-ros tasks. You want a
+dedicated <code>my_adc</code> task to poll an ADC into a <code>#[shared]</code> buffer, or a
+<code>my_ui</code> task to drive an OLED, or another dispatcher priority. Take the
+smallest step that does what you need; the generated entry stays generated
+through the first three:</p>
+<ol>
+<li><strong>An <code>[image.*]</code> key</strong> — <code>panic</code>, <code>profile</code>, <code>features</code>: anything the
+image already declares. See
+<a href="../build/growing-your-workspace.html#customising-an-entry">Customising an entry</a>.</li>
+<li><strong><code>before_boot</code></strong> — not on RTIC. RTIC’s <code>#[init]</code> owns the first statement,
+so the build refuses <code>before_boot</code> on an RTIC image; put pre-boot work in
+the board package (step 3) or in your own <code>#[init]</code> (step 4).</li>
+<li><strong>A board package</strong> — hardware setup every image on the board needs
+(clocks, DMA, the monotonic) and the dispatcher list belong in the board’s
+<code>init_hardware</code> and its RTIC support, in a
+<a href="../extending/board-trait.html">board package</a>.</li>
+<li><strong><code>nros materialize &lt;bringup&gt;:&lt;image&gt;</code></strong> — the last resort, for hand-written tasks.</li>
+</ol>
+<p><code>nros materialize</code> writes the image’s generated entry into
+<code>src/&lt;image&gt;_entry/</code> as a package you own, and from then on <code>nros build</code> uses
+it and does not regenerate it:</p>
+<pre><code class="language-bash">nros materialize baremetal       # writes src/baremetal_entry/
+</code></pre>
+<p>Its crate root holds the same <code>nros::main!(…)</code> call the build generated. Add
+your tasks to it with the <code>custom_tasks = [...]</code> argument, which folds your
+task fns into the generated <code>#[rtic::app]</code> module:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// File: src/baremetal_entry/src/main.rs (after `nros materialize`)
+#![no_std]
+#![no_main]
+
+use panic_semihosting as _;
+
+nros::main!(launch = "rtic_node_bringup", custom_tasks = [my_adc, my_ui]);
+
+#[rtic_task(priority = 3, shared = [adc_data])]
+async fn my_adc(mut ctx: my_adc::Context) {
+    loop {
+        let sample = read_adc();
+        ctx.shared.adc_data.lock(|d| *d = sample);
+        Mono::delay(10.millis()).await;
+    }
+}
+
+#[rtic_task(priority = 2)]
+async fn my_ui(_ctx: my_ui::Context) {
+    loop {
+        draw_screen();
+        Mono::delay(33.millis()).await;
+    }
+}
+<span class="boring">}</span></code></pre>
+<p>The proc-macro extracts the user task tokens verbatim, splices them
+into the generated <code>mod __nros_app</code>, and adds their dispatchers to the
+RTIC <code>dispatchers = [...]</code> list. Signatures + attributes + priorities
+are preserved. Because the macro still reads the launch file, a node you add
+to the bringup still reaches the materialized entry.</p>
+<p>Custom tasks interact with nano-ros through the <code>#[shared]</code> resources
+the macro exposes — typically <code>executor</code> (the spin executor) for raw
+publisher access, or a Node’s state slot for direct handler calls. The
+exact resource names are not settled yet.</p>
+<p><strong>Replacing the macro.</strong> In the materialized entry you can also drop
+<code>nros::main!</code> and write the <code>#[rtic::app]</code> module yourself: manual
+<code>Executor::open</code> inside <code>#[init]</code> and a manual <code>spin_once(0)</code> polling task.
+You then own the boot, node registration, executor sizing and dispatcher list,
+and keep them in step with the bringup by hand. It looks like this:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// src/baremetal_entry/src/main.rs, written by hand
+#[rtic::app(device = mps2_an385_pac, dispatchers = [UARTRX0, UARTTX0])]
+mod app {
+    #[init]
+    fn init(cx: init::Context) -&gt; (Shared, Local) {
+        let syst = nros_board_mps2_an385::init_hardware(&amp;config, cx.device, cx.core);
+        nros_rmw_zenoh::register().expect("Failed to register RMW backend");
+        let mut executor = Executor::open(&amp;exec_config).unwrap();
+        let mut node = executor.create_node("talker").unwrap();
+        let publisher = node.create_publisher::&lt;Int32&gt;("/chatter").unwrap();
+        net_poll::spawn().unwrap();
+        publish::spawn().unwrap();
+        (Shared {}, Local { executor, publisher })
+    }
+
+    #[task(local = [executor], priority = 1)]
+    async fn net_poll(cx: net_poll::Context) {
+        loop {
+            cx.local.executor.spin_once(core::time::Duration::from_millis(0));
+            Mono::delay(10.millis()).await;
+        }
+    }
+}
+<span class="boring">}</span></code></pre>
+<p>That is about 90 lines of glue for one node, and it is worth it only for
+fine-grained control the steps above cannot give: hand-tuned dispatcher
+priorities, monotonic setup, or <code>#[shared]</code> state of your own. Deleting
+<code>src/baremetal_entry/</code> returns the image to generation.</p>
+<h2 id="dispatchstrategyfromisr--not-yet"><a class="header" href="#dispatchstrategyfromisr--not-yet"><code>DispatchStrategy::FromIsr</code> — not yet</a></h2>
+<p>The third variant of <code>DispatchStrategy</code> is reserved for callbacks that
+fire directly from an ISR handler (e.g. a timer pulse triggering a
+publish without a scheduler hop). This is <strong>a design slot only</strong>;
+the implementation is deferred.</p>
+<p>Landing it requires:</p>
+<ul>
+<li>A reentrancy audit of the dispatch path.</li>
+<li>A lock-free SPSC variant tolerant of ISR-priority producers.</li>
+<li>A per-Node <code>#[isr_safe]</code> proof contract.</li>
+</ul>
+<p>Until that work lands, <code>nros check</code> rejects
+<code>DispatchStrategy::FromIsr</code> deployments with a clear diagnostic.</p>
+<h2 id="embassy"><a class="header" href="#embassy">Embassy</a></h2>
+<p><strong>Embassy is not supported.</strong> nano-ros supports a way of running only if it
+can keep its real-time promise there: nano-ros decides which callback runs
+next and at what priority, so it can state when a callback runs, how late it
+can be, and that a low-priority callback never holds up a high-priority one.</p>
+<p>Under Embassy the executor would run inside an Embassy task, and Embassy’s
+scheduler, configured by the application, would decide when that task and
+every callback in it run. nano-ros cannot analyse that schedule, so it cannot
+make the promise. The hand-driven spin task, <code>Executor::spin_async</code> /
+<code>spin_async_with_sleep</code>, the readiness notifier and the host-owned
+<code>nros::setup!</code> assembly that Embassy integration used are gone.</p>
+<p>Use one of these instead:</p>
+<ul>
+<li><strong>An RTOS or bare-metal board through <code>nros::main!</code>.</strong> Tiers become OS
+threads (or the bare-metal loop) at priorities nano-ros derives from your
+launch contracts.</li>
+<li><strong>RTIC</strong>, as described on this page. RTIC’s scheduling is analysable and
+<code>nros::main!</code> generates the task mapping, so the promise holds.</li>
+</ul>
+<h2 id="the-rtic-scheduling-model"><a class="header" href="#the-rtic-scheduling-model">The RTIC scheduling model</a></h2>
+<p>RTIC is not an RTOS — it is a concurrency framework that compiles directly
+to hardware interrupt handlers. There is no scheduler, no task control
+blocks, and no context switch overhead.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Property</th><th>Value</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>Model</strong></td><td>Interrupt-driven (NVIC hardware scheduling)</td></tr>
+<tr><td><strong>Preemption</strong></td><td>Yes — hardware interrupt nesting</td></tr>
+<tr><td><strong>Priority levels</strong></td><td>4–16 (depends on Cortex-M variant)</td></tr>
+<tr><td><strong>Priority direction</strong></td><td>Lower number = higher priority (ARM convention)</td></tr>
+<tr><td><strong>Context switch</strong></td><td>12 cycles (Cortex-M3 tail-chain)</td></tr>
+<tr><td><strong>Mutual exclusion</strong></td><td>Stack Resource Policy (SRP) — compile-time deadlock-free</td></tr>
+<tr><td><strong>Scheduling analysis</strong></td><td>Fully static — all priorities and resources known at compile time</td></tr>
+</tbody>
+</table>
+</div>
+<p>RTIC’s key innovation is the <strong>Stack Resource Policy (SRP)</strong>: shared
+resources are protected by ceiling-based priority elevation, not locks. The
+compiler proves at build time that no deadlock or unbounded priority
+inversion can occur. This gives interrupt-driven scheduling the safety of a
+cooperative model.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[rtic::app(device = stm32f4xx_hal::pac)]
+mod app {
+    #[task(priority = 2, shared = [sensor_data])]
+    async fn read_sensor(mut ctx: read_sensor::Context) {
+        ctx.shared.sensor_data.lock(|data| {
+            *data = read_adc();  // runs at ceiling priority
+        });
+    }
+
+    #[task(priority = 1, shared = [sensor_data])]
+    async fn publish(mut ctx: publish::Context) {
+        ctx.shared.sensor_data.lock(|data| {
+            node.publish(*data);  // cannot deadlock — SRP guarantee
+        });
+    }
+}
+<span class="boring">}</span></code></pre>
+<p><strong>nano-ros integration</strong>: RTIC tasks call nano-ros directly — no executor
+needed. Each RTIC task can own a publisher, subscription, or service handle.
+The RTIC talker in the Rust language workspace, <code>examples/workspaces/rust</code>,
+shows it: a node package of its own, built by a bare-metal image row of the
+workspace’s <code>pubsub_bringup</code>.</p>
+<p>Shared resources are guarded by the Stack Resource Policy (Baker, T.P.
+(1991), “Stack-Based Scheduling of Realtime Processes”, <em>Real-Time Systems</em>
+3(1), 67–99): a compile-time ceiling with zero runtime overhead, so priority
+inversion is impossible by construction. Compared with the RTOS models in
+<a href="../realtime/scheduling-models.html">Scheduling Models</a>, RTIC gives the
+best determinism (hardware scheduling, 12-cycle worst-case latency on a
+Cortex-M3 tail-chain) and the lowest RAM overhead (no task control blocks),
+at the cost of flexibility: ARM Cortex-M only, no dynamic task creation.</p>
+<h2 id="see-also-5"><a class="header" href="#see-also-5">See also</a></h2>
+<ul>
+<li><a href="../realtime/dispatch-strategy.html">Dispatch Strategy</a> —
+the trichotomy and the per-Node-vs-per-callback rationale.</li>
+<li><a href="../build/roles.html">Role reference</a> —
+the package roles in full.</li>
+<li><a href="../targets/bare-metal.html">Bare-metal Cortex-M3</a> — the MPS2-AN385 board
+and the direct-exec entry shape the book teaches.</li>
+<li><a href="../realtime/scheduling-models.html">Scheduling Models</a> —
+the scheduling models of the supported targets; the RTIC one is
+<a href="#the-rtic-scheduling-model">below</a>.</li>
+</ul>
+<h2 id="design-background"><a class="header" href="#design-background">Design background</a></h2>
+<ul>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0113-rt-unified-wait.md">RFC-0113: RT unified wait</a></li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0065-colcon-like-workspace-builder.md">RFC-0065: colcon-like workspace builder</a>
+D5: declarative escapes first, <code>nros materialize</code> last.</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0121-workspace-first-project-layout.md">RFC-0121: workspace-first project layout</a>:
+every project is a workspace, and the entry is generated.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="creating-examples"><a class="header" href="#creating-examples">Creating Examples</a></h1>
 <p>This guide describes the canonical example shape adopted
 (layout) + (consumption). When adding a new example, copy
@@ -8116,7 +8603,7 @@ previously-empty cell.</li>
 <code>build/mps2-an385-baremetal/target/thumbv7m-none-eabi/debug/qemu-bsp-talker</code>.</p>
 <p>Per-platform deep-dives — toolchain setup, Kconfig variables,
 runner scripts — live in the <a href="../../book/src/targets">Platform Guides</a>.</p>
-<h2 id="see-also-5"><a class="header" href="#see-also-5">See Also</a></h2>
+<h2 id="see-also-6"><a class="header" href="#see-also-6">See Also</a></h2>
 <ul>
 <li><a href="../build/cmake-subdirectory.html">Build as a CMake subdirectory</a></li>
 <li><a href="../build/message-generation.html">Message Generation</a></li>
@@ -8867,7 +9354,7 @@ cause 4-tuple collisions when the next QEMU instance reuses the same source port
     std::thread::sleep(Duration::from_secs(1));
 }
 <span class="boring">}</span></code></pre>
-<h2 id="see-also-6"><a class="header" href="#see-also-6">See also</a></h2>
+<h2 id="see-also-7"><a class="header" href="#see-also-7">See also</a></h2>
 <ul>
 <li>CLAUDE.md → “Practices” — the parent contract.</li>
 <li><code>packages/testing/nros-tests/src/lib.rs</code> — <code>unmet!</code> / <code>lane_skip!</code>.</li>
@@ -10028,7 +10515,7 @@ eth.init()?;
 // Use with smoltcp
 let mut iface = Interface::new(iface_config, &amp;mut eth, instant);
 <span class="boring">}</span></code></pre>
-<h2 id="see-also-7"><a class="header" href="#see-also-7">See Also</a></h2>
+<h2 id="see-also-8"><a class="header" href="#see-also-8">See Also</a></h2>
 <ul>
 <li><a href="../../docs/roadmap/archived/phase-12-qemu-bare-metal-tests.html">Phase 12 Roadmap</a></li>
 <li><a href="../../docs/design/archived/embedded-integration.html">Embedded Integration</a></li>
