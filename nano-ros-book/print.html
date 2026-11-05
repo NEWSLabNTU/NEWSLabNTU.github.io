@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9c7dc0a3.js";
+            window.path_to_searchindex_js = "searchindex-ad16a5ba.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-c97eee72.js"></script>
@@ -295,7 +295,7 @@ retired: <a href="#esp32--retired">ESP32 — retired</a>.</p>
 </div>
 <p><code>posix</code> there is the <em>platform</em> layer, which is genuinely POSIX-clean. The
 host <em>board</em> is named <code>linux</code>, and that is the narrower claim: only Linux is
-tested, and <code>nros-board-linux::apply_tier_affinity</code> calls <code>sched_setaffinity</code>
+tested, and <code>nros-board-linux::apply_sched_task_affinity</code> calls <code>sched_setaffinity</code>
 with <code>cpu_set_t</code>, which libc does not define for macOS. <strong>macOS is not
 supported</strong>.</p>
 <h2 id="rmw-backends"><a class="header" href="#rmw-backends">RMW Backends</a></h2>
@@ -5563,7 +5563,7 @@ host process environment, and the same project layout as the
 embedded targets.</p>
 <p>The host board is named <code>linux</code> (<code>[image.&lt;id&gt;] board = "linux"</code>) because
 that is all it supports: the platform layer (<code>nros-platform-posix</code>) is
-POSIX, but the host board crate’s <code>apply_tier_affinity</code> calls
+POSIX, but the host board crate’s <code>apply_sched_task_affinity</code> calls
 <code>sched_setaffinity</code> with <code>cpu_set_t</code>, which libc does not define for
 macOS, Windows or FreeBSD. <strong>Only Linux is supported.</strong> Neither <code>native</code> (every general-purpose host) nor
 <code>posix</code> (the platform) names a board: <code>board = "…"</code>, <code>nros setup</code>,
@@ -8306,7 +8306,7 @@ pieces to reuse; it is then flashed with that board vendor’s tooling.</p>
 <h2 id="multi-tier-scheduling"><a class="header" href="#multi-tier-scheduling">Multi-tier scheduling</a></h2>
 <p>ThreadX supports the multi-tier workspace scheduling model: declare per-tier ThreadX priorities in the bringup’s
 <code>system.toml</code> with <code>[tasks.&lt;name&gt;.threadx]</code> priority tables, and
-the generated entry routes the app onto <code>run_tiers</code> — one executor per
+the generated entry routes the app onto <code>run_sched_tasks</code> — one executor per
 tier, all sharing one session, with per-tier stacks carved from the
 ThreadX byte pool. ThreadX priorities follow the native convention:
 <strong>lower number = higher priority</strong>. Tiers are sorted descending by
@@ -11141,7 +11141,7 @@ reduces context switches (and thus stack usage) while preserving
 schedulability. Research shows it can reduce RAM requirements by 30–50%
 compared to pure FPP, because fewer threads need independent stacks for
 preemption frames.</p>
-<p><strong>nano-ros on ThreadX</strong>: multi-tier <code>run_tiers</code> is real — one executor per tier over one shared session, with
+<p><strong>nano-ros on ThreadX</strong>: multi-tier <code>run_sched_tasks</code> is real — one executor per tier over one shared session, with
 per-tier stacks allocated from the ThreadX byte pool via
 <code>nros_threadx_create_task</code>. The tier’s <code>preempt_threshold</code> is passed
 natively at <code>tx_thread_create</code> (a <code>-1</code> sentinel means “use the
@@ -12385,9 +12385,9 @@ the per-file <code>.noinit.*</code> sections holding thread stacks and the kerne
 </code></pre>
 <ul>
 <li><code>[executor storage]</code> — the executor’s backing, whichever language placed it:
-the C/C++ entry’s <code>__nros_executor_storage</code> / <code>__nros_tier_executor_storage</code>,
+the C/C++ entry’s <code>__nros_executor_storage</code> / <code>__nros_sched_task_executor_storage</code>,
 the C++ boot storage <code>Node::GlobalStorageHolder&lt;0&gt;::storage</code>, and the Rust
-<code>EXECUTOR_BACKING</code> / <code>__NROS_TIER_EXECUTOR_BACKING</code>. In a tiered image this
+<code>EXECUTOR_BACKING</code> / <code>__NROS_SCHED_TASK_EXECUTOR_BACKING</code>. In a tiered image this
 is usually the largest single owner.</li>
 <li><code>[component storage]</code> — the generated per-component storage
 (<code>__nros_comp_buf_N</code> for C++, <code>__NROS_COMPONENT_&lt;pkg&gt;_SLOT_STORE</code> for Rust).</li>
@@ -12397,7 +12397,7 @@ share a Rust crate’s name is never filed under that crate.</li>
 </ul>
 <p>For the C and C++ executor storage, the report also reads the build’s own sizes
 header and tells you how many executors’ worth the image reserved:</p>
-<pre><code>        95,904  executor storage   __nros_tier_executor_storage
+<pre><code>        95,904  executor storage   __nros_sched_task_executor_storage
                                    = 4 x 23,976 (NROS_CPP_EXECUTOR_STORAGE_SIZE = 23,976)
 </code></pre>
 <p>The header is found beside the image (the build’s <code>nros-cpp-generated/</code> mirror);
@@ -12410,7 +12410,7 @@ story:</p>
 <pre><code>## top 5 RAM symbols
 
        131,072   25.3%  nros_rmw_zenoh::shim::subscriber::LARGE_PAYLOADS
-        88,560   17.1%  linux_entry::__nros_entry_run::__NROS_TIER_EXECUTOR_BACKING
+        88,560   17.1%  linux_entry::__nros_entry_run::__NROS_SCHED_TASK_EXECUTOR_BACKING
         88,552   17.1%  nros_node::executor::backing::EXECUTOR_BACKING
         87,072   16.8%  g_sessions
         33,536    6.5%  nros_rmw_zenoh::shim::service::USER_SERVICE_INBOX
@@ -16506,7 +16506,7 @@ fn main() {
 <h2 id="family-driver-crates"><a class="header" href="#family-driver-crates">Family driver crates</a></h2>
 <p>The family crate is where the <code>BoardEntry::run</code> <em>body</em> actually lives. The kernel families with a driver crate:</p>
 <ul>
-<li><code>nros-board-linux</code> — native host; the reach is <code>linux</code>, not <code>posix</code> — <code>apply_tier_affinity</code> calls <code>sched_setaffinity</code> with <code>cpu_set_t</code>, which libc does not define for macOS. <code>init_transport</code>/<code>wait_link_up</code> no-ops.</li>
+<li><code>nros-board-linux</code> — native host; the reach is <code>linux</code>, not <code>posix</code> — <code>apply_sched_task_affinity</code> calls <code>sched_setaffinity</code> with <code>cpu_set_t</code>, which libc does not define for macOS. <code>init_transport</code>/<code>wait_link_up</code> no-ops.</li>
 <li><code>nros-board-freertos</code> — FreeRTOS-Kernel + lwIP; <code>run</code> spawns the executor task, hands DHCP to lwIP’s hook.</li>
 <li><code>nros-board-threadx</code> — ThreadX + NetX BSD; same shape over NetX.</li>
 <li><code>nros-board-nuttx</code> — NuttX POSIX layer; <code>init_transport</code> shells <code>ifup</code>-style logic.</li>
@@ -16810,8 +16810,8 @@ board gets it by depending on the crate:</p>
 SysTick) and the semihosting helpers — <code>c/freertos_hooks.c</code></li>
 <li>lwIP bring-up, the task wrappers and the FFI surface — <code>c/network_glue.c</code></li>
 <li>the C/C++ application boot path — <code>c/freertos_c_entry.c</code></li>
-<li>the multi-tier entry — <code>c/freertos_run_tiers.c</code></li>
-<li>the entry driver (<code>run_entry</code> / <code>run_bare</code> / <code>run_tiers_entry</code>) and <code>Config</code></li>
+<li>the multi-tier entry — <code>c/freertos_run_sched_tasks.c</code></li>
+<li>the entry driver (<code>run_entry</code> / <code>run_bare</code> / <code>run_sched_tasks_entry</code>) and <code>Config</code></li>
 </ul>
 <p><code>configure_cflags</code> resolves your target’s compiler flags from the <code>[arch.*]</code>
 profiles in <code>packages/platform/nros-platform-freertos/nros-platform.toml</code>.
@@ -17139,7 +17139,7 @@ worked case) exposes:</p>
 </thead>
 <tbody>
 <tr><td><code>Config</code> / <code>BaseConfig</code></td><td>structs</td><td>Network + transport config; overlay can extend.</td></tr>
-<tr><td><code>run_bare</code> / <code>run_entry</code> / <code>run_tiers_entry</code></td><td>generic functions</td><td>Entry points, generic over a board <strong>marker type</strong>. Initialise kernel + network, then call your closure inside the app task.</td></tr>
+<tr><td><code>run_bare</code> / <code>run_entry</code> / <code>run_sched_tasks_entry</code></td><td>generic functions</td><td>Entry points, generic over a board <strong>marker type</strong>. Initialise kernel + network, then call your closure inside the app task.</td></tr>
 <tr><td><code>nros_platform::BoardInit</code></td><td>trait</td><td>One required method — <code>init_hardware()</code>, called once before the executor opens. Your marker type implements it (plus <code>BoardPrint</code> / <code>BoardExit</code> / <code>BoardEntry</code> from the same family).</td></tr>
 <tr><td><code>nros_board_register_netif</code> / <code>nros_board_poll_netif</code></td><td><strong>weak C hooks</strong> (<code>c/network_glue.c</code>)</td><td>The network attach points: the overlay provides strong definitions wiring the vendor Ethernet driver into lwIP.</td></tr>
 </tbody>
@@ -24377,7 +24377,7 @@ hand bypasses the question Kconfig asked.</p>
 <p>The <code>evidence</code> column is where each value is consumed, so a symbol with no
 reader stands out: a prompt asking a question whose answer is discarded is
 worse than no prompt.</p>
-<p>139 Kconfig symbols — <strong>66 settable</strong>, 1 provided for application code, 72 derived, 0 dead.</p>
+<p>142 Kconfig symbols — <strong>69 settable</strong>, 1 provided for application code, 72 derived, 0 dead.</p>
 <h2 id="facts-with-more-than-one-spelling"><a class="header" href="#facts-with-more-than-one-spelling">Facts with more than one spelling</a></h2>
 <p>Where a decision has an authority OUTSIDE Kconfig, that authority is the
 place to set it and these symbols carry it.</p>
@@ -24516,12 +24516,15 @@ place to set it and these symbols carry it.</p>
 <tr><td><code>CONFIG_NROS_ZENOH_SERIAL_UART_ASYNC_RX_TIMEOUT_US</code></td><td><code>25</code></td><td>cmake</td></tr>
 <tr><td><code>CONFIG_NROS_ZENOH_SUBSCRIPTION</code></td><td><code>y</code></td><td>cmake</td></tr>
 <tr><td><code>CONFIG_NROS_ZEPHYR_LEVEL_WORKER_FRAME</code></td><td><code>13312</code></td><td>c-source, rust-source</td></tr>
-<tr><td><code>CONFIG_NROS_ZEPHYR_MAX_TIERS</code></td><td><code>4</code></td><td>c-define, c-source, cmake, rust-source</td></tr>
+<tr><td><code>CONFIG_NROS_ZEPHYR_MAX_SCHED_TASKS</code></td><td><code>NROS_ZEPHYR_MAX_TIERS if NROS_ZEPHYR_MAX_TIERS != 0</code></td><td>c-define, c-source, cmake, rust-source</td></tr>
+<tr><td><code>CONFIG_NROS_ZEPHYR_MAX_TIERS</code></td><td><code>0</code></td><td>kconfig select/depends</td></tr>
+<tr><td><code>CONFIG_NROS_ZEPHYR_SCHED_TASK_STACKS_IN_DTCM</code></td><td><code>NROS_ZEPHYR_TIER_STACKS_IN_DTCM</code></td><td>c-source, cmake</td></tr>
+<tr><td><code>CONFIG_NROS_ZEPHYR_SCHED_TASK_STACK_SIZE</code></td><td><code>NROS_ZEPHYR_TIER_STACK_SIZE if NROS_ZEPHYR_TIER_STACK_SIZE != 0</code></td><td>c-define, c-source, cmake, rust-source</td></tr>
 <tr><td><code>CONFIG_NROS_ZEPHYR_STACKS_IN_DTCM</code></td><td><code>n</code></td><td>c-source, cmake, rust-source, kconfig select/depends</td></tr>
 <tr><td><code>CONFIG_NROS_ZEPHYR_TASK_SLOTS</code></td><td><code>2 if NROS_RMW_ZENOH &amp;&amp; NROS_ZENOH_TX_BATCH</code></td><td>c-define, c-source, cmake</td></tr>
 <tr><td><code>CONFIG_NROS_ZEPHYR_TASK_STACK_SIZE</code></td><td><code>0</code></td><td>c-define, c-source, cmake</td></tr>
-<tr><td><code>CONFIG_NROS_ZEPHYR_TIER_STACKS_IN_DTCM</code></td><td><code>NROS_ZEPHYR_STACKS_IN_DTCM</code></td><td>c-source, cmake</td></tr>
-<tr><td><code>CONFIG_NROS_ZEPHYR_TIER_STACK_SIZE</code></td><td><code>16384</code></td><td>c-define, c-source, cmake, rust-source</td></tr>
+<tr><td><code>CONFIG_NROS_ZEPHYR_TIER_STACKS_IN_DTCM</code></td><td><code>NROS_ZEPHYR_STACKS_IN_DTCM</code></td><td>kconfig select/depends</td></tr>
+<tr><td><code>CONFIG_NROS_ZEPHYR_TIER_STACK_SIZE</code></td><td><code>0</code></td><td>kconfig select/depends</td></tr>
 </tbody>
 </table>
 </div>
@@ -24604,7 +24607,7 @@ service. Each names where that contract is written down.</p>
 </tbody>
 </table>
 </div>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="board-support-levels"><a class="header" href="#board-support-levels">Board Support Levels</a></h1>
 <p>What nano-ros can show for each board it knows about. Each level is derived from evidence, never typed: <strong>where</strong> the board’s image runs (on a host, in an emulator, on hardware, or nowhere yet), <strong>how often</strong> that run happens (every merge, daily, weekly, or by hand on a date) and <strong>which board’s test matrix</strong> stands for its breadth.</p>
 <div class="table-wrapper">
@@ -24627,18 +24630,18 @@ service. Each names where that contract is written down.</p>
 <tr><th>Board</th><th>Status</th><th>Runs on</th><th>Breadth</th></tr>
 </thead>
 <tbody>
-<tr><td><a href="#nros-board-linux-linux"><code>nros-board-linux</code> (Linux)</a></td><td>Verified on host (merge)</td><td>host executable</td><td>witness — Runtime: Pubsub, ExecutorBoundNode, Service, Action, Port, PortSmoke, PortMonitor, PortWorkspace, Params, Qos, CustomMsg, Safety, Logging, EntryPubsub, Lifecycle, Remap, BeforeBoot, RealtimeTiers, Multihost in Rust, C, C++, Mixed over zenoh, cyclonedds, XRCE-DDS</td></tr>
-<tr><td><a href="#nros-board-zephyr-zephyrnativesim"><code>nros-board-zephyr</code> (ZephyrNativeSim)</a></td><td>Verified on host (merge)</td><td>host executable</td><td>witness — Runtime: Pubsub, Service, Action, Logging, EntryPubsub, Params, Lifecycle, Qos, Safety, RealtimeTiers, Multihost in Rust, C, C++, Mixed over zenoh, cyclonedds, XRCE-DDS</td></tr>
-<tr><td><a href="#nros-board-mps3-an536-freertos"><code>nros-board-mps3-an536-freertos</code></a></td><td>Builds</td><td><code>qemu:mps3-an536</code> (twin)</td><td>inherited from FreertosMps2 — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
-<tr><td><a href="#nros-board-mps2-an385-freertos-freertosmps2"><code>nros-board-mps2-an385-freertos</code> (FreertosMps2)</a></td><td>Verified in emulator (daily)</td><td><code>qemu:mps2-an385</code></td><td>witness — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
-<tr><td><a href="#nros-board-s32z270-freertos"><code>nros-board-s32z270-freertos</code></a></td><td>Builds</td><td><code>s32z270</code> (target)</td><td>inherited from FreertosMps2 — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
-<tr><td><a href="#nros-board-nuttx-qemu-nuttxarm"><code>nros-board-nuttx-qemu</code> (NuttxArm)</a></td><td>Verified in emulator (daily)</td><td><code>qemu:virt-armv7a</code></td><td>witness — Runtime: Pubsub, TypedCarrier, Service, Action, Params, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++ over zenoh</td></tr>
-<tr><td><a href="#nros-board-threadx-linux-threadxlinux"><code>nros-board-threadx-linux</code> (ThreadxLinux)</a></td><td>Verified on host (merge)</td><td>host executable</td><td>witness — Runtime: Pubsub, Service, Action, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
-<tr><td><a href="#nros-board-freertos-posix-freertosposix"><code>nros-board-freertos-posix</code> (FreertosPosix)</a></td><td>Verified on host (daily)</td><td>host executable</td><td>inherited from FreertosMps2 — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++, Mixed over zenoh, cyclonedds. Board-specific: Runtime: EntryPubsub in C, C++ over cyclonedds</td></tr>
-<tr><td><a href="#nros-board-threadx-qemu-riscv64-threadxriscv64"><code>nros-board-threadx-qemu-riscv64</code> (ThreadxRiscv64)</a></td><td>Verified in emulator (daily)</td><td><code>qemu:rv-virt</code></td><td>inherited from ThreadxLinux — Runtime: Pubsub, Service, Action, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++, Mixed over zenoh, cyclonedds. Board-specific: Runtime: Pubsub, Service, Errno, TypedCarrier, Params, Logging, EntryPubsub in Rust, C, C++ over zenoh, cyclonedds; build-only: Action</td></tr>
+<tr><td><a href="#nros-board-linux-linux"><code>nros-board-linux</code> (Linux)</a></td><td>Verified on host (merge)</td><td>host executable</td><td>witness — Runtime: Pubsub, ExecutorBoundNode, Service, Action, Port, PortSmoke, PortMonitor, PortWorkspace, Params, Qos, CustomMsg, Safety, Logging, EntryPubsub, Lifecycle, Remap, BeforeBoot, RealtimeSchedTasks, Multihost in Rust, C, C++, Mixed over zenoh, cyclonedds, XRCE-DDS</td></tr>
+<tr><td><a href="#nros-board-zephyr-zephyrnativesim"><code>nros-board-zephyr</code> (ZephyrNativeSim)</a></td><td>Verified on host (merge)</td><td>host executable</td><td>witness — Runtime: Pubsub, Service, Action, Logging, EntryPubsub, Params, Lifecycle, Qos, Safety, RealtimeSchedTasks, Multihost in Rust, C, C++, Mixed over zenoh, cyclonedds, XRCE-DDS</td></tr>
+<tr><td><a href="#nros-board-mps3-an536-freertos"><code>nros-board-mps3-an536-freertos</code></a></td><td>Builds</td><td><code>qemu:mps3-an536</code> (twin)</td><td>inherited from FreertosMps2 — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
+<tr><td><a href="#nros-board-mps2-an385-freertos-freertosmps2"><code>nros-board-mps2-an385-freertos</code> (FreertosMps2)</a></td><td>Verified in emulator (daily)</td><td><code>qemu:mps2-an385</code></td><td>witness — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
+<tr><td><a href="#nros-board-s32z270-freertos"><code>nros-board-s32z270-freertos</code></a></td><td>Builds</td><td><code>s32z270</code> (target)</td><td>inherited from FreertosMps2 — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
+<tr><td><a href="#nros-board-nuttx-qemu-nuttxarm"><code>nros-board-nuttx-qemu</code> (NuttxArm)</a></td><td>Verified in emulator (daily)</td><td><code>qemu:virt-armv7a</code></td><td>witness — Runtime: Pubsub, TypedCarrier, Service, Action, Params, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++ over zenoh</td></tr>
+<tr><td><a href="#nros-board-threadx-linux-threadxlinux"><code>nros-board-threadx-linux</code> (ThreadxLinux)</a></td><td>Verified on host (merge)</td><td>host executable</td><td>witness — Runtime: Pubsub, Service, Action, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
+<tr><td><a href="#nros-board-freertos-posix-freertosposix"><code>nros-board-freertos-posix</code> (FreertosPosix)</a></td><td>Verified on host (daily)</td><td>host executable</td><td>inherited from FreertosMps2 — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++, Mixed over zenoh, cyclonedds. Board-specific: Runtime: EntryPubsub in C, C++ over cyclonedds</td></tr>
+<tr><td><a href="#nros-board-threadx-qemu-riscv64-threadxriscv64"><code>nros-board-threadx-qemu-riscv64</code> (ThreadxRiscv64)</a></td><td>Verified in emulator (daily)</td><td><code>qemu:rv-virt</code></td><td>inherited from ThreadxLinux — Runtime: Pubsub, Service, Action, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++, Mixed over zenoh, cyclonedds. Board-specific: Runtime: Pubsub, Service, Errno, TypedCarrier, Params, Logging, EntryPubsub in Rust, C, C++ over zenoh, cyclonedds; build-only: Action</td></tr>
 <tr><td><a href="#nros-board-mps2-an385-qemubaremetal"><code>nros-board-mps2-an385</code> (QemuBaremetal)</a></td><td>Verified in emulator (daily)</td><td><code>qemu:mps2-an385</code></td><td>witness — Runtime: Pubsub, Service, Action, Logging, BoardEntryBoot in Rust, C, C++ over zenoh</td></tr>
 <tr><td><a href="#nros-board-mps2-an385-zephyr-zephyrqemucortexm"><code>nros-board-mps2-an385-zephyr</code> (ZephyrQemuCortexM)</a></td><td>Verified in emulator (daily)</td><td><code>qemu:mps2-an385</code></td><td>witness — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, BootReport, IdleWake in C, C++, Rust over zenoh, XRCE-DDS; build-only: Service, Action</td></tr>
-<tr><td><a href="#nros-board-nuttx-qemu-nuttxriscv"><code>nros-board-nuttx-qemu</code> (NuttxRiscv)</a></td><td>Verified in emulator (daily)</td><td><code>qemu:rv-virt</code></td><td>inherited from NuttxArm — Runtime: Pubsub, TypedCarrier, Service, Action, Params, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++ over zenoh. Board-specific: Runtime: Pubsub, RealtimeTiers in C, C++, Rust over zenoh; build-only: EntryPubsub</td></tr>
+<tr><td><a href="#nros-board-nuttx-qemu-nuttxriscv"><code>nros-board-nuttx-qemu</code> (NuttxRiscv)</a></td><td>Verified in emulator (daily)</td><td><code>qemu:rv-virt</code></td><td>inherited from NuttxArm — Runtime: Pubsub, TypedCarrier, Service, Action, Params, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++ over zenoh. Board-specific: Runtime: Pubsub, RealtimeSchedTasks in C, C++, Rust over zenoh; build-only: EntryPubsub</td></tr>
 <tr><td><a href="#nros-board-zephyr-fvp"><code>nros-board-zephyr</code> (Fvp)</a></td><td>Boots, manual (2026-09-06); reads <em>Builds</em> from 2027-01-05</td><td><code>fvp:FVP_BaseR_AEMv8R</code></td><td>inherited from ZephyrQemuCortexM — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, BootReport, IdleWake in C, C++, Rust over zenoh, XRCE-DDS; build-only: Service, Action. Board-specific: build-only: Pubsub</td></tr>
 <tr><td><a href="#s32k344-safety-island"><code>s32k344-safety-island</code></a></td><td>Boots on hardware, manual (2026-10-26); reads <em>Builds</em> from 2027-02-24</td><td><code>mr-canhubk344</code></td><td>inherited from ZephyrQemuCortexM — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, BootReport, IdleWake in C, C++, Rust over zenoh, XRCE-DDS; build-only: Service, Action</td></tr>
 <tr><td><a href="#nros-board-nucleo-f767zi-zephyr-zephyrnucleof767zi"><code>nros-board-nucleo-f767zi-zephyr</code> (ZephyrNucleoF767zi)</a></td><td>Boots, manual (2026-11-01); reads <em>Builds</em> from 2027-03-02</td><td><code>renode:nucleo_f767zi</code>, <code>nucleo-f767zi</code> (target)</td><td>inherited from ZephyrQemuCortexM — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, BootReport, IdleWake in C, C++, Rust over zenoh, XRCE-DDS; build-only: Service, Action. Board-specific: Runtime: Pubsub in C over zenoh</td></tr>
@@ -24649,7 +24652,7 @@ service. Each names where that contract is written down.</p>
 <h2 id="infrastructure"><a class="header" href="#infrastructure">Infrastructure</a></h2>
 <p>Packages under <code>packages/boards/</code> that are not boards: shared traits, family drivers, ABI mirrors, PACs and descriptor directories.</p>
 <p><code>nros-board-common</code>, <code>nros-board-cffi</code>, <code>nros-board-freertos</code>, <code>nros-board-nuttx</code>, <code>nros-board-threadx</code>, <code>nros-board-threadx-port-riscv64</code>, <code>mps2-an385-pac</code>, <code>linux</code>, <code>zephyr</code>, <code>nros-board-qemu-cortex-a53</code></p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-linux-linux"><a class="header" href="#nros-board-linux-linux">nros-board-linux (Linux)</a></h1>
 <p><strong>Status:</strong> Verified on host (merge)</p>
 <div class="table-wrapper">
@@ -24662,7 +24665,7 @@ service. Each names where that contract is written down.</p>
 <tr><td>Test-matrix platform</td><td>Linux</td></tr>
 <tr><td>Runs on</td><td>host executable</td></tr>
 <tr><td>Cadence</td><td>merge</td></tr>
-<tr><td>Breadth</td><td>witness — Runtime: Pubsub, ExecutorBoundNode, Service, Action, Port, PortSmoke, PortMonitor, PortWorkspace, Params, Qos, CustomMsg, Safety, Logging, EntryPubsub, Lifecycle, Remap, BeforeBoot, RealtimeTiers, Multihost in Rust, C, C++, Mixed over zenoh, cyclonedds, XRCE-DDS</td></tr>
+<tr><td>Breadth</td><td>witness — Runtime: Pubsub, ExecutorBoundNode, Service, Action, Port, PortSmoke, PortMonitor, PortWorkspace, Params, Qos, CustomMsg, Safety, Logging, EntryPubsub, Lifecycle, Remap, BeforeBoot, RealtimeSchedTasks, Multihost in Rust, C, C++, Mixed over zenoh, cyclonedds, XRCE-DDS</td></tr>
 <tr><td>Book</td><td>Run: <a href="#run">first project</a></td></tr>
 <tr><td>Book probe tracks</td><td><code>linux</code> (weekly)</td></tr>
 </tbody>
@@ -24671,7 +24674,7 @@ service. Each names where that contract is written down.</p>
 <h2 id="notes"><a class="header" href="#notes">Notes</a></h2>
 <p>The reference platform: the densest Runtime coverage of any target, all three RMWs. One board crate covers both the Linux host and the POSIX family driver.</p>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-zephyr-zephyrnativesim"><a class="header" href="#nros-board-zephyr-zephyrnativesim">nros-board-zephyr (ZephyrNativeSim)</a></h1>
 <p><strong>Status:</strong> Verified on host (merge)</p>
 <div class="table-wrapper">
@@ -24684,7 +24687,7 @@ service. Each names where that contract is written down.</p>
 <tr><td>Test-matrix platform</td><td>ZephyrNativeSim</td></tr>
 <tr><td>Runs on</td><td>host executable</td></tr>
 <tr><td>Cadence</td><td>merge</td></tr>
-<tr><td>Breadth</td><td>witness — Runtime: Pubsub, Service, Action, Logging, EntryPubsub, Params, Lifecycle, Qos, Safety, RealtimeTiers, Multihost in Rust, C, C++, Mixed over zenoh, cyclonedds, XRCE-DDS</td></tr>
+<tr><td>Breadth</td><td>witness — Runtime: Pubsub, Service, Action, Logging, EntryPubsub, Params, Lifecycle, Qos, Safety, RealtimeSchedTasks, Multihost in Rust, C, C++, Mixed over zenoh, cyclonedds, XRCE-DDS</td></tr>
 <tr><td>Book</td><td>Run: <a href="#run-on-native_sim">zephyr</a></td></tr>
 <tr><td>Book probe tracks</td><td><code>zephyr</code> (weekly), <code>zephyr-rust</code> (weekly), <code>zephyr-west-app</code> (weekly), <code>zephyr-west-app-cpp</code> (weekly), <code>zephyr-west-app-rust</code> (weekly)</td></tr>
 </tbody>
@@ -24693,7 +24696,7 @@ service. Each names where that contract is written down.</p>
 <h2 id="notes-1"><a class="header" href="#notes-1">Notes</a></h2>
 <p>CAVEAT: only ever built for native_sim/native/64. No real Zephyr hardware board is built by anything.</p>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-mps3-an536-freertos"><a class="header" href="#nros-board-mps3-an536-freertos">nros-board-mps3-an536-freertos</a></h1>
 <p><strong>Status:</strong> Builds</p>
 <div class="table-wrapper">
@@ -24706,14 +24709,14 @@ service. Each names where that contract is written down.</p>
 <tr><td>Test-matrix platform</td><td>—</td></tr>
 <tr><td>Runs on</td><td><code>qemu:mps3-an536</code> (twin)</td></tr>
 <tr><td>Cadence</td><td>—</td></tr>
-<tr><td>Breadth</td><td>inherited from FreertosMps2 — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
+<tr><td>Breadth</td><td>inherited from FreertosMps2 — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
 <tr><td>Book</td><td>—</td></tr>
 <tr><td>Book probe tracks</td><td>—</td></tr>
 </tbody>
 </table>
 </div>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-mps2-an385-freertos-freertosmps2"><a class="header" href="#nros-board-mps2-an385-freertos-freertosmps2">nros-board-mps2-an385-freertos (FreertosMps2)</a></h1>
 <p><strong>Status:</strong> Verified in emulator (daily)</p>
 <div class="table-wrapper">
@@ -24726,14 +24729,14 @@ service. Each names where that contract is written down.</p>
 <tr><td>Test-matrix platform</td><td>FreertosMps2</td></tr>
 <tr><td>Runs on</td><td><code>qemu:mps2-an385</code></td></tr>
 <tr><td>Cadence</td><td>daily</td></tr>
-<tr><td>Breadth</td><td>witness — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
+<tr><td>Breadth</td><td>witness — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
 <tr><td>Book</td><td>Run: <a href="#run-on-qemu">freertos</a></td></tr>
 <tr><td>Book probe tracks</td><td><code>freertos</code> (weekly), <code>freertos-c</code> (weekly)</td></tr>
 </tbody>
 </table>
 </div>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-s32z270-freertos"><a class="header" href="#nros-board-s32z270-freertos">nros-board-s32z270-freertos</a></h1>
 <p><strong>Status:</strong> Builds</p>
 <div class="table-wrapper">
@@ -24746,7 +24749,7 @@ service. Each names where that contract is written down.</p>
 <tr><td>Test-matrix platform</td><td>—</td></tr>
 <tr><td>Runs on</td><td><code>s32z270</code> (target)</td></tr>
 <tr><td>Cadence</td><td>—</td></tr>
-<tr><td>Breadth</td><td>inherited from FreertosMps2 — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
+<tr><td>Breadth</td><td>inherited from FreertosMps2 — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
 <tr><td>Book</td><td>Flash: <a href="#flash-a-real-board">freertos</a></td></tr>
 <tr><td>Book probe tracks</td><td>—</td></tr>
 </tbody>
@@ -24755,7 +24758,7 @@ service. Each names where that contract is written down.</p>
 <h2 id="notes-2"><a class="header" href="#notes-2">Notes</a></h2>
 <p>S32Z270 RTU Cortex-R52 (ASI phase-4 W5.b consumer). No matrix_platform: no witness exists for this board, and borrowing FreertosMps2’s would claim its Runtime cells. Link-completeness is proven by the workspace cmake lane with the CRx_No_GIC default port.</p>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-nuttx-qemu-nuttxarm"><a class="header" href="#nros-board-nuttx-qemu-nuttxarm">nros-board-nuttx-qemu (NuttxArm)</a></h1>
 <p><strong>Status:</strong> Verified in emulator (daily)</p>
 <div class="table-wrapper">
@@ -24768,14 +24771,14 @@ service. Each names where that contract is written down.</p>
 <tr><td>Test-matrix platform</td><td>NuttxArm</td></tr>
 <tr><td>Runs on</td><td><code>qemu:virt-armv7a</code></td></tr>
 <tr><td>Cadence</td><td>daily</td></tr>
-<tr><td>Breadth</td><td>witness — Runtime: Pubsub, TypedCarrier, Service, Action, Params, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++ over zenoh</td></tr>
+<tr><td>Breadth</td><td>witness — Runtime: Pubsub, TypedCarrier, Service, Action, Params, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++ over zenoh</td></tr>
 <tr><td>Book</td><td>Run: <a href="#run-on-qemu-arm-virt">nuttx</a></td></tr>
 <tr><td>Book probe tracks</td><td><code>nuttx-arm</code> (weekly), <code>nuttx-arm-rust</code> (weekly)</td></tr>
 </tbody>
 </table>
 </div>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-threadx-linux-threadxlinux"><a class="header" href="#nros-board-threadx-linux-threadxlinux">nros-board-threadx-linux (ThreadxLinux)</a></h1>
 <p><strong>Status:</strong> Verified on host (merge)</p>
 <div class="table-wrapper">
@@ -24788,14 +24791,14 @@ service. Each names where that contract is written down.</p>
 <tr><td>Test-matrix platform</td><td>ThreadxLinux</td></tr>
 <tr><td>Runs on</td><td>host executable</td></tr>
 <tr><td>Cadence</td><td>merge</td></tr>
-<tr><td>Breadth</td><td>witness — Runtime: Pubsub, Service, Action, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
+<tr><td>Breadth</td><td>witness — Runtime: Pubsub, Service, Action, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
 <tr><td>Book</td><td>Run: <a href="#run-on-the-linux-simulator">threadx</a></td></tr>
 <tr><td>Book probe tracks</td><td><code>threadx-linux</code> (weekly), <code>threadx-linux-c</code> (weekly)</td></tr>
 </tbody>
 </table>
 </div>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-freertos-posix-freertosposix"><a class="header" href="#nros-board-freertos-posix-freertosposix">nros-board-freertos-posix (FreertosPosix)</a></h1>
 <p><strong>Status:</strong> Verified on host (daily)</p>
 <div class="table-wrapper">
@@ -24808,14 +24811,14 @@ service. Each names where that contract is written down.</p>
 <tr><td>Test-matrix platform</td><td>FreertosPosix</td></tr>
 <tr><td>Runs on</td><td>host executable</td></tr>
 <tr><td>Cadence</td><td>daily</td></tr>
-<tr><td>Breadth</td><td>inherited from FreertosMps2 — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++, Mixed over zenoh, cyclonedds. Board-specific: Runtime: EntryPubsub in C, C++ over cyclonedds</td></tr>
+<tr><td>Breadth</td><td>inherited from FreertosMps2 — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++, Mixed over zenoh, cyclonedds. Board-specific: Runtime: EntryPubsub in C, C++ over cyclonedds</td></tr>
 <tr><td>Book</td><td>Run: <a href="#run-on-the-posix-simulator">freertos</a></td></tr>
 <tr><td>Book probe tracks</td><td>—</td></tr>
 </tbody>
 </table>
 </div>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-threadx-qemu-riscv64-threadxriscv64"><a class="header" href="#nros-board-threadx-qemu-riscv64-threadxriscv64">nros-board-threadx-qemu-riscv64 (ThreadxRiscv64)</a></h1>
 <p><strong>Status:</strong> Verified in emulator (daily)</p>
 <div class="table-wrapper">
@@ -24828,7 +24831,7 @@ service. Each names where that contract is written down.</p>
 <tr><td>Test-matrix platform</td><td>ThreadxRiscv64</td></tr>
 <tr><td>Runs on</td><td><code>qemu:rv-virt</code></td></tr>
 <tr><td>Cadence</td><td>daily</td></tr>
-<tr><td>Breadth</td><td>inherited from ThreadxLinux — Runtime: Pubsub, Service, Action, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++, Mixed over zenoh, cyclonedds. Board-specific: Runtime: Pubsub, Service, Errno, TypedCarrier, Params, Logging, EntryPubsub in Rust, C, C++ over zenoh, cyclonedds; build-only: Action</td></tr>
+<tr><td>Breadth</td><td>inherited from ThreadxLinux — Runtime: Pubsub, Service, Action, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++, Mixed over zenoh, cyclonedds. Board-specific: Runtime: Pubsub, Service, Errno, TypedCarrier, Params, Logging, EntryPubsub in Rust, C, C++ over zenoh, cyclonedds; build-only: Action</td></tr>
 <tr><td>Book</td><td>Run: <a href="#run-on-qemu-risc-v-64">threadx</a></td></tr>
 <tr><td>Book probe tracks</td><td><code>threadx-riscv64</code> (weekly)</td></tr>
 </tbody>
@@ -24837,7 +24840,7 @@ service. Each names where that contract is written down.</p>
 <h2 id="notes-3"><a class="header" href="#notes-3">Notes</a></h2>
 <p>All three Action rows are BuildOnly by a deliberate wall-clock choice (182.5), not by breakage.</p>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-mps2-an385-qemubaremetal"><a class="header" href="#nros-board-mps2-an385-qemubaremetal">nros-board-mps2-an385 (QemuBaremetal)</a></h1>
 <p><strong>Status:</strong> Verified in emulator (daily)</p>
 <div class="table-wrapper">
@@ -24859,7 +24862,7 @@ service. Each names where that contract is written down.</p>
 <h2 id="notes-4"><a class="header" href="#notes-4">Notes</a></h2>
 <p>One crate; the book’s entry shape is direct execution (the <code>board-entry</code> feature).</p>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-mps2-an385-zephyr-zephyrqemucortexm"><a class="header" href="#nros-board-mps2-an385-zephyr-zephyrqemucortexm">nros-board-mps2-an385-zephyr (ZephyrQemuCortexM)</a></h1>
 <p><strong>Status:</strong> Verified in emulator (daily)</p>
 <div class="table-wrapper">
@@ -24881,7 +24884,7 @@ service. Each names where that contract is written down.</p>
 <h2 id="notes-5"><a class="header" href="#notes-5">Notes</a></h2>
 <p>C, C++ and Rust pubsub are Runtime; service and action are BuildOnly until the runner’s peer half lands. It carries a live-peer interop cell against a host peer over zenoh. Daily rather than per merge, because the merge lane is host-only and this board needs QEMU.</p>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-nuttx-qemu-nuttxriscv"><a class="header" href="#nros-board-nuttx-qemu-nuttxriscv">nros-board-nuttx-qemu (NuttxRiscv)</a></h1>
 <p><strong>Status:</strong> Verified in emulator (daily)</p>
 <div class="table-wrapper">
@@ -24894,7 +24897,7 @@ service. Each names where that contract is written down.</p>
 <tr><td>Test-matrix platform</td><td>NuttxRiscv</td></tr>
 <tr><td>Runs on</td><td><code>qemu:rv-virt</code></td></tr>
 <tr><td>Cadence</td><td>daily</td></tr>
-<tr><td>Breadth</td><td>inherited from NuttxArm — Runtime: Pubsub, TypedCarrier, Service, Action, Params, Logging, EntryPubsub, RealtimeTiers in Rust, C, C++ over zenoh. Board-specific: Runtime: Pubsub, RealtimeTiers in C, C++, Rust over zenoh; build-only: EntryPubsub</td></tr>
+<tr><td>Breadth</td><td>inherited from NuttxArm — Runtime: Pubsub, TypedCarrier, Service, Action, Params, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++ over zenoh. Board-specific: Runtime: Pubsub, RealtimeSchedTasks in C, C++, Rust over zenoh; build-only: EntryPubsub</td></tr>
 <tr><td>Book</td><td>Run: <a href="#run-on-qemu-risc-v-rv-virt">nuttx</a></td></tr>
 <tr><td>Book probe tracks</td><td><code>nuttx-riscv</code> (weekly), <code>nuttx-riscv-rust</code> (weekly)</td></tr>
 </tbody>
@@ -24903,7 +24906,7 @@ service. Each names where that contract is written down.</p>
 <h2 id="notes-6"><a class="header" href="#notes-6">Notes</a></h2>
 <p>HONEST LABEL: C runtime-proven; Rust and C++ Pubsub are explicit CarveOuts and every EntryPubsub row is BuildOnly.</p>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-zephyr-fvp"><a class="header" href="#nros-board-zephyr-fvp">nros-board-zephyr (Fvp)</a></h1>
 <p><strong>Status:</strong> Boots, manual (2026-09-06); reads <em>Builds</em> from 2027-01-05</p>
 <div class="table-wrapper">
@@ -24925,7 +24928,7 @@ service. Each names where that contract is written down.</p>
 <h2 id="notes-7"><a class="header" href="#notes-7">Notes</a></h2>
 <p>Runtime is run by a maintainer, hence <code>cadence = "manual"</code>. The model is not licence-gated: <code>nros setup --tool arm-fvp</code> fetches it from a pinned Arm download. CI does not run it because of cost and x86_64-only hosting. It is the target of the Autoware safety-island reference consumer.</p>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="s32k344-safety-island"><a class="header" href="#s32k344-safety-island">s32k344-safety-island</a></h1>
 <p><strong>Status:</strong> Boots on hardware, manual (2026-10-26); reads <em>Builds</em> from 2027-02-24</p>
 <div class="table-wrapper">
@@ -24947,7 +24950,7 @@ service. Each names where that contract is written down.</p>
 <h2 id="notes-8"><a class="header" href="#notes-8">Notes</a></h2>
 <p>NXP S32K344 (Cortex-M7) on the MR-CANHUBK344, Zephyr, behind a 921,600-baud UART zenoh link to an island gateway router. Verified on hardware on 2026-10-26. The board package belongs to the downstream island project.</p>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-nucleo-f767zi-zephyr-zephyrnucleof767zi"><a class="header" href="#nros-board-nucleo-f767zi-zephyr-zephyrnucleof767zi">nros-board-nucleo-f767zi-zephyr (ZephyrNucleoF767zi)</a></h1>
 <p><strong>Status:</strong> Boots, manual (2026-11-01); reads <em>Builds</em> from 2027-03-02</p>
 <div class="table-wrapper">
@@ -24969,7 +24972,7 @@ service. Each names where that contract is written down.</p>
 <h2 id="notes-9"><a class="header" href="#notes-9">Notes</a></h2>
 <p>ST Nucleo-F767ZI (STM32F767ZI, Cortex-M7F, 384 KiB sram0) on Zephyr 3.7. Its Renode twin boots the C talker over serial (USART3, the ST-LINK VCP) and over ethernet. Its RAM budget, <code>max_large_subscribers = 0</code>, is the board descriptor’s <code>[knobs.zenoh]</code>, which every image inherits; the ethernet image adds its own knobs (see the descriptor header).</p>
 <p>See <a href="#board-support-levels">Board Support Levels</a> for what each status means.</p>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data 08fc4d1879fb769e) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data e4f13ee4e4fa891c) — do not edit; edit the registry and regenerate. -->
 <h1 id="nros-board-rpi-pico-w-zephyr"><a class="header" href="#nros-board-rpi-pico-w-zephyr">nros-board-rpi-pico-w-zephyr</a></h1>
 <p><strong>Status:</strong> Boots, manual (2026-11-01); reads <em>Builds</em> from 2027-03-02</p>
 <div class="table-wrapper">
