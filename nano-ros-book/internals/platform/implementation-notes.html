@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-9c005826.js";
+            window.path_to_searchindex_js = "../searchindex-27456445.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-1b9a2c32.js"></script>
@@ -413,7 +413,7 @@ Consequences and rules:</p>
 <ul>
 <li><strong>Total image tx ≈ sends-per-second on the shared socket, NOT the sum of
 publish rates</strong> (issue #145 / phase-279). Measured on native_sim (ws-realtime
-ctrl 100 Hz + telem 10 Hz, 20 s window): at the 100 ms default both tiers
+ctrl 100 Hz + telem 10 Hz, 20 s window): at the 100 ms default both sched tasks
 converge to ~4.3 msg/s each (~8.6 total — a 100 Hz and a 10 Hz publisher get
 the SAME throughput under contention); at 5 ms, ~39 total (ctrl 33 / telem 5.5).
 <code>Z_CONFIG_SOCKET_TIMEOUT</code> trades read-wake rate for tx budget but stays
@@ -422,13 +422,13 @@ Kconfig <code>CONFIG_NROS_ZENOH_TX_BATCH=y</code> enables tx batching PLUS a ded
 flush thread (multi-threaded platforms except ThreadX; flush cadence
 <code>NROS_ZENOH_TX_BATCH_FLUSH_MS</code>, default 50 ms) — measured <strong>4× total throughput at
 the 100 ms default (34.1 vs 8.6 msg/s) and 1.35× at 5 ms (52.5 vs 39)</strong>, with
-the 10 Hz tier reaching ≈ ideal. Flushing from the tier threads themselves
+the 10 Hz sched task reaching ≈ ideal. Flushing from the sched task threads themselves
 measured WORSE-or-equal (4.7-9.2) — the flush must live on its own thread.
 Phase-282 closed the residual: <code>NROS_ZENOH_TX_SPLIT_LOCK=1</code> /
 <code>CONFIG_NROS_ZENOH_TX_SPLIT_LOCK=y</code> (requires TX_BATCH) makes the flush
 STEAL the batch (buffer swap) and write the socket under a separate link
 mutex, and a batch overflow PARKS the buffer instead of blocking the
-publisher — tiers 43.2 total (+27%), streaming <strong>~181 msg/s vs ~9 baseline
+publisher — sched tasks 43.2 total (+27%), streaming <strong>~181 msg/s vs ~9 baseline
 (20×)</strong> with a tight-loop publisher completing instead of stalling. Wire
 order stays == SN order. Per-publisher escape: <code>tx_express</code> in the QoS
 profile (Rust <code>.tx_express(true)</code> / C <code>rclc_qos_t.tx_express</code> / C++
@@ -440,7 +440,7 @@ knob; keepalives bound batch sit-time. NOTE: TX_BATCH flips
 <code>Z_FEATURE_BATCHING</code> and TX_SPLIT_LOCK flips <code>Z_FEATURE_TX_SPLIT_LOCK</code> in
 the SHARED generated zenoh config (both gate transport-struct fields — the
 issue-0135 every-TU rule); rebuild fixtures after changing them. Harnesses:
-<code>tests/w1_zephyr_tx_throughput_measure.rs</code> (<code>--ignored</code>, tiers) +
+<code>tests/w1_zephyr_tx_throughput_measure.rs</code> (<code>--ignored</code>, sched tasks) +
 <code>packages/testing/nros-bench/stress-zenoh-zephyr</code> (streaming; bench
 listeners MUST build with <code>NROS_ZENOH_SUBSCRIBER_RING_DEPTH=1024</code> — the default
 4-slot ring evicts most of a batched callback burst, keeping its newest
@@ -479,7 +479,7 @@ to ~10 s late (keep-alives every 25–30 s); at 100 ms the bound is ~200 ms.</li
 cargo-built lane, embedded included): all nodes in an image share ONE session
 (RFC-0015 Model 1), and neither zenoh-pico nor zenohd loops a publication back
 to the session it came from. Without it a same-image pair (e.g. ws-qos-rust’s
-<code>reliable_talker → qos_listener</code>, or the multi-tier FreeRTOS safety island’s
+<code>reliable_talker → qos_listener</code>, or the multi-sched-task FreeRTOS safety island’s
 gate→actuator command) never delivers, silently — remote routes keep working,
 so the drop masquerades as a per-route scheduling bug.</li>
 <li>The #129 per-node-liveliness “deadlock” was this same mechanism — the first
@@ -492,7 +492,7 @@ window, total tx is capped at ~one send per window (plus inbound-traffic
 wakes). At the 100 ms default that is ~10 msg/s for the WHOLE image — fine
 for 1 Hz demo lanes, fatal for high-rate publishers. Tune per-app via
 <code>CONFIG_NROS_ZENOH_SOCKET_TIMEOUT_MS</code> (→ <code>Z_CONFIG_SOCKET_TIMEOUT</code>); the
-ws-realtime zephyr entry (100 Hz ctrl tier) uses 5 ms.</li>
+ws-realtime zephyr entry (100 Hz ctrl sched task) uses 5 ms.</li>
 <li><strong>Concurrent entity declares race the interest write filter</strong>: a declare
 triggers an interest handshake, and when two threads declare concurrently
 on one session (only on <code>Z_FEATURE_MULTI_THREAD=0</code> — embedded; native’s
@@ -500,11 +500,11 @@ MT=1 has internal session mutexes) the losing publisher’s zenoh-pico write
 filter can stay closed — <code>z_publisher_put</code> succeeds while nothing reaches
 the wire. All embedded <code>run_sched_tasks</code> paths (<code>ZephyrBoard::run_sched_tasks</code>, the
 FreeRTOS Rust <code>run_sched_tasks_entry</code>, and the FreeRTOS C
-<code>nros_board_freertos_run_sched_tasks</code>) therefore <strong>chain-spawn</strong> the tiers: the
-boot tier runs its setup, then spawns exactly one task for the next tier,
+<code>nros_board_freertos_run_sched_tasks</code>) therefore <strong>chain-spawn</strong> the sched tasks: the
+boot sched task runs its setup, then spawns exactly one task for the next sched task,
 which runs ITS setup and spawns the next — so no two <code>setup()</code> (declare)
-bursts ever overlap, for any tier count (issue 0144; the 0128 fix only
-closed boot↔tier for two tiers). Spins may overlap the next tier’s setup —
+bursts ever overlap, for any sched task count (issue 0144; the 0128 fix only
+closed boot↔sched task for two sched tasks). Spins may overlap the next sched task’s setup —
 safe, a spin exchanges keepalives/data, not declares.</li>
 </ul>
 <h2 id="nuttx--zenoh-pico-cooperation-phase-225o"><a class="header" href="#nuttx--zenoh-pico-cooperation-phase-225o">NuttX ↔ zenoh-pico cooperation (Phase 225.O)</a></h2>
