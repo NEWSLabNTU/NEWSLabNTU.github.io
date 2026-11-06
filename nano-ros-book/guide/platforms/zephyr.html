@@ -35,10 +35,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-7a587ffb.js";
+            window.path_to_searchindex_js = "../../searchindex-9088e89e.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-e88a723f.js"></script>
+        <script src="../../toc-1c7a7452.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -916,6 +916,55 @@ root and the generated interfaces at <code>generated/*</code>.
 <code>--nano-ros-path &lt;dir&gt;</code> names another root (the SDK ROOT, the directory holding <code>nano_rosConfig.cmake</code>).</p>
 </li>
 </ol>
+<h2 id="c-applications"><a class="header" href="#c-applications">C++ applications</a></h2>
+<p>A Zephyr application reaches the C++ API through the nano-ros Zephyr module.
+The module, the image’s <code>system.toml</code> and the <code>prj.conf</code> split are covered
+above, in <a href="#configure">Configure</a>; the RMW,
+locator and domain come from the image, never from <code>CONFIG_NROS_*</code> lines in
+<code>prj.conf</code>. The C++ side needs <code>CONFIG_CPP=y</code> and <code>CONFIG_STD_CPP14=y</code> in
+<code>prj.conf</code> (Zephyr’s own settings), and the application’s <code>CMakeLists.txt</code>
+generates the message bindings:</p>
+<pre><code class="language-cmake">cmake_minimum_required(VERSION 3.20.0)
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(my_app LANGUAGES CXX)
+
+nros_generate_interfaces(std_msgs LANGUAGE CPP)
+target_sources(app PRIVATE src/main.cpp)
+</code></pre>
+<p>A minimal <code>main()</code> waits for the network, opens the session with the locator
+and domain the image rendered into Kconfig, and spins:</p>
+<pre><code class="language-cpp">#include &lt;zephyr/kernel.h&gt;
+#include &lt;zephyr/logging/log.h&gt;
+
+#include &lt;nros/platform_zephyr.h&gt;
+
+#include &lt;rclcpp/rclcpp.hpp&gt;
+#include "std_msgs.hpp"
+
+LOG_MODULE_REGISTER(my_app, LOG_LEVEL_INF);
+
+int main(void)
+{
+    nros_platform_zephyr_wait_network(CONFIG_NROS_INIT_DELAY_MS);
+
+    rclcpp::Result ret = rclcpp::init_in(CONFIG_NROS_ZENOH_LOCATOR, CONFIG_NROS_DOMAIN_ID);
+    if (!ret.ok()) return 1;
+
+    rclcpp::Node node;
+    if (!rclcpp::create_node(node, "my_node").ok()) return 1;
+
+    // ... create publishers, subscriptions, etc.
+
+    while (true) {
+        rclcpp::spin_once(100);
+    }
+}
+</code></pre>
+<p><code>nros_platform_zephyr_wait_network</code> (<code>&lt;nros/platform_zephyr.h&gt;</code>) is defined
+in every Zephyr image. On an image with no IP stack (<code>CONFIG_NET_SOCKETS</code> off,
+for example a serial-only zenoh image) it returns 0 at once, so the call needs
+no guard. <code>CONFIG_NROS_INIT_DELAY_MS</code> is the module’s start-up delay; your
+<code>main()</code> is its only reader.</p>
 <h2 id="run"><a class="header" href="#run">Run</a></h2>
 <p><code>nros build</code> ends by printing what to type next, read from the finished build
 itself — the emulators Zephyr’s board declares (<code>run_&lt;emu&gt;</code> targets in

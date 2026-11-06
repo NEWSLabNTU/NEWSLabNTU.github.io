@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7a587ffb.js";
+            window.path_to_searchindex_js = "../searchindex-9088e89e.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-e88a723f.js"></script>
+        <script src="../toc-1c7a7452.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -180,9 +180,11 @@
                         <h1 id="systemtoml-keys"><a class="header" href="#systemtoml-keys">system.toml keys</a></h1>
 <div class="nros-level-badge" data-type="reference" data-level="3"><span class="nros-level-type">Reference</span> · <span class="nros-level-name">Level 3: Production and tuning</span></div>
 
-<p>The keys a bringup’s <code>system.toml</code> takes for an image, and the files beside
-it. Hand-kept until it is generated from the CLI’s schema; the Kconfig
-symbols an image can also set are in
+<p>The keys a bringup’s <code>system.toml</code> takes for an image, the files beside it,
+and a bridge binary’s <code>nros-bridge.toml</code>. The page is hand-kept; a gate holds
+the <code>[image.&lt;id&gt;]</code> table’s key set to the CLI’s own schema, both ways, so a key
+the CLI accepts cannot be missing here and a key it refuses cannot be listed.
+The Kconfig symbols an image can also set are in
 <a href="configuration-surface.html">Configuration surface</a>.</p>
 <h2 id="where-each-setting-lives"><a class="header" href="#where-each-setting-lives">Where each setting lives</a></h2>
 <div class="table-wrapper">
@@ -348,6 +350,145 @@ retired <code>[[transport]]</code> shape panics at boot, naming the new spelling
 </div>
 <p>The generated entry selects these from the image. <code>rmw</code> in <code>system.toml</code>
 picks which linked backend is active.</p>
+<h2 id="nros-bridgetoml"><a class="header" href="#nros-bridgetoml"><code>nros-bridge.toml</code></a></h2>
+<p>A bridge binary’s own file, beside <code>system.toml</code>’s keys because it configures
+the same thing, a running image, but read at run time by the program, not by
+the build.</p>
+<p>Consumed by <code>nros::run_from_config</code> (Rust) and the future C/C++ mirror
+(<code>nros::run_from_config</code> in <code>nros-cpp</code>).</p>
+<blockquote>
+<p><strong>Not the orchestration <code>nros.toml</code>.</strong> This is the <strong>bridge</strong> runtime
+config (multi-RMW byte forwarding). It is named <code>nros-bridge.toml</code> to
+avoid colliding with the orchestration <code>nros.toml</code>
+(component/system build config) — different lifecycle, different
+schema.</p>
+</blockquote>
+<p>The file lives next to the binary (or anywhere the program can read
+it) and selects:</p>
+<ol>
+<li>Which RMW backends to open, under what locator / domain.</li>
+<li>How those backends are wired into bridge entries that forward
+traffic between them.</li>
+</ol>
+<p>The binary’s <code>Cargo.toml</code> (or <code>target_link_libraries</code>) still selects
+which backends are <em>linked</em> — the TOML file selects which of the
+linked backends are <em>used</em> in this run. Backend names in the file
+that don’t match a linked backend surface as
+<code>ConfigError::OpenSession</code>.</p>
+<h3 id="top-level-structure"><a class="header" href="#top-level-structure">Top-level structure</a></h3>
+<pre><code class="language-toml"># nros-bridge.toml — sibling of the binary
+[[node]]
+name    = "field"
+rmw     = "zenoh"
+locator = "tcp/10.0.0.1:7447"
+
+[[node]]
+name    = "control"
+rmw     = "cyclonedds"
+locator = "domain=0"
+
+[[bridge]]
+type      = "std_msgs/Int32"
+type_hash = "RIHS01_..."
+from      = { node = "field",   topic = "/sensor/raw" }
+to        = { node = "control", topic = "/sensor/raw" }
+</code></pre>
+<p>Run via:</p>
+<pre class="playground"><code class="language-rust">fn main() -&gt; Result&lt;(), nros_bridge::ConfigError&gt; {
+    nros_bridge::run_from_config("nros-bridge.toml")
+    // or, via the umbrella feature: nros::run_from_config("nros-bridge.toml")
+}</code></pre>
+<h3 id="node"><a class="header" href="#node"><code>[[node]]</code></a></h3>
+<p>One block per backend session. The first <code>[[node]]</code> becomes the
+primary session (<code>extra_sessions[0]</code> in <code>Executor::open_multi</code>); the
+rest open as extras keyed by <code>rmw</code>.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Type</th><th>Default</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>name</code></td><td>string</td><td>required</td><td>Logical name. Bridge entries reference this.</td></tr>
+<tr><td><code>rmw</code></td><td>string</td><td>required</td><td>Canonical backend name: <code>"zenoh"</code>, <code>"xrce"</code>, <code>"cyclonedds"</code>. Must match a backend the binary linked in.</td></tr>
+<tr><td><code>locator</code></td><td>string</td><td><code>""</code></td><td>Backend-specific locator. Zenoh uses <code>tcp/...</code>, <code>udp4/...</code>, <code>serial/...</code>; DDS uses <code>domain=&lt;n&gt;</code>; XRCE uses <code>udp4://...:port</code>.</td></tr>
+<tr><td><code>domain_id</code></td><td>u32</td><td><code>0</code></td><td>ROS domain id passed to the backend.</td></tr>
+<tr><td><code>namespace</code></td><td>string</td><td><code>"/"</code></td><td>Default namespace applied to handles created on this node.</td></tr>
+</tbody>
+</table>
+</div>
+<h4 id="locator-scheme-grammar-zenoh"><a class="header" href="#locator-scheme-grammar-zenoh">Locator scheme grammar (zenoh)</a></h4>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Scheme</th><th>Example</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>tcp/&lt;host&gt;:&lt;p&gt;</code></td><td><code>tcp/10.0.0.1:7447</code></td><td>TCP unicast</td></tr>
+<tr><td><code>udp/&lt;host&gt;:&lt;p&gt;</code></td><td><code>udp/10.0.0.1:7447</code></td><td>UDP unicast</td></tr>
+<tr><td><code>serial/&lt;dev&gt;</code></td><td><code>serial//dev/ttyUSB0</code></td><td>UART (host-side) or board UART (bare-metal)</td></tr>
+<tr><td><code>tls/&lt;host&gt;:&lt;p&gt;</code></td><td><code>tls/router.example.org:7447</code></td><td>TLS over TCP (requires <code>link-tls</code> on backend)</td></tr>
+</tbody>
+</table>
+</div>
+<p>DDS / XRCE follow their native locator conventions; consult each
+backend’s docs for the exact form.</p>
+<h3 id="bridge"><a class="header" href="#bridge"><code>[[bridge]]</code></a></h3>
+<p>One block per topic forwarded between two <code>[[node]]</code>s. Each bridge
+creates a <code>RawSubscription</code> on the source side and an
+<code>EmbeddedRawPublisher</code> on the destination side and pumps bytes once
+per executor tick.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Type</th><th>Default</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>type</code></td><td>string</td><td>required</td><td>ROS type name (<code>"std_msgs/Int32"</code>). Backends use it for liveliness / discovery.</td></tr>
+<tr><td><code>type_hash</code></td><td>string</td><td><code>""</code></td><td>ROS 2 RIHS type hash for the typed binding. May be left empty if both sides ignore it.</td></tr>
+<tr><td><code>from</code></td><td>endpoint</td><td>required</td><td><code>{ node = "&lt;name&gt;", topic = "&lt;topic&gt;" }</code>. The source node + topic.</td></tr>
+<tr><td><code>to</code></td><td>endpoint</td><td>required</td><td><code>{ node = "&lt;name&gt;", topic = "&lt;topic&gt;" }</code>. The destination node + topic.</td></tr>
+</tbody>
+</table>
+</div>
+<p>Bidirectional bridges are two <code>[[bridge]]</code> entries — one in each
+direction. The runtime stamps a <code>bridge_origin</code> attachment field on
+forwarded frames and drops on receive when the origin matches the
+local backend, so an echo pair does not loop.</p>
+<h3 id="error-semantics"><a class="header" href="#error-semantics">Error semantics</a></h3>
+<p><code>run_from_config</code> returns <code>ConfigError</code>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Variant</th><th>Cause</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Io</code></td><td>File read failed (missing / unreadable).</td></tr>
+<tr><td><code>Parse</code></td><td>TOML malformed or a required field missing.</td></tr>
+<tr><td><code>UnknownNode</code></td><td>A <code>[[bridge]]</code> references a <code>node</code> name no <code>[[node]]</code> declared.</td></tr>
+<tr><td><code>OpenSession</code></td><td><code>Executor::open_multi</code> rejected a spec — usually a backend name no <code>RMW_INIT_ENTRIES</code> entry registered under.</td></tr>
+<tr><td><code>BuildNode</code></td><td><code>create_node_on</code> failed (registry exhausted, name too long, …).</td></tr>
+<tr><td><code>BuildEntity</code></td><td>Creating the source subscription or destination publisher failed (typically backend rejection of the topic name / type / QoS).</td></tr>
+</tbody>
+</table>
+</div>
+<p>Any error short-circuits the runtime; bridges that opened cleanly
+before the failure are not pumped.</p>
+<h3 id="linked-backend-matrix"><a class="header" href="#linked-backend-matrix">Linked-backend matrix</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Backend name</th><th>Cargo dep that contributes the <code>RMW_INIT_ENTRIES</code> entry</th></tr>
+</thead>
+<tbody>
+<tr><td><code>zenoh</code></td><td><code>nros-rmw-zenoh = { ... }</code></td></tr>
+<tr><td><code>xrce</code></td><td><code>nros-rmw-xrce-cffi = { ... }</code></td></tr>
+<tr><td><code>cyclonedds</code></td><td><code>nros-rmw-cyclonedds</code> static lib (CMake side, <code>--whole-archive</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Add a backend to your <code>Cargo.toml</code> (or <code>target_link_libraries</code>) to
+make its name available in the TOML; remove it to fence off use even
+when the TOML file lists it (yields <code>OpenSession</code> at startup).</p>
 <h2 id="design-background"><a class="header" href="#design-background">Design background</a></h2>
 <ul>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0004-configuration-and-transports.md">RFC-0004: configuration and transports</a></li>
@@ -371,7 +512,7 @@ picks which linked backend is active.</p>
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../reference/nros-bridge-toml.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../reference/environment-variables.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -385,7 +526,7 @@ picks which linked backend is active.</p>
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../reference/nros-bridge-toml.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../reference/environment-variables.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
