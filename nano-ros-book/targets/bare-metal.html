@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-d75ac4c3.js";
+            window.path_to_searchindex_js = "../searchindex-09108398.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-c97eee72.js"></script>
@@ -297,13 +297,10 @@ moves by hand. The node package’s <code>Cargo.toml</code> names no board crate
 backend or panic handler: those are the generated entry’s dependencies. So
 changing <code>board =</code> to <code>"mps2-an385-freertos"</code> and building again builds the
 FreeRTOS image with no other edit.</p>
-<p>QEMU Slirp networking — no host TAP / bridge / sudo. The zenoh
-default port is 7447; this example dials <strong>10500</strong> (the <code>locator</code>
-above), so start the router (ROS’s <code>rmw_zenohd</code>) on that port:</p>
-<pre><code class="language-bash">ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/127.0.0.1:10500"];scouting/multicast/enabled=false' \
-    ros2 run rmw_zenoh_cpp rmw_zenohd
-</code></pre>
-<p>or edit the <code>locator</code> above to the port you prefer.</p>
+<p>QEMU Slirp networking: no host TAP, bridge or sudo. The guest reaches the
+host as <code>10.0.2.2</code>, so <code>nros run</code> starts the router on the host’s port 10500
+(the <code>locator</code> above) when it boots the image. Change the port in the
+<code>locator</code>; nothing else moves.</p>
 <h2 id="build"><a class="header" href="#build">Build</a></h2>
 <p>The build generates the message bindings from your ROS 2 install, so source
 it in this shell first. This first build records the ROS 2 prefix in the
@@ -331,30 +328,28 @@ of your own to carry board facts. Your own Rust-toolchain preferences go where
 cargo already looks for them — a parent directory or <code>$CARGO_HOME</code>. See
 <a href="how-integration-works.html#when-nros-build-drives-the-build">When <code>nros build</code> drives the build</a>.</p>
 <h2 id="run-on-qemu"><a class="header" href="#run-on-qemu">Run on QEMU</a></h2>
-<p>Three terminals: the router, the board, and a stock ROS 2 peer.</p>
-<p><strong>1. The router</strong> — ROS’s <code>rmw_zenohd</code>, on the port your image’s <code>locator</code>
-names (Slirp forwards the guest’s <code>10.0.2.2:&lt;p&gt;</code> to the host’s <code>&lt;p&gt;</code>). The
-scaffold states no <code>locator</code>, so the board dials <code>10.0.2.2:7447</code>; the example
-above dials 10500. It must listen on <code>0.0.0.0</code> for the Slirp gateway:</p>
-<pre><code class="language-bash probe=60 probe-run=60 probe-keep">source /opt/ros/humble/setup.bash
-ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:7447"];scouting/multicast/enabled=false' \
-    ros2 run rmw_zenoh_cpp rmw_zenohd
-</code></pre>
-<pre><code class="language-text probe-expect=60">Started Zenoh router with id
-</code></pre>
-<p><strong>2. The board</strong> — from the workspace root:</p>
-<pre><code class="language-bash probe=70 probe-run=120 probe-keep">nros run bm_node
+<p>Two terminals: the board, and a stock ROS 2 peer.</p>
+<p><strong>1. The board</strong>, from the workspace root. Source ROS 2 first: the router
+<code>nros run</code> starts is ROS’s <code>rmw_zenohd</code>.</p>
+<pre><code class="language-bash probe=70 probe-run=120 probe-keep">source /opt/ros/humble/setup.bash
+nros run bm_node
 </code></pre>
 <p><code>nros run</code> rebuilds if anything changed, then boots the talker in QEMU with the
-board’s runner: the patched <code>qemu-system-arm</code> that <code>nros setup mps2-an385-baremetal</code> provisioned into the SDK store, the LAN9118 on Slirp, and
-<code>-icount shift=auto</code>, which keeps the board’s timer in step with Slirp’s I/O.
-It streams the semihosting console until you press Ctrl-C.</p>
+board’s runner: the patched <code>qemu-system-arm</code> that <code>nros setup mps2-an385-baremetal</code> provisioned into the SDK store, with <code>-icount shift=auto</code>, which keeps the board’s timer in step with the host. The
+scaffold’s image names no <code>locator</code>, so it talks to the router over the
+board’s serial port: <code>nros run</code> connects that port to a terminal device on the
+host and starts the router on it. It streams the semihosting console until
+you press Ctrl-C, which stops QEMU and the router together.</p>
 <p>Expected serial-over-semihosting output:</p>
 <pre><code class="language-text probe-expect=70">Publishing: 'Hello World: 1'
 Publishing: 'Hello World: 2'
 ...
 </code></pre>
-<p><strong>3. A stock ROS 2 peer.</strong> The talker publishes best-effort; stock <code>ros2 topic echo</code> defaults to RELIABLE, so the QoS-mismatched echo silently delivers
+<p>With the <code>tcp/10.0.2.2:10500</code> locator of <a href="#configure">Configure</a>, <code>nros run</code>
+starts the router on the host’s port 10500 instead, so don’t start one of your
+own: a second router on the same port stops the first run. To use a router
+you already have, pass <code>--router &lt;its locator&gt;</code>.</p>
+<p><strong>2. A stock ROS 2 peer.</strong> The talker publishes best-effort; stock <code>ros2 topic echo</code> defaults to RELIABLE, so the QoS-mismatched echo silently delivers
 nothing. Force best-effort to receive:</p>
 <pre><code class="language-bash probe=80 probe-run=90">source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
@@ -369,8 +364,9 @@ seconds), expect <code>Publishing: 'Hello World: 1'</code> on semihosting
 stdout — the count starts at 1, matching the official ROS 2 demo
 talker. If no <code>Publishing:</code> line:</p>
 <ol>
-<li>Router not running — talker spins on smoltcp poll until
-killed.</li>
+<li>The router did not start — <code>nros run</code> says so and names its
+log under <code>build/nros/run/</code>. A router you started yourself on the
+same port is the usual cause.</li>
 <li>No network on the guest — if you boot the ELF with your own QEMU
 line, an explicit <code>-nic</code>/<code>-netdev</code> that does not reach the LAN9118
 (or <code>-nic none</code>, <code>-nodefaults</code>) leaves it unwired. The board’s
