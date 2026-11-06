@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-0a2d1d52.js";
+            window.path_to_searchindex_js = "searchindex-e4f03479.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-0948c11b.js"></script>
+        <script src="toc-f20674a5.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -3111,6 +3111,267 @@ The action marker type implements <code>RosAction</code>:</p>
 </ul>
 <p>Used by nano-ros to generate <code>nros-rcl-interfaces</code> from <code>rcl_interfaces</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="rmw-api-design-nros-rmw-vs-ros2rmw"><a class="header" href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design: nros-rmw vs ros2/rmw</a></h1>
+<p>nano-ros defines its own RMW (ROS Middleware) abstraction in the <code>nros-rmw</code> crate. While it serves the same purpose as the official <a href="https://github.com/ros2/rmw">ros2/rmw</a> interface – decoupling the client library from the transport backend – it is designed for <code>no_std</code> embedded systems and uses a fundamentally different approach.</p>
+<p>This page documents the architectural differences and trade-offs. For trait signatures and the available backends, see <a href="../reference/rmw-api.html">RMW API Reference</a>. For implementing a new backend, see <a href="../extending/custom-rmw.html">Write a custom RMW backend</a> in the user book. <a href="#rmw-api-differences-from-upstream-rmwh">RMW API vs upstream</a> compares the two APIs symbol by symbol.</p>
+<h2 id="why-we-revised-rmwh"><a class="header" href="#why-we-revised-rmwh">Why We Revised <code>rmw.h</code></a></h2>
+<p><code>rmw.h</code> was designed for ROS 2 on Linux: a process with a libc heap, an OS scheduler, dynamic loaders, and middleware-owned background threads. None of those assumptions hold on a Cortex-M3 with 64 KB of RAM. Each constraint below drove a specific change.</p>
+<h3 id="heap-availability"><a class="header" href="#heap-availability">Heap availability</a></h3>
+<p><code>rmw.h</code> heap-allocates everywhere – handles, serialized message buffers, wait sets, type support tables. Bare-metal targets often have no allocator; RTOS targets have allocators with hard total budgets (~16-256 KB) that must cover the application as well.</p>
+<p>nros-rmw moves all I/O buffers to the caller. <code>publish_raw(&amp;[u8])</code> and <code>take_serialized(&amp;mut [u8])</code> operate on slices that the caller stack- or statically-allocates. Type metadata is a string-only <code>TopicInfo</code> struct, not a pointer-laden <code>rosidl_message_type_support_t</code> table. What the abstraction itself allocates is nothing. What the BACKENDS allocate is
+enumerated by <code>scripts/rmw-alloc-sites.py</code>, which reports each site with its
+file and line and — the distinction that decides whether you care — whether it
+sits on the STEADY-STATE path (per message, so it is latency and a heap that
+must sustain traffic) or in CREATE/INIT (bounded, so it lands in startup):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>backend</th><th style="text-align: right">steady-state</th><th style="text-align: right">create / init</th></tr>
+</thead>
+<tbody>
+<tr><td>Cyclone DDS</td><td style="text-align: right">1</td><td style="text-align: right">8</td></tr>
+<tr><td>XRCE-DDS</td><td style="text-align: right">0</td><td style="text-align: right">7</td></tr>
+<tr><td>uORB</td><td style="text-align: right">0</td><td style="text-align: right">3</td></tr>
+<tr><td>zenoh-pico</td><td style="text-align: right">0</td><td style="text-align: right">0</td></tr>
+</tbody>
+</table>
+</div>
+<p>Run the script rather than trusting this table; it is the re-runnable source and
+this is a snapshot of it. Two caveats it states and this page inherits: it
+counts nano-ros’s OWN sites, so allocations inside Cyclone below <code>dds_write</code> and
+inside zenoh-pico’s <code>z_malloc</code> are real but not listed (they are not ours to
+remove), and zenoh-pico’s internal transport buffers (~64 KB) reach the image
+through <code>PlatformAlloc</code>, where a bump allocator suffices on bare-metal.</p>
+<h3 id="threading-model"><a class="header" href="#threading-model">Threading model</a></h3>
+<p><code>rmw.h</code> assumes the middleware owns threads. <code>rmw_wait()</code> blocks the calling thread on a wait set; some implementations also spawn internal dispatch threads that fire callbacks asynchronously. Bare-metal has no scheduler; cooperative RTOS configurations can’t tolerate hidden threads.</p>
+<p>nros-rmw replaces <code>rmw_wait</code> with <code>Session::drive_io(timeout_ms)</code> – a single call the executor invokes from its own (and only) thread. There is no wait set object, and no entity is implicitly polled by the middleware. The application drives all I/O explicitly. For async runtimes, subscribers and service clients expose <code>register_waker(&amp;Waker)</code> so the transport’s C receive callback can wake a Rust future without a wait set abstraction.</p>
+<h3 id="single-threaded-callback-dispatch"><a class="header" href="#single-threaded-callback-dispatch">Single-threaded callback dispatch</a></h3>
+<p><code>rmw.h</code> permits multi-threaded executors and reentrant callbacks. Cooperative single-threaded targets cannot guarantee atomicity around RMW state without locks they don’t have.</p>
+<p>nros-rmw assumes a single-threaded executor that owns the session for its lifetime. Callbacks run sequentially on the executor thread; no callback can preempt another. This eliminates the need for internal locking around publisher state, subscriber buffers, or service queues – a measurable code-size and runtime win on MCUs.</p>
+<h3 id="no-dynamic-discovery-tables"><a class="header" href="#no-dynamic-discovery-tables">No dynamic discovery tables</a></h3>
+<p><code>rmw.h</code> provides <code>rmw_get_topic_names_and_types()</code>, <code>rmw_count_publishers()</code>, <code>rmw_get_node_names()</code>, and similar graph-introspection APIs. These require maintaining a dynamic discovery cache, which costs heap and CPU continuously even when nothing reads it.</p>
+<p>nros-rmw carried none of these for most of its life: discovery happened at the transport layer (zenoh liveliness, XRCE-DDS session establishment) and was never surfaced as queryable graph state.</p>
+<p>The ABI now has graph-enumeration slots —
+<code>get_node_names</code>, <code>get_topic_names_and_types</code>, <code>count_publishers</code> and the
+by-node variants — as <em>visitor</em> callbacks rather than allocated
+names-and-types arrays, so a backend walks its own discovery data and the
+caller never owns a table. Which backends fill each slot varies; the generated
+<a href="../../book/src/reference/matrices/rmw-feature-matrix.html">Per-RMW Feature Matrix</a> is the current
+per-backend truth, and it is derived from the vtables rather than from this
+page.</p>
+<h3 id="compile-time-backend-selection"><a class="header" href="#compile-time-backend-selection">Compile-time backend selection</a></h3>
+<p><code>rmw.h</code> selects backends at runtime via <code>dlopen()</code> of <code>librmw_*.so</code>. This requires a dynamic loader (no embedded MCU has one) and forces every call through a vtable.</p>
+<p>nros-rmw selects the backend at <strong>link time</strong> via Cargo features, and reaches
+it through a <strong>C ABI vtable</strong> (<code>nros_rmw_vtable_t</code>) that the backend
+hands the runtime once via <code>nros_rmw_cffi_register_named()</code> before any session is
+created. There is no loader, no <code>.so</code>, and no path search: the only backends
+reachable are the ones linked into the image.</p>
+<p>The C headers are the single source of truth for this ABI, so a backend can be
+written in C or C++ (Cyclone DDS is); <code>nros-rmw</code>’s Rust traits are still the surface a Rust backend implements, and
+<code>rust_adapter.rs</code> in <code>nros-rmw-cffi</code> is what turns such an impl into the
+vtable the runtime calls. The cost is one indirect call per operation; what it
+buys is a backend boundary that is not Rust-only.</p>
+<h2 id="architectural-pattern"><a class="header" href="#architectural-pattern">Architectural Pattern</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Aspect</th><th>ROS 2 <code>rmw</code></th><th><code>nros-rmw</code></th></tr>
+</thead>
+<tbody>
+<tr><td>Language</td><td>C API (<code>rmw/rmw.h</code>)</td><td>Rust traits</td></tr>
+<tr><td>Dispatch</td><td>Runtime plugin loading (shared library via <code>rmw_implementation</code>)</td><td>Link-time selection; calls cross a C ABI vtable registered at startup</td></tr>
+<tr><td><code>no_std</code></td><td>No (requires libc, heap, POSIX)</td><td>Yes — but “no heap” is a property of the BACKEND, not of the abstraction (see below)</td></tr>
+<tr><td>Error model</td><td><code>rmw_ret_t</code> integer codes</td><td><code>rmw_ret_t</code> at the ABI, using upstream rmw’s VALUES; <code>TransportError</code> on the Rust side</td></tr>
+</tbody>
+</table>
+</div>
+<p>ROS 2 selects the RMW backend at runtime by loading a shared library (e.g.,
+<code>rmw_fastrtps_cpp.so</code>). This enables switching backends without recompilation
+but requires a dynamic loader — which no MCU has.</p>
+<p>nros-rmw links exactly the backends the image was built with and dispatches
+through a registered vtable. What that removes is the loader and the
+relocation work at startup, not the indirect call.</p>
+<p><strong>On heap:</strong> the abstraction adds none — I/O buffers are caller-owned, and
+entity handles are inline. The BACKENDS are another matter: “no heap” is not
+true of every backend, and the per-backend allocation-site count answers it
+precisely. Only Cyclone DDS allocates on the steady-state path in nano-ros’s own code (1 site);
+XRCE and uORB allocate at entity/transport setup only. Plan the heap budget from
+your backend’s row in that count — and remember it excludes what the middleware
+libraries do underneath, which for Cyclone and zenoh-pico is a general allocator
+call per message regardless.</p>
+<h2 id="object-model"><a class="header" href="#object-model">Object Model</a></h2>
+<h3 id="ros-2"><a class="header" href="#ros-2">ROS 2</a></h3>
+<p>ROS 2 rmw has a deep initialization hierarchy:</p>
+<pre><code>rmw_init() → rmw_context_t
+  → rmw_create_node() → rmw_node_t
+    → rmw_create_publisher() → rmw_publisher_t*
+    → rmw_create_subscription() → rmw_subscription_t*
+    → rmw_create_service() → rmw_service_t*
+    → rmw_create_client() → rmw_client_t*
+</code></pre>
+<p>Nodes are first-class RMW objects. Each <code>rmw_node_t</code> carries its own context, name, namespace, and security credentials. The RMW layer is responsible for node lifecycle and graph participation.</p>
+<h3 id="nros-rmw"><a class="header" href="#nros-rmw">nros-rmw</a></h3>
+<p>nros-rmw is flatter – there is no node at the RMW level:</p>
+<pre><code>Rmw::open(&amp;RmwConfig) → Session
+  → session.create_publisher(&amp;TopicInfo, QoSProfile) → Self::PublisherHandle
+  → session.create_subscription(&amp;TopicInfo, QoSProfile) → Self::SubscriptionHandle
+  → session.create_service(&amp;ServiceInfo, QoSProfile) → Self::ServiceHandle
+  → session.create_client(&amp;ServiceInfo, QoSProfile) → Self::ClientHandle
+</code></pre>
+<p><code>Node</code> lives one layer up in <code>nros-node</code>. It is purely a namespace and liveliness concern – it borrows the session from the executor and creates typed communication handles. The RMW layer only knows about sessions and communication endpoints.</p>
+<h2 id="serialization-boundary"><a class="header" href="#serialization-boundary">Serialization Boundary</a></h2>
+<p>This is the most significant design difference.</p>
+<p><strong>ROS 2:</strong> The rmw layer operates on pre-serialized data. <code>rcl</code> and <code>rosidl</code> handle CDR serialization before calling <code>rmw_publish()</code> with an <code>rmw_serialized_message_t</code>. The rmw layer never sees typed messages – it only moves byte buffers. Type metadata is passed separately via <code>rosidl_message_type_support_t</code> structs.</p>
+<p><strong>nros-rmw:</strong> The traits include both raw and typed methods:</p>
+<pre><code class="language-rust ignore">pub trait Publisher {
+    // Raw: caller handles serialization
+    fn publish_raw(&amp;self, data: &amp;[u8]) -&gt; Result&lt;(), Self::Error&gt;;
+
+    // Typed: serialize + publish in one call
+    fn publish&lt;M: RosMessage&gt;(&amp;self, msg: &amp;M, buf: &amp;mut [u8]) -&gt; Result&lt;(), Self::Error&gt;;
+}
+
+pub trait Subscription {
+    fn take_serialized(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, Self::Error&gt;;
+    fn take&lt;M: RosMessage&gt;(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;M&gt;, Self::Error&gt;;
+}</code></pre>
+<p>The typed methods have default implementations that call the raw methods with CDR serialization/deserialization from <code>nros-serdes</code>. This keeps the RMW layer self-contained – no separate serialization layer is needed.</p>
+<p>Type metadata uses simple structs (<code>TopicInfo { name, type_name, type_hash }</code>) instead of C type support function tables.</p>
+<h2 id="io-and-readiness-model"><a class="header" href="#io-and-readiness-model">I/O and Readiness Model</a></h2>
+<p><strong>ROS 2:</strong> Uses <code>rmw_wait()</code> with a wait set (<code>rmw_wait_set_t</code>) containing subscriptions, services, clients, guard conditions, and events. The caller constructs a wait set, adds handles, and blocks until any handle is ready. This is similar to <code>select()</code>/<code>epoll()</code>.</p>
+<p><strong>nros-rmw:</strong> Uses a single <code>drive_io(timeout_ms)</code> method on the <code>Session</code> trait:</p>
+<pre><code class="language-rust ignore">pub trait Session {
+    fn drive_io(&amp;mut self, timeout_ms: i32) -&gt; Result&lt;(), Self::Error&gt; {
+        let _ = timeout_ms;
+        Ok(())
+    }
+}</code></pre>
+<p>This is a pull-based model: the executor calls <code>drive_io()</code> to poll the network and dispatch incoming data to internal subscriber buffers, then checks each entity with <code>has_data()</code>. There is no wait set – the executor iterates its dispatch table directly.</p>
+<p>For async integration, subscribers and service clients expose <code>register_waker(&amp;Waker)</code> instead of guard conditions. The transport backend calls <code>waker.wake()</code> from its C receive callback, bridging to Rust <code>Future</code> waking without the wait set abstraction.</p>
+<h2 id="memory-model"><a class="header" href="#memory-model">Memory Model</a></h2>
+<p><strong>ROS 2:</strong> Heap-allocates handles, messages, and serialization buffers. <code>rmw_serialized_message_t</code> wraps a dynamically-sized <code>rcutils_uint8_array_t</code>. Loaned message APIs (<code>rmw_borrow_loaned_message</code>, <code>rmw_take_loaned_message</code>) provide optional zero-copy for transports that support shared memory.</p>
+<p><strong>nros-rmw:</strong> Uses caller-provided <code>&amp;mut [u8]</code> buffers everywhere. All receive and serialize operations write into stack-allocated or statically-allocated buffers:</p>
+<pre><code class="language-rust ignore">// Caller provides the buffer
+let mut buf = [0u8; 512];
+let msg: Option&lt;MyMsg&gt; = subscriber.take(&amp;mut buf)?;</code></pre>
+<p>Zero-copy receive is supported via <code>process_raw_in_place()</code>, which invokes a closure with a reference to the subscriber’s internal receive buffer, avoiding the copy into a caller-provided buffer. This is gated behind the <code>unstable-zenoh-api</code> feature.</p>
+<h2 id="qos-settings"><a class="header" href="#qos-settings">QoS Settings</a></h2>
+<p>ROS 2 <code>rmw_qos_profile_t</code> includes:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>ROS 2</th><th>nros-rmw</th></tr>
+</thead>
+<tbody>
+<tr><td>History (keep last/all)</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Depth</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Reliability (reliable/best-effort)</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Durability (volatile/transient local)</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Deadline</td><td>Yes</td><td>No</td></tr>
+<tr><td>Lifespan</td><td>Yes</td><td>No</td></tr>
+<tr><td>Liveliness (automatic/manual)</td><td>Yes</td><td>No</td></tr>
+<tr><td><code>avoid_ros_namespace_conventions</code></td><td>Yes</td><td>No</td></tr>
+</tbody>
+</table>
+</div>
+<p>nros-rmw provides the four QoS policies that zenoh-pico and XRCE-DDS can actually enforce. The time-based policies (deadline, lifespan, liveliness) are omitted because the supported transports do not implement them.</p>
+<p>Standard QoS profiles (<code>QOS_PROFILE_DEFAULT</code>, <code>QOS_PROFILE_SENSOR_DATA</code>, <code>QOS_PROFILE_SERVICES_DEFAULT</code>, etc.) match their ROS 2 equivalents for interoperability.</p>
+<h2 id="service-client-model"><a class="header" href="#service-client-model">Service Client Model</a></h2>
+<p><strong>ROS 2:</strong> Service clients are always asynchronous at the rmw level. <code>rmw_send_request()</code> sends a request and returns a sequence number. The reply is retrieved later via <code>rmw_take_response()</code>, typically driven by <code>rmw_wait()</code>.</p>
+<p><strong>nros-rmw:</strong> The same async split (like upstream, there is no blocking call at the RMW level):</p>
+<pre><code class="language-rust ignore">pub trait ClientTrait {
+    // Async: send request (returns its sequence id), poll for reply separately
+    fn send_request_raw(&amp;mut self, request: &amp;[u8]) -&gt; Result&lt;i64, Self::Error&gt;;
+    // A reply carries the sequence id of the request it answers
+    fn take_response_raw(&amp;mut self, reply_buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;(usize, i64)&gt;, Self::Error&gt;;
+}</code></pre>
+<p>Blocking waits are composed above the RMW by the executor (which keeps driving <code>drive_io</code> between polls).</p>
+<p>Every client surface matches a reply to its request by that sequence id
+(<code>nros_rmw::RequestCorrelator</code>): a reply is delivered only to the
+request it names, and a reply whose request was cancelled, abandoned or timed
+out is dropped rather than handed to the next request. A backend that cannot
+assign ids leaves <code>NROS_RMW_SEQUENCE_ID_UNKNOWN</code>, and the client then keeps one
+request in flight.</p>
+<h2 id="apis-present-in-ros-2-rmw-but-absent-in-nros-rmw"><a class="header" href="#apis-present-in-ros-2-rmw-but-absent-in-nros-rmw">APIs Present in ROS 2 rmw but Absent in nros-rmw</a></h2>
+<p>Several rows below have gained ABI slots since this table was first written, and the ones that are DECLINED now carry a written reason rather than
+silence. Treat the generated
+<a href="../../book/src/reference/matrices/rmw-feature-matrix.html">Per-RMW Feature Matrix</a> as current and
+this table as the design rationale behind the original omissions.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>ROS 2 rmw API</th><th>Purpose</th><th>Why absent</th></tr>
+</thead>
+<tbody>
+<tr><td><code>rmw_node_t</code> / <code>rmw_create_node()</code></td><td>Node lifecycle at RMW level</td><td><strong>No longer absent</strong>: entities are created ON a node, upstream’s shape — <code>create_publisher</code> and its siblings take a <code>const rmw_node_t *</code>. Node lifecycle still lives above the RMW in <code>nros-node</code>.</td></tr>
+<tr><td><code>rmw_wait_set_t</code> / <code>rmw_wait()</code></td><td>Multiplexed readiness waiting</td><td>Replaced by <code>drive_io()</code> + per-entity <code>has_data()</code></td></tr>
+<tr><td><code>rmw_guard_condition_t</code></td><td>Wake wait set from application code</td><td>Replaced by <code>register_waker(&amp;Waker)</code></td></tr>
+<tr><td><code>rmw_event_t</code></td><td>QoS event callbacks (deadline missed, etc.)</td><td>Partly present: <code>subscription_event_init</code> / <code>publisher_event_init</code> are ABI slots and zenoh wires them; the other backends leave them NULL.</td></tr>
+<tr><td><code>rmw_get_topic_names_and_types()</code></td><td>Graph introspection</td><td>Slot declared as a VISITOR callback — the backend walks its own discovery data, the caller owns no table. Per-backend wiring is in the feature matrix.</td></tr>
+<tr><td><code>rmw_get_node_names()</code></td><td>Node discovery</td><td>Same — declared as a visitor.</td></tr>
+<tr><td><code>rmw_count_publishers()</code> / <code>rmw_count_subscribers()</code></td><td>Graph statistics</td><td>Same — declared as a visitor; per-backend wiring is in the feature matrix.</td></tr>
+<tr><td><code>rosidl_message_type_support_t</code></td><td>C type support tables for serialization</td><td>Replaced by <code>TopicInfo</code> string metadata</td></tr>
+<tr><td><code>rmw_serialize()</code> / <code>rmw_deserialize()</code></td><td>Standalone serialization</td><td>CDR handled by <code>nros-serdes</code></td></tr>
+<tr><td><code>rmw_borrow_loaned_message()</code></td><td>Zero-copy shared memory publish</td><td>Not supported (smoltcp/zenoh-pico don’t use shared memory)</td></tr>
+<tr><td>Content-filtered topics</td><td>Server-side topic filtering</td><td>Not supported</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="apis-present-in-nros-rmw-but-absent-in-ros-2-rmw"><a class="header" href="#apis-present-in-nros-rmw-but-absent-in-ros-2-rmw">APIs Present in nros-rmw but Absent in ROS 2 rmw</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>nros-rmw API</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Publisher::publish&lt;M&gt;(msg, buf)</code></td><td>Typed publish with built-in CDR serialization</td></tr>
+<tr><td><code>Subscription::take&lt;M&gt;(buf)</code></td><td>Typed receive with built-in CDR deserialization</td></tr>
+<tr><td><code>Subscription::process_raw_in_place(f)</code></td><td>Zero-copy in-place processing via closure</td></tr>
+<tr><td><code>Subscription::take_validated()</code></td><td>E2E safety validation (CRC-32 + sequence tracking)</td></tr>
+<tr><td><code>ServiceTrait::handle_request&lt;S&gt;()</code></td><td>Typed request handling with automatic CDR roundtrip</td></tr>
+<tr><td><code>Session::drive_io(timeout_ms)</code></td><td>Explicit network polling (ROS 2 rmw relies on middleware threads)</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="summary"><a class="header" href="#summary">Summary</a></h2>
+<p>The core difference is that ROS 2 rmw is a <strong>C plugin interface</strong> designed for desktop systems with dynamic linking, heap allocation, and OS threading. nros-rmw is a <strong>Rust trait hierarchy</strong> designed for MCUs with static dispatch, stack allocation, and cooperative scheduling. The trade-off is flexibility (ROS 2 can swap backends at runtime) vs efficiency (nros eliminates all abstraction overhead at compile time).</p>
+<p>Despite these differences, the two are <strong>wire-compatible</strong> when using the same transport. An nros node using <code>nros-rmw-zenoh</code> communicates with a ROS 2 node using <code>rmw_zenoh_cpp</code> through the same router, with matching QoS profiles and CDR encoding.</p>
+<h3 id="the-zenoh-pairing"><a class="header" href="#the-zenoh-pairing">The zenoh pairing</a></h3>
+<p>The router is <strong>the one ROS ships</strong> — <code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>. It
+links the same <code>libzenohc.so</code> that <code>rmw_zenoh_cpp</code> does, so it cannot drift from
+the RMW you are actually talking to, and it is what a ROS 2 deployment runs.
+nano-ros no longer ships a router of its own.</p>
+<p>The table below is <strong>data to diff a future failure against, not a constraint we
+enforce</strong>. <code>rmw_zenoh_cpp</code> lives on your machine, installed by your distro; we
+cannot pin it, and the interesting number is not the ROS package version anyway.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>side</th><th>component</th><th>observed</th></tr>
+</thead>
+<tbody>
+<tr><td>host</td><td><code>rmw_zenoh_cpp</code> router + RMW</td><td>zenoh-c <strong>1.6.2</strong> (ROS 2 Humble, measured 2026-08-16)</td></tr>
+<tr><td>firmware</td><td><code>zenoh-pico</code></td><td><strong>1.10.1</strong> (the pin’s <code>version.txt</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Read the zenoh version from the header, never from the package manager:</p>
+<pre><code>/opt/ros/&lt;distro&gt;/opt/zenoh_cpp_vendor/include/zenoh_configure.h   #define ZENOH_C "…"
+packages/rmw/zenoh/zpico-sys/zenoh-pico/version.txt
+</code></pre>
+<p>The ROS package version (<code>ros-humble-rmw-zenoh-cpp 0.1.9</code>) is a <strong>wrapper</strong>
+version and says nothing about the zenoh inside it: the same package has been
+measured moving its vendored zenoh 1.2.0 → 1.8.0 in a patch-level bump, so the
+package version is not a reliable way to state which zenoh you run.</p>
+<p>The two sides need not match. Under zenoh’s 1.x wire guarantee a firmware pin
+should move for its own reasons — footprint, features, fixes — rather than to
+chase a host package.</p>
+<h2 id="design-background"><a class="header" href="#design-background">Design background</a></h2>
+<ul>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0054-c-header-abi-ssot.md">RFC-0054: C headers as the ABI single source of truth</a></li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0075-zenoh-router-provenance-and-the-unstable-seam.md">RFC-0075: zenoh router provenance and the unstable seam</a></li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="rmw-backends--host-language-policy"><a class="header" href="#rmw-backends--host-language-policy">RMW Backends — Host-Language Policy</a></h1>
 <p>This page documents which language each RMW backend is implemented in,
 and the rule that decides it. The matrix was originally frozen
@@ -3385,7 +3646,7 @@ the ones above.</p>
 <ul>
 <li><a href="../../docs/roadmap/archived/phase-115-runtime-transport-vtable.html">roadmap doc</a>
 — Appendix D carries LOC sizing, port shapes, and risk notes.</li>
-<li><a href="../extending/custom-transport.html">Custom Transport porting guide</a> —
+<li><a href="../extending/add-a-transport.html">Add a transport</a> —
 how the transport vtable composes with the RMW vtable.</li>
 <li><code>packages/rmw/cyclonedds/nros-rmw-cyclonedds/</code> — reference layout for the
 C++ vtable consumer.</li>
@@ -3647,7 +3908,7 @@ batch). See also <code>book-internals/src/platform/implementation-notes.md</code
 platform/backend split.</li>
 <li>RFC-0049 (<code>docs/design/0049-hierarchical-platform-board-config.md</code>) — the
 platform and board files and their ladder.</li>
-<li><code>book/src/extending/platform-model.md</code> — boards vs platforms.</li>
+<li><code>book/src/extending/add-a-board.md</code> — boards on a platform; <code>book/src/extending/add-a-platform.md</code> — a new platform.</li>
 <li><code>book-internals/src/rmw/backend-host-language-policy.md</code> — RMW host-language policy.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -5878,8 +6139,8 @@ path with no per-call branch” from the flag; it never did.</li>
 <code>phase-376-rmw-api-parity.md</code>).</li>
 <li><strong>Graph slots</strong> were added as visitor callbacks in phase-376 W4; node
 entities (<code>rmw_node_t</code>) arrived in phase-376 W5/B1.</li>
-<li><strong>Heap is a backend property</strong> (issue 0777, user page
-<a href="../extending/rmw-design.html">RMW API Design</a>). That page said “no heap” flatly
+<li><strong>Heap is a backend property</strong> (issue 0777, page
+<a href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design</a>). That page said “no heap” flatly
 for years; <code>scripts/rmw-alloc-sites.py</code> now counts the allocation sites
 per backend.</li>
 <li><strong>zenoh version reading</strong> (issue 0609): the ROS package version of
@@ -7260,9 +7521,9 @@ rclcpp surfaces none on a client.</li>
 </ul>
 <h2 id="see-also-3"><a class="header" href="#see-also-3">See also</a></h2>
 <ul>
-<li><a href="../../book/src/extending/rmw-design.html">RMW API Design</a> — deeper architectural rationale (heap,
+<li><a href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design</a> — deeper architectural rationale (heap,
 threading, dispatch model) shared across all the points above.</li>
-<li><a href="../../book/src/extending/custom-rmw.html">Custom RMW Backend</a> — step-by-step guide
+<li><a href="../../book/src/extending/custom-rmw.html">Write a custom RMW backend</a> — step-by-step guide
 to writing a backend in C against this vtable.</li>
 <li><a href="api/rmw-cffi/index.html"><code>&lt;nros/rmw_vtable.h&gt;</code> Doxygen</a> — full
 C reference for every function pointer above.</li>
@@ -7272,7 +7533,7 @@ C reference for every function pointer above.</li>
 <a href="#rmw-vs-upstream-the-decision-ledger">Internals → RMW vs upstream: the decision ledger</a>
 for the decision behind each one.</li>
 </ul>
-<h2 id="design-background"><a class="header" href="#design-background">Design background</a></h2>
+<h2 id="design-background-1"><a class="header" href="#design-background-1">Design background</a></h2>
 <ul>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0113-rt-unified-wait.md">RFC-0113: one wait serves every platform and RMW</a></li>
 </ul>
@@ -7284,7 +7545,7 @@ These symbols are provided by <code>zpico-sys</code>’s C alias translation uni
 (<code>c/zpico/platform_aliases.c</code>, built by the default-on <code>platform-aliases</code>
 feature), which forwards each <code>z_*</code> / <code>_z_*</code> call to the canonical
 <code>nros_platform_*</code> ABI. When porting to a new platform, you implement an
-<code>nros-platform-&lt;name&gt;</code> crate (see <a href="../../book/src/extending/custom-platform.html">Custom Platform</a>)
+<code>nros-platform-&lt;name&gt;</code> crate (see <a href="../extending/add-a-platform.html">Add a platform</a>)
 that supplies the <code>nros_platform_*</code> symbols — you do <strong>not</strong> provide the
 <code>z_*</code> symbols directly.</p>
 <blockquote>
@@ -7500,13 +7761,13 @@ pub unsafe fn clear_network_state();
 <h2 id="step-by-step-procedure"><a class="header" href="#step-by-step-procedure">Step-by-step procedure</a></h2>
 <ol>
 <li><strong>Create the platform crate</strong> (<code>nros-platform-&lt;name&gt;</code>) – see
-<a href="../../book/src/extending/custom-platform.html">Custom Platform</a> for the full guide</li>
+<a href="../extending/add-a-platform.html">Add a platform</a> for the full guide</li>
 <li><strong>Implement and verify the clock</strong> — this is the #1 cause of porting
 failures. Print <code>clock_ms()</code> in a loop and verify monotonic advance</li>
 <li><strong>Implement remaining primitives</strong> — memory, random, sleep, time,
 threading, sockets. Each module is independent</li>
 <li><strong>Wire into <code>nros-platform</code></strong> — add a feature and <code>ConcretePlatform</code> alias</li>
-<li><strong>Create the board crate</strong> — see <a href="../../book/src/extending/custom-board.html">Custom Board Package</a></li>
+<li><strong>Create the board crate</strong> — see <a href="../extending/add-a-board.html">Add a board</a></li>
 <li><strong>Add the platform feature</strong> to <code>nros</code> with mutual exclusivity checks</li>
 <li><strong>Write an example</strong> — see <a href="#creating-examples">Creating Examples</a></li>
 <li><strong>Add test infrastructure</strong> — for an in-tree platform, see
@@ -7531,7 +7792,7 @@ threading, sockets. Each module is independent</li>
 </table>
 </div>
 <h2 id="common-pitfalls"><a class="header" href="#common-pitfalls">Common pitfalls</a></h2>
-<p>See <a href="../../book/src/extending/porting-pitfalls.html">Platform Porting Pitfalls</a> for
+<p>See <a href="#platform-porting-pitfalls">Platform Porting Pitfalls</a> for
 detailed failure modes including poll-driven clocks, DMA buffer placement,
 QEMU I/O starvation, recursive mutexes, stack sizing, and heap sizing.</p>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -7544,7 +7805,7 @@ The 2-3 required FFI symbols (<code>uxr_millis</code>, <code>uxr_nanos</code>) a
 compiled into <code>nros-rmw-xrce-cffi</code> on every target), which forwards them to
 the canonical <code>nros_platform_*</code> ABI. When porting to a new platform, you
 implement an <code>nros-platform-&lt;name&gt;</code> crate (see
-<a href="../../book/src/extending/custom-platform.html">Custom Platform</a>) that supplies the
+<a href="../extending/add-a-platform.html">Add a platform</a>) that supplies the
 <code>nros_platform_*</code> symbols — you do <strong>not</strong> provide the <code>uxr_*</code> symbols
 directly.</p>
 <blockquote>
@@ -7653,7 +7914,7 @@ the clock symbols.</p>
 <h2 id="step-by-step-procedure-1"><a class="header" href="#step-by-step-procedure-1">Step-by-step procedure</a></h2>
 <ol>
 <li><strong>Create the platform crate</strong> — <code>nros-platform-&lt;name&gt;/</code> (see
-<a href="../../book/src/extending/custom-platform.html">Custom Platform</a>)</li>
+<a href="../extending/add-a-platform.html">Add a platform</a>)</li>
 <li><strong>Implement the canonical clock primitive</strong> —
 <code>nros_platform_clock_ns()</code>; the alias TU
 (<code>nros-rmw-xrce/src/platform_aliases.c</code>) derives <code>uxr_millis()</code> /
@@ -7663,7 +7924,7 @@ the clock symbols.</p>
 <li><strong>Choose or implement a transport crate</strong> — reuse <code>xrce-smoltcp</code> for
 bare-metal, or implement a new transport if the platform has its own
 networking stack</li>
-<li><strong>Create the board crate</strong> — see <a href="../../book/src/extending/custom-board.html">Custom Board Package</a></li>
+<li><strong>Create the board crate</strong> — see <a href="../extending/add-a-board.html">Add a board</a></li>
 <li><strong>Add the platform feature</strong> to <code>nros</code> with mutual exclusivity checks</li>
 <li><strong>Write an example and tests</strong></li>
 </ol>
@@ -7696,6 +7957,427 @@ History=1 fails to recycle slots between separate
 with <code>uxr_run_session_time</code> immediately after being called. Unflushed
 requests in the reliable output stream cause intermittent timeouts.</li>
 </ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="platform-porting-pitfalls"><a class="header" href="#platform-porting-pitfalls">Platform Porting Pitfalls</a></h1>
+<p>Hard-won lessons from porting nros to bare-metal ARM (QEMU MPS2-AN385), bare-metal RISC-V,
+STM32F4, FreeRTOS, NuttX, ThreadX, and Zephyr. Read this before adding a new
+platform or debugging mysterious failures on an existing one.</p>
+<p>The pitfalls a porter meets first are the “If it doesn’t work” list of
+<a href="../extending/add-a-platform.html#if-it-doesnt-work">Add a platform</a> in the
+user book. This page keeps the rest: test-rig, TAP and build lessons from the
+in-tree ports.</p>
+<h2 id="memory-layout"><a class="header" href="#memory-layout">Memory Layout</a></h2>
+<h3 id="dma-buffer-placement"><a class="header" href="#dma-buffer-placement">DMA buffer placement</a></h3>
+<p>On MCUs with multiple SRAM regions, DMA descriptors and buffers <strong>must</strong> be in
+DMA-accessible memory. The STM32F4 has 64 KB of CCM RAM that is NOT
+DMA-accessible — placing Ethernet descriptors there causes silent data
+corruption with no error interrupt.</p>
+<p><strong>Fix:</strong> Use linker script sections to force placement:</p>
+<pre><code class="language-ld">/* stm32f4.x — place DMA descriptors in SRAM1, not CCM */
+.eth_descriptors (NOLOAD) : ALIGN(4) {
+    *(.eth_descriptors .eth_descriptors.*)
+} &gt; RAM
+</code></pre>
+<p>In Rust, annotate the buffer:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[link_section = ".eth_descriptors"]
+static mut ETH_DMA_DESC: MaybeUninit&lt;[u32; 256]&gt; = MaybeUninit::uninit();
+<span class="boring">}</span></code></pre>
+<h3 id="stack-sizing"><a class="header" href="#stack-sizing">Stack sizing</a></h3>
+<p>Bare-metal applications share a single stack. FreeRTOS/Zephyr give each
+task its own stack. In both cases, zenoh-pico’s internal processing needs
+significant stack space:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Context</th><th>Minimum stack</th></tr>
+</thead>
+<tbody>
+<tr><td>Bare-metal main stack</td><td>8 KB</td></tr>
+<tr><td>FreeRTOS zenoh read task</td><td>2 KB</td></tr>
+<tr><td>FreeRTOS zenoh lease task</td><td>1 KB</td></tr>
+<tr><td>Zephyr zpico work queue thread</td><td>2 KB</td></tr>
+</tbody>
+</table>
+</div>
+<p>Stack overflow on embedded targets causes <strong>silent corruption</strong> — there is no
+guard page. FreeRTOS can detect overflow with <code>configCHECK_FOR_STACK_OVERFLOW=2</code>
+and the high-water-mark API (<code>uxTaskGetStackHighWaterMark</code>), but only after the
+fact.</p>
+<h3 id="heap-sizing"><a class="header" href="#heap-sizing">Heap sizing</a></h3>
+<p>zenoh-pico allocates heap memory during session open, publisher/subscriber
+creation, and message processing. Typical heap consumption:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Platform</th><th>Minimum heap</th></tr>
+</thead>
+<tbody>
+<tr><td>MPS2-AN385 (bare-metal)</td><td>64 KB</td></tr>
+<tr><td>STM32F4</td><td>64 KB</td></tr>
+<tr><td>FreeRTOS (lwIP + zenoh)</td><td>256 KB (<code>configTOTAL_HEAP_SIZE</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Undersized heaps cause <code>_Z_ERR_SYSTEM_OUT_OF_MEMORY</code> (-78) during
+<code>z_open()</code> or entity creation, not during message I/O.</p>
+<h3 id="rust-struct-move-invalidation"><a class="header" href="#rust-struct-move-invalidation">Rust struct move invalidation</a></h3>
+<p>When Rust returns a struct from a function, it <strong>moves</strong> the value to a new
+address. If C code stored a pointer to the original location (e.g., during
+<code>init()</code>), that pointer is now dangling.</p>
+<p><strong>Symptom:</strong> Callback crashes or garbage field values after struct is returned
+from an init function.</p>
+<p><strong>Fix:</strong> Use static storage, <code>Box::pin()</code>, or index-based references instead of
+raw pointers. See <a href="../../book/src/guide/deploy/troubleshoot.html#subscriber-callback-crashes">Troubleshooting: Subscriber Callback Crashes</a>.</p>
+<h2 id="clock-sources"><a class="header" href="#clock-sources">Clock Sources</a></h2>
+<h3 id="use-hardware-timers-not-poll-driven-counters"><a class="header" href="#use-hardware-timers-not-poll-driven-counters">Use hardware timers, not poll-driven counters</a></h3>
+<p>Every platform must provide a monotonic millisecond clock via <code>smoltcp_clock_now_ms()</code> (for
+smoltcp timestamping) and <code>z_clock_now()</code> / <code>z_clock_elapsed_*()</code> (for zenoh-pico timeouts).
+This clock <strong>must</strong> be backed by a hardware timer or OS clock — never by a software counter
+that only advances when <code>spin()</code> or <code>poll()</code> is called.</p>
+<p>A poll-driven clock causes:</p>
+<ul>
+<li><strong>Incorrect timeouts:</strong> zenoh-pico uses <code>z_clock_elapsed_ms()</code> for session keep-alive,
+query timeout, and transport timeout. If the clock only advances during poll, idle periods
+(waiting for network I/O, sleeping between spins) are invisible to the timeout logic.</li>
+<li><strong>Timeout storms:</strong> After a long idle period, the next poll advances the clock by a large
+jump, causing multiple timeouts to fire simultaneously.</li>
+<li><strong>Broken idle waits:</strong> a loop that sleeps between spins (<code>wfi()</code>, a timer delay) gets
+no clock advance from a poll-driven clock during the sleep, making all timeouts
+effectively infinite.</li>
+</ul>
+<h3 id="platform-clock-status"><a class="header" href="#platform-clock-status">Platform clock status</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Platform</th><th>Clock source</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td>MPS2-AN385 (zpico)</td><td>CMSDK APB Timer0</td><td>Hardware 25 MHz free-running counter. Wraps at ~171s, extended via <code>WRAP_COUNT</code>.</td></tr>
+<tr><td>STM32F4</td><td>ARM DWT cycle counter</td><td>Hardware-backed. <code>update_from_dwt()</code> reads elapsed DWT cycles and advances the software counter. Must be called at least once per ~25.6s (at 168 MHz) to avoid missing DWT wraps.</td></tr>
+<tr><td>FreeRTOS</td><td>FreeRTOS kernel tick</td><td>OS-managed via <code>xTaskGetTickCount()</code>.</td></tr>
+<tr><td>NuttX</td><td>POSIX <code>clock_gettime()</code></td><td>OS-managed.</td></tr>
+<tr><td>Zephyr</td><td>Zephyr kernel tick</td><td>OS-managed via <code>k_uptime_get()</code>.</td></tr>
+<tr><td>POSIX (native)</td><td><code>std::time::Instant</code></td><td>OS-managed.</td></tr>
+<tr><td>XRCE MPS2-AN385</td><td>CMSDK APB Timer0</td><td>Same hardware timer as zpico MPS2-AN385. Call <code>init_hardware_timer()</code> before use.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="porting-checklist-for-new-platforms"><a class="header" href="#porting-checklist-for-new-platforms">Porting checklist for new platforms</a></h3>
+<ol>
+<li><strong>Identify a hardware timer</strong> — SysTick, a general-purpose timer, or DWT cycle counter.
+On RTOS platforms, use the OS tick API.</li>
+<li><strong>Export <code>smoltcp_clock_now_ms() -&gt; u64</code></strong> — called by <code>zpico-smoltcp</code> for TCP/IP
+timestamping.</li>
+<li><strong>Export zenoh-pico clock symbols</strong> — <code>z_clock_now()</code>, <code>z_clock_elapsed_us/ms/s()</code>,
+<code>z_clock_advance_us/ms/s()</code>. These read from the same underlying counter.</li>
+<li><strong>Never advance the clock inside <code>smoltcp_network_poll()</code></strong> — the poll callback runs
+during network I/O and is not a reliable time source. Read the hardware timer directly.</li>
+<li><strong>Handle timer wraps</strong> — 32-bit timers wrap. Track wrap count in an atomic or use a
+64-bit hardware counter if available.</li>
+</ol>
+<h3 id="qemu-clock-synchronization"><a class="header" href="#qemu-clock-synchronization">QEMU clock synchronization</a></h3>
+<p>QEMU’s virtual clock races ahead of wall-clock time during WFI, causing hardware
+timer-backed timeouts to fire before TAP network I/O completes. This is solved
+with <code>-icount shift=auto</code>, which makes virtual time advance at wall-clock speed
+during CPU sleep states.</p>
+<p>See <a href="#qemu-icount-virtual-clock-synchronization">QEMU icount reference</a> for the full
+explanation, parameter reference, and tradeoffs.</p>
+<h2 id="networking"><a class="header" href="#networking">Networking</a></h2>
+<h3 id="ephemeral-port-conflicts"><a class="header" href="#ephemeral-port-conflicts">Ephemeral port conflicts</a></h3>
+<p>smoltcp’s ephemeral port allocator starts at port 49152 with a static counter
+that resets to zero on each boot. When QEMU instances are killed and restarted,
+the new instance picks the <strong>same</strong> source port, creating a 4-tuple collision
+with stale host-side TCP sockets.</p>
+<p><strong>Symptom:</strong> <code>ConnectionFailed</code> or <code>TransportOpenFailed</code> on the second test run.
+<code>ss -tnap</code> shows <code>FIN-WAIT-1</code> sockets from the previous QEMU instance.</p>
+<p><strong>Fix (test infrastructure):</strong> Kill stale host TCP sockets between test runs:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Clean stale TCP connections to QEMU IPs
+for ip in &amp;["192.0.3.10", "192.0.3.11"] {
+    let _ = Command::new("ss")
+        .args(["-K", "dst", ip])
+        .status();
+}
+<span class="boring">}</span></code></pre>
+<p><strong>Fix (Zephyr native_sim):</strong> Pass different <code>--seed</code> values to each instance so
+the entropy source produces different ephemeral ports:</p>
+<pre><code class="language-bash">./build-listener/zephyr/zephyr.exe --seed=12345
+./build-talker/zephyr/zephyr.exe --seed=67890
+</code></pre>
+<h3 id="qemu-single-threaded-io-starvation"><a class="header" href="#qemu-single-threaded-io-starvation">QEMU single-threaded I/O starvation</a></h3>
+<p>QEMU emulates the CPU and processes TAP network I/O in <strong>one thread</strong>. If the
+guest never executes WFI (Wait For Interrupt), QEMU never yields to its I/O
+event loop, and the TAP file descriptor is never serviced.</p>
+<p><strong>Symptom:</strong> First few packets work (buffered), then all networking stops.
+Services and actions time out. Pub/sub may appear to work because subscriber
+callbacks fire inline during <code>zp_read()</code>.</p>
+<p><strong>Fix:</strong> reach WFI between <code>spin_once()</code> calls:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// CORRECT — idles between spins → WFI → QEMU processes TAP
+loop {
+    executor.spin_once(core::time::Duration::from_millis(0));
+    cortex_m::asm::wfi();
+}
+
+// WRONG — busy-loops, starving QEMU I/O
+loop {
+    executor.spin_once(core::time::Duration::from_millis(0));
+}
+<span class="boring">}</span></code></pre>
+<p>A board that implements <code>BoardIdle</code> does this for you in the generated loop.</p>
+<h3 id="tap-device-assignment"><a class="header" href="#tap-device-assignment">TAP device assignment</a></h3>
+<p>Each QEMU peer <strong>must</strong> use a different TAP device. Two QEMU instances on the
+same TAP cause packet collision and loss.</p>
+<pre><code>QEMU talker  → tap-qemu0 ─┐
+                           ├── qemu-br (192.0.3.1/24)
+QEMU listener → tap-qemu1 ─┘
+</code></pre>
+<h3 id="subscriber-startup-ordering"><a class="header" href="#subscriber-startup-ordering">Subscriber startup ordering</a></h3>
+<p>Zenoh does not buffer messages for unknown subscribers. If the publisher starts
+before the subscriber’s declaration propagates through the router, early messages
+are lost.</p>
+<p><strong>Rule:</strong> Start subscriber first, wait 5 seconds for stabilization, then start
+publisher.</p>
+<h3 id="tap-queue-discipline"><a class="header" href="#tap-queue-discipline">TAP queue discipline</a></h3>
+<p>The default <code>fq_codel</code> qdisc drops packets when QEMU emulation is slow (CoDel’s
+default 5ms target interprets emulation pauses as congestion, and per-flow
+scheduling disrupts zenoh-pico’s service reply timing). This causes TCP data
+segments to be dropped, breaking zenoh session establishment.</p>
+<p><strong>Fix:</strong> Use <code>pfifo</code> instead:</p>
+<pre><code class="language-bash">sudo tc qdisc replace dev tap-qemu0 root pfifo limit 1000
+sudo tc qdisc replace dev tap-qemu1 root pfifo limit 1000
+</code></pre>
+<p><code>pfifo</code> queues packets without dropping, which QEMU needs to absorb bursts
+during emulation pauses. Stale packets from killed QEMU processes accumulate
+in the queue but are harmless — the firmware seeds smoltcp’s ephemeral port
+from the host’s wall clock via ARM semihosting <code>SYS_TIME</code>, so each QEMU run
+uses a different source port and stale packets are silently ignored.</p>
+<p>See <a href="../../docs/reference/tap-qdisc-analysis.html">TAP qdisc analysis</a> for why
+<code>fq_codel</code> and <code>noqueue</code> don’t work for QEMU TAP devices.</p>
+<h2 id="zenoh-pico"><a class="header" href="#zenoh-pico">zenoh-pico</a></h2>
+<h3 id="z_feature_interest-causes-multi-client-failures"><a class="header" href="#z_feature_interest-causes-multi-client-failures">Z_FEATURE_INTEREST causes multi-client failures</a></h3>
+<p>When multiple zenoh-pico clients connect to the same router, the interest
+protocol’s write filter creation can fail with <code>-78</code>
+(<code>_Z_ERR_SYSTEM_OUT_OF_MEMORY</code>) even when memory is available.</p>
+<p><strong>Fix:</strong> Disable in all builds:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// build.rs
+cmake::Config::new(&amp;zenoh_pico_path)
+    .define("Z_FEATURE_INTEREST", "0")
+    .define("Z_FEATURE_MATCHING", "0")
+    .build();
+<span class="boring">}</span></code></pre>
+<p><code>Z_FEATURE_MATCHING</code> depends on <code>Z_FEATURE_INTEREST</code> — both must be disabled.</p>
+<p>See <a href="../../book/src/guide/deploy/troubleshoot.html#zenoh-pico-multiple-client-issues">Troubleshooting: zenoh-pico Multiple Client Issues</a>.</p>
+<h3 id="blocking-tcp-reads-in-cooperative-schedulers"><a class="header" href="#blocking-tcp-reads-in-cooperative-schedulers">Blocking TCP reads in cooperative schedulers</a></h3>
+<p><code>_z_read_tcp()</code> can block for up to <code>SOCKET_TIMEOUT_MS</code> (default 10 seconds).
+In a cooperative scheduler (a bare-metal main loop), this blocks the entire
+system since C FFI cannot yield.</p>
+<p><strong>Impact:</strong> Pub/sub works (callbacks fire inline during <code>zp_read()</code>), but
+services and actions fail because <code>z_get()</code> query replies need multiple
+<code>zp_read()</code> cycles, and the 5-second query timeout expires while <code>_z_read_tcp</code>
+blocks.</p>
+<p><strong>Current status:</strong> <code>zpico_spin_once(0)</code> is non-blocking (<code>single_read=true</code>),
+but the underlying <code>z_get()</code> timeout is still 5 seconds, so a service or action
+call from a cooperative loop can still time out this way until the TCP read path
+is fully non-blocking.</p>
+<h3 id="version-pinning"><a class="header" href="#version-pinning">Version pinning</a></h3>
+<p>The zenoh router is ROS 2’s own (<code>ros2 run rmw_zenoh_cpp rmw_zenohd</code>)
+— nano-ros no longer vendors one, so the router version always
+matches the <code>rmw_zenoh_cpp</code> your ROS nodes use. zenoh-pico is pinned at
+<code>zpico-sys/zenoh-pico/</code> (1.10.1 — read its <code>version.txt</code>); its wire protocol is stable across
+zenoh 1.x, so it interoperates with a newer ROS-shipped router.
+A transport-level failure (<code>-100</code>,
+<code>_Z_ERR_TRANSPORT_TX_FAILED</code>) that looks like a network issue can still
+be a protocol-major mismatch — check both versions before debugging
+the network.</p>
+<h2 id="bare-metal-risc-v"><a class="header" href="#bare-metal-risc-v">Bare-metal RISC-V</a></h2>
+<h3 id="picolibc-errno-tls-crash"><a class="header" href="#picolibc-errno-tls-crash">picolibc errno TLS crash</a></h3>
+<p>picolibc’s <code>errno.h</code> uses <code>__thread</code> (thread-local storage), which crashes on
+bare-metal RISC-V because TLS is not initialized. The crash is a hard fault
+with no useful backtrace.</p>
+<p><strong>Fix:</strong> Shadow <code>errno.h</code> with a non-TLS version:</p>
+<pre><code class="language-c">// errno_override.h — no __thread, just a global
+extern int errno;
+#define EPERM  1
+#define ENOENT 2
+// ... subset of errno codes
+</code></pre>
+<p>Include this with <code>-include errno_override.h</code> in CFLAGS before picolibc headers.</p>
+<h2 id="freertos"><a class="header" href="#freertos">FreeRTOS</a></h2>
+<h3 id="task-priority-inversion"><a class="header" href="#task-priority-inversion">Task priority inversion</a></h3>
+<p>The LAN9118 RX FIFO poll task and zenoh-pico read task must run at the <strong>same
+priority</strong> (typically priority 4). If the read task has higher priority, it
+monopolizes the CPU, preventing RX FIFO drain. TCP keep-alives are missed, and
+zenoh sessions expire.</p>
+<p>Similarly, lwIP’s <code>tcpip_thread</code> must run at the same priority. Lower priority
+stalls packet processing.</p>
+<h3 id="recursive-mutexes-required"><a class="header" href="#recursive-mutexes-required">Recursive mutexes required</a></h3>
+<p>zenoh-pico’s FFI layer requires recursive mutexes. Enable in FreeRTOS config:</p>
+<pre><code class="language-c">#define configUSE_RECURSIVE_MUTEXES 1
+</code></pre>
+<h3 id="interrupt-priority-constraints"><a class="header" href="#interrupt-priority-constraints">Interrupt priority constraints</a></h3>
+<p>On Cortex-M3 (3-bit priority, 8 levels): ISRs at priority &gt;= 5
+(<code>configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY</code>) cannot call FreeRTOS APIs.
+Ethernet IRQ handlers that signal tasks must use a lower (numerically higher)
+priority.</p>
+<h2 id="build-system"><a class="header" href="#build-system">Build System</a></h2>
+<h3 id="parallel-test-build-races"><a class="header" href="#parallel-test-build-races">Parallel test build races</a></h3>
+<p>When nextest runs test files in parallel and multiple tests build the same
+example with different features, cargo fingerprinting creates race conditions —
+one test overwrites the binary another test is about to execute.</p>
+<p><strong>Fix:</strong> Use <code>--target-dir</code> for each feature variant:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>Command::new("cargo")
+    .args(["build", "--release", "--features", "safety-e2e"])
+    .arg("--target-dir").arg("target-safety")
+    .status()?;
+<span class="boring">}</span></code></pre>
+<p>Add each target dir to the example’s <code>.gitignore</code>:</p>
+<pre><code class="language-gitignore">/target/
+/target-safety/
+/target-zero-copy/
+</code></pre>
+<h3 id="cmake-cache-invalidation"><a class="header" href="#cmake-cache-invalidation">CMake cache invalidation</a></h3>
+<p>Changes to CMake defines (like <code>Z_FEATURE_INTEREST=0</code>) are cached. Changing the
+value without cleaning the build has no effect.</p>
+<p><strong>Fix:</strong></p>
+<pre><code class="language-bash"># Cargo (native)
+cargo clean -p zpico-sys &amp;&amp; cargo build
+
+# Zephyr (west)
+west build --pristine
+</code></pre>
+<h3 id="feature-flag-mutual-exclusivity"><a class="header" href="#feature-flag-mutual-exclusivity">Feature flag mutual exclusivity</a></h3>
+<p>The three platform axes — RMW backend, platform, ROS edition — are mutually
+exclusive within each axis. Enabling two platforms (e.g.,
+<code>platform-posix,platform-zephyr</code>) causes compile errors with confusing messages
+about duplicate symbol definitions, not a clear “pick one” error.</p>
+<h2 id="design-background-2"><a class="header" href="#design-background-2">Design background</a></h2>
+<ul>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0075-zenoh-router-provenance-and-the-unstable-seam.md">RFC-0075: zenoh router provenance and the unstable seam</a></li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="platform-api-design"><a class="header" href="#platform-api-design">Platform API Design</a></h1>
+<p>This page is for a contributor changing nano-ros’s platform layer: adding a
+capability to the ABI, or deciding where a new kernel service belongs. It
+explains why the surface is grouped and shaped the way it is. A porter who
+wants to implement the ABI for a new RTOS reads
+<a href="../extending/add-a-platform.html">Add a platform</a> instead.</p>
+<p>The platform API sits below the RMW backend. It exposes the OS or hardware
+primitives that zenoh-pico and XRCE-DDS need: a clock, optionally a heap,
+optionally threading, optionally networking.</p>
+<blockquote>
+<p><strong>The headers are the specification.</strong> The signatures, ownership rules,
+blocking allowance and failure modes of every symbol live in
+<code>packages/platform/nros-platform-api/include/nros/</code> (<code>platform.h</code>,
+<code>platform_net.h</code>, <code>platform_timer.h</code>) and the
+<a href="../api/platform-cffi/index.html">Doxygen built from them</a>. This page is
+rationale, not specification: where the two disagree, the headers win. The
+Rust traits in <code>nros-platform-api</code> mirror the C signatures.</p>
+</blockquote>
+<h2 id="trait-groups-and-rationale"><a class="header" href="#trait-groups-and-rationale">Trait groups and rationale</a></h2>
+<p>The traits cluster into seven concern groups. Each group is independent: a platform can provide some and stub others, and the RMW backend declares which it actually needs.</p>
+<h3 id="time--platformclock"><a class="header" href="#time--platformclock">Time – <code>PlatformClock</code></a></h3>
+<p>Every backend needs a monotonic clock. The ABI states it once, in
+nanoseconds: <code>nros_platform_clock_ns()</code>, with
+<code>nros_platform_clock_resolution_ns()</code> beside it so a port on a 1 ms tick says
+so instead of implying nanosecond precision. A single unit keeps every
+consumer’s arithmetic in one place; the resolution symbol keeps the unit
+honest. There is no failure mode: a platform that cannot produce time cannot
+run nano-ros at all.</p>
+<h3 id="memory--platformalloc"><a class="header" href="#memory--platformalloc">Memory – <code>PlatformAlloc</code></a></h3>
+<p>Only zenoh-pico needs <code>PlatformAlloc</code>. XRCE-DDS does not allocate. The trait is a thin malloc/realloc/free shim because zenoh-pico’s internal buffer types expect that contract.</p>
+<p>Bare-metal platforms back this with a bump allocator (<code>linked-list-allocator</code> or <code>embedded-alloc</code>). RTOS platforms back it with <code>pvPortMalloc</code> (FreeRTOS), <code>tx_byte_allocate</code> (ThreadX), <code>k_malloc</code> (Zephyr), or <code>malloc</code> (NuttX, POSIX). zenoh-pico’s working set is ~64 KB total; the allocator must have at least that much budget, ideally more.</p>
+<h3 id="threading--platformthreading"><a class="header" href="#threading--platformthreading">Threading – <code>PlatformThreading</code></a></h3>
+<p>Three sub-areas: tasks (spawn/join/exit), mutexes (regular + recursive), and condition variables. Single-threaded targets (bare-metal) provide stub implementations: <code>task_init</code> returns -1 (so zenoh-pico’s background-task spawn fails gracefully and the executor drives the session itself), and <code>mutex_lock</code>/<code>condvar_wait_until</code> are no-ops that always succeed. There is no unbounded <code>condvar_wait</code> in the ABI: a caller whose contract is unbounded loops over <code>condvar_wait_until</code> and re-tests its predicate.</p>
+<p>The condvar API is the load-bearing one: zenoh-pico’s blocking <code>z_get</code> and the C++ <code>Future::wait</code> both block on a condvar that the receive callback signals. On single-threaded platforms there is no thread to block, so the blocking C++ wait paths are not used (the <a href="../reference/cpp-api.html">C++ action client status note</a> covers the migration to non-blocking polling).</p>
+<h3 id="sleep--random--wall-time"><a class="header" href="#sleep--random--wall-time">Sleep / Random / Wall-time</a></h3>
+<p>Three small zenoh-pico-only traits grouped for convenience:</p>
+<ul>
+<li><strong><code>PlatformSleep</code></strong> – delay APIs. On bare-metal with smoltcp, the implementation must call <code>network_poll()</code> while busy-waiting, otherwise packets queue and the lease times out.</li>
+<li><strong><code>PlatformRandom</code></strong> – a 32-bit xorshift PRNG seeded with hardware entropy (or a user-supplied seed). Used for session IDs and protocol nonces, not cryptography.</li>
+<li><strong><code>PlatformTime</code></strong> – wall-clock time for log timestamps. On bare-metal with no RTC, return monotonic time as a fallback.</li>
+</ul>
+<h3 id="networking--platformtcp--platformudp--platformsockethelpers"><a class="header" href="#networking--platformtcp--platformudp--platformsockethelpers">Networking – <code>PlatformTcp</code> / <code>PlatformUdp</code> / <code>PlatformSocketHelpers</code></a></h3>
+<p>zenoh-pico’s network layer is split into three traits because the original C interface (<code>unix/network.c</code>) has three concerns:</p>
+<ul>
+<li>TCP and UDP each have their own <code>open</code>/<code>read</code>/<code>send</code>/<code>close</code> because the backend opens different socket types for each.</li>
+<li><code>PlatformSocketHelpers</code> carries the cross-cutting operations – <code>set_non_blocking</code>, <code>accept</code>, generic <code>close</code>, and <code>wait_event</code> – that apply to either socket family.</li>
+</ul>
+<p>Sockets and endpoints are opaque <code>*mut c_void</code> pointers; their underlying types vary per platform (POSIX <code>int</code>, lwIP <code>struct netconn*</code>, Zephyr socket descriptor, smoltcp <code>SocketHandle</code>). The shim layer auto-detects the type sizes from C headers at build time so the FFI boundary stays type-erased.</p>
+<p><code>PlatformUdpMulticast</code> is split out as a fourth networking trait because embedded targets that connect to a fixed <code>tcp/host:port</code> locator never multicast and should not pay the code-size cost of multicast plumbing.</p>
+<h3 id="networkpoll--platformnetworkpoll"><a class="header" href="#networkpoll--platformnetworkpoll">NetworkPoll – <code>PlatformNetworkPoll</code></a></h3>
+<p>Bare-metal only. <code>network_poll()</code> advances the smoltcp state machine, processing pending RX/TX. Platforms with kernel-level networking (Linux, lwIP-on-FreeRTOS, NetX-on-ThreadX, Zephyr sockets) drive their own NIC and don’t need this.</p>
+<p><code>PlatformSleep</code> and the <code>wait_event</code> helper both call <code>network_poll()</code> while waiting, so packets keep flowing during otherwise-idle time. Without this hook, smoltcp would only receive when the application explicitly asked for it – a recipe for dropped TCP segments.</p>
+<h3 id="libc--platformlibc"><a class="header" href="#libc--platformlibc">Libc – <code>PlatformLibc</code></a></h3>
+<p>zenoh-pico uses <code>strlen</code>, <code>memcpy</code>, <code>errno</code>, etc. directly. Bare-metal targets that link <code>picolibc</code> or <code>newlib-nano</code> get these for free. Targets without a C runtime (some <code>no_std</code> builds) provide the trait, which forwards to Rust implementations of the same functions.</p>
+<p>This trait exists because the alternative – patching zenoh-pico to call platform shims for every libc function – would require modifying upstream sources we don’t control.</p>
+<h2 id="cross-cutting-rules"><a class="header" href="#cross-cutting-rules">Cross-cutting rules</a></h2>
+<p>Two contract rules apply to every trait method:</p>
+<ol>
+<li>
+<p><strong>Reentrancy.</strong> Methods may be called from any context the executor enters: a publisher callback, a service handler, or directly from user code. Implementations must not assume a particular calling thread or critical-section state. Single-threaded platforms get this for free; RTOS platforms must use reentrant primitives.</p>
+</li>
+<li>
+<p><strong>No panics across the FFI boundary.</strong> All trait methods are exposed to C through the shim crates. Panicking through C is undefined behavior. Implementations return error codes (or <code>usize::MAX</code> for byte counts) instead of panicking. The exception is <code>PlatformClock</code> – if the clock cannot be read, the system is fundamentally broken and there is nothing useful to return.</p>
+</li>
+</ol>
+<h2 id="the-scalar--opaque-struct-boundary"><a class="header" href="#the-scalar--opaque-struct-boundary">The scalar / opaque-struct boundary</a></h2>
+<p>Not every kernel service unifies the same way. The ABI splits into two
+classes, and the split is a <strong>design boundary, not tech debt</strong>:</p>
+<ul>
+<li>
+<p><strong>Scalar services — fully unified.</strong> Alloc, sleep, clock, time, yield,
+random. Their ABI is plain scalars (sizes, millisecond counts, byte
+buffers) with no host-type in the signature, so a single canonical
+<code>nros_platform_*</code> symbol works for every RTOS and every consumer
+(core, RMW, vendored zenoh-pico/XRCE) funnels through it. The allocation gate
+(<code>check-no-direct-kernel-alloc.sh</code>) enforces this for allocation; the
+same pattern extends to the other scalars (the vendored <code>z_*</code>/<code>uxr_*</code>
+funnel is checked by a CI relink lane).</p>
+</li>
+<li>
+<p><strong>Opaque-struct services — stay per-RTOS-vendored.</strong> Threading
+(<code>mutex</code>/<code>condvar</code>/<code>task</code>), the wake primitive, and network sockets
+carry RTOS-defined structs (<code>SemaphoreHandle_t</code>, <code>TX_MUTEX</code>,
+<code>struct k_mutex</code>, socket/<code>NX_*</code> control blocks) whose layout the
+vendor owns. A single C ABI cannot name those types portably, so each
+port vendors its own body and nano-ros exposes only opaque storage
+(<code>*_storage_size</code>/<code>*_storage_align</code> + an init/drop pair). This is why
+the ThreadX board’s <code>tx_byte_allocate</code> thread-stack / NetX-pool sites
+are <strong>not</strong> allocation-gate violations — they are the <em>task</em> and <em>net</em> opaque
+services, allowed on a documented symbol-scoped lint allowlist.</p>
+</li>
+</ul>
+<p><strong>Escape hatch (if an opaque service must move later).</strong> The way out is
+NOT to widen the C ABI with host types; it is to pin a <strong>canonical
+fixed-layout struct</strong> in <code>platform.h</code>, give each port a compile-time
+<code>size_probe</code> / <code>_Static_assert</code> that the canonical layout is ≥ the
+vendor struct (so opaque storage stays sound), and let the port
+memcpy/place the vendor object inside the canonical slot. <strong>Net is the
+first candidate</strong> — <code>platform_net.h</code> already exposes 29 symbols over an
+opaque socket handle — but it is deferred (out of scope for the platform split)
+until there is a consumer that needs portable socket structs. Threads
+and sync are the least likely to move (deepest struct coupling).</p>
+<h2 id="why-free-symbols-not-a-vtable-struct"><a class="header" href="#why-free-symbols-not-a-vtable-struct">Why free symbols (not a vtable struct)</a></h2>
+<p>The RMW layer uses a <code>NrosRmwVtable</code> fn-ptr struct because a single
+binary registers multiple backends at runtime (bridge nodes). Platforms
+are different: <strong>one platform per binary, resolved at link time</strong>. A
+vtable would add an indirection on every clock read, every mutex lock,
+every socket send — overhead with no upside, because there is nobody to
+swap. Free symbols let the linker resolve calls direct, let LTO inline
+across the boundary, and let static analysis treat them like any other
+extern.</p>
+<p>The full rationale is in
+<a href="../../docs/design/0006-portable-rmw-platform-interface.html"><code>docs/design/0006-portable-rmw-platform-interface.md</code></a>
+under “Platform ABI: free symbols (no vtable)”.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="opaque-storage-sizing"><a class="header" href="#opaque-storage-sizing">Opaque Storage Sizing</a></h1>
 <p><code>nano-ros</code> exposes a C and C++ API on top of Rust types whose layout is
@@ -7914,7 +8596,7 @@ forbidden.</p>
 <p>Where a row lists two builders, both are real and build different things: on
 Zephyr, <code>west</code> builds the single-node examples under <code>examples/zephyr/&lt;lang&gt;/</code>
 and <code>cargo</code>/<code>cmake</code> build the workspace examples under <code>examples/workspaces/</code>.</p>
-<h2 id="freertos"><a class="header" href="#freertos">FreeRTOS</a></h2>
+<h2 id="freertos-1"><a class="header" href="#freertos-1">FreeRTOS</a></h2>
 <p>Lanes for <a href="../guide/platforms/freertos.html">FreeRTOS (QEMU MPS2-AN385)</a>.</p>
 <p>The prebuilt <em>test fixtures</em> bake per-language allocator ports instead
 of 7447 (the copy-out examples’ port) so suites run in parallel;
@@ -8561,7 +9243,7 @@ exchange.</p>
 </div>
 <h2 id="architecture-2"><a class="header" href="#architecture-2">Architecture</a></h2>
 <h3 id="board-crate"><a class="header" href="#board-crate">Board Crate</a></h3>
-<p>The <code>nros-board-nuttx-qemu</code> board crate follows the standard <code>Config</code> / <code>run()</code> pattern documented in the <a href="../extending/custom-board.html">Custom Board Package</a> guide.</p>
+<p>The <code>nros-board-nuttx-qemu</code> board crate follows the standard <code>Config</code> / <code>run()</code> pattern documented in the <a href="../extending/add-a-board.html#steps">Add a board</a> page.</p>
 <p>Unlike bare-metal and FreeRTOS board crates, there is no custom hardware
 initialization, no network stack setup, and no task creation. NuttX’s kernel
 boots the hardware, initializes virtio-net, and starts the application
@@ -10226,7 +10908,7 @@ the board package (step 3) or in your own <code>#[init]</code> (step 4).</li>
 <li><strong>A board package</strong> — hardware setup every image on the board needs
 (clocks, DMA, the monotonic) and the dispatcher list belong in the board’s
 <code>init_hardware</code> and its RTIC support, in a
-<a href="../extending/board-trait.html">board package</a>.</li>
+<a href="../extending/add-a-board.html">board package</a>.</li>
 <li><strong><code>nros materialize &lt;bringup&gt;:&lt;image&gt;</code></strong> — the last resort, for hand-written tasks.</li>
 </ol>
 <p><code>nros materialize</code> writes the image’s generated entry into
@@ -10410,7 +11092,7 @@ and the direct-exec entry shape the book teaches.</li>
 the scheduling models of the supported targets; the RTIC one is
 <a href="#the-rtic-scheduling-model">below</a>.</li>
 </ul>
-<h2 id="design-background-1"><a class="header" href="#design-background-1">Design background</a></h2>
+<h2 id="design-background-3"><a class="header" href="#design-background-3">Design background</a></h2>
 <ul>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0113-rt-unified-wait.md">RFC-0113: RT unified wait</a></li>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0065-colcon-like-workspace-builder.md">RFC-0065: colcon-like workspace builder</a>

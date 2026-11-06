@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Custom RMW Backend - nano-ros Book</title>
+        <title>Write a custom RMW backend - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-326d6560.js";
+            window.path_to_searchindex_js = "../searchindex-3293b113.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-1c7a7452.js"></script>
+        <script src="../toc-ebf3309a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,380 +177,144 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="porting-a-custom-rmw-backend"><a class="header" href="#porting-a-custom-rmw-backend">Porting a Custom RMW Backend</a></h1>
+                        <h1 id="write-a-custom-rmw-backend"><a class="header" href="#write-a-custom-rmw-backend">Write a custom RMW backend</a></h1>
 <div class="nros-level-badge" data-type="how-to" data-level="4"><span class="nros-level-type">How-to</span> · <span class="nros-level-name">Level 4: Extending nano-ros</span></div>
 
-<p>nano-ros ships with three RMW backends – zenoh-pico, Micro-XRCE-DDS, and
-Cyclone DDS. To add your own transport (MQTT, a proprietary bus, etc.),
-implement a small set of traits or fill in a C function table.</p>
-<p>Two paths are available:</p>
+<p><strong>Needs first:</strong> <a href="../background/how-a-build-becomes-an-image.html">How a build becomes an image</a></p>
+<p>nano-ros ships backends for zenoh-pico, XRCE-DDS, Cyclone DDS and PX4’s uORB.
+When your middleware is none of these (MQTT, a proprietary bus, a
+vendor’s DDS), you write a backend: the code that turns publish, take, request
+and reply into your protocol. By the end of this page your backend registers
+with nano-ros, and an image publishes and subscribes through it.</p>
+<p>Most link problems are not new middleware. If the protocol is zenoh or
+XRCE-DDS and only the wire is new, <a href="add-a-transport.html">add a transport</a>
+instead: it is four functions, not a backend.</p>
+<h2 id="before-you-start"><a class="header" href="#before-you-start">Before you start</a></h2>
 <ul>
-<li><strong>Rust path</strong> – implement the <code>nros-rmw</code> traits directly.</li>
-<li><strong>C/C++ path</strong> – fill in <code>nros_rmw_vtable_t</code> and register it at
-startup via <code>nros-rmw-cffi</code>.</li>
+<li>You know how nano-ros’s RMW layer differs from ROS 2’s: it leaves the I/O
+buffers to the caller, replaces wait sets with one call that drives I/O,
+and binds the backend when the image links. <a href="../background/how-a-build-becomes-an-image.html">How a build becomes an image</a>
+explains the three choices; <a href="../internals/rmw/rmw-api-design.html">Internals → RMW API design</a>
+argues them against ROS 2’s <code>rmw.h</code>.</li>
+<li>You have chosen the backend’s language. A Rust backend implements the
+traits of <code>nros-rmw</code>. A C or C++ backend fills the C table
+<code>nros_rmw_vtable_t</code> from <code>&lt;nros/rmw_vtable.h&gt;</code>. Either way the runtime
+calls the backend through that one C table.</li>
+<li>Plan for a change to nano-ros. An image selects its backend by name in
+<code>system.toml</code> (<code>rmw = "..."</code>), and today the names the build accepts are the
+backends in nano-ros’s own tree. A backend outside it registers and runs
+from your own code, but <code>nros build</code> refuses its name until it is
+contributed. Step 5 says what that touches.</li>
 </ul>
-<h2 id="what-you-implement"><a class="header" href="#what-you-implement">What you implement</a></h2>
-<p>Your backend provides concrete types for six traits:</p>
-<pre><code class="language-text">Rmw                    -- factory: opens a Session from RmwConfig
-  Session              -- connection lifecycle, creates handles
-    Publisher          -- send CDR-encoded messages
-    Subscription       -- non-blocking receive (poll-based)
-    ServiceTrait       -- receive requests, send replies
-    ClientTrait        -- send requests, poll for replies
-</code></pre>
-<p>(The vocabulary follows upstream rmw: <code>Subscription</code>, <code>ServiceTrait</code>,
-<code>ClientTrait</code>, and the create methods below match. The older names
-<code>Subscriber</code>, <code>ServiceServerTrait</code> and <code>ServiceClientTrait</code> no longer exist.)</p>
-<p>Most methods have default implementations. The required methods per trait are:</p>
+<h2 id="steps"><a class="header" href="#steps">Steps</a></h2>
+<ol>
+<li>
+<p>Implement the session and its four entity kinds. In Rust, these are the
+traits and the methods each must provide; the rest have defaults:</p>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Trait</th><th>Required methods</th></tr>
 </thead>
 <tbody>
-<tr><td><code>Rmw</code></td><td><code>open()</code></td></tr>
-<tr><td><code>Session</code></td><td><code>create_publisher()</code>, <code>create_subscription()</code>, <code>create_service()</code>, <code>create_client()</code>, <code>close()</code></td></tr>
-<tr><td><code>Publisher</code></td><td><code>publish_raw()</code>, <code>buffer_error()</code>, <code>serialization_error()</code></td></tr>
-<tr><td><code>Subscription</code></td><td><code>take_serialized()</code>, <code>deserialization_error()</code></td></tr>
-<tr><td><code>ServiceTrait</code></td><td><code>take_request()</code>, <code>send_response()</code></td></tr>
-<tr><td><code>ClientTrait</code></td><td><code>send_request_raw()</code>, <code>take_response_raw()</code></td></tr>
+<tr><td><code>Rmw</code></td><td><code>open(self, &amp;RmwConfig)</code>, which returns the session</td></tr>
+<tr><td><code>Session</code></td><td><code>create_publisher</code>, <code>create_subscription</code>, <code>create_service</code>, <code>create_client</code>, <code>close</code>, <code>drive_io</code></td></tr>
+<tr><td><code>Publisher</code></td><td><code>publish_raw</code>, <code>buffer_error</code>, <code>serialization_error</code></td></tr>
+<tr><td><code>Subscription</code></td><td><code>take_serialized</code>, <code>deserialization_error</code></td></tr>
+<tr><td><code>ServiceTrait</code></td><td><code>take_request</code>, <code>send_response</code></td></tr>
+<tr><td><code>ClientTrait</code></td><td><code>send_request_raw</code>, <code>take_response_raw</code></td></tr>
 </tbody>
 </table>
 </div>
-<p>For full trait signatures and associated types, see
-<a href="../reference/rmw-api.html">RMW API Reference</a>.</p>
-<h2 id="use-nros-platform-for-networking"><a class="header" href="#use-nros-platform-for-networking">Use nros-platform for networking</a></h2>
-<p>Call <code>ConcretePlatform::tcp_open()</code> / <code>udp_bind()</code> from <code>nros-platform</code>
-rather than OS sockets directly. This makes your backend portable across
-every platform (POSIX, Zephyr, FreeRTOS, NuttX, ThreadX, bare-metal). If
-your transport library already abstracts networking (like zenoh-pico does),
-you can use its own I/O layer instead.</p>
-<hr>
-<h2 id="rust-path"><a class="header" href="#rust-path">Rust path</a></h2>
-<h3 id="1-create-the-crate"><a class="header" href="#1-create-the-crate">1. Create the crate</a></h3>
-<p>Create <code>packages/myproto/nros-rmw-myproto/</code> with <code>nros-rmw</code> and
-<code>nros-core</code> as dependencies (both <code>default-features = false</code> for
-<code>no_std</code> support). Follow the <code>std</code>/<code>alloc</code> feature forwarding pattern
-used by the existing backends.</p>
-<h3 id="2-implement-the-traits"><a class="header" href="#2-implement-the-traits">2. Implement the traits</a></h3>
+<p>A C backend fills the matching slots of <code>nros_rmw_vtable_t</code>
+(<code>create_session</code>, <code>drive_io</code>, <code>create_publisher</code>, <code>publish</code>,
+<code>create_subscription</code>, <code>take</code>, and the service and client slots). The
+header states each slot’s signature, ownership and blocking rules; the
+<a href="../reference/rmw-api.html">RMW API</a> reference links its rendered form. A
+slot the backend leaves <code>NULL</code> is reported as unsupported.</p>
+</li>
+<li>
+<p>Keep to the I/O model. The buffers are the caller’s: <code>publish_raw</code> gets a
+byte slice and <code>take_serialized</code> a slice to fill, both already CDR. Every
+take is non-blocking and answers “no data” when nothing is ready. All
+waiting happens in <code>drive_io(timeout_ms)</code>, which the executor calls from
+its own thread to move your protocol’s I/O; it may block up to the
+timeout. A client sends with <code>send_request_raw</code> and polls with
+<code>take_response_raw</code>, matching a reply to its request by the sequence id.</p>
+</li>
+<li>
+<p>Return specific errors. The runtime maps each <code>TransportError</code> variant to a
+named <code>rmw_ret_t</code> at the C boundary, so a caller can act on it: <code>Timeout</code>
+when a bounded wait elapses, <code>NoData</code> for an empty queue, <code>WouldBlock</code> when
+a resource is busy, <code>BufferTooSmall</code> when the caller’s slice is short,
+<code>MessageTooLarge</code> when a message exceeds the backend’s capacity,
+<code>Unsupported</code> for an operation your middleware cannot do, and
+<code>IncompatibleQos</code> when two endpoints cannot be reconciled. Keep <code>Backend</code>
+for what fits none of them.</p>
+</li>
+<li>
+<p>Register the backend before the first session opens, under its name:</p>
+<ul>
+<li>A Rust backend wraps its <code>Rmw</code> type in the adapter of <code>nros-rmw-cffi</code>:
+<code>RustBackendAdapter::&lt;MyRmw&gt;::register_named(c"myproto".as_ptr())</code>.</li>
+<li>A C or C++ backend calls
+<code>nros_rmw_cffi_register_named("myproto", &amp;MY_VTABLE)</code>.</li>
+</ul>
+<p>An image may register several backends; it opens the one it names.</p>
+</li>
+<li>
+<p>Make it a backend nano-ros can select. This is the contribution. The
+backend is a package whose <code>package.xml</code> announces
+<code>&lt;nano_ros_provides kind="rmw" name="myproto"/&gt;</code>, with an <code>nros-rmw.toml</code>
+beside it. The descriptor is required, because two facts cannot be derived
+from the name: <code>[rmw] cpp_define</code>, the define C++ code tests for the
+backend, and how the backend reaches the link (<code>[rmw.provides.cargo]</code>
+with its <code>crate</code> and <code>register</code> function for a Rust backend,
+<code>[rmw.provides.cmake]</code> with its <code>dir</code> and <code>target</code> for a CMake one, and
+<code>[rmw.link]</code>). Start from the descriptor of the in-tree backend nearest
+yours.</p>
+</li>
+<li>
+<p>Build an image with <code>rmw = "myproto"</code> and run a talker and a listener.
+Then check the pair against a stock ROS 2 node, as the next section
+describes.</p>
+</li>
+</ol>
+<h2 id="what-ros-2-tools-expect"><a class="header" href="#what-ros-2-tools-expect">What ROS 2 tools expect</a></h2>
+<p>A backend that implements the traits passes messages between nano-ros nodes.
+To appear in <code>ros2 topic list</code> and to talk to <code>rmw_zenoh_cpp</code> or a DDS
+node, it must also carry what the traits do not state:</p>
+<ul>
+<li><strong>Discovery.</strong> ROS 2 tools find endpoints through discovery traffic. A
+zenoh-flavoured backend publishes a liveliness token per endpoint, under
+<code>@ros2_lv/&lt;domain&gt;/&lt;zid&gt;/…</code>; a DDS-flavoured one sends the ROS 2 user data
+in its participant discovery. A new protocol needs some discovery channel,
+emitted as a side effect of each <code>create_*</code>.</li>
+<li><strong>Per-message metadata.</strong> Each message carries a sequence number, a source
+timestamp and a publisher id that subscribers read as <code>MessageInfo</code>. On
+zenoh it travels as an attachment; on DDS it is the sample info. A backend
+that drops it leaves every <code>MessageInfo</code> at its default.</li>
+<li><strong>Type hashes.</strong> <code>TopicInfo::type_hash</code> arrives filled in for the selected
+ROS edition: the literal <code>TypeHashNotSupported</code> on Humble, an <code>RIHS01_…</code>
+hash from Iron on. Your backend puts it where your wire carries it; a peer
+that disagrees about the hash never matches.</li>
+<li><strong>QoS.</strong> Honour reliability, durability, history and depth, or refuse the
+ones you cannot. A best-effort publisher matched with a reliable
+subscriber is a QoS mismatch in ROS 2, and the backend should report it
+rather than lose messages.</li>
+</ul>
+<p>Actions need nothing more: the runtime composes each action from three
+services and two topics.</p>
+<h2 id="example"><a class="header" href="#example">Example</a></h2>
+<p>A backend that loops each published message back to its subscribers, with no
+network. Only publish and take are shown; the service and client types follow
+the same pattern:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span>#![no_std]
 <span class="boring">fn main() {
 </span>use nros_rmw::*;
 
-#[derive(Default)]
-pub struct MyProtoRmw {
-    // Optional pre-open configuration (agent address, TLS CA, serial
-    // device handle, …) can live here and move into the Session at
-    // `open` time. Every backend in-repo implements `Default` so the
-    // caller can spell the common case as
-    // `MyProtoRmw::default().open(&amp;config)`.
-}
-impl Rmw for MyProtoRmw {
-    type Session = MyProtoSession;
-    type Error = TransportError;
-    fn open(self, config: &amp;RmwConfig) -&gt; Result&lt;MyProtoSession, TransportError&gt; {
-        todo!() // Parse config.locator, connect, map config.domain_id
-    }
-}
-
-pub struct MyProtoSession { /* connection state */ }
-impl Session for MyProtoSession {
-    type Error = TransportError;
-    type PublisherHandle = MyProtoPub;
-    type SubscriptionHandle = MyProtoSub;
-    type ServiceHandle = MyProtoServer;
-    type ClientHandle = MyProtoClient;
-
-    fn create_publisher(&amp;mut self, t: &amp;TopicInfo, q: QoSProfile)
-        -&gt; Result&lt;MyProtoPub, TransportError&gt; { todo!() }
-    fn create_subscription(&amp;mut self, t: &amp;TopicInfo, q: QoSProfile)
-        -&gt; Result&lt;MyProtoSub, TransportError&gt; { todo!() }
-    fn create_service(&amp;mut self, s: &amp;ServiceInfo, q: QoSProfile)
-        -&gt; Result&lt;MyProtoServer, TransportError&gt; { todo!() }
-    fn create_client(&amp;mut self, s: &amp;ServiceInfo, q: QoSProfile)
-        -&gt; Result&lt;MyProtoClient, TransportError&gt; { todo!() }
-    fn close(&amp;mut self) -&gt; Result&lt;(), TransportError&gt; { todo!() }
-    fn drive_io(&amp;mut self, timeout_ms: i32) -&gt; Result&lt;(), TransportError&gt; {
-        let _ = timeout_ms; Ok(()) // poll network, dispatch to buffers
-    }
-}
-
-pub struct MyProtoPub;
-impl Publisher for MyProtoPub {
-    type Error = TransportError;
-    fn publish_raw(&amp;self, data: &amp;[u8]) -&gt; Result&lt;(), TransportError&gt; { todo!() }
-    fn buffer_error(&amp;self) -&gt; TransportError { TransportError::BufferTooSmall }
-    fn serialization_error(&amp;self) -&gt; TransportError { TransportError::SerializationError }
-}
-
-pub struct MyProtoSub;
-impl Subscription for MyProtoSub {
-    type Error = TransportError;
-    fn take_serialized(&amp;mut self, buf: &amp;mut [u8])
-        -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; { todo!() }
-    fn deserialization_error(&amp;self) -&gt; TransportError { TransportError::DeserializationError }
-}
-
-pub struct MyProtoServer;
-impl ServiceTrait for MyProtoServer {
-    type Error = TransportError;
-    fn take_request&lt;'a&gt;(&amp;mut self, buf: &amp;'a mut [u8])
-        -&gt; Result&lt;Option&lt;ServiceRequest&lt;'a&gt;&gt;, TransportError&gt; { todo!() }
-    fn send_response(&amp;mut self, seq: i64, data: &amp;[u8])
-        -&gt; Result&lt;(), TransportError&gt; { todo!() }
-}
-
-pub struct MyProtoClient;
-impl ClientTrait for MyProtoClient {
-    type Error = TransportError;
-    fn send_request_raw(&amp;mut self, req: &amp;[u8])
-        -&gt; Result&lt;(), TransportError&gt; { todo!() }
-    fn take_response_raw(&amp;mut self, buf: &amp;mut [u8])
-        -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; { todo!() }
-}
-<span class="boring">}</span></code></pre>
-<h3 id="pick-the-right-transporterror-variant"><a class="header" href="#pick-the-right-transporterror-variant">Pick the right <code>TransportError</code> variant</a></h3>
-<p>The runtime maps every <code>TransportError</code> variant to a named
-<code>rmw_ret_t</code> constant at the C boundary. Picking a specific
-variant gives the caller actionable information instead of an opaque
-“failed somehow”:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Variant</th><th>When to use</th></tr>
-</thead>
-<tbody>
-<tr><td><code>Timeout</code></td><td>Bounded wait elapsed (drive_io).</td></tr>
-<tr><td><code>WouldBlock</code></td><td>Resource momentarily unavailable; caller should retry. Distinct from <code>NoData</code> — <code>NoData</code> means the queue is empty, <code>WouldBlock</code> means it’s contended.</td></tr>
-<tr><td><code>NoData</code></td><td>Non-blocking receive found the queue empty.</td></tr>
-<tr><td><code>BufferTooSmall</code></td><td>Caller’s <code>&amp;mut [u8]</code> smaller than the next message.</td></tr>
-<tr><td><code>MessageTooLarge</code></td><td>Incoming message exceeds the backend’s static capacity.</td></tr>
-<tr><td><code>InvalidArgument</code></td><td>NULL pointer, out-of-range value, missing required config.</td></tr>
-<tr><td><code>Unsupported</code></td><td>Backend genuinely cannot perform this operation (e.g., uORB has no service surface).</td></tr>
-<tr><td><code>IncompatibleQos</code></td><td>Endpoints’ QoS profiles differ in a way the backend cannot reconcile.</td></tr>
-<tr><td><code>TopicNameInvalid</code></td><td>Topic / service name failed validation (empty, too long, illegal characters).</td></tr>
-<tr><td><code>BadAlloc</code></td><td>Allocation failed on a heap-equipped backend.</td></tr>
-<tr><td><code>LoanNotSupported</code></td><td>Lending requested on an entity that doesn’t support it.</td></tr>
-<tr><td><code>ConnectionFailed</code> / <code>Disconnected</code></td><td>Transport-level failures.</td></tr>
-<tr><td><code>PublisherCreationFailed</code> / <code>SubscriberCreationFailed</code> / <code>ServiceServerCreationFailed</code> / <code>ServiceClientCreationFailed</code></td><td>Catch-all for entity creation when no more specific code applies.</td></tr>
-<tr><td><code>Backend(&amp;str)</code> / <code>BackendDynamic(String)</code></td><td>Backend-specific diagnostic that doesn’t map to any of the above.</td></tr>
-</tbody>
-</table>
-</div>
-<p>The Rust trait surface is the source of truth; the C header
-<code>&lt;nros/rmw_ret.h&gt;</code> exposes the matching <code>NROS_RMW_RET_*</code> constants
-for C porters.</p>
-<h3 id="factory-shape"><a class="header" href="#factory-shape">Factory shape</a></h3>
-<p><code>Rmw::open</code> consumes <code>self</code>, not a <code>&amp;self</code>. That shape asks every
-backend to treat its factory type as a <strong>value</strong> that carries any
-pre-open configuration (agent address, serial device, TLS CA, …)
-and <em>moves</em> that state into the returned <code>Session</code>:</p>
-<pre><code class="language-rust ignore">// Default constructor (picks config from `&amp;RmwConfig`):
-let session = MyProtoRmw::default().open(&amp;config)?;
-
-// Explicit constructor when the backend has pre-open state
-// that isn't in the middleware-agnostic `RmwConfig`:
-let session = MyProtoRmw::with_endpoint("10.0.0.1", 7447).open(&amp;config)?;</code></pre>
-<p>Conventions:</p>
-<ul>
-<li><strong>Every backend implements <code>Default</code>.</strong> Keeps the common call
-site short and lets generic code build a factory without
-knowing the backend type.</li>
-<li><strong>Provide <code>new(...)</code> / <code>with_*(...)</code> helpers for backend-specific
-pre-open state.</strong> Don’t bake it into <code>RmwConfig</code> — that type is
-the middleware-agnostic contract. If your backend needs an agent
-IP, a serial device path, or a certificate slot, take it on the
-factory constructor.</li>
-<li><strong>Read your own environment variables in <code>&lt;Backend&gt;::from_env()</code></strong>
-if you want zero-boilerplate POSIX configuration. The shipped
-<code>ExecutorConfig::from_env()</code> only reads the middleware-agnostic
-<code>NROS_LOCATOR</code> / <code>NROS_SESSION_MODE</code> / <code>ROS_DOMAIN_ID</code>; anything
-backend-specific (e.g. <code>NROS_XRCE_AGENT</code>) stays on the backend
-side.</li>
-<li><strong>Post-open state lives in <code>Session</code>, never in <code>static mut</code>.</strong>
-The <code>open(self, …)</code> signature makes it natural to move the
-configured transport into the <code>Session</code> return value, which
-then owns the connection for the rest of its lifetime. A backend
-that still uses <code>static mut</code> session-global state will fail any
-multi-session test (<code>backend.open(...)</code> twice in one process
-should succeed).</li>
-</ul>
-<h3 id="3-wire-into-nros"><a class="header" href="#3-wire-into-nros">3. Wire into nros</a></h3>
-<p>Three changes are needed to integrate the new backend:</p>
-<p><strong>a)</strong> In <code>nros/Cargo.toml</code>, add a feature and optional dependency:</p>
-<pre><code class="language-toml">rmw-myproto = ["dep:nros-rmw-myproto", "nros-node/rmw-myproto"]
-</code></pre>
-<p><strong>b)</strong> In <code>nros-node</code>, add the concrete session type alias:</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>#[cfg(feature = "rmw-myproto")]
-pub type ConcreteSession = nros_rmw_myproto::MyProtoSession;
-<span class="boring">}</span></code></pre>
-<p><strong>c)</strong> Add <code>compile_error!</code> guards to enforce mutual exclusivity with the
-other backends (see existing guards in <code>nros-node/src/session.rs</code>).</p>
-<p>Applications then select your backend with
-<code>nros = { features = ["rmw-myproto", "platform-posix"] }</code>.</p>
-<hr>
-<h2 id="cc-path"><a class="header" href="#cc-path">C/C++ path</a></h2>
-<p>If your transport library is C or C++, use <code>nros-rmw-cffi</code> — a vtable
-of C function pointers that map one-to-one onto the Rust trait methods.</p>
-<p>The hand-written header lives at
-<code>packages/core/nros-rmw-abi/include/nros/rmw_vtable.h</code>. Browse the
-rendered reference at <a href="../api/rmw-cffi/index.html">/api/rmw-cffi/</a> for
-per-field return-value, threading, and blocking conventions.</p>
-<h3 id="1-fill-in-the-vtable"><a class="header" href="#1-fill-in-the-vtable">1. Fill in the vtable</a></h3>
-<pre><code class="language-c">#include &lt;nros/rmw_vtable.h&gt;
-#include &lt;nros/rmw_ret.h&gt;
-#include &lt;nros/rmw_entity.h&gt;
-
-// -- Session lifecycle --
-static rmw_ret_t my_create_session(const char *locator, uint8_t mode,
-                              uint32_t domain_id, const char *node_name,
-                              rmw_session_t *out) {
-    /* Connect. On success: write out-&gt;backend_data with your session
-     * pointer, return NROS_RMW_RET_OK. On failure: return one of the
-     * named codes (NROS_RMW_RET_INVALID_ARGUMENT, NROS_RMW_RET_TIMEOUT,
-     * NROS_RMW_RET_BAD_ALLOC, NROS_RMW_RET_ERROR). out-&gt;node_name is
-     * already set by the runtime — read it for diagnostics. */
-}
-static rmw_ret_t my_destroy_session(rmw_session_t *session) { /* ... */ }
-static rmw_ret_t my_drive_io(rmw_session_t *session, int32_t timeout_ms) {
-    /* Dispatch network I/O for up to timeout_ms; return NROS_RMW_RET_OK
-     * on success, NROS_RMW_RET_TIMEOUT / NROS_RMW_RET_ERROR otherwise. */
-}
-
-// -- Publisher --
-static rmw_ret_t my_create_publisher(
-        rmw_session_t *session,
-        const char *topic, const char *type_name, const char *type_hash,
-        uint32_t domain_id, const rmw_qos_profile_t *qos,
-        const rmw_publisher_options_t *options,  /* hints (tx_express); NULL = defaults */
-        rmw_publisher_t *out) {
-    /* Runtime has already filled out-&gt;topic_name / type_name / qos.
-     * Backend writes out-&gt;backend_data with its publisher handle.
-     *
-     * Do NOT write out-&gt;can_loan_messages: the runtime DERIVES it from
-     * whether your vtable fills borrow_loaned_message, and overwrites
-     * whatever you put there. You advertise the
-     * loan_publish / commit_publish primitive by IMPLEMENTING it, which
-     * is the one statement that cannot disagree with itself. To refuse a
-     * loan for one particular publisher, return RMW_RET_UNSUPPORTED from
-     * borrow_loaned_message. */
-}
-static void           my_destroy_publisher(rmw_publisher_t *publisher) { /* ... */ }
-static rmw_ret_t my_publish_raw(rmw_publisher_t *publisher,
-        const uint8_t *data, size_t len) { /* ... */ }
-
-// -- Subscription --
-static rmw_ret_t my_create_subscription(
-        rmw_session_t *session,
-        const char *topic, const char *type_name, const char *type_hash,
-        uint32_t domain_id, const rmw_qos_profile_t *qos,
-        const rmw_subscription_options_t *options,  /* hints (rx_buffer_hint); NULL = defaults */
-        rmw_subscription_t *out) { /* ... */ }
-static void    my_destroy_subscription(rmw_subscription_t *subscription) { /* ... */ }
-static int32_t my_take_serialized(rmw_subscription_t *subscription,
-        uint8_t *buf, size_t buf_len) {
-    /* &gt;= 0 = bytes received (0 = no data),
-     * negative rmw_ret_t (e.g. NROS_RMW_RET_NO_DATA, _BUFFER_TOO_SMALL). */
-}
-static int32_t my_has_data(rmw_subscription_t *subscription) { /* 1 = yes, 0 = no */ }
-
-// -- Service (server side) --
-static rmw_ret_t my_create_service(
-        rmw_session_t *session,
-        const char *service, const char *type_name, const char *type_hash,
-        uint32_t domain_id, const rmw_qos_profile_t *qos,
-        rmw_service_t *out) { /* ... */ }
-static void    my_destroy_service(rmw_service_t *server) { /* ... */ }
-static int32_t my_take_request(rmw_service_t *server,
-        uint8_t *buf, size_t buf_len, int64_t *seq_out) { /* ... */ }
-static int32_t my_has_request(rmw_service_t *server) { /* 1 = yes, 0 = no */ }
-static rmw_ret_t my_send_reply(rmw_service_t *server,
-        int64_t seq, const uint8_t *data, size_t len) { /* ... */ }
-
-// -- Client --
-static rmw_ret_t my_create_client(
-        rmw_session_t *session,
-        const char *service, const char *type_name, const char *type_hash,
-        uint32_t domain_id, const rmw_qos_profile_t *qos,
-        rmw_client_t *out) { /* ... */ }
-static void    my_destroy_client(rmw_client_t *client) { /* ... */ }
-static rmw_ret_t my_send_request_raw(rmw_client_t *client,
-        const uint8_t *request, size_t req_len) {
-    /* Send without blocking for the reply; return NROS_RMW_RET_OK. */
-}
-static int32_t my_take_response_raw(rmw_client_t *client,
-        uint8_t *reply_buf, size_t reply_buf_len) {
-    /* &gt;= 0 = reply bytes, NROS_RMW_RET_NO_DATA = no reply yet. */
-}
-
-static const nros_rmw_vtable_t MY_RMW = {
-    .create_session      = my_create_session,
-    .destroy_session     = my_destroy_session,
-    .drive_io            = my_drive_io,
-    .create_publisher    = my_create_publisher,
-    .destroy_publisher   = my_destroy_publisher,
-    .publish         = my_publish_raw,
-    .create_subscription = my_create_subscription,
-    .destroy_subscription = my_destroy_subscription,
-    .take        = my_take_serialized,
-    .has_data            = my_has_data,
-    .create_service      = my_create_service,
-    .destroy_service     = my_destroy_service,
-    .take_request    = my_take_request,
-    .has_request         = my_has_request,
-    .send_response          = my_send_reply,
-    .create_client       = my_create_client,
-    .destroy_client      = my_destroy_client,
-    .send_request    = my_send_request_raw,
-    .take_response  = my_take_response_raw,
-};
-</code></pre>
-<h3 id="2-register-before-opening-a-session"><a class="header" href="#2-register-before-opening-a-session">2. Register before opening a session</a></h3>
-<pre><code class="language-c">int main(void) {
-    nros_rmw_cffi_register_named("my_rmw", &amp;MY_RMW);    // before any nros call
-    /* now use the nano-ros C or C++ API normally */
-}
-</code></pre>
-<p>Build the static library with the matching feature combo:</p>
-<pre><code class="language-bash">cargo build -p nros-c --features rmw-cffi,platform-posix,ros-humble
-</code></pre>
-<h3 id="3-lifecycle-and-threading-contract"><a class="header" href="#3-lifecycle-and-threading-contract">3. Lifecycle and threading contract</a></h3>
-<p>The Rust traits behind this vtable
-(<a href="../api/rust/nros_rmw/index.html"><code>nros_rmw::Session</code></a>,
-<a href="../api/rust/nros_rmw/index.html"><code>Publisher</code></a>, …) document the
-per-method contract: thread safety, buffer ownership, blocking
-allowance. The C vtable inherits the same rules:</p>
-<ul>
-<li>The vtable itself is registered once and read concurrently. Function
-pointers must be safe to invoke from any executor thread.</li>
-<li><code>drive_io</code> may block up to <code>timeout_ms</code>; it must not hold
-application-visible locks across the wait.</li>
-<li><code>publish</code>, <code>take</code>, and <code>send_response</code> may run concurrently
-from different executor threads — your backend handles serialisation.</li>
-<li><code>take</code>, <code>take_request</code>, and <code>take_response</code> are
-non-blocking: return <code>0</code> / <code>NROS_RMW_RET_NO_DATA</code> if nothing is
-ready. The executor will retry after <code>drive_io</code>.</li>
-<li>There is no blocking client slot (<code>call_raw</code> no longer exists):
-<code>send_request</code> + <code>take_response</code> is the one
-request/reply path; the executor drives the wait.</li>
-</ul>
-<p>All strings are null-terminated and borrowed (caller owns the
-storage). Entities are typed structs with an opaque <code>backend_data</code>
-slot — the runtime fills metadata fields (<code>topic_name</code>, <code>qos</code>, …)
-before calling <code>create_*</code>; the backend writes <code>backend_data</code>. Return
-convention: <code>NROS_RMW_RET_OK</code> = success, negative = named
-<code>rmw_ret_t</code> constant, positive = byte count (only on
-<code>take_*</code>).</p>
-<hr>
-<h2 id="example-local-echo-rmw"><a class="header" href="#example-local-echo-rmw">Example: local echo RMW</a></h2>
-<p>Loops published messages back to subscribers – no real transport. Only
-pub/sub shown; service types are no-op stubs.</p>
-<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>static mut ECHO_BUF: [u8; 1024] = [0; 1024];
+static mut ECHO_BUF: [u8; 1024] = [0; 1024];
 static mut ECHO_LEN: usize = 0;
 
 pub struct EchoPub;
@@ -573,7 +337,9 @@ impl Subscription for EchoSub {
     type Error = TransportError;
     fn take_serialized(&amp;mut self, buf: &amp;mut [u8]) -&gt; Result&lt;Option&lt;usize&gt;, TransportError&gt; {
         unsafe {
-            if ECHO_LEN == 0 { return Ok(None); }
+            if ECHO_LEN == 0 {
+                return Ok(None);
+            }
             let len = ECHO_LEN;
             buf[..len].copy_from_slice(&amp;ECHO_BUF[..len]);
             ECHO_LEN = 0;
@@ -583,127 +349,41 @@ impl Subscription for EchoSub {
     fn deserialization_error(&amp;self) -&gt; TransportError { TransportError::DeserializationError }
 }
 <span class="boring">}</span></code></pre>
-<p>Wire <code>EchoPub</code>/<code>EchoSub</code> into an <code>EchoSession</code> the same way as the
-skeleton above – <code>create_publisher</code> returns <code>Ok(EchoPub)</code>, etc. The
-<code>Rmw::open()</code> impl just returns <code>Ok(EchoSession)</code> unconditionally.</p>
-<hr>
-<h2 id="what-the-ros-2-ecosystem-expects"><a class="header" href="#what-the-ros-2-ecosystem-expects">What the ROS 2 ecosystem expects</a></h2>
-<p>Implementing the six traits compiles and runs, but a backend that stops
-there will not interoperate cleanly with <code>ros2 CLI</code>, RQt, or
-<code>rmw_zenoh_cpp</code> nodes. Real ROS 2 interop requires four extra
-invariants the traits do not express:</p>
-<h3 id="1-discovery--liveliness-tokens"><a class="header" href="#1-discovery--liveliness-tokens">1. Discovery / liveliness tokens</a></h3>
-<p><code>ros2 node list</code>, <code>ros2 topic list</code>, <code>ros2 service list</code> rely on
-discovery traffic. How you emit it depends on the backend protocol:</p>
+<p><code>EchoSession::create_publisher</code> returns <code>Ok(EchoPub)</code>, <code>create_subscription</code>
+returns <code>Ok(EchoSub)</code>, <code>drive_io</code> returns <code>Ok(())</code>, and <code>EchoRmw::open</code>
+returns the session.</p>
+<p>Two in-tree backends are complete examples to read beside it.
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/rmw/metadata"><code>nros-rmw-metadata</code></a>
+is a small Rust backend that records what a node declares instead of sending
+it, registered through <code>RustBackendAdapter</code>.
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/rmw/uorb/nros-rmw-uorb"><code>nros-rmw-uorb</code></a>
+is a C++ backend over PX4’s uORB, with its <code>package.xml</code> and <code>nros-rmw.toml</code>.</p>
+<h2 id="if-it-doesnt-work"><a class="header" href="#if-it-doesnt-work">If it doesn’t work</a></h2>
 <ul>
-<li><strong>Zenoh-flavoured backends</strong>: publish a liveliness token per endpoint
-under <code>@ros2_lv/&lt;domain&gt;/&lt;zid&gt;/&lt;entity_kind&gt;/&lt;id&gt;/…</code>. See
-<a href="../internals/rmw/zenoh-protocol.html">rmw-zenoh-protocol.md</a> for the
-exact key grammar.</li>
-<li><strong>DDS-flavoured backends</strong>: use the SPDP/SEDP discovery traffic that
-your DDS stack provides, plus the ROS 2–specific USER_DATA payload
-(node name, namespace, enclave).</li>
+<li><strong><code>unknown rmw </code>myproto``</strong>, from <code>nros build</code>. The build knows only the
+backends in nano-ros’s tree; see step 5.</li>
+<li><strong>The executor opens no session.</strong> The backend registered after the first
+session opened, or under a different name from the one the image selects.</li>
+<li><strong>Services or actions time out while topics work.</strong> <code>take_request</code> or
+<code>take_response_raw</code> blocks instead of answering “no data”, so the
+executor never reaches <code>drive_io</code>.</li>
+<li><strong>A second session in one process fails.</strong> Session state lives in a
+<code>static</code> instead of in the <code>Session</code> that <code>open</code> returns.</li>
+<li><strong><code>ros2 topic list</code> does not show your endpoints.</strong> The backend emits no
+discovery traffic; see “What ROS 2 tools expect”.</li>
 </ul>
-<p>If your backend is brand new (not wire-compatible with zenoh or DDS),
-you still need <em>some</em> discovery channel for <code>ros2 CLI</code> tools to find
-your endpoints. The traits currently do not cover this — discovery
-happens inside <code>create_publisher</code> / <code>create_subscription</code> /
-<code>create_service</code> / <code>create_client</code> as a side effect.</p>
-<h3 id="2-rmw-attachments-per-message-metadata"><a class="header" href="#2-rmw-attachments-per-message-metadata">2. RMW attachments (per-message metadata)</a></h3>
-<p>Every published message carries ROS 2 metadata that consumers read
-through <code>MessageInfo</code>:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Field</th><th>Size</th><th>Meaning</th></tr>
-</thead>
-<tbody>
-<tr><td><code>sequence_number</code></td><td>8 bytes</td><td><code>int64</code> LE — monotonic per publisher</td></tr>
-<tr><td><code>timestamp</code></td><td>8 bytes</td><td><code>int64</code> LE — source nanoseconds</td></tr>
-<tr><td><code>gid</code></td><td>16 bytes</td><td>random per publisher, constant over its lifetime</td></tr>
-</tbody>
-</table>
-</div>
+<h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
 <ul>
-<li><strong>Zenoh</strong>: the attachment rides alongside the payload as a zenoh
-<code>Attachment</code>. Humble uses a simple concatenation; Jazzy onward uses a
-VLE-encoded <code>gid_length</code> prefix.</li>
-<li><strong>DDS</strong>: sample identity and source timestamp fall out of the DDS
-sample info — your backend only has to forward them.</li>
+<li><a href="../reference/rmw-api.html">RMW API</a>: the C table and the in-tree backends.</li>
+<li><a href="../internals/rmw/rmw-vs-upstream.html">Internals → RMW API vs upstream</a>:
+every difference from <code>rmw.h</code>, for a porter coming from a ROS 2 backend.</li>
+<li><a href="../internals/rmw/zenoh-protocol.html">Internals → RMW Zenoh protocol</a>: the
+key expressions and attachments a zenoh-compatible backend must produce.</li>
 </ul>
-<p>If you skip this, subscriptions built with the <code>.message_info()</code> builder
-(<code>node.subscription(topic).generic(...).message_info().build(cb)</code>, or
-<code>.typed::&lt;M&gt;().message_info()</code>) on consumers always report
-<code>MessageInfo::default()</code>, and downstream features (safety-e2e checks,
-source-timestamp ordering) silently degrade.</p>
-<h3 id="3-actions-decompose-into-five-underlying-channels"><a class="header" href="#3-actions-decompose-into-five-underlying-channels">3. Actions decompose into five underlying channels</a></h3>
-<p>ROS 2 actions are not a transport primitive — they are a pattern built
-on services and topics. Each action server exposes:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Sub-entity</th><th>Kind</th><th>Name suffix</th></tr>
-</thead>
-<tbody>
-<tr><td><code>send_goal</code></td><td>Service</td><td><code>_action/send_goal</code></td></tr>
-<tr><td><code>cancel_goal</code></td><td>Service</td><td><code>_action/cancel_goal</code></td></tr>
-<tr><td><code>get_result</code></td><td>Service</td><td><code>_action/get_result</code></td></tr>
-<tr><td><code>feedback</code></td><td>Topic (pub)</td><td><code>_action/feedback</code></td></tr>
-<tr><td><code>status</code></td><td>Topic (pub)</td><td><code>_action/status</code></td></tr>
-</tbody>
-</table>
-</div>
-<p>A backend that implements the six core traits automatically supports
-actions — <code>nros-node</code> composes the five channels itself. The only
-backend-specific piece is the key / topic construction, which the
-<code>Session::create_service</code> and <code>create_publisher</code> methods already
-handle.</p>
-<h3 id="4-type-hashes"><a class="header" href="#4-type-hashes">4. Type hashes</a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>ROS 2 distro</th><th>Type hash</th></tr>
-</thead>
-<tbody>
-<tr><td>Humble</td><td>literal string <code>"TypeHashNotSupported"</code></td></tr>
-<tr><td>Iron / Jazzy / Rolling</td><td><code>RIHS01_&lt;sha256_hex&gt;</code> computed from the IDL</td></tr>
-</tbody>
-</table>
-</div>
-<p>Humble is the DEFAULT, not the ceiling: <code>--ros-edition {humble,iron,jazzy,rolling}</code>
-selects the edition, and iron/jazzy emit the real REP-2011 hash — computed
-by nano-ros itself, not read out of an ament index. A new backend inherits that: <code>TopicInfo::type_hash</code> arrives already
-filled in for the selected edition, so the backend’s job is to put it in the
-right place on its own wire, not to compute it. On zenoh that place is the
-keyexpr tail; get it wrong and delivery fails silently, because a peer that
-disagrees about the hash simply never matches.</p>
-<h3 id="5-qos-mapping"><a class="header" href="#5-qos-mapping">5. QoS mapping</a></h3>
-<p>ROS 2 QoS (reliability, durability, history, depth) maps differently
-onto each backend:</p>
+<h2 id="design-background"><a class="header" href="#design-background">Design background</a></h2>
 <ul>
-<li><strong>Zenoh</strong> has reliable/best-effort and a <code>KEEP_LAST(N)</code> / <code>KEEP_ALL</code>
-buffering policy — direct mapping.</li>
-<li><strong>DDS</strong> has native QoS — almost 1:1.</li>
-<li><strong>Custom backends</strong> must either honour the requested QoS or document
-which fields are ignored. A <code>best_effort</code> publisher matched with a
-<code>reliable</code> subscriber is a QoS mismatch in ROS 2 — the transport must
-refuse the subscription (or flag it at runtime) rather than silently
-lose messages.</li>
-</ul>
-<hr>
-<h2 id="further-reading"><a class="header" href="#further-reading">Further reading</a></h2>
-<ul>
-<li><a href="../reference/rmw-api.html">RMW API Reference</a> – full trait signatures,
-QoS profiles, error types, configuration structs.</li>
-<li><a href="rmw-design.html">RMW API Design</a> – architectural motivation and
-comparison with the ROS 2 rmw interface.</li>
-<li><a href="../internals/rmw/rmw-vs-upstream.html">RMW API: Differences from upstream <code>rmw.h</code></a>
-– side-by-side C-API comparison for porters coming from upstream
-ROS 2 RMW backends; covers the renames, the collapses, and the
-reason for each.</li>
-<li><a href="../internals/rmw/zenoh-pico-symbols.html">Zenoh-pico Symbol Reference</a>
-– FFI symbol mapping for the zenoh-pico backend (useful as a reference
-for how an existing backend is structured).</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0054-c-header-abi-ssot.md">RFC-0054: C headers as the ABI single source of truth</a>: why every backend is reached through the C table</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0071-rmw-backend-descriptor.md">RFC-0071: RMW backend descriptor</a>: <code>nros-rmw.toml</code> and what the toolchain lowers from it</li>
 </ul>
 <style>
 .nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;
@@ -716,11 +396,11 @@ for how an existing backend is structured).</li>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../extending/custom-transport.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../extending/add-a-transport.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../extending/rmw-design.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../extending/runner-and-command-packages.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -730,11 +410,11 @@ for how an existing backend is structured).</li>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../extending/custom-transport.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../extending/add-a-transport.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../extending/rmw-design.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../extending/runner-and-command-packages.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

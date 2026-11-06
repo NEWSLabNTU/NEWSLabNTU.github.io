@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Adding a Platform (CMake) - nano-ros Book</title>
+        <title>Add a platform - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-326d6560.js";
+            window.path_to_searchindex_js = "../searchindex-3293b113.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-1c7a7452.js"></script>
+        <script src="../toc-ebf3309a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,115 +177,207 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="adding-a-platform-cmake-layer"><a class="header" href="#adding-a-platform-cmake-layer">Adding a Platform (CMake Layer)</a></h1>
+                        <h1 id="add-a-platform"><a class="header" href="#add-a-platform">Add a platform</a></h1>
 <div class="nros-level-badge" data-type="how-to" data-level="4"><span class="nros-level-type">How-to</span> · <span class="nros-level-name">Level 4: Extending nano-ros</span></div>
 
-<blockquote>
-<p><strong>Scope.</strong> This page covers the <strong>CMake-side</strong> glue: how the build
-system picks the right platform shim, links the right archives, and
-dispatches per-app fixups (linker scripts, startup files, ISR vectors).
-For the runtime traits a new platform must implement in Rust /
-platform-cffi, see <a href="./custom-platform.html">Custom Platform</a>.</p>
-</blockquote>
-<p>Since, porting a new platform to nano-ros is <strong>one new file</strong>:</p>
-<pre><code>nano-ros/cmake/platform/nano-ros-&lt;plat&gt;.cmake
-</code></pre>
-<p>Adding a platform no longer touches the root <code>CMakeLists.txt</code>, never
-edits per-example trees, and never duplicates platform helpers across
-20+ examples.</p>
-<h2 id="module-contract-a"><a class="header" href="#module-contract-a">Module contract (§A)</a></h2>
-<p>Every <code>cmake/platform/nano-ros-&lt;plat&gt;.cmake</code> must expose:</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Symbol</th><th>Kind</th><th>Purpose</th></tr>
-</thead>
-<tbody>
-<tr><td><code>NanoRos::Platform</code></td><td><code>ALIAS</code> library</td><td>Aliased to the platform-specific <code>INTERFACE</code> target; linked into <code>NanoRos::NanoRos</code> umbrella by the root CMakeLists.</td></tr>
-<tr><td><code>nros_platform_&lt;plat&gt;_iface</code></td><td><code>INTERFACE</code> library</td><td>Carries the platform staticlib + host-system libs + transitive deps.</td></tr>
-<tr><td><code>nros_platform_link_app(target)</code></td><td>function</td><td>Per-app fixups: linker script, startup objects, ISR vectors, RTOS-specific final-link tweaks. Empty for POSIX.</td></tr>
-<tr><td><code>NROS_PLATFORM_LINK_FEATURES</code></td><td>cache variable</td><td>Default link-feature set for this platform (e.g. <code>tcp udp_unicast</code>).</td></tr>
-</tbody>
-</table>
-</div>
-<p>The root <code>CMakeLists.txt</code> dispatches via:</p>
-<pre><code class="language-cmake">include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/platform/nano-ros-${NROS_PLATFORM}.cmake")
-</code></pre>
-<p>When the user’s project sets <code>NROS_PLATFORM=foo</code> before
-<code>add_subdirectory(nano-ros)</code>, your module at
-<code>cmake/platform/nano-ros-foo.cmake</code> runs and supplies the four contract
-elements above.</p>
-<h2 id="minimal-skeleton"><a class="header" href="#minimal-skeleton">Minimal skeleton</a></h2>
-<pre><code class="language-cmake"># cmake/platform/nano-ros-foo.cmake
-
-if(DEFINED _NROS_PLATFORM_FOO_INCLUDED)
-    return()
-endif()
-set(_NROS_PLATFORM_FOO_INCLUDED TRUE)
-
-set(NROS_PLATFORM_LINK_FEATURES tcp udp_unicast
-    CACHE STRING "Default link features for the Foo platform")
-
-# Build / pull in the platform staticlib. May be add_subdirectory(...)
-# into packages/platform/nros-platform-foo/ for a Cargo + cmake hybrid, or
-# may declare an IMPORTED target pointing at a prebuilt RTOS archive.
-add_subdirectory(
-    "${CMAKE_CURRENT_LIST_DIR}/../../packages/platform/nros-platform-foo"
-    nros_platform_foo_build)
-
-add_library(nros_platform_foo_iface INTERFACE)
-if(TARGET nros_platform_foo)
-    target_link_libraries(nros_platform_foo_iface INTERFACE nros_platform_foo)
-endif()
-
-if(NOT TARGET NanoRos::Platform)
-    add_library(NanoRos::Platform ALIAS nros_platform_foo_iface)
-endif()
-
-function(nros_platform_link_app target)
-    # Per-app fixups go here. Linker scripts, startup objects, ISR
-    # vectors. Delegate to cmake/board/nano-ros-board-${NROS_BOARD}.cmake
-    # when the platform supports multiple boards.
-    if(DEFINED NROS_BOARD)
-        include("${CMAKE_CURRENT_LIST_DIR}/../board/nano-ros-board-${NROS_BOARD}.cmake")
-        if(COMMAND nros_board_link_app)
-            nros_board_link_app(${target})
-        endif()
-    endif()
-endfunction()
-</code></pre>
-<p>That’s it. The root CMakeLists picks up the new platform automatically
-— the validation block resolves <code>cmake/platform/nano-ros-foo.cmake</code> and
-fatals out only when no such file exists.</p>
-<h2 id="board-overlays"><a class="header" href="#board-overlays">Board overlays</a></h2>
-<p>When your platform spans multiple boards (different MCUs, link scripts,
-peripheral inits), carve a board overlay:</p>
-<pre><code>nano-ros/cmake/board/nano-ros-board-&lt;board&gt;.cmake
-</code></pre>
-<p>Board overlays provide <code>nros_board_link_app(target)</code> and run
-<strong>inside</strong> <code>nros_platform_link_app</code> when the user sets <code>NROS_BOARD</code>.
-The board layer owns:</p>
+<p><strong>Needs first:</strong> <a href="../background/how-a-build-becomes-an-image.html">How a build becomes an image</a></p>
+<p>You have an RTOS or a bare-metal environment that nano-ros has no platform
+for. A platform is the layer under the RMW backend: the clock, sleep, heap,
+threads and sockets, exposed as free C functions named <code>nros_platform_*</code>. By
+the end of this page your port implements those functions, a board names the
+platform, and an image runs on it.</p>
+<p>Today a platform is registered inside nano-ros itself, so the last part of
+this task is a contribution to nano-ros, not a package you keep on your own.
+Step 5 says what that contribution touches.</p>
+<h2 id="before-you-start"><a class="header" href="#before-you-start">Before you start</a></h2>
 <ul>
-<li>Linker script selection (<code>target_link_options(${target} PRIVATE -T&lt;script&gt;)</code>)</li>
-<li>Startup object emission (<code>crt0.o</code>, vector table, etc.)</li>
-<li>MCU-specific final-link flags</li>
+<li>Check that you need a platform. If your RTOS is one nano-ros supports
+(FreeRTOS, Zephyr, NuttX, ThreadX, bare metal, POSIX), you need a board
+instead: <a href="add-a-board.html">Add a board</a>.</li>
+<li>Know what your RMW backend asks of the platform. XRCE-DDS needs a clock and
+its transport. zenoh-pico needs the whole surface: a heap of about 64 KB,
+threads (or single-thread stubs), sockets, a random source and wall time.
+Cyclone DDS binds the platform’s own socket stack rather than these
+functions.</li>
+<li>Have the headers that specify the ABI at hand. They live in
+<code>packages/platform/nros-platform-api/include/nros/</code> of nano-ros:
+<code>platform.h</code> (clock, sleep, heap, threads, random, time, critical section),
+<code>platform_net.h</code> (sockets) and <code>platform_timer.h</code> (periodic timers). The
+<a href="../reference/platform-api.html">Platform API and C ABI</a> reference links
+their rendered documentation.</li>
 </ul>
-<p>See <code>cmake/board/nano-ros-board-mps2-an385-baremetal.cmake</code> for a working example.</p>
-<h2 id="where-the-existing-layer-2-helpers-live"><a class="header" href="#where-the-existing-layer-2-helpers-live">Where the existing layer-2 helpers live</a></h2>
-<p>For RTOS ports that compose the kernel + netstack + glue inside CMake
-(FreeRTOS, ThreadX, NuttX), the per-RTOS helper functions
-(<code>nros_freertos_build_kernel</code>, <code>nros_threadx_compose_platform</code>, …)
-stay at <code>packages/api/nros-c/cmake/nros-&lt;rtos&gt;.cmake</code>. The
-modules <code>include(...)</code> those helpers — the per-platform file is the
-<strong>dispatch entry</strong>, not the implementation.</p>
+<h2 id="steps"><a class="header" href="#steps">Steps</a></h2>
+<ol>
+<li>
+<p>Scaffold the platform package:</p>
+<pre><code class="language-sh">nros new platform myos
+</code></pre>
+<pre><code class="language-text">  created .../nros-platform-myos/Cargo.toml
+  created .../nros-platform-myos/src/lib.rs
+  created .../nros-platform-myos/nros-platform.toml
+platform package `myos` scaffolded — next: fill in clock/sleep, then a board package: `nros new board &lt;board&gt; --for-platform myos`
+</code></pre>
+<p><code>src/lib.rs</code> holds stubs for the first three functions a port needs, a
+monotonic <code>clock_ns</code>, its <code>clock_resolution_ns</code>, and <code>sleep_ms</code>.</p>
+</li>
+<li>
+<p>Choose how you implement the ABI. Both ways produce the same symbols, and
+the code above the platform cannot tell them apart.</p>
+<ul>
+<li><strong>In C.</strong> Write the bodies against your kernel’s own API, as the
+FreeRTOS, NuttX, ThreadX, Zephyr and POSIX ports do, in <code>src/platform.c</code>,
+<code>src/net.c</code> and <code>src/timer.c</code>. This is the natural fit when the kernel
+ships C headers and you build with its C toolchain.</li>
+<li><strong>In Rust.</strong> Implement the traits of <code>nros-platform-api</code>
+(<code>PlatformClock</code>, <code>PlatformAlloc</code>, <code>PlatformSleep</code>,
+<code>PlatformThreading</code>, …) on a marker type, then export them with the
+macros of <code>nros-platform-cffi</code>:
+<code>nros_platform_export!(MyOsPlatform)</code>, and
+<code>nros_platform_export_net!</code> and <code>nros_platform_export_timer!</code> for the
+network and timer headers. The bare-metal ports do this, because there is
+no kernel to write C against.</li>
+</ul>
+</li>
+<li>
+<p>Implement every function the three headers declare. A port that leaves one
+out fails to link. When your kernel lacks a primitive, return the value the
+header documents for it: <code>nros_platform_task_init</code> returns
+<code>NROS_PLATFORM_RET_UNSUPPORTED</code> on a port with no tasks, and
+<code>nros_platform_epoch_us</code> returns <code>0</code> with no wall clock. Four rules catch
+most ports:</p>
+<ul>
+<li>The clock reads a hardware timer or the kernel tick, never a counter
+that only moves when something polls it.</li>
+<li>Both mutex kinds inherit priority, as every supported port’s do. The
+recursive kind lets the same thread lock again: zenoh-pico needs it.</li>
+<li>The random source is seeded from something that differs between two
+boards (entropy, an address, the wall clock), not from a constant.</li>
+<li>Nothing panics or throws across the C boundary. Return the error codes
+the header names.</li>
+</ul>
+</li>
+<li>
+<p>State the platform’s facts in <code>nros-platform.toml</code>. <code>[capabilities]</code> holds
+what the software stack can do (<code>ip_stack</code>, <code>serial</code>, <code>threads</code>, …): a
+transport that needs a capability the platform declares <code>false</code> is refused
+when the image is configured. Settings any C build on the platform needs
+go at the top of the file, before any table: <code>arch_profiles</code>, <code>compile</code>
+and <code>required_env</code>. Leave the <code>[knobs.*]</code> defaults alone until you have
+measured a reason to change one. An empty file is valid.</p>
+</li>
+<li>
+<p>Register the platform in nano-ros. This is the part that changes nano-ros,
+and it is a pull request, built as <a href="../internals/orientation/contributing.html">Contributing</a>
+describes. It touches:</p>
+<ul>
+<li><code>nros-platform</code>: a <code>platform-myos</code> feature that pulls in your crate, and
+its entry in the list that resolves <code>ConcretePlatform</code>. A port that
+ships only C can use the existing <code>platform-cffi</code> feature, which takes
+the symbols from whatever library the image links.</li>
+<li>zenoh-pico, when the platform carries it: an ABI marker feature on
+<code>zpico-sys</code> (<code>myos = []</code>), and a <code>[port.myos]</code> row in the zenoh
+backend’s <code>nros-rmw.toml</code> that says which zenoh-pico system sources,
+defines and include paths build there. Start from the nearest platform’s
+row. XRCE-DDS needs no row: it selects its sources by target.</li>
+<li>CMake, for C and C++ images: <code>cmake/platform/nano-ros-myos.cmake</code>, which
+defines the <code>NanoRos::Platform</code> alias, the
+<code>nros_platform_&lt;plat&gt;_iface</code> target behind it, the
+<code>nros_platform_link_app(target)</code> function for per-image link fixups, and
+the <code>NROS_PLATFORM_LINK_FEATURES</code> default.</li>
+</ul>
+</li>
+<li>
+<p>Add a board that names the platform, as <a href="add-a-board.html">Add a board</a>
+describes, with <code>platform = "myos"</code> in its descriptor.</p>
+</li>
+<li>
+<p>Build and run the talker on that board, and check it against a stock ROS 2
+peer:</p>
+<pre><code class="language-sh">nros new sensor_ws --board my-board --template talker
+cd sensor_ws
+nros run sensor_node
+</code></pre>
+<p>On hardware, use <code>nros flash --monitor</code> instead of <code>nros run</code>.</p>
+</li>
+</ol>
+<h2 id="example"><a class="header" href="#example">Example</a></h2>
+<p>The first functions of a C port, for a kernel called MyOS. Each body is one
+kernel call; the opaque storage the runtime passes in holds the kernel’s own
+handle:</p>
+<pre><code class="language-c">#include &lt;nros/platform.h&gt;
+#include "myos.h"
+
+uint64_t nros_platform_clock_ns(void) {
+    return (uint64_t)myos_tick_count() * 1000000u;   /* 1 kHz tick */
+}
+
+uint64_t nros_platform_clock_resolution_ns(void) {
+    return 1000000u;                                  /* say the tick honestly */
+}
+
+uint64_t nros_platform_epoch_us(void) {
+    return 0;                                         /* no wall clock */
+}
+
+void *nros_platform_alloc(size_t size)              { return myos_malloc(size); }
+void *nros_platform_realloc(void *ptr, size_t size) { return myos_realloc(ptr, size); }
+void  nros_platform_dealloc(void *ptr)              { myos_free(ptr); }
+
+void nros_platform_sleep_ms(size_t ms) { myos_task_delay(ms); }
+
+int8_t nros_platform_mutex_rec_init(void *m) {
+    myos_mutex_t *mx = (myos_mutex_t *)m;
+    *mx = myos_mutex_create_recursive();
+    return *mx ? NROS_PLATFORM_RET_OK : NROS_PLATFORM_RET_ERROR;
+}
+
+/* ... every other function declared in platform.h, platform_net.h and
+ *     platform_timer.h ... */
+</code></pre>
+<p>The complete ports are the working examples. The POSIX port,
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/platform/nros-platform-posix"><code>nros-platform-posix</code></a>,
+is the reference C port. The FreeRTOS port,
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/platform/nros-platform-freertos"><code>nros-platform-freertos</code></a>,
+shows tasks, recursive mutexes and condition variables on an RTOS, and
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/platform/nros-platform-mps2-an385"><code>nros-platform-mps2-an385</code></a>
+is a Rust port for bare metal.</p>
+<h2 id="if-it-doesnt-work"><a class="header" href="#if-it-doesnt-work">If it doesn’t work</a></h2>
+<ul>
+<li><strong>Timeouts never fire, or fire all at once.</strong> The clock advances only when
+something polls it. Read a free-running hardware timer.</li>
+<li><strong>The session opens, then deadlocks.</strong> A mutex zenoh-pico takes twice is not
+recursive.</li>
+<li><strong>Two boards on one network cannot talk.</strong> Both seeded the random source
+with the same constant, so they opened sessions with the same id.</li>
+<li><strong>Silent memory corruption on an RTOS.</strong> A task stack is too small; an RTOS
+has no guard page. Size it from a measured overflow, not by copying a
+number.</li>
+<li><strong>Duplicate <code>z_*</code> symbols at link.</strong> The RTOS vendor’s own zenoh-pico
+system layer already defines them, and so does nano-ros’s alias layer.
+Turn the <code>platform-aliases</code> feature of <code>zpico-sys</code> off for that platform.</li>
+<li><strong>Under QEMU, timeouts fire before packets arrive.</strong> Run the machine with
+<code>-icount shift=auto</code>, so virtual time keeps wall-clock pace while the guest
+sleeps.</li>
+</ul>
+<p>Internals keeps the longer list of lessons from the in-tree ports:
+<a href="../internals/platform/porting-pitfalls.html">Platform porting pitfalls</a>.</p>
 <h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
 <ul>
-<li><a href="./custom-platform.html">Custom Platform</a> — Rust-side trait
-implementations (clock, alloc, threading, networking)</li>
-<li><a href="./custom-board.html">Custom Board Package</a> — the Rust board crate that
-carries the linker script and board-specific drivers</li>
-<li><a href="../guide/build/existing-cmake-or-vendor-tree.html#add-nano-ros-to-a-cmake-tree">Build inside an existing CMake or vendor tree</a>
-— user-facing intro to <code>add_subdirectory(nano-ros)</code></li>
+<li><a href="../reference/platform-api.html">Platform API and C ABI</a>: the headers, the
+capability groups and the ports to copy.</li>
+<li><a href="../reference/matrices/platform-differences.html">Platform differences</a>: the
+clock, allocator, threading and network of each supported platform.</li>
+<li><a href="add-a-transport.html">Add a transport</a>: for a link that needs no platform
+of its own.</li>
+<li><a href="../internals/platform/platform-api-design.html">Internals → Platform API design</a>:
+why the ABI is free symbols, and why threads and sockets stay per kernel.</li>
+</ul>
+<h2 id="design-background"><a class="header" href="#design-background">Design background</a></h2>
+<ul>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0034-platform-layer-split.md">RFC-0034: platform layer split</a>: the scalar and opaque-struct services</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0049-hierarchical-platform-board-config.md">RFC-0049: hierarchical platform and board config</a>: <code>nros-platform.toml</code> and its resolution ladder</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0054-c-header-abi-ssot.md">RFC-0054: C header ABI single source of truth</a>: why the headers are canonical</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0073-platform-clock-nanoseconds-and-resolution.md">RFC-0073: platform clock in nanoseconds</a>: <code>clock_ns</code> and its resolution</li>
 </ul>
 <style>
 .nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;
@@ -298,11 +390,11 @@ carries the linker script and board-specific drivers</li>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../extending/custom-platform.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../extending/add-a-board.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../extending/porting-pitfalls.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../extending/add-a-transport.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -312,11 +404,11 @@ carries the linker script and board-specific drivers</li>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../extending/custom-platform.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../extending/add-a-board.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../extending/porting-pitfalls.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../extending/add-a-transport.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
