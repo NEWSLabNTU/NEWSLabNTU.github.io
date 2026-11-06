@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Safety Protocol - nano-ros Book</title>
+        <title>Safety - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b145198d.js";
+            window.path_to_searchindex_js = "../searchindex-7a587ffb.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ac62b82d.js"></script>
+        <script src="../toc-e88a723f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,187 +177,171 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="e2e-safety-protocol"><a class="header" href="#e2e-safety-protocol">E2E Safety Protocol</a></h1>
+                        <h1 id="safety"><a class="header" href="#safety">Safety</a></h1>
 <div class="nros-level-badge" data-type="explanation" data-level="3"><span class="nros-level-type">Explanation</span> · <span class="nros-level-name">Level 3: Production and tuning</span></div>
 
-<blockquote>
-<p>The <code>safety-e2e</code> feature described in this document has been implemented.
-It is available in <code>nros-rmw</code>, <code>nros-node</code>, and the top-level <code>nros</code> crate.</p>
-</blockquote>
-<h2 id="problem-statement"><a class="header" href="#problem-statement">Problem Statement</a></h2>
-<p>nano-ros treats zenoh as a trusted transport. Messages are serialized (CDR), transmitted over zenoh, and deserialized without any integrity verification. In safety-critical deployments (Autoware safety island), the transport channel must be treated as <strong>untrusted</strong> – the EN 50159 “black channel” principle.</p>
-<p>Without E2E protection:</p>
-<ul>
-<li>No CRC or checksum on message payloads (corruption undetected)</li>
-<li>No subscriber-side sequence tracking (message loss undetected)</li>
-<li>No duplicate detection (message repetition undetected)</li>
-<li>No freshness validation (stale messages accepted silently)</li>
-<li>No source authentication (masquerade undetected)</li>
-</ul>
-<h2 id="existing-infrastructure"><a class="header" href="#existing-infrastructure">Existing Infrastructure</a></h2>
-<p>The nano-ros transport layer carries metadata that partially addresses these concerns, but historically only on the publisher side.</p>
-<h3 id="rmw-attachment-33-bytes"><a class="header" href="#rmw-attachment-33-bytes">RMW Attachment (33 bytes)</a></h3>
-<p>Every published message includes a zenoh attachment with:</p>
+<p>The safety example workspace turns on end-to-end message integrity with one
+line in its bringup:</p>
+<pre><code class="language-toml"># src/demo_bringup/system.toml
+[system]
+features = ["safety"]
+</code></pre>
+<p>Its talker is a plain talker. Its listener declares a validated subscription
+and reads a verdict with every message:</p>
+<pre><code class="language-rust ignore">if let Some(status) = ctx.integrity() {
+    if status.is_valid() {
+        // CRC matched, no sequence gap, not a duplicate
+    } else {
+        state.integrity_faults += 1;
+    }
+}</code></pre>
+<p>Where does that verdict come from, what does it protect against, and what
+does it not? This page explains the end-to-end (E2E) safety protocol: a
+CRC-32 and a sequence check on every sample, added by the runtime, with no
+code in the node that publishes.</p>
+<h2 id="the-transport-is-a-black-channel"><a class="header" href="#the-transport-is-a-black-channel">The transport is a black channel</a></h2>
+<p>A ROS 2 transport is trusted: a message is serialized, sent and deserialized
+with no check that it arrived intact, in order and once. A safety-related
+deployment cannot assume that. EN 50159, the railway standard for
+communication over an untrusted channel, treats the transport as a <strong>black
+channel</strong>: whatever is in between may corrupt, repeat, drop, insert, reorder
+or delay a message, or pretend to be another sender. The defence lives at the
+two ends, not in the channel.</p>
+<p>nano-ros already sends most of what the ends need. Every zenoh sample carries
+a 33-byte attachment, for interoperability with <code>rmw_zenoh_cpp</code>:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Offset</th><th>Size</th><th>Field</th><th>Purpose</th></tr>
+<tr><th>Bytes</th><th>Field</th><th>Purpose</th></tr>
 </thead>
 <tbody>
-<tr><td>0-7</td><td>8</td><td><code>sequence_number</code> (i64 LE)</td><td>Monotonically increasing per publisher</td></tr>
-<tr><td>8-15</td><td>8</td><td><code>timestamp</code> (i64 LE, nanos)</td><td>Publication time</td></tr>
-<tr><td>16</td><td>1</td><td>VLE length (always 16)</td><td>GID size prefix</td></tr>
-<tr><td>17-32</td><td>16</td><td><code>rmw_gid</code></td><td>Random per-publisher identifier</td></tr>
+<tr><td>0–7</td><td>sequence number (i64)</td><td>increases by one per publisher</td></tr>
+<tr><td>8–15</td><td>timestamp (i64, ns)</td><td>publication time</td></tr>
+<tr><td>16</td><td>length prefix (always 16)</td><td></td></tr>
+<tr><td>17–32</td><td><code>rmw_gid</code></td><td>random per-publisher identifier</td></tr>
 </tbody>
 </table>
 </div>
-<p>This exists for rmw_zenoh_cpp interoperability. Without <code>safety-e2e</code>, the subscriber parses it into <code>MessageInfo</code> but does not validate sequence continuity, freshness, or source identity.</p>
-<h3 id="message-data-flow"><a class="header" href="#message-data-flow">Message Data Flow</a></h3>
-<pre><code>Publisher side:
-  User msg -&gt; CdrWriter::serialize() -&gt; CDR payload (with 4-byte header)
-  CDR payload -&gt; ShimPublisher::publish_raw()
-    -&gt; Compute seq++, timestamp
-    -&gt; Serialize 33-byte RMW attachment
-    -&gt; zenoh publish(payload, attachment)
-
-Subscriber side:
-  zenoh callback -&gt; Copy payload + attachment to static SubscriberBuffer
-  User calls take_serialized() -&gt; Copy from static buffer to user buffer
-  User buffer -&gt; CdrReader::deserialize() -&gt; User msg
-  (Attachment parsed into MessageInfo but NOT validated without safety-e2e)
-</code></pre>
-<h3 id="key-observations"><a class="header" href="#key-observations">Key Observations</a></h3>
-<ol>
-<li><strong>Sequence numbers exist</strong> but are only checked by subscribers when <code>safety-e2e</code> is enabled.</li>
-<li><strong>Timestamps exist</strong> but freshness validation requires a clock source (deferred).</li>
-<li><strong>Publisher GID exists</strong> but source authentication requires a registration mechanism.</li>
-<li><strong>CRC is added by the <code>safety-e2e</code> feature.</strong> It is computed over the CDR payload and appended to the attachment.</li>
-<li>The attachment travels out-of-band from the CDR payload in zenoh. This is beneficial – the CRC in the attachment provides a diverse check (different data paths).</li>
-</ol>
-<h2 id="en-50159-threat-model"><a class="header" href="#en-50159-threat-model">EN 50159 Threat Model</a></h2>
-<p>EN 50159 defines 7 threat classes for communication over untrusted channels:</p>
+<p>Without the feature, the subscriber parses this into the message info and
+checks nothing. With it, the publisher adds one field and the subscriber
+validates.</p>
+<h2 id="what-the-feature-adds"><a class="header" href="#what-the-feature-adds">What the feature adds</a></h2>
+<p><code>features = ["safety"]</code> turns on the <code>safety-e2e</code> feature of the runtime, and
+<code>NROS_SAFETY_E2E</code> for a C or C++ build. Then:</p>
+<ul>
+<li><strong>The publisher</strong> computes a CRC-32 over the serialized CDR payload and
+appends it to the attachment, which grows to 37 bytes. The payload format
+does not change. The CRC travels in the attachment, out of band from the
+payload it covers, so it is checked over a different data path.</li>
+<li><strong>The subscriber</strong> recomputes the CRC over the payload it received and
+compares, and tracks the sequence number it expects next. Each message gets
+an <code>IntegrityStatus</code>:</li>
+</ul>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Threat</th><th>EN 50159 Defense</th><th>Integration Approach</th></tr>
+<tr><th>Field</th><th>Meaning</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>Corruption</strong></td><td>CRC</td><td>CRC-32 covering CDR payload, stored in extended attachment</td></tr>
-<tr><td><strong>Repetition</strong></td><td>Sequence number</td><td>Subscriber tracks expected sequence, flags duplicates</td></tr>
-<tr><td><strong>Deletion</strong></td><td>Seq + timeout</td><td>Subscriber detects sequence gaps</td></tr>
-<tr><td><strong>Insertion</strong></td><td>Seq + auth</td><td>Sequence validation rejects unexpected messages</td></tr>
-<tr><td><strong>Resequencing</strong></td><td>Sequence number</td><td>Subscriber validates monotonic sequence</td></tr>
-<tr><td><strong>Delay</strong></td><td>Timestamp/timeout</td><td>Subscriber compares message timestamp to current time</td></tr>
-<tr><td><strong>Masquerade</strong></td><td>Authentication</td><td>Subscriber validates expected source GID</td></tr>
+<tr><td><code>gap</code></td><td>how many messages were lost before this one (0 is normal)</td></tr>
+<tr><td><code>duplicate</code></td><td>the sequence number is below the expected one</td></tr>
+<tr><td><code>crc_valid</code></td><td><code>Some(true)</code> matched, <code>Some(false)</code> corrupted, <code>None</code> no CRC sent</td></tr>
 </tbody>
 </table>
 </div>
-<p>5 of 7 defenses only require subscriber-side validation of data that already exists in the attachment. Only CRC requires new publisher-side computation.</p>
-<h2 id="crc-architecture"><a class="header" href="#crc-architecture">CRC Architecture</a></h2>
-<p>The <code>safety-e2e</code> feature extends the zenoh attachment from 33 to 37 bytes:</p>
-<pre><code>Existing attachment (33 bytes):
-  [seq:8][timestamp:8][vle:1][gid:16]
-
-Extended attachment (37 bytes):
-  [seq:8][timestamp:8][vle:1][gid:16][crc32:4]
-</code></pre>
-<p>The CRC covers the CDR payload bytes (not the attachment itself).</p>
-<h3 id="algorithm-crc-32iso-hdlc"><a class="header" href="#algorithm-crc-32iso-hdlc">Algorithm: CRC-32/ISO-HDLC</a></h3>
-<p>Standard Ethernet CRC (polynomial 0xEDB88320 reflected), used by both AUTOSAR E2E Profile 1/2 and EN 50159. The 1KB lookup table is <code>const</code>-generated at compile time. Deterministic execution time for WCET analysis.</p>
-<h3 id="interoperability"><a class="header" href="#interoperability">Interoperability</a></h3>
-<ul>
-<li>rmw_zenoh_cpp reads exactly 33 bytes using VLE parsing – extra bytes are ignored</li>
-<li>nano-ros without <code>safety-e2e</code> reads 33 bytes – succeeds normally</li>
-<li>nano-ros with <code>safety-e2e</code> reads 37 bytes – extracts CRC from bytes 33-36</li>
-</ul>
-<h2 id="subscriber-side-validation"><a class="header" href="#subscriber-side-validation">Subscriber-Side Validation</a></h2>
-<h3 id="sequence-tracking"><a class="header" href="#sequence-tracking">Sequence Tracking</a></h3>
-<p>The subscriber maintains an <code>expected_seq</code> counter (initialized to -1). On each received message:</p>
-<ul>
-<li><strong>First message</strong>: initializes <code>expected_seq</code> to <code>message_seq + 1</code></li>
-<li><strong>Contiguous</strong>: <code>message_seq == expected_seq</code> – normal delivery</li>
-<li><strong>Duplicate</strong>: <code>message_seq &lt; expected_seq</code> – flagged in <code>IntegrityStatus</code></li>
-<li><strong>Gap</strong>: <code>message_seq &gt; expected_seq</code> – gap count reported in <code>IntegrityStatus</code></li>
-</ul>
-<h3 id="crc-validation"><a class="header" href="#crc-validation">CRC Validation</a></h3>
-<p>If the attachment is longer than 33 bytes, the subscriber extracts the CRC-32 from bytes 33-36 and compares it against a locally computed CRC of the received payload. If the attachment is 33 bytes (legacy or ROS 2 publisher), <code>crc_valid</code> is <code>None</code>.</p>
-<h2 id="feature-integration"><a class="header" href="#feature-integration">Feature Integration</a></h2>
-<p>The <code>safety-e2e</code> feature flag propagates through the crate hierarchy:</p>
-<pre><code>nros (top-level) -&gt; nros-node -&gt; nros-rmw
-  safety-e2e        safety-e2e   safety-e2e
-</code></pre>
-<h3 id="changes-by-layer"><a class="header" href="#changes-by-layer">Changes by layer</a></h3>
-<p><strong><code>nros-rmw</code></strong> (core changes):</p>
-<ul>
-<li><code>safety</code> module: CRC-32 function, <code>IntegrityStatus</code> type, <code>SafetyValidator</code> state tracker</li>
-<li><code>ShimPublisher::publish_raw()</code>: computes CRC and extends attachment to 37 bytes</li>
-<li><code>SubscriberBuffer</code>: attachment buffer sized to 37 bytes</li>
-<li><code>ShimSubscriber</code>: <code>SafetyValidator</code> field, <code>take_validated()</code> method</li>
-</ul>
-<p><strong><code>nros-node</code></strong> (API surface):</p>
-<ul>
-<li><code>ShimNodeSubscription</code>: <code>take_validated()</code> returning the message + <code>IntegrityStatus</code></li>
-</ul>
-<p><strong>Unchanged</strong>:</p>
-<ul>
-<li>CDR serialization (<code>nros-serdes</code>) – payload format unchanged</li>
-<li>Core types (<code>nros-core</code>) – no new traits needed</li>
-<li>Zenoh backend (<code>nros-rmw-zenoh</code>) – attachment handling supports variable sizes</li>
-<li>Existing <code>take()</code> API – unchanged behavior</li>
-</ul>
-<h3 id="memory-impact"><a class="header" href="#memory-impact">Memory Impact</a></h3>
+<p><code>is_valid()</code> is true when there is no gap, no duplicate, and the CRC is
+correct or absent. The first message a subscriber sees sets the expected
+sequence, so joining late is not a gap.</p>
+<p>The CRC is CRC-32/ISO-HDLC, the Ethernet polynomial, through a lookup table
+generated at compile time. Its execution time does not depend on the data,
+only on its length, which suits timing analysis. The cost is a 1 KB table in
+read-only memory, four more attachment bytes per subscriber buffer, and a
+16-byte validator per subscriber.</p>
+<p>The plain <code>take()</code> path is unchanged. Only a subscription declared with
+safety (<code>create_subscription_for_callback_name_with_safety</code> for a declarative
+node, <code>take_validated</code> for a polled one, and the matching C and C++ forms)
+returns a verdict.</p>
+<h2 id="what-it-protects-against-and-what-it-does-not"><a class="header" href="#what-it-protects-against-and-what-it-does-not">What it protects against, and what it does not</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Component</th><th>Without <code>safety-e2e</code></th><th>With <code>safety-e2e</code></th></tr>
+<tr><th>Threat (EN 50159)</th><th>Defence</th><th>In nano-ros</th></tr>
 </thead>
 <tbody>
-<tr><td>CRC-32 lookup table</td><td>0</td><td>+1024 bytes (.rodata)</td></tr>
-<tr><td>Subscriber attachment buffers (8x)</td><td>8 x 33 = 264 bytes</td><td>8 x 37 = 296 bytes (+32)</td></tr>
-<tr><td>SafetyValidator per subscriber (8x)</td><td>0</td><td>8 x ~24 = 192 bytes</td></tr>
-<tr><td><strong>Total</strong></td><td>–</td><td><strong>+1248 bytes</strong></td></tr>
+<tr><td>Corruption</td><td>CRC</td><td>yes: <code>crc_valid</code></td></tr>
+<tr><td>Repetition</td><td>sequence number</td><td>yes: <code>duplicate</code></td></tr>
+<tr><td>Deletion</td><td>sequence number</td><td>yes: <code>gap</code></td></tr>
+<tr><td>Resequencing</td><td>sequence number</td><td>yes: a late message reads as a duplicate</td></tr>
+<tr><td>Insertion</td><td>sequence and source</td><td>partly: an unexpected sequence number shows as a gap or a duplicate</td></tr>
+<tr><td>Delay</td><td>timestamp and timeout</td><td><strong>no</strong>: the timestamp is sent but not checked</td></tr>
+<tr><td>Masquerade</td><td>source authentication</td><td><strong>no</strong>: the GID is sent but not checked</td></tr>
 </tbody>
 </table>
 </div>
-<h2 id="ros-2-interoperability"><a class="header" href="#ros-2-interoperability">ROS 2 Interoperability</a></h2>
+<p>Freshness needs a clock both ends agree on, and source authentication needs
+the subscriber to know which publishers to expect. Neither is built. The
+protocol also has no state machine across messages: each message is valid or
+not on its own, and what the application does after a run of faults is the
+application’s decision. A watchdog that supervises liveness and deadlines is
+separate from this protocol.</p>
+<h2 id="interoperability"><a class="header" href="#interoperability">Interoperability</a></h2>
+<p>The protocol never breaks a peer that lacks it. <code>rmw_zenoh_cpp</code> and a
+nano-ros image without the feature read the first 33 bytes of the attachment
+and ignore the rest.</p>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Sender</th><th>Receiver</th><th>CRC</th><th>Sequence</th><th>Result</th></tr>
 </thead>
 <tbody>
-<tr><td>nano-ros (safety)</td><td>nano-ros (safety)</td><td>Validated</td><td>Tracked</td><td>Full E2E protection</td></tr>
-<tr><td>nano-ros (safety)</td><td>nano-ros (no safety)</td><td>Ignored</td><td>Not tracked</td><td>Works, no protection</td></tr>
-<tr><td>nano-ros (safety)</td><td>ROS 2 (rmw_zenoh)</td><td>Ignored</td><td>Not tracked</td><td>Works, no protection</td></tr>
-<tr><td>nano-ros (no safety)</td><td>nano-ros (safety)</td><td>None</td><td>Tracked</td><td>Partial (seq only)</td></tr>
-<tr><td>ROS 2 (rmw_zenoh)</td><td>nano-ros (safety)</td><td>None</td><td>Tracked</td><td>Partial (seq only)</td></tr>
+<tr><td>nano-ros with safety</td><td>nano-ros with safety</td><td>checked</td><td>tracked</td><td>full protection</td></tr>
+<tr><td>nano-ros with safety</td><td>nano-ros without, or ROS 2</td><td>ignored</td><td>not tracked</td><td>works, no protection</td></tr>
+<tr><td>nano-ros without, or ROS 2</td><td>nano-ros with safety</td><td><code>None</code></td><td>tracked</td><td>sequence only</td></tr>
 </tbody>
 </table>
 </div>
-<p>No interoperability is broken. Safety degrades gracefully when one side doesn’t support it.</p>
-<h2 id="autosar-e2e-comparison"><a class="header" href="#autosar-e2e-comparison">AUTOSAR E2E Comparison</a></h2>
+<p>So mixing protected and unprotected nodes degrades protection; it never
+stops traffic. A safety argument has to check that every link it relies on is
+protected at both ends, because nothing on the wire will refuse an
+unprotected one.</p>
+<p>The CRC path lives in the zenoh backend, which is why the safety workspace
+also states <code>rmw = "zenoh"</code>: the protocol is zenoh-only.</p>
+<h2 id="compared-with-autosar-e2e"><a class="header" href="#compared-with-autosar-e2e">Compared with AUTOSAR E2E</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Feature</th><th>AUTOSAR E2E P01</th><th>AUTOSAR E2E P02</th><th>nano-ros E2E</th></tr>
+<tr><th></th><th>AUTOSAR E2E profiles 1 and 2</th><th>nano-ros</th></tr>
 </thead>
 <tbody>
-<tr><td>CRC</td><td>CRC-8 (8-bit)</td><td>CRC-8 (8-bit)</td><td>CRC-32 (32-bit, stronger)</td></tr>
-<tr><td>Counter</td><td>4-bit (0-14)</td><td>4-bit (0-14)</td><td>64-bit (i64, no rollover in practice)</td></tr>
-<tr><td>Data ID</td><td>16-bit</td><td>16-bit</td><td>128-bit GID (stronger)</td></tr>
-<tr><td>Alive counter</td><td>Yes</td><td>Yes</td><td>Yes (via sequence)</td></tr>
-<tr><td>Timeout</td><td>Configurable</td><td>Configurable</td><td>Deferred (needs clock abstraction)</td></tr>
-<tr><td>State machine</td><td>E2E_SM</td><td>Same</td><td>Simpler (valid/invalid per message)</td></tr>
+<tr><td>CRC</td><td>8-bit</td><td>32-bit</td></tr>
+<tr><td>Counter</td><td>4-bit</td><td>64-bit, no rollover in practice</td></tr>
+<tr><td>Data ID</td><td>16-bit</td><td>128-bit GID, sent but not checked</td></tr>
+<tr><td>Timeout</td><td>configurable</td><td>not built</td></tr>
+<tr><td>State machine</td><td>yes</td><td>no: a verdict per message</td></tr>
 </tbody>
 </table>
 </div>
-<p>nano-ros E2E is stronger than AUTOSAR P01/P02 in CRC and counter width, but currently lacks the state machine and timeout features.</p>
-<h2 id="future-extensions"><a class="header" href="#future-extensions">Future Extensions</a></h2>
+<p>The CRC and the counter are wider than those AUTOSAR profiles. The timeout
+and the state machine are missing.</p>
+<h2 id="how-it-is-checked"><a class="header" href="#how-it-is-checked">How it is checked</a></h2>
+<p>The CRC and the validator have Verus proofs: the CRC is deterministic and
+detects a single flipped bit, the expected sequence advances on a normal
+message, a gap is reported as exactly the number of missing messages, and
+<code>is_valid</code> holds exactly when there is no gap, no duplicate and no known-bad
+CRC. The proofs run against a model of the validator’s state, which the
+production tests tie to the real type.</p>
+<h2 id="where-nano-ros-differs-from-ros-2"><a class="header" href="#where-nano-ros-differs-from-ros-2">Where nano-ros differs from ROS 2</a></h2>
+<p>ROS 2’s client libraries and <code>rmw_zenoh</code> do not check a message end to end;
+a ROS 2 subscriber gets the message and its info, and nothing else. nano-ros
+adds the check below the client API, so it is a system feature you declare
+in the bringup, not code in a node. A ROS 2 peer still talks to a protected
+nano-ros node, but its messages carry no CRC, and a protected nano-ros
+publisher’s CRC is invisible to it.</p>
+<h2 id="design-background"><a class="header" href="#design-background">Design background</a></h2>
 <ul>
-<li><strong>Freshness validation</strong>: Requires a <code>MonotonicClock</code> trait and platform implementations. The existing <code>timestamp</code> field already carries the publication time.</li>
-<li><strong>Source authentication</strong>: The <code>rmw_gid</code> (16-byte random publisher ID) can be used for masquerade detection if the subscriber registers expected sources.</li>
-<li><strong>Watchdog supervision</strong>: Separate from E2E protocol – monitors alive heartbeats, deadline completion, and logical execution flow.</li>
-<li><strong>Formal verification</strong>: CRC correctness, sequence tracking invariants, and <code>IntegrityStatus::is_valid()</code> are candidates for Verus proofs.</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0028-e2e-safety-protocol-integration.md">RFC-0028</a>:
+the E2E safety protocol, the threat model and the future extensions
+(freshness, source authentication, watchdog supervision).</li>
 </ul>
 <style>
 .nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;

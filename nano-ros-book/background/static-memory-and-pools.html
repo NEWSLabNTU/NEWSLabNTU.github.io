@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>no_std, alloc, and std - nano-ros Book</title>
+        <title>Static memory and pools - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b145198d.js";
+            window.path_to_searchindex_js = "../searchindex-7a587ffb.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ac62b82d.js"></script>
+        <script src="../toc-e88a723f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,267 +177,194 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="std-and-alloc-requirements"><a class="header" href="#std-and-alloc-requirements">std and alloc Requirements</a></h1>
+                        <h1 id="static-memory-and-pools"><a class="header" href="#static-memory-and-pools">Static memory and pools</a></h1>
 <div class="nros-level-badge" data-type="explanation" data-level="3"><span class="nros-level-type">Explanation</span> · <span class="nros-level-name">Level 3: Production and tuning</span></div>
 
-<p>This document maps which parts of the nano-ros API require the <code>std</code> or <code>alloc</code>
-Cargo features. All core crates are <code>#![no_std]</code> by default and gate
-std/alloc-dependent code behind feature flags.</p>
-<h2 id="feature-hierarchy"><a class="header" href="#feature-hierarchy">Feature Hierarchy</a></h2>
-<pre><code>std  (default)
- └─ alloc
-     └─ (base no_std)
+<p>The memory report of a hosted zenoh image lists its largest RAM symbols
+first:</p>
+<pre><code class="language-text">## top 5 RAM symbols
+
+       131,072   25.3%  nros_rmw_zenoh::shim::subscriber::LARGE_PAYLOADS
+        88,560   17.1%  linux_entry::__nros_entry_run::__NROS_SCHED_TASK_EXECUTOR_BACKING
+        88,552   17.1%  nros_node::executor::backing::EXECUTOR_BACKING
+        87,072   16.8%  g_sessions
+        33,536    6.5%  nros_rmw_zenoh::shim::service::USER_SERVICE_INBOX
 </code></pre>
-<p>Enabling <code>std</code> automatically enables <code>alloc</code>. Enabling <code>alloc</code> does not enable
-<code>std</code>. With <code>--no-default-features</code>, the entire library compiles without
-std or alloc.</p>
-<h2 id="summary-by-crate"><a class="header" href="#summary-by-crate">Summary by Crate</a></h2>
+<p>None of these is a heap. Each is a static array, sized when the image was
+built: a ring of large-message slots, the executor’s storage, the transport’s
+session table, a ring of service requests. Together they are most of the
+image’s RAM, and they are the same size whether the node creates one
+publisher or twenty. This page explains why nano-ros keeps its memory this
+way, where each size comes from, and what still allocates. The task of
+reading your own image is
+<a href="../guide/contracts/measure-static-memory.html">Measure static memory</a>.</p>
+<h2 id="why-static"><a class="header" href="#why-static">Why static</a></h2>
+<p>A microcontroller with 64 KB of RAM has no room for a heap that fragments,
+and a <code>malloc</code> that can fail at run time is a failure a review has to
+account for. So the
+nano-ros core is <code>#![no_std]</code>: the executor, nodes, publishers,
+subscriptions, services, actions, timers, parameters and CDR serialization
+all work with no allocator. Their storage is fixed-size pools, carved at
+build time.</p>
+<p>A pool is an array of slots. Every slot costs its bytes whether an entity
+uses it or not. So an over-provisioned pool is wasted RAM, and an
+under-provisioned one is a create call that fails at run time, when the pool
+is full. Neither failure shows up at the compiler. The design answer is to
+size each pool from what the image declares, rather than from a guess.</p>
+<h2 id="where-a-pools-size-comes-from"><a class="header" href="#where-a-pools-size-comes-from">Where a pool’s size comes from</a></h2>
+<p>The pools that dominate static RAM are <strong>derived per image</strong> from what the
+image’s components declare: the entity inventory of the contract (how many
+publishers, subscribers, services, clients and nodes), the message types they
+use and the parameters they declare. The build writes the answers into the
+image’s generated settings, so you state nothing for them:</p>
+<ul>
+<li>The entity counts size the transport’s publisher, subscriber and queryable
+tables, the liveliness tokens and the executor’s callback slots.</li>
+<li>The message types size the receive buffers: the largest small-class type
+the image subscribes to sets the small slot, and the large class gets its
+own pool, which is zero bytes when no subscribed type is large.</li>
+<li>The executor’s arena, which holds the dispatched callbacks and their
+captures, is sized from the same inventory.</li>
+</ul>
+<p>The transport’s wire buffers, the network stack’s socket pools and the
+parameter store limits are not derived: they depend on your traffic, not on
+your entities, so they are yours to set
+(<a href="../guide/rmw/tune-throughput-and-latency.html">Tune throughput and latency</a>).</p>
+<p>A value you state always wins over a derived one. The order is: an exported
+environment variable, then the image’s <code>[image.&lt;id&gt;.knobs]</code>, then the board
+descriptor’s <code>[knobs]</code>, then the derived value, and the crate’s default only
+when nothing is stated and nothing can be derived. <code>nros config explain</code>
+shows which of these answered for each knob.</p>
+<p>Two properties of the message-derived sizes follow from how they are found:</p>
+<ul>
+<li><strong>They are upper bounds.</strong> The bounds come from every type in the interface
+closure the image links, not only the types it subscribes to, so a size is
+never too small but can be larger than you need. The build names the type
+that set it.</li>
+<li><strong>One unbounded type stops the derivation.</strong> A <code>string</code> or a sequence with
+no bound has no largest size. The build then derives nothing, keeps the
+stated or default values, and names every unbounded type and the member
+that makes it so. Bounding the field in the <code>.msg</code> (<code>string&lt;=64</code>), or
+capping it in <code>nros-codegen.toml</code>, restores it.</li>
+</ul>
+<p>Today some pools are sized by the backend you link rather than by what your
+node does: a publisher-only node still reserves the service pools. An image
+that looks larger than its entities suggest is expected, and turning those
+knobs down is the remedy. The <a href="../reference/static-pool-inventory.html">Static pool inventory</a>
+lists every knob and what it sizes.</p>
+<h2 id="the-three-service-inboxes-zenoh"><a class="header" href="#the-three-service-inboxes-zenoh">The three service inboxes (zenoh)</a></h2>
+<p>The zenoh backend shows how a pool is split so that each part is sized for its
+own traffic. Every service server is a zenoh queryable, and each queryable
+owns an inbox ring: requests wait there between the transport’s read task and
+the executor’s spin. The rings sit in three tables, one per family, so a
+family is sized for its own requests rather than for the largest request any
+service could send:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Crate</th><th>no_std base</th><th>alloc additions</th><th>std additions</th></tr>
+<tr><th>Symbol</th><th>Holds</th><th>One ring is</th><th>Knobs</th></tr>
 </thead>
 <tbody>
-<tr><td>nros-serdes</td><td>CDR ser/de for primitives, <code>heapless</code> types, <code>&amp;str</code>, <code>[T; N]</code></td><td><code>String</code> and <code>Vec&lt;T&gt;</code> ser/de</td><td>(none)</td></tr>
-<tr><td>nros-core</td><td>Time, Duration, Clock (atomic fallback), lifecycle, logger, error types, action types</td><td>(none)</td><td><code>Clock::now()</code> via <code>SystemTime</code>, <code>std::error::Error</code> impls</td></tr>
-<tr><td>nros-rmw</td><td>All traits, QoS, sync primitives, safety/E2E protocol</td><td><code>handle_request_boxed()</code> (Box&lt;Reply&gt;)</td><td>(none)</td></tr>
-<tr><td>nros-params</td><td><code>ParameterServer</code>, <code>ParameterValue</code>, all parameter types (heapless)</td><td>(none)</td><td><code>ParameterVariant</code> impls for <code>std::string::String</code>, <code>std::vec::Vec</code></td></tr>
-<tr><td>nros-node</td><td><code>Executor::open()</code>, <code>create_node()</code>, <code>spin_once()</code>, <code>Promise</code>, pub/sub/service/action, timers (fn pointer callbacks)</td><td>Boxed timer callbacks, <code>handle_request_boxed()</code>, parameter services</td><td><code>spin()</code>, <code>spin_period()</code>, <code>ExecutorConfig::from_env()</code>, halt flag</td></tr>
-<tr><td>nros</td><td>Re-exports from above</td><td>(same as above)</td><td><code>SpinPeriodResult</code> re-export</td></tr>
+<tr><td><code>USER_SERVICE_INBOX</code></td><td>your services</td><td>depth × (slot + 12 B)</td><td><code>NROS_SERVICE_INBOX_BYTES</code>, <code>NROS_SERVICE_INBOX_DEPTH</code></td></tr>
+<tr><td><code>ACTION_INBOX</code></td><td>the four queryables of each action server</td><td>depth × (slot + 12 B)</td><td><code>NROS_ACTION_INBOX_BYTES</code>, <code>NROS_ACTION_INBOX_DEPTH</code></td></tr>
+<tr><td><code>BUILTIN_INBOX</code></td><td>the runtime’s own parameter and lifecycle services</td><td>depth × (slot + 12 B)</td><td><code>NROS_PARAM_SERVICE_INBOX_BYTES</code>, <code>NROS_PARAM_SERVICE_INBOX_DEPTH</code></td></tr>
 </tbody>
 </table>
 </div>
-<h3 id="rmw-backend-crates"><a class="header" href="#rmw-backend-crates">RMW Backend Crates</a></h3>
+<p>The 12 B is a ring entry’s length, sequence and overflow flag. Each table
+holds one ring per queryable of its family, for every session, and the
+image’s queryable pool is partitioned among the three.</p>
+<p>A slot’s size comes from, in order: a value you state; otherwise the largest
+request type the image declares a server for (for user and action services),
+or the largest <code>set_parameters</code> request the declared parameters can produce
+(for the builtin family). With nothing declared, the user and action slots
+keep 1,024 B and the builtin table is empty. A bringup that declares <code>params</code>
+instead of <code>param_services</code> builds the parameter store but registers no
+service, so the builtin family claims no queryable at all.</p>
+<p>On one safety-island image on an S32K344, <code>BUILTIN_INBOX</code> measured 24
+parameter queryables × 1 × (1,016 + 12) = 24,672 B, and <code>USER_SERVICE_INBOX</code>
+fell from 3,744 B to 288 B when those 24 queryables left it. Read your own
+figures off the memory report, not off the formula: the compiler sizes the
+table, so the report is exact.</p>
+<h2 id="the-executors-storage"><a class="header" href="#the-executors-storage">The executor’s storage</a></h2>
+<p>The executor’s own backing is usually the largest single owner in an image
+with several sched tasks: each sched task has an executor, and each executor
+has its storage. The C and C++ entries reserve it as one static sized by a
+generated header (<code>NROS_CPP_EXECUTOR_STORAGE_SIZE</code> for C++), the Rust entry
+as <code>EXECUTOR_BACKING</code>, and each component’s state has a generated slot of
+its own. The executor carves more than callbacks from its backing: when the
+image builds a parameter store, the store, the parameter services’ state,
+their request and reply buffers and the slot a remote set decodes into are
+carved there too. A <code>Promise</code> is allocation-free: it borrows its client’s
+reply slot rather than owning a buffer, so a pending service call costs no
+extra storage.</p>
+<h2 id="what-alloc-adds"><a class="header" href="#what-alloc-adds">What <code>alloc</code> adds</a></h2>
+<p><code>alloc</code> is an opt-in feature. It adds what needs a heap:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Crate</th><th>no_std base</th><th>alloc additions</th><th>std additions</th></tr>
+<tr><th>With <code>alloc</code></th><th>Why</th></tr>
 </thead>
 <tbody>
-<tr><td>nros-rmw-zenoh</td><td>Zenoh-pico RMW implementation, all pub/sub/service/action ops</td><td>(none)</td><td>(none)</td></tr>
-<tr><td>zpico-sys</td><td>FFI bindings to zenoh-pico C library</td><td>(none)</td><td>(none)</td></tr>
-<tr><td>nros-rmw-xrce</td><td>XRCE-DDS RMW implementation, all pub/sub/service/action ops</td><td>(none)</td><td>(none)</td></tr>
-<tr><td>xrce-sys</td><td>FFI bindings to Micro-XRCE-DDS-Client C library</td><td>(none)</td><td>(none)</td></tr>
+<tr><td><code>Serialize</code> and <code>Deserialize</code> for <code>String</code> and <code>Vec&lt;T&gt;</code></td><td>heap containers</td></tr>
+<tr><td>boxed timer callbacks (<code>Box&lt;dyn FnMut()&gt;</code>)</td><td>a closure stored by the timer</td></tr>
+<tr><td><code>handle_request_boxed</code>, a service reply in a <code>Box</code></td><td>a reply too large for the stack</td></tr>
+<tr><td>the blocking <code>Executor::spin</code>, <code>spin_period</code> and <code>halt_flag</code></td><td>a shared halt flag (<code>Arc&lt;AtomicBool&gt;</code>)</td></tr>
+<tr><td>the heap fallback for parameter services, and <code>-p</code> / <code>--params-file</code> overrides</td><td>storage the backing did not carve, and owned override strings</td></tr>
 </tbody>
 </table>
 </div>
-<p>All four backend crates are unconditionally <code>#![no_std]</code> and do not use <code>alloc</code>. The <code>std</code>
-feature gates only <code>extern crate std</code> (for macro availability in transport modules) and
-is propagated through the feature chain but does not add any API surface.</p>
-<h2 id="detailed-api-availability"><a class="header" href="#detailed-api-availability">Detailed API Availability</a></h2>
-<h3 id="always-available-no_std-no-alloc"><a class="header" href="#always-available-no_std-no-alloc">Always Available (no_std, no alloc)</a></h3>
-<p><strong>Executor and Node:</strong></p>
-<ul>
-<li><code>Executor::open(&amp;config)</code> – open RMW session</li>
-<li><code>ExecutorConfig::new(locator)</code> – manual configuration</li>
-<li><code>executor.create_node(name)</code> – create a node</li>
-<li><code>executor.spin_once(timeout_ms)</code> – single spin iteration</li>
-<li><code>executor.spin_period(period)</code> – periodic spin without <code>std::thread::sleep</code></li>
-</ul>
-<p><strong>Two-layer API.</strong> Every entity kind follows one verb discipline:</p>
-<ul>
-<li><strong>Layer 1 (caller polls)</strong> – <code>Node::create_*</code> returns an owned
-handle. Caller drives <code>take</code> / <code>call</code> / <code>try_accept_goal</code> /
-<code>take_request_raw</code> itself. Good for tight RT loops and
-task-per-entity FreeRTOS.</li>
-<li><strong>Layer 2 (executor dispatches)</strong> – <code>Executor::register_*</code>
-takes a closure; <code>spin_once</code> fires it on rx / reply / timer.
-Good for callback-shaped applications.</li>
-</ul>
-<p>Both layers share the same session; mix per entity.</p>
-<p><strong>Publish/Subscribe:</strong></p>
-<ul>
-<li>L1 — <code>node.create_publisher::&lt;M&gt;(topic)</code>,
-<code>node.create_subscription::&lt;M&gt;(topic)</code> (poll with <code>take()</code>)</li>
-<li>L2 — <code>executor.register_timer(period, || publisher.publish(...))</code>,
-<code>executor.register_subscription::&lt;M, _&gt;(topic, |msg| { ... })</code></li>
-<li><code>publisher.publish(&amp;msg)</code> / <code>publish_serialized(&amp;bytes)</code> — publish messages</li>
-</ul>
-<p><strong>Services:</strong></p>
-<ul>
-<li>L1 — <code>node.create_service::&lt;S&gt;(name)</code> (poll with
-<code>handle_request()</code>), <code>node.create_client::&lt;S&gt;(name)</code> +
-<code>client.call(&amp;request)</code> → <code>Promise&lt;Reply&gt;</code> (poll with
-<code>promise.take()</code>, or block on it with <code>promise.wait(&amp;mut executor, timeout)</code>).</li>
-<li>L2 — <code>executor.register_service::&lt;S, _&gt;(name, |req| reply)</code>.
-Service clients keep the L1 <code>Promise</code> shape; the typed
-callback API isn’t surfaced (only <code>register_service_client_raw</code>
-exists for byte-level use).</li>
-</ul>
-<p><strong>Actions:</strong></p>
-<ul>
-<li>L1 — <code>node.create_action_server::&lt;A&gt;(name)</code> +
-<code>try_accept_goal</code> / <code>complete_goal</code>, or
-<code>node.create_action_client::&lt;A&gt;(name)</code> + <code>send_goal</code> →
-<code>Promise&lt;GoalId&gt;</code> / <code>get_result</code> → <code>Promise&lt;(GoalStatus, Result)&gt;</code>.</li>
-<li>L2 — <code>executor.register_action_server::&lt;A, _, _&gt;(name, goal_cb, cancel_cb)</code> returns a handle for publishing feedback
-and completing goals. Action clients keep the L1 <code>Promise</code>
-shape for the same reason as service clients.</li>
-</ul>
-<p><strong>Promises:</strong></p>
-<ul>
-<li><code>Promise&lt;'a, T, Cli&gt;</code> – allocation-free promise, borrows client’s reply slot</li>
-<li><code>Promise::take()</code> – non-blocking poll for reply, while the executor spins</li>
-<li>No async runtime drives the executor: <code>spin_async</code> is retired, because a foreign scheduler, not nano-ros, would decide when callbacks run</li>
-</ul>
-<p><strong>Timers:</strong></p>
-<ul>
-<li><code>TimerHandle</code> with function pointer callbacks (<code>fn()</code>)</li>
-<li><code>TimerDuration</code>, <code>TimerMode</code>, <code>TimerState</code></li>
-</ul>
-<p><strong>Serialization:</strong></p>
-<ul>
-<li><code>CdrWriter</code> / <code>CdrReader</code> – CDR serialization to/from byte buffers</li>
-<li><code>Serialize</code> / <code>Deserialize</code> traits</li>
-<li>Implementations for: <code>bool</code>, <code>u8</code>-<code>u64</code>, <code>i8</code>-<code>i64</code>, <code>f32</code>, <code>f64</code>, <code>char</code>, <code>&amp;str</code>, <code>[T; N]</code>, <code>heapless::String&lt;N&gt;</code>, <code>heapless::Vec&lt;T, N&gt;</code></li>
-</ul>
-<p><strong>Time:</strong></p>
-<ul>
-<li><code>Time::new()</code>, <code>Time::from_nanos()</code>, <code>Time::to_nanos()</code></li>
-<li><code>Time::from_secs_f64()</code>, <code>Time::to_secs_f64()</code></li>
-<li><code>Duration::new()</code>, <code>Duration::from_nanos()</code>, <code>Duration::to_nanos()</code></li>
-<li><code>Duration::from_secs_f64()</code>, <code>Duration::to_secs_f64()</code></li>
-<li><code>Clock</code> with atomic counter fallback (no wall-clock time)</li>
-</ul>
-<p><strong>Parameters (local only):</strong></p>
-<ul>
-<li><code>Node::declare_parameter</code> / <code>get_parameter</code> / <code>set_parameter</code> – the
-node’s parameters, in the executor’s one store</li>
-<li><code>ParameterServer</code> – the store itself; its operations are behind
-<code>nros_params::ParameterServerOps</code>, for a caller that holds a standalone
-store</li>
-<li><code>ParameterValue</code> enum with heapless collections</li>
-<li><code>ParameterDescriptor</code>, <code>ParameterType</code>, <code>Parameter</code></li>
-<li><code>ParameterBuilder</code> for declaring parameters with constraints</li>
-</ul>
-<p><strong>Other:</strong></p>
-<ul>
-<li><code>LifecycleState</code>, <code>LifecycleTransition</code>, <code>LifecyclePollingNode</code></li>
-<li><code>Logger</code> (uses <code>core::sync::atomic</code>)</li>
-<li><code>GoalId</code>, <code>GoalStatus</code>, <code>GoalResponse</code>, <code>CancelResponse</code>, <code>CancelReturnCode</code></li>
-<li><code>QoSProfile</code>, <code>TopicInfo</code>, <code>ServiceInfo</code></li>
-<li><code>SafetyValidator</code>, <code>IntegrityStatus</code> (with <code>safety-e2e</code> feature)</li>
-<li>Sync primitives: <code>spin::Mutex</code> or <code>critical-section</code> (feature-selected)</li>
-</ul>
-<h3 id="requires-alloc"><a class="header" href="#requires-alloc">Requires <code>alloc</code></a></h3>
+<p>The core <code>ParameterServer</code> API works without alloc, and so do parameter
+services whenever the build knows the image builds a store: without <code>alloc</code>,
+a build that carves no store is refused at compile time, naming
+<code>NROS_PARAM_STORE</code>. There is no <code>std</code> feature. A hosted program has <code>std</code>
+itself; the <code>env</code> feature reads the process environment, and <code>log</code> routes
+nano-ros’s diagnostics to the <code>log</code> logger you install.</p>
+<h2 id="the-transport-still-allocates"><a class="header" href="#the-transport-still-allocates">The transport still allocates</a></h2>
+<p>Turning off <code>alloc</code> removes the Rust side’s heap use (<code>Box</code>, <code>Vec</code>, <code>String</code>).
+It does not remove allocation in the C libraries the RMW backends link. They
+keep their own session state, stream buffers and protocol metadata, through
+the platform’s allocator:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>API</th><th>Location</th><th>Why</th></tr>
+<tr><th>Backend</th><th>Allocates through</th></tr>
 </thead>
 <tbody>
-<tr><td><code>Serialize</code>/<code>Deserialize</code> for <code>String</code>, <code>Vec&lt;T&gt;</code></td><td>nros-serdes</td><td>Heap-allocated containers</td></tr>
-<tr><td><code>TimerCallback</code> (<code>Box&lt;dyn FnMut() + Send&gt;</code>)</td><td>nros-node/timer.rs</td><td>Boxed closure for timer callbacks</td></tr>
-<tr><td><code>Timer::new_with_box()</code>, <code>set_callback_box()</code></td><td>nros-node/timer.rs</td><td>Construct/update boxed timer callbacks</td></tr>
-<tr><td><code>EmbeddedServiceServer::handle_request_boxed()</code></td><td>nros-node/handles.rs</td><td>Returns <code>Box&lt;Reply&gt;</code> for large response types</td></tr>
-<tr><td><code>param-services</code> heap fallback</td><td>nros-node/executor/spin.rs</td><td>Store + service state when the backing carves none</td></tr>
-<tr><td>Argv parameter overrides (<code>-p</code>, <code>--params-file</code>)</td><td>nros-node/ros_args.rs</td><td>Owned override strings from the hosted edge</td></tr>
+<tr><td>zenoh</td><td><code>malloc</code> on POSIX, <code>k_malloc</code> on Zephyr, <code>pvPortMalloc</code> on FreeRTOS, a bump allocator on bare metal</td></tr>
+<tr><td>XRCE-DDS</td><td><code>malloc</code> on POSIX and NuttX, <code>k_malloc</code> on Zephyr, <code>pvPortMalloc</code> on FreeRTOS; only when an entity is set up</td></tr>
+<tr><td>Cyclone DDS</td><td>per message</td></tr>
 </tbody>
 </table>
 </div>
-<p><strong>Parameter services detail:</strong> the <code>param-services</code> feature
-does not need <code>alloc</code>. The six handlers stream requests and replies, and the
-parameter store, the service state, the shared request/reply buffers and the
-slot a remote set decodes its value into are all carved from the executor
-backing whenever the build knows the image builds a store
-(<code>NROS_PARAM_STORE=1</code>, <code>params:</code> in the contract, or <code>param_services</code> in the
-bringup; capacity <code>NROS_MAX_PARAMETERS</code>). Without <code>alloc</code>, a build that carves
-no store is refused at compile time and the message names <code>NROS_PARAM_STORE</code>.
-With <code>alloc</code>, such a build falls back to the heap as before.
-The core <code>ParameterServer</code> API works without alloc (its operations are
-reached through <code>nros_params::ParameterServerOps</code>).</p>
-<h3 id="requires-std"><a class="header" href="#requires-std">Requires <code>std</code></a></h3>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>API</th><th>Location</th><th>Why</th></tr>
-</thead>
-<tbody>
-<tr><td><code>Clock::now()</code> (system/steady clock)</td><td>nros-core/clock.rs</td><td>Uses <code>std::time::SystemTime</code> / <code>UNIX_EPOCH</code></td></tr>
-<tr><td><code>std::error::Error</code> for <code>NanoRosError</code>, <code>RclReturnCode</code></td><td>nros-core/error.rs</td><td>Trait requires std</td></tr>
-<tr><td><code>ExecutorConfig::from_env()</code></td><td>nros-node/types.rs</td><td>Uses <code>std::env::var()</code> + <code>Box::leak()</code></td></tr>
-<tr><td><code>Executor::spin(options)</code></td><td>nros-node/spin.rs</td><td>Uses <code>std::thread::sleep()</code>, <code>Arc&lt;AtomicBool&gt;</code></td></tr>
-<tr><td><code>Executor::spin_period(duration)</code></td><td>nros-node/spin.rs</td><td>Uses <code>std::time::Instant</code>, <code>std::thread::sleep()</code></td></tr>
-<tr><td><code>Executor::halt_flag()</code></td><td>nros-node/spin.rs</td><td>Returns <code>Arc&lt;AtomicBool&gt;</code> for cross-thread cancellation</td></tr>
-<tr><td><code>SpinPeriodResult</code></td><td>nros-node/types.rs</td><td>Contains <code>std::time::Duration</code></td></tr>
-<tr><td><code>ParameterVariant</code> for <code>std::string::String</code>, <code>std::vec::Vec</code></td><td>nros-params/types.rs</td><td>Convenience conversions for std types</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="typical-configurations"><a class="header" href="#typical-configurations">Typical Configurations</a></h2>
-<p>The <code>nros</code> umbrella does not depend on concrete RMW crates.
-A consuming <code>Cargo.toml</code> lists <strong>three</strong> path deps: <code>nros</code> (with
-<code>rmw-cffi</code> + a <code>platform-*</code> feature), the chosen backend crate
-(<code>nros-rmw-zenoh</code> / <code>nros-rmw-xrce-cffi</code>), and —
-on POSIX — <code>nros-platform-cffi</code> with <code>posix-c-port</code> so the C
-<code>nros_platform_*</code> symbols link into a pure-cargo build. The backend
-crate’s <code>#[ctor]</code> registers its vtable before <code>main</code>.</p>
-<p><strong>Bare-metal / RTOS (no allocator):</strong></p>
-<pre><code class="language-toml">nros = { path = "…/nros", default-features = false, features = ["rmw-cffi", "platform-bare-metal"] }
-nros-rmw-zenoh = { path = "…/nros-rmw-zenoh", features = ["platform-bare-metal"] }
-</code></pre>
-<p>Full pub/sub, services, actions, timers (fn pointers), parameters (local).
-Promises (<code>Promise</code>, <code>take()</code>) are available without std or alloc.
-Use <code>spin_once()</code> or <code>spin_period()</code> in your main loop.</p>
-<p><strong>Embedded with allocator (e.g., Zephyr with heap):</strong></p>
-<pre><code class="language-toml">nros = { path = "…/nros", default-features = false, features = ["alloc", "rmw-cffi", "platform-zephyr"] }
-nros-rmw-zenoh = { path = "…/nros-rmw-zenoh", features = ["platform-zephyr"] }
-</code></pre>
-<p>Adds boxed timer callbacks and <code>handle_request_boxed()</code> for large service replies.</p>
-<p><strong>Desktop / Linux:</strong></p>
-<pre><code class="language-toml">nros = { path = "…/nros", default-features = false, features = ["alloc", "env", "log", "rmw-cffi"] }
-nros-rmw-zenoh = { path = "…/nros-rmw-zenoh", features = ["platform-posix", "link-tcp", "ros-humble"] }
-nros-platform-cffi = { path = "…/nros-platform-cffi", features = ["posix-c-port"] }
-</code></pre>
-<p>Full API including <code>spin()</code>, <code>spin_period()</code>, <code>from_env()</code>, system clock.
-<code>nros</code> has no <code>std</code> feature: your program is a hosted binary and has <code>std</code>
-itself, <code>env</code> reads the process environment (through the C library’s
-<code>getenv</code>), and <code>log</code> routes nano-ros’s own diagnostics to whatever <code>log</code>
-logger you install.
-For async, use an external runtime (tokio <code>current_thread</code> + <code>spawn_local</code> for background spin).</p>
-<p><strong>Desktop with parameter services:</strong> add <code>param-services</code> to the
-<code>nros</code> feature list above. Adds <code>~/get_parameters</code>,
-<code>~/set_parameters</code>, etc. for <code>ros2 param</code> CLI interop.</p>
-<h2 id="c-level-allocation"><a class="header" href="#c-level-allocation">C-Level Allocation</a></h2>
-<p>Both RMW backends compile and link C libraries that perform heap allocation
-independently of Rust’s <code>alloc</code> feature. Disabling the Rust <code>alloc</code> feature
-eliminates Rust-side heap usage (<code>Box</code>, <code>Vec</code>, <code>String</code>) but does <strong>not</strong>
-eliminate allocation in the C transport layer.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Backend crate</th><th>C Library</th><th>Allocator by Platform</th></tr>
-</thead>
-<tbody>
-<tr><td><code>nros-rmw-zenoh</code></td><td>zenoh-pico 1.10.1</td><td>POSIX: <code>malloc</code>; Zephyr: <code>k_malloc</code>; FreeRTOS: <code>pvPortMalloc</code>; bare-metal: custom bump allocator</td></tr>
-<tr><td><code>nros-rmw-xrce-cffi</code></td><td>Micro-XRCE-DDS 3.0.1</td><td>POSIX: <code>malloc</code>; Zephyr: <code>k_malloc</code>; FreeRTOS: <code>pvPortMalloc</code>; NuttX: <code>malloc</code></td></tr>
-</tbody>
-</table>
-</div>
-<p>This is by design: the C libraries manage their own session state, stream
-buffers, and protocol metadata using platform-provided allocators. The Rust
-<code>alloc</code> feature controls only the Rust API surface (boxed callbacks, heap
-containers, etc.) and is orthogonal to C-level memory management.</p>
-<h3 id="checking-your-own-image"><a class="header" href="#checking-your-own-image">Checking your own image</a></h3>
-<p>Because of the row above, a feature list is <em>evidence</em> that an image is
-heap-free and not <em>proof</em> of it: a vendored C dependency or a weak-symbol
-fallback can link an allocator without any Cargo feature changing. Ask the
-linker instead:</p>
-<pre><code class="language-bash">scripts/check-no-alloc-image.py path/to/your.elf
-</code></pre>
-<p>It reads the image’s symbol table and fails on any allocation symbol — libc’s
-<code>malloc</code> family, Rust’s <code>__rust_alloc</code> family, C++ <code>operator new</code>, and the RTOS
-heaps (<code>k_malloc</code>, <code>pvPortMalloc</code>, <code>tx_byte_allocate</code>, <code>kmm_malloc</code>,
-<code>heap_caps_malloc</code>) — reporting for each whether the image <em>calls</em> it or
-<em>contains</em> it. <code>--tier unified</code> takes <code>--objects</code> instead and enforces the
-weaker rule that allocation may happen only inside the <code>nros_platform_*</code>
-backend.</p>
-<p>None of the examples shipped in this repo are built this way today — they all
-enable <code>alloc</code> — so run it against your own image, not against one of ours.</p>
+<p>So an image with a transport is not free of allocation, and a feature list is
+evidence that an image is heap-free and not <em>proof</em> of it: a vendored C
+dependency or a weak-symbol fallback can link an allocator without any Cargo
+feature changing. The proof is the linked image’s symbol table. nano-ros’s
+own executor path is heap-free in that checked sense: its CI links an image
+of the executor, component install and spin, with no transport, and fails on
+any allocation symbol in it. The shipped examples all enable <code>alloc</code>.</p>
+<h2 id="where-nano-ros-differs-from-ros-2"><a class="header" href="#where-nano-ros-differs-from-ros-2">Where nano-ros differs from ROS 2</a></h2>
+<ul>
+<li><strong>The core needs no allocator, and entities fit the pools.</strong>
+ROS 2 creates entities on the heap whenever you ask. A nano-ros image
+creates them in slots sized at build time, and a create past the pool’s
+size fails.</li>
+<li><strong>Message fields have a fixed capacity.</strong> A ROS 2 <code>string</code> or sequence
+grows on the heap. A nano-ros field is a fixed-capacity type: its bound, or
+a default capacity when the <code>.msg</code> states none. A field with no bound also
+stops the size derivation, so a bounded field is the norm.</li>
+<li><strong>Memory is a build output.</strong> The sizes come from the contract, and the
+memory report reads them off the linked image.</li>
+</ul>
 <h2 id="design-background"><a class="header" href="#design-background">Design background</a></h2>
 <ul>
-<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0113-rt-unified-wait.md">RFC-0113: RT unified wait (why <code>spin_async</code> is retired)</a></li>
-<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0034-platform-layer-split.md">RFC-0034: platform layer split</a></li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0100-rmw-agnostic-sizing-model.md">RFC-0100</a>:
+the sizing model: pool sizes derived from what an image declares.</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0034-platform-layer-split.md">RFC-0034</a>:
+the platform layer split, and the platform’s allocator.</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0113-rt-unified-wait.md">RFC-0113</a>:
+why no async runtime drives the executor.</li>
 </ul>
 <style>
 .nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;
@@ -450,7 +377,7 @@ enable <code>alloc</code> — so run it against your own image, not against one 
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../background/rtos-cooperation.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../background/execution-model.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -464,7 +391,7 @@ enable <code>alloc</code> — so run it against your own image, not against one 
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../background/rtos-cooperation.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../background/execution-model.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 

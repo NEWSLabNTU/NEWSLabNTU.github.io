@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>The Real-Time Execution Model - nano-ros Book</title>
+        <title>The execution model - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b145198d.js";
+            window.path_to_searchindex_js = "../searchindex-7a587ffb.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ac62b82d.js"></script>
+        <script src="../toc-e88a723f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,28 +177,136 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="the-real-time-execution-model"><a class="header" href="#the-real-time-execution-model">The Real-Time Execution Model</a></h1>
+                        <h1 id="the-execution-model"><a class="header" href="#the-execution-model">The execution model</a></h1>
 <div class="nros-level-badge" data-type="explanation" data-level="3"><span class="nros-level-type">Explanation</span> · <span class="nros-level-name">Level 3: Production and tuning</span></div>
 
-<p>This chapter is about one question: when does a nano-ros callback meet its
-deadline, and what does the runtime do to make it? The design records are
-listed under <a href="#design-background">Design background</a> at the end of this page.
-<a href="../guide/realtime/pick-a-scheduling-model.html">Scheduling Models</a> covers the RTOS
-schedulers underneath.</p>
-<h2 id="one-level-does-not-preempt"><a class="header" href="#one-level-does-not-preempt">One level does not preempt</a></h2>
-<p>An executor runs a callback to completion. Within one OS thread nothing can
-interrupt user code mid-callback, so a callback that becomes ready while
-another runs waits for it to return. Its worst-case blocking is the longest
-callback that can be running when it wakes:</p>
+<p>The real-time example workspace runs a 10 ms control node and a 100 ms
+telemetry node in one image, each on a sched task of its own:</p>
+<pre><code class="language-toml">[[component]]
+pkg = "ctrl_pkg"
+class = "ctrl_pkg::Control"
+name = "control_node"
+group_tasks = { ctrl = "high" }
+
+[[component]]
+pkg = "telem_pkg"
+class = "telem_pkg::Telem"
+name = "telem_node"
+group_tasks = { telem = "low" }
+</code></pre>
+<p>When the configure takes the image’s census, each node logs where it landed:</p>
+<pre><code class="language-text">[INFO] Telem::register on a sched task admitting group `telem`
+</code></pre>
+<p>Why two sched tasks, and not one executor that runs both nodes? This page
+answers that question: how an executor runs callbacks, how the two ways of
+receiving data differ, where preemption comes from, and how the RTOS
+underneath schedules the threads nano-ros creates. The task itself is
+<a href="../guide/realtime/pick-a-scheduling-model.html">Pick a scheduling model</a>.</p>
+<h2 id="a-callback-runs-to-completion"><a class="header" href="#a-callback-runs-to-completion">A callback runs to completion</a></h2>
+<p>An executor runs one callback at a time, to completion. Within one thread
+nothing interrupts your code mid-callback, so a callback that becomes ready
+while another runs waits for it to return. Its worst case is its own
+execution time plus the longest other callback that can be running when it
+wakes:</p>
 <pre><code class="language-text">response time  &gt;=  own execution time  +  longest other callback on the thread
 </code></pre>
-<p>A 5 ms telemetry callback on the same thread as a 1 kHz control loop makes that
-loop miss its 1 ms deadline every time the two meet, whatever priority bucket
-or scheduling class either has. The buckets and classes below change which
-READY callback runs next. They cannot stop one that is already running.</p>
-<h2 id="scheduling-classes"><a class="header" href="#scheduling-classes">Scheduling classes</a></h2>
-<p>A callback runs in a scheduling context (<code>SchedContext</code>), and its class picks
-how the executor orders ready work:</p>
+<p>Put the 1 ms control loop and a 5 ms telemetry callback on one thread, and
+the loop misses its deadline every time the two meet, whatever priority or
+class either has. Priorities and classes decide which <em>ready</em> callback runs
+next. They cannot stop one that is already running. Preemption needs a
+second thread, which is what a sched task is.</p>
+<h2 id="two-ways-to-receive"><a class="header" href="#two-ways-to-receive">Two ways to receive</a></h2>
+<p>Every entity (a subscription, a service, a client, an action server or
+client, a timer) can be used through one of two layers, with separate verbs,
+so the choice is visible in the source:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th></th><th>You poll</th><th>The executor dispatches</th></tr>
+</thead>
+<tbody>
+<tr><td>Rust verbs</td><td><code>Node::create_polling_subscription</code>, <code>create_polling_service</code>, <code>create_client</code>, <code>create_publisher</code></td><td><code>Executor::register_subscription</code>, <code>register_service</code>, <code>register_timer</code>, <code>register_action_server</code>; or rclrs’s <code>Node::create_subscription(topic, callback)</code></td></tr>
+<tr><td>You get</td><td>an owned handle you <code>take()</code> from, or a <code>Promise&lt;T&gt;</code></td><td>a callback that runs when data, a request or a timer is ready</td></tr>
+<tr><td>Who schedules</td><td>your loop or your RTOS task</td><td><code>spin_once</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The polled constructors are named <code>create_polling_*</code> because rclrs’s
+<code>create_subscription</code> takes a callback, and a polled form under the same
+name would compile a ported line into a different contract.</p>
+<p>Poll when your code already owns its schedule (a bare-metal loop, one
+FreeRTOS task per entity) or when the flow is request and response: a
+service client’s <code>call</code> returns a <code>Promise&lt;Reply&gt;</code>, and an action client’s
+<code>send_goal</code> leads to <code>get_result</code>. Typed service and action clients have only
+the polling form. Dispatch when the code is callback-shaped, the way rclcpp
+code is: one closure per entity, all routed by one <code>spin_once</code>. A dispatched
+callback and its captures are stored in the executor’s arena, whose size the
+build sets; a polled handle needs no arena entry.</p>
+<p>Both layers share one session and mix freely in one node. C and C++ split
+them by type: <code>rclc_polling_subscription_t</code> and the <code>rclcpp::Poll*</code>
+templates are the polling forms, beside the dispatched <code>rcl_subscription_t</code>
+and <code>rclcpp::Subscription</code>. A polled handle can also take a wake callback,
+so an RTOS task sleeps until data lands instead of polling; a backend that
+cannot wake falls back to polling. The signatures are in the
+<a href="../reference/rust-api.html">Rust</a>, <a href="../reference/c-api.html">C</a> and
+<a href="../reference/cpp-api.html">C++</a> API references.</p>
+<h2 id="what-one-spin-does"><a class="header" href="#what-one-spin-does">What one spin does</a></h2>
+<p><code>spin_once(timeout)</code> waits for I/O, up to the timeout, in the platform’s own
+wait primitive, so the thread sleeps rather than spins. When I/O is ready it
+drains all of it, runs the ready callbacks, and then the expired timers and
+guard conditions. The backend may report its own next internal event (a
+lease keep-alive, a heartbeat), and the wait is capped at that.</p>
+<p>Draining everything is the right default for one task doing all the ROS
+work: it gives the most throughput. Its cost is that a timer can wait
+behind every subscription callback that was ready before it. <code>SpinOptions</code>
+bounds a blocking <code>spin</code>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Option</th><th>Effect</th></tr>
+</thead>
+<tbody>
+<tr><td><code>max_callbacks(n)</code></td><td>return after <code>n</code> callbacks, so a loop re-checks timers between them</td></tr>
+<tr><td><code>timeout(d)</code></td><td>return after <code>d</code>, for a cyclic frame that gives ROS a fixed slot</td></tr>
+<tr><td><code>spin_once()</code></td><td>one round of work, then return</td></tr>
+<tr><td><code>poll_interval(d)</code></td><td>how long one pass may wait on the transport (default 10 ms)</td></tr>
+</tbody>
+</table>
+</div>
+<p>With <code>max_callbacks(1)</code> a timer waits behind one callback, not all of them.
+With <code>timeout(d)</code> the work left over resumes next frame; a single callback
+longer than the slot still overruns it. Neither option bounds a callback
+itself, so a hard deadline still needs its own thread.</p>
+<h2 id="sched-tasks-and-levels-preemption-from-the-kernel"><a class="header" href="#sched-tasks-and-levels-preemption-from-the-kernel">Sched tasks and levels: preemption from the kernel</a></h2>
+<p>A <strong>sched task</strong> is one executor on one RTOS thread, with its own priority
+and spin period. All of an image’s sched tasks share one middleware session.
+A more urgent task’s thread has a higher kernel priority, so when it wakes
+the kernel preempts a less urgent one mid-callback. That is the second
+thread the bound above asks for.</p>
+<p>You don’t have to write sched tasks yourself. The build derives <strong>levels</strong>
+from the contract: each node’s rank comes from its trigger rate (rate
+monotonic: a faster timer is more urgent), and each distinct rank is one
+level, up to a cap that depends on the platform. When the ranks outnumber
+the cap, adjacent levels merge, and the build reports each node that lost
+its own rank. A sched task you declare in <code>[tasks.&lt;name&gt;]</code>, bound to a
+callback group with <code>group_tasks</code>, is a pin: its members share one level at
+its stated priority, and derivation places only the nodes no task binds.</p>
+<p>Three more rules shape what you see:</p>
+<ul>
+<li><strong>Priorities are allocated.</strong> A level takes its priority from the board’s
+application band, below the threads the transport runs for itself. A
+priority that would land in that band is refused, unless the task says
+<code>above = "transport"</code>.</li>
+<li><strong>The boot level is the least urgent.</strong> It runs on <code>main()</code> and owns the
+session; the build spawns the others.</li>
+<li><strong>On a multi-core host, levels run in parallel.</strong> Preemption shows only
+when they compete for one CPU.</li>
+</ul>
+<p>On Linux, the 1 kHz-loop-beside-5 ms-telemetry case is measured: on its own
+level, the loop misses no deadline in 60 s on a <code>PREEMPT_RT</code> kernel, and on
+one level it does.</p>
+<h3 id="inside-a-level-scheduling-classes"><a class="header" href="#inside-a-level-scheduling-classes">Inside a level: scheduling classes</a></h3>
+<p>Within a level, a callback’s scheduling class orders the ready work:</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -206,89 +314,143 @@ how the executor orders ready work:</p>
 </thead>
 <tbody>
 <tr><td><code>Fifo</code> (default)</td><td>registration order within a priority bucket</td><td>most callbacks</td></tr>
-<tr><td><code>Edf</code></td><td>absolute deadline (release + relative deadline)</td><td>periodic work with stated deadlines on one level</td></tr>
+<tr><td><code>Edf</code></td><td>absolute deadline</td><td>periodic work with stated deadlines on one level</td></tr>
 <tr><td><code>Sporadic</code></td><td><code>Fifo</code>, plus a budget per replenishment period</td><td>a callback whose CPU share must be capped</td></tr>
 <tr><td><code>BestEffort</code></td><td>last, after every other bucket</td><td>logging, telemetry</td></tr>
 </tbody>
 </table>
 </div>
-<p>A sched task or level’s <code>class = "real_time"</code> is the deployment-side spelling. On
-Linux it also selects <code>SCHED_DEADLINE</code> for a level that states a budget (see
-below). Time-triggered windows are a gate on a context
-(<code>tt_window_offset_us</code> / <code>tt_window_duration_us</code>), not a class.</p>
-<h2 id="levels-preemption-from-the-kernel"><a class="header" href="#levels-preemption-from-the-kernel">Levels: preemption from the kernel</a></h2>
-<p>The fix for the bound above is a second thread. nano-ros places callbacks
-on <strong>executor levels</strong>: one OS thread per level, all over one executor per
-core. A more urgent level’s thread has a higher kernel priority, so the
-kernel preempts a less urgent level mid-callback when the urgent one wakes.</p>
-<ul>
-<li><strong>The number of levels is derived.</strong> Each node’s rank comes from its
-contract (<code>paths.&lt;p&gt;.trigger.timer.rate_hz</code>, rate-monotonic), and each
-distinct rank is one level, up to the image’s <code>max_levels</code>
-(<code>CONFIG_NROS_EXECUTOR_MAX_LEVELS</code>, default 8).</li>
-<li><strong>Priorities are allocated, not authored.</strong> A derived level takes a
-priority from the board’s application band, below the transport tasks.
-An authored <code>[tasks.&lt;name&gt;]</code> bound with <code>group_tasks</code> is a pin:
-its members share one level at its stated priority.</li>
-<li><strong>The boot level</strong> is the least urgent one; it runs on <code>main()</code> and owns the
-session. The others are spawned.</li>
-<li><strong>On a multi-core host, levels run in parallel.</strong> Preemption only shows when
-they compete for one CPU, which is why the Linux tests pin the process with
-<code>taskset -c 0</code>.</li>
-</ul>
-<h2 id="who-enforces-a-budget"><a class="header" href="#who-enforces-a-budget">Who enforces a budget</a></h2>
-<p>A level whose sched task states a budget and a period has exactly one enforcer. The kernel takes it where the kernel can; otherwise the
-executor enforces the same numbers at callback boundaries. The runner prints
-which:</p>
+<p>A sched task’s <code>class</code> (<code>real_time</code>, <code>best_effort</code> or <code>time_triggered</code>) is
+the deployment-side spelling.</p>
+<h3 id="who-enforces-a-budget"><a class="header" href="#who-enforces-a-budget">Who enforces a budget</a></h3>
+<p>A level whose sched task states a budget and a period has exactly one
+enforcer. The kernel takes it where it can; otherwise the executor enforces
+the same numbers at callback boundaries. The image prints which:</p>
 <pre><code class="language-text">nros: level budget sched_task=`capped` 2000us/10000us enforced by the KERNEL
 </code></pre>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Platform</th><th>Kernel mechanism</th><th>When the kernel enforces it</th></tr>
-</thead>
-<tbody>
-<tr><td>Linux</td><td><code>SCHED_DEADLINE</code> (runtime, deadline, period)</td><td>a spawned level with <code>class = "real_time"</code>, when the process holds <code>CAP_SYS_NICE</code> and the level is not pinned to fewer CPUs than its root domain</td></tr>
-<tr><td>NuttX</td><td><code>SCHED_SPORADIC</code> (<code>CONFIG_SCHED_SPORADIC</code>)</td><td>every budgeted level thread on the C runner; spawned levels on the Rust runner</td></tr>
-<tr><td>Zephyr, FreeRTOS, ThreadX</td><td>none</td><td>never: the executor enforces it</td></tr>
-</tbody>
-</table>
-</div>
-<p>Without <code>CAP_SYS_NICE</code> a Linux image keeps running. The kernel refuses both
-<code>SCHED_FIFO</code> and <code>SCHED_DEADLINE</code>, the image prints the refusal once with the
-<code>setcap</code> command that fixes it, and every level runs at the default policy.
-That image has levels but no preemption between them.</p>
-<h2 id="scenarios-and-what-measured-them"><a class="header" href="#scenarios-and-what-measured-them">Scenarios and what measured them</a></h2>
-<p>The execution-model design names twelve scenarios. Each row names the test that measured
-it, or says that none has.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Scenario</th><th>Status</th></tr>
-</thead>
-<tbody>
-<tr><td>S1, drone flight controller: 1 kHz critical loop beside 5 ms telemetry</td><td>Linux, on levels: <code>rt_sched_levels_e2e::s1_critical_loop_meets_every_deadline_on_its_own_level</code> (60 s, zero misses on a <code>PREEMPT_RT</code> kernel and the host’s own floor on a generic one, plus a one-level negative control). It runs only on a lane that claims <code>rt-sched</code>.</td></tr>
-<tr><td>S2, sense, plan and act at 10 Hz on one thread</td><td>No dedicated test.</td></tr>
-<tr><td>S3, watchdog liveness</td><td>Levels feed the watchdog only when every level is alive. Measured on the S32K344 safety island.</td></tr>
-<tr><td>S4, Autoware-style mixed rates on Linux</td><td>No dedicated test.</td></tr>
-<tr><td>S5, Cortex-M0+ sensor node</td><td>No dedicated test.</td></tr>
-<tr><td>S6, <code>Trigger::AllOf</code> fusion</td><td><code>trigger_conditions</code> (nros-tests) and the executor’s unit tests.</td></tr>
-<tr><td>S7, a 1 kHz subscription drained once a cycle</td><td>Idempotent ready-set insertion, unit-tested in <code>nros-node</code>.</td></tr>
-<tr><td>S8, a long-running action goal</td><td>The action server is a cooperative state machine; covered by the action e2e tests, not by a timing test.</td></tr>
-<tr><td>S9, a service handler that triggers a callback</td><td>No dedicated test.</td></tr>
-<tr><td>S10, cross-level priority inversion</td><td>Priority-inheritance mutexes in the POSIX port (<code>c_port_posix</code>). No scenario test.</td></tr>
-<tr><td>S11, several nodes on one executor</td><td>The default deployment; every multi-node example runs it.</td></tr>
-<tr><td>S12, a cycle wall-time budget</td><td>Not built: there is no cycle budget option.</td></tr>
-</tbody>
-</table>
-</div>
-<p>Running the real-time tests in the tree: see
-<a href="../internals/realtime/running-rt-tests.html">Internals → Running the RT tests</a>.</p>
+<p>On Linux the kernel enforces it with <code>SCHED_DEADLINE</code>, for a spawned
+<code>real_time</code> level, when the process holds <code>CAP_SYS_NICE</code>. On NuttX it is
+<code>SCHED_SPORADIC</code>. Zephyr, FreeRTOS and ThreadX have no kernel budget, so the
+executor enforces it. Without <code>CAP_SYS_NICE</code>, a Linux image keeps running:
+it prints the refusal once, with the <code>setcap</code> command that fixes it, and
+every level runs at the default policy. That image has levels but no
+preemption between them.</p>
+<h2 id="the-rtos-underneath"><a class="header" href="#the-rtos-underneath">The RTOS underneath</a></h2>
+<p>Each level is an ordinary RTOS thread, and the RTOS schedules it. All of the
+supported kernels schedule by <strong>fixed-priority preemption</strong>: the
+highest-priority ready thread runs, and a more urgent thread that becomes
+ready preempts it at once. Rate-monotonic assignment, which the level
+derivation uses, gives shorter periods higher priority, and it is optimal
+among fixed-priority assignments for independent periodic tasks. A task’s
+worst-case response time under it is:</p>
+<pre><code class="language-text">R_i = C_i + Σ_j ⌈R_i / T_j⌉ × C_j      (over every higher-priority task j)
+</code></pre>
+<p>where <code>C</code> is a worst-case execution time and <code>T</code> a period. The task meets
+its deadline when <code>R_i ≤ D_i</code>.</p>
+<p><strong>Earliest deadline first</strong> (EDF) runs the task with the nearest deadline. It
+can schedule any task set up to 100% utilization, where rate-monotonic
+assignment is guaranteed only to about 69% in general, but it is harder to
+analyze and less predictable in overload. nano-ros has EDF as the executor’s
+<code>Edf</code> class on every platform, and Zephyr also has it in the kernel.</p>
+<p><strong>Round-robin</strong> shares the CPU in time slices among threads of the <em>same</em>
+priority. It prevents starvation, at the price of jitter. FreeRTOS slices
+equal priorities by default, so two levels at one priority there would buy no
+preemption, only memory, and the build merges them.</p>
+<p>Each kernel has its own mechanism beyond this, which you reach through a
+per-RTOS table of a sched task:</p>
+<ul>
+<li><strong>ThreadX preemption threshold:</strong> a thread may be preempted only by threads
+above its threshold, which makes a non-preemptible region without masking
+interrupts.</li>
+<li><strong>NuttX <code>SCHED_SPORADIC</code>:</strong> a sporadic server that caps an aperiodic task’s
+CPU share by a budget per period.</li>
+<li><strong>Zephyr:</strong> cooperative threads (preempted only by interrupts), preemptive
+threads, and kernel EDF among threads of one priority.</li>
+</ul>
+<p>Priority numbers run in opposite directions: on FreeRTOS, NuttX and Linux a
+bigger number is more urgent, and on ThreadX and Zephyr a smaller one is.
+What each platform delivers is generated in the
+<a href="../reference/sched-matrix.html">Scheduling wiring matrix</a>.</p>
+<h3 id="priority-inversion"><a class="header" href="#priority-inversion">Priority inversion</a></h3>
+<p>A high-priority task that waits on a lock held by a low-priority one can be
+held up indefinitely by a medium-priority task that preempts the holder. The
+usual cures are priority inheritance (the holder runs at the waiter’s
+priority), which every supported kernel offers on its mutexes, and priority
+ceilings (the holder runs at the lock’s fixed ceiling), which NuttX offers.
+The cheaper cure is to share nothing between levels: give each level its own
+data, and pass values between them as messages.</p>
+<h2 id="deferred-dispatch"><a class="header" href="#deferred-dispatch">Deferred dispatch</a></h2>
+<p>By default a callback runs <strong>inline</strong>: from the executor’s spin, on the
+thread that drives the transport. A node declares otherwise through
+<code>Node::DISPATCH</code>, a <code>DispatchStrategy</code>:</p>
+<ul>
+<li><strong><code>Inline</code></strong> (the default) is served on every platform.</li>
+<li><strong><code>Deferred</code></strong> queues the callback for a dispatch task, which decouples its
+latency from network polling. The entries generated for the supported
+boards have no dispatch task, since each sched task’s loop is already the
+only task that runs its callbacks, so a <code>Deferred</code> node runs inline there.
+It still builds unchanged for an entry that does drain the queue.</li>
+<li><strong><code>FromIsr</code></strong> is reserved and refused by <code>nros check</code>: no generated entry
+dispatches from an interrupt handler.</li>
+</ul>
+<p>The strategy is per node, not per callback, so a node is wholly one or the
+other. A deferred callback runs on a different task from the one that
+registered it, so its state cannot live in a closure’s captures without a
+heap. A <code>Deferred</code> node therefore registers with the <code>_static</code> forms
+(<code>create_subscription_static</code>) and gets a tag, a <code>&amp;'static str</code> identifier.
+Its state lives in the node’s <code>State</code>, and its <code>on_callback</code> matches the tag
+against the event. An inline closure’s captures live on the spin task’s
+stack frame, no heap, no boxing, so closures stay on the inline path; the
+macro refuses a closure on a <code>Deferred</code> node.</p>
+<p>The queue under <code>Deferred</code> is the executor’s own, and you can use it without
+the macros: <code>set_deferred</code> marks a callback, <code>set_defer_notifier</code> says which
+one is queued, and <code>run_deferred</code> or <code>run_deferred_handle</code> runs it from a
+task whose priority nano-ros owns. The queue is one bit per callback slot,
+so it allocates nothing, and a timer cannot be deferred.</p>
+<h2 id="what-nano-ros-does-not-run-on"><a class="header" href="#what-nano-ros-does-not-run-on">What nano-ros does not run on</a></h2>
+<p>Every shape on this page keeps one promise: nano-ros decides which callback
+runs and at what priority. A loop owned by a foreign async runtime or event
+loop (tokio, Embassy, Qt, GLib) would decide that instead, so no real-time
+bound could be stated, and nano-ros does not support one. The same holds for
+a hand-written drain loop on a thread nano-ros did not create.</p>
+<h2 id="timing-evidence"><a class="header" href="#timing-evidence">Timing evidence</a></h2>
+<p>nano-ros states no measured worst-case execution times. The analysis it
+supports is static: you check the callbacks a sched task runs for unbounded
+loops, recursion and missing timeouts with Clippy and a call-stack tool
+(<a href="../guide/realtime/analyze-timing.html">Analyze timing</a>), and the level
+derivation uses execution times where a callback record carries
+one. Certification evidence (ISO 26262, DO-178C) needs a static WCET tool on
+the final binary: aiT from AbsInt is the commercial standard, and Platin is
+an open-source option that works on LLVM output.</p>
+<h2 id="where-nano-ros-differs-from-ros-2"><a class="header" href="#where-nano-ros-differs-from-ros-2">Where nano-ros differs from ROS 2</a></h2>
+<ul>
+<li><strong>No <code>MultiThreadedExecutor</code>, and callback groups do not make threads.</strong> An
+executor dispatches on one thread. Parallelism is a sched task, and a
+callback group only names which sched task its callbacks run on.</li>
+<li><strong>Threads and priorities are generated.</strong> The build creates the RTOS
+threads, allocates their priorities from the board’s band and spawns them
+from the generated entry. You state rates and tasks, not thread code.</li>
+<li><strong>The spin is a poll loop.</strong> There is no wait set: <code>spin_once</code> drives I/O,
+and its wait is bounded by <code>poll_interval</code>.</li>
+<li><strong>Polled entities are first-class.</strong> ROS 2 receives through callbacks;
+nano-ros also has <code>create_polling_*</code>, under a different name.</li>
+</ul>
+<p>The <a href="https://docs.ros.org/en/humble/Concepts/Intermediate/About-Executors.html">ROS 2 executor documentation</a>
+describes the model nano-ros departs from.</p>
 <h2 id="design-background"><a class="header" href="#design-background">Design background</a></h2>
 <ul>
-<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0002-rt-execution-model.md">RFC-0002: real-time execution model</a> — the executor’s scheduling contexts and the twelve scenarios (§11)</li>
-<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0108-executor-preemption-levels.md">RFC-0108: executor preemption levels</a> — levels and the watchdog rule (D8)</li>
-<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0079-priority-is-allocated-not-authored.md">RFC-0079: priority is allocated, not authored</a></li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0002-rt-execution-model.md">RFC-0002</a>:
+the executor’s scheduling contexts, and the twelve scenarios the model
+answers.</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0108-executor-preemption-levels.md">RFC-0108</a>:
+preemption levels, how they are derived and the budget enforcer.</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0079-priority-is-allocated-not-authored.md">RFC-0079</a>:
+priority is allocated, not authored.</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0113-rt-unified-wait.md">RFC-0113</a>:
+every supported way to run nano-ros keeps the real-time promise; the
+dispatch strategies.</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0053-threadx-multi-tier-execution.md">RFC-0053</a>:
+ThreadX multi-tier execution.</li>
 </ul>
 <style>
 .nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;
@@ -301,11 +463,11 @@ it, or says that none has.</p>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../background/design-overview.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../background/how-a-build-becomes-an-image.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../background/two-layer-api.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../background/static-memory-and-pools.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -315,11 +477,11 @@ it, or says that none has.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../background/design-overview.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../background/how-a-build-becomes-an-image.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../background/two-layer-api.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../background/static-memory-and-pools.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

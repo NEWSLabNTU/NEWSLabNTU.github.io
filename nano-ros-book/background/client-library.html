@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Client Library Model - nano-ros Book</title>
+        <title>The client library - nano-ros Book</title>
 
 
         <!-- Custom HTML head -->
@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-b145198d.js";
+            window.path_to_searchindex_js = "../searchindex-7a587ffb.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ac62b82d.js"></script>
+        <script src="../toc-e88a723f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -177,105 +177,150 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="client-library-model-nros-vs-rclc--rclcpp--rclrs"><a class="header" href="#client-library-model-nros-vs-rclc--rclcpp--rclrs">Client Library Model: nros vs rclc / rclcpp / rclrs</a></h1>
+                        <h1 id="the-client-library"><a class="header" href="#the-client-library">The client library</a></h1>
 <div class="nros-level-badge" data-type="explanation" data-level="3"><span class="nros-level-type">Explanation</span> · <span class="nros-level-name">Level 3: Production and tuning</span></div>
 
-<p>The RMW layer decouples the transport from the client library. The <em>client library</em> is the user-facing API on top of RMW: nodes, executors, publishers, subscribers, services, clients, callbacks, futures. ROS 2 ships three: <strong>rclc</strong> (C, MCU-focused), <strong>rclcpp</strong> (C++, desktop), and <strong>rclrs</strong> (Rust, experimental). nano-ros adds a fourth – the <code>nros-node</code> crate plus its <code>nros-c</code> / <code>nros-cpp</code> wrappers.</p>
-<p>This page explains the shape of nros-node and how it differs from the three official client libraries. For trait signatures see <a href="../reference/rust-api.html">Rust API</a> / <a href="../reference/c-api.html">C API</a> / <a href="../reference/cpp-api.html">C++ API</a>.</p>
-<h2 id="side-by-side"><a class="header" href="#side-by-side">Side-by-side</a></h2>
+<p>A nano-ros service client, from the Linux examples, sends one request and
+then keeps the loop in its own hands:</p>
+<pre><code class="language-rust ignore">let mut executor = Executor::open(&amp;config)?;
+let mut node = executor.create_node("add_two_ints_client")?;
+let mut client = node.create_client::&lt;AddTwoInts&gt;("/add_two_ints")?;
+
+let mut promise = client.call(&amp;AddTwoIntsRequest { a: 2, b: 3 })?;
+loop {
+    executor.spin_once(core::time::Duration::from_millis(0));
+    if let Ok(Some(reply)) = promise.take() {
+        log_info!(&amp;LOGGER, "Result of add_two_ints: {}", reply.sum);
+        break;
+    }
+}</code></pre>
+<p>Three things here differ from rclcpp. The node comes from the executor, not
+the other way round. The call returns a <code>Promise</code>, not a
+<code>std::shared_future</code>. And the loop that drives I/O is the application’s,
+not the library’s. This page explains why the nano-ros client library, the
+API above the RMW layer in Rust, C and C++, has this shape. The signatures
+are in the <a href="../reference/rust-api.html">Rust</a>, <a href="../reference/c-api.html">C</a> and
+<a href="../reference/cpp-api.html">C++</a> API references.</p>
+<h2 id="why-a-fourth-client-library"><a class="header" href="#why-a-fourth-client-library">Why a fourth client library</a></h2>
+<p>ROS 2 ships rclcpp for C++, rclc for C on microcontrollers, and rclrs for
+Rust. Each assumes something an RTOS target may lack. rclcpp blocks a thread
+inside <code>rclcpp::spin(node)</code> and waits on <code>std::shared_future</code>, which needs
+<code>std::thread</code> and a condition variable. rclc runs on a microcontroller, but
+it has no future type, so a request and its reply become an explicit state
+machine of callbacks. rclrs targets hosted Rust with <code>std</code>.</p>
+<p>nano-ros needs one library that runs on a Cortex-M3 with no threads and on a
+Linux workstation, from the same node code. Its core is <code>no_std</code> Rust, and
+the C and C++ APIs are thin layers over it, spelled like rclc and rclcpp so
+ported code reads familiar.</p>
+<h2 id="the-executor-owns-the-session"><a class="header" href="#the-executor-owns-the-session">The executor owns the session</a></h2>
+<p>In rclcpp the executor is a separate object you add nodes to
+(<code>exec.add_node(node)</code>), there are several executor classes, and each node
+holds its own RMW context. In nano-ros the executor is the session’s owner:</p>
+<pre><code class="language-rust ignore">let mut executor = Executor::open(&amp;config)?;           // opens the transport
+let mut node = executor.create_node("my_node")?;      // borrows the session
+let publisher = node.create_publisher::&lt;Int32&gt;("/topic")?;</code></pre>
+<p>There is one executor type, no separate context object, and no add or remove
+node lifecycle. The handles a node creates are owned, so they outlive the
+node; the usual pattern scopes the node to the creation calls. The entry
+that <code>nros build</code> generates goes further: it opens the session once and runs
+each sched task’s executor over it, and an executor can also hold several
+sessions at once, for a bridge between backends
+(<a href="../guide/rmw/bridge-between-backends.html">Bridge between backends</a>).</p>
+<h2 id="no-hidden-spin"><a class="header" href="#no-hidden-spin">No hidden spin</a></h2>
+<p><code>rclcpp::spin(node)</code> blocks the calling thread inside the library and owns
+the dispatch loop. That cannot work on bare metal: there is no thread to give
+up, and the application’s loop has to stay in user code, to service
+interrupts, poll the network stack and manage power.</p>
+<p>nano-ros never runs a loop you did not ask for. The building block is
+<code>spin_once(timeout)</code>, one pass of I/O and callbacks, and every other verb is
+a loop over it that you could write yourself:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Concern</th><th>rclc</th><th>rclcpp</th><th>rclrs</th><th>nros</th></tr>
+<tr><th>Verb</th><th>Shape</th><th>Needs <code>alloc</code></th></tr>
 </thead>
 <tbody>
-<tr><td>Target</td><td>MCU (Micro-XRCE-DDS)</td><td>Desktop / robot</td><td>Desktop (alpha)</td><td>MCU + RTOS + desktop</td></tr>
-<tr><td>Language</td><td>C99</td><td>C++17</td><td>Rust (std)</td><td>Rust (<code>no_std</code>) + C + C++14</td></tr>
-<tr><td>Node ownership</td><td>App owns node + executor</td><td><code>shared_ptr&lt;Node&gt;</code> + <code>Executor</code></td><td><code>Arc&lt;Node&gt;</code> + executor</td><td>Executor owns the session; node borrows from it</td></tr>
-<tr><td>Executor model</td><td>Single-threaded, polled</td><td>Single-/multi-threaded, owned thread</td><td>Single-threaded, polled</td><td>Single-threaded, polled</td></tr>
-<tr><td>Spin entry point</td><td><code>rclc_executor_spin_some(&amp;exec, timeout)</code></td><td><code>rclcpp::spin(node)</code> (blocks, owns thread)</td><td><code>executor.spin()</code> (blocks current thread)</td><td><code>executor.spin_once(timeout_ms)</code></td></tr>
-<tr><td>Blocking primitive</td><td>None (callback-only)</td><td><code>std::shared_future::wait_for(timeout)</code></td><td><code>Promise::wait(timeout)</code> (Tokio-style)</td><td><code>Promise::wait(&amp;mut executor, timeout_ms)</code></td></tr>
-<tr><td>Async primitive</td><td>None</td><td><code>std::shared_future</code> + <code>spin_until_future_complete</code></td><td><code>impl Future</code></td><td><code>Promise&lt;T&gt;</code> (manual poll + executor-driven blocking wait; no <code>Future</code> impl)</td></tr>
-<tr><td>Heap requirement</td><td>Optional (static allocator)</td><td>Required</td><td>Required</td><td>Optional (caller buffers; only zenoh-pico transport heap)</td></tr>
-<tr><td>Threading requirement</td><td>None</td><td>Required (<code>std::thread</code>)</td><td>Required (<code>std::thread</code>)</td><td>None (single-threaded valid)</td></tr>
+<tr><td><code>spin_once(timeout)</code></td><td>one pass</td><td>no</td></tr>
+<tr><td><code>spin_some(max)</code></td><td>rclcpp’s drain: run what is ready, then return</td><td>no</td></tr>
+<tr><td><code>spin_forever(options)</code></td><td>never returns; the body of an RTOS task</td><td>no</td></tr>
+<tr><td><code>spin(options)</code></td><td>rclrs’s name and shape: until cancelled, a timeout, or a callback count</td><td>yes</td></tr>
+<tr><td><code>spin_period(period)</code></td><td>fixed rate, drift-compensated</td><td>yes</td></tr>
 </tbody>
 </table>
 </div>
-<h2 id="promise-as-the-unifying-primitive"><a class="header" href="#promise-as-the-unifying-primitive">Promise as the unifying primitive</a></h2>
-<p>The same <code>Promise&lt;T&gt;</code> value serves two usage patterns. None of the other client libraries achieves this with a single type.</p>
-<p><strong>Pattern 1 – callback-driven (no blocking call):</strong></p>
-<pre><code class="language-rust ignore">let promise = client.call(&amp;request)?;
-// ... continue running other work ...
-executor.spin_once(10);
-if let Some(reply) = promise.take()? {
-    handle(reply);
-}</code></pre>
-<p><strong>Pattern 2 – blocking with timeout:</strong></p>
-<pre><code class="language-rust ignore">let mut promise = client.call(&amp;request)?;
-let reply = promise.wait(&amp;mut executor, 5000)?;  // blocks up to 5s, drives I/O</code></pre>
-<p>There is deliberately no third, <code>.await</code>-on-a-foreign-runtime pattern: a
-<code>Future</code> impl completes only while something else spins the executor, and then
-that runtime’s scheduler, not nano-ros, decides when the reply is handled.</p>
-<p>Contrast this with the alternatives:</p>
+<p>So the verbs that reach a <code>no_std</code> no-alloc target are <code>spin_once</code>,
+<code>spin_some</code> and <code>spin_forever</code>. In a generated entry you rarely call any of
+them: each sched task’s loop is generated, and your code is callbacks and
+handles.</p>
+<h2 id="one-promise-two-ways-to-wait"><a class="header" href="#one-promise-two-ways-to-wait">One promise, two ways to wait</a></h2>
+<p>A service call or an action goal returns a <code>Promise&lt;T&gt;</code>. The same value
+serves two patterns:</p>
 <ul>
-<li><strong>rclcpp</strong> uses <code>std::shared_future&lt;Response&gt;</code>, which is bound to <code>std::thread</code> and <code>std::condition_variable</code>. There is no way to drive it on a cooperative single-threaded MCU. The blocking helper <code>rclcpp::spin_until_future_complete()</code> <em>requires</em> an owned thread.</li>
-<li><strong>rclc</strong> has no future or promise concept. The only way to receive a service reply is to register a callback that fires from <code>rclc_executor_spin_some()</code>. Building request/response chains becomes an explicit state machine.</li>
-<li><strong>rclrs</strong> has <code>impl Future</code> but no callback-poll path; you must <code>.await</code> from a Tokio task. No blocking-with-timeout helper that drives I/O internally.</li>
+<li><strong>Poll it.</strong> Keep running other work, spin, and call <code>promise.take()</code>,
+which returns <code>None</code> until the reply has arrived. The example at the top
+of this page does this.</li>
+<li><strong>Block on it.</strong> <code>promise.wait(&amp;mut executor, timeout)</code> spins the executor
+in a loop until the reply arrives or the timeout passes.</li>
 </ul>
-<p>In nano-ros, the same <code>Promise</code> carries a borrow of the standalone service client and a sequence number; <code>take()</code> polls it, and <code>wait()</code> polls it in a loop while spinning the executor.</p>
-<h2 id="no-internal-spin"><a class="header" href="#no-internal-spin">No internal spin</a></h2>
-<p><code>rclcpp::spin(node)</code> blocks the calling thread inside the library and owns the dispatch loop. This works on Linux but cannot work on bare-metal: there is no thread to give up, and the application loop must remain in user code (for power management, interrupt servicing, smoltcp polling).</p>
-<p>nano-ros never owns the spin loop. The user <em>always</em> writes the loop:</p>
-<pre><code class="language-rust ignore">loop {
-    executor.spin_once(10);
-    // user can also: poll smoltcp, service interrupts, run other tasks, sleep
-}</code></pre>
-<p>Convenience wrappers exist for desktop-style use cases – <code>spin(SpinOptions)</code> (rclrs’s name and shape: run until cancelled, a timeout expires, or a callback count is reached), <code>spin_some(max)</code> (rclcpp’s drain verb: execute what is ready, return), <code>spin_forever(SpinOptions)</code> (<code>-&gt; !</code>, the body of an RTOS task) and <code>spin_period(duration)</code> (fixed-rate, drift-compensated) – but each is implemented as a <code>spin_once()</code> loop that the user could write by hand. <code>spin</code> and <code>spin_period</code> need <code>alloc</code>; <code>spin_once</code>, <code>spin_some</code> and <code>spin_forever</code> reach a <code>no_std</code> no-alloc target.</p>
-<p>This is the reason every blocking API in nros takes <code>&amp;mut Executor</code>. <code>Promise::wait</code>, <code>Stream::wait_next</code>, <code>Client::call_blocking</code>, the C++ <code>Future::wait(executor.handle(), ...)</code>, and the C <code>rclc_client_call(..., timeout_ms)</code> all internally call <code>spin_once()</code> to keep I/O moving while waiting. They cannot rely on a background thread doing it for them, because there is none.</p>
-<h2 id="executor-is-the-session-owner-not-a-singleton"><a class="header" href="#executor-is-the-session-owner-not-a-singleton">Executor is the session owner, not a singleton</a></h2>
-<p>In rclcpp, the <code>Executor</code> is a <em>separate</em> object that you attach nodes to (<code>exec.add_node(node)</code>). The node owns its own RMW context. Multiple executor classes (<code>SingleThreadedExecutor</code>, <code>MultiThreadedExecutor</code>, <code>StaticSingleThreadedExecutor</code>) exist as parallel implementations.</p>
-<p>In nano-ros, the <code>Executor</code> <em>is</em> the RMW session owner. Calling <code>Executor::open(&amp;config)</code> opens the transport; nodes are derived from the executor:</p>
-<pre><code class="language-rust ignore">let mut executor = Executor::open(&amp;config)?;
-let mut node = executor.create_node("my_node")?;
-let pub_ = node.create_publisher::&lt;Int32&gt;("/topic")?;</code></pre>
-<p>There is exactly one executor type. There is no separate “context” object, no add/remove-node lifecycle, no executor selection at runtime. The single-threaded model is baked in – adding a multi-threaded variant would require redesigning the callback dispatch, which we deliberately avoid to keep the bare-metal path viable.</p>
-<p>The trade-off: you cannot share one transport session between two executors. In practice no embedded application wants this, and on desktop you can run multiple processes if you need it.</p>
-<h2 id="explicit-spin-in-blocking-ops--why-pass-the-executor"><a class="header" href="#explicit-spin-in-blocking-ops--why-pass-the-executor">Explicit spin in blocking ops – why pass the executor?</a></h2>
-<p>Every blocking operation takes <code>&amp;mut Executor</code> (Rust) or an executor handle (C/C++). This looks redundant when the executor is also the entity that created the operation. The reason is borrow-checker hygiene plus single-threaded I/O.</p>
-<p>The standalone communication handles (<code>StandaloneClient</code>, <code>StandaloneSubscription</code>, the <code>Promise</code> returned from <code>call</code>) borrow from the session. They cannot also borrow the executor at the same time, because the executor <em>owns</em> the session. Passing <code>&amp;mut executor</code> at the wait call – after the promise has been created and the borrow released – is the only way to get a mutable executor reference while a promise is in flight.</p>
-<p>The deeper reason: there is no other thread that can drive I/O. If <code>Promise::wait()</code> did not have the executor, it could not call <code>spin_once()</code> – the network would freeze and the wait would always time out. By forcing the executor parameter, the API makes the I/O dependency explicit and impossible to forget.</p>
-<h2 id="language-parity"><a class="header" href="#language-parity">Language parity</a></h2>
-<p>The same Future/Promise + explicit-executor model is preserved in C and C++ wrappers.</p>
-<p><strong>Rust</strong> uses <code>Promise&lt;'_, T&gt;</code> directly. It implements <code>core::future::Future</code> and exposes <code>take()</code> + <code>wait(&amp;mut executor, ms)</code>.</p>
-<p><strong>C++</strong> wraps the promise as <code>rclcpp::Future&lt;T&gt;</code>:</p>
+<p>A <code>Promise</code> borrows its client’s reply slot and a sequence number. It needs
+no allocation, and it is not a <code>Future</code>: there is deliberately no third
+pattern of <code>.await</code> on a foreign runtime. A <code>Future</code> completes only while
+something else spins the executor, and then that runtime’s scheduler, not
+nano-ros, decides when the reply is handled (see
+<a href="execution-model.html#what-nano-ros-does-not-run-on">What nano-ros does not run on</a>).</p>
+<h2 id="why-every-blocking-call-takes-the-executor"><a class="header" href="#why-every-blocking-call-takes-the-executor">Why every blocking call takes the executor</a></h2>
+<p><code>Promise::wait</code>, a subscription’s <code>wait_next</code>, the C++ <code>Future::wait</code> and
+C’s <code>rclc_client_call</code> all take the executor, or a handle to it, although
+the executor created the thing they wait on. There are two reasons.</p>
+<p>The first is that no other thread drives I/O. If <code>wait</code> did not have the
+executor, it could not spin, the network would stand still, and the wait
+would always time out. Passing the executor makes that dependency explicit
+at the call site, where it cannot be forgotten.</p>
+<p>The second is borrowing. A promise borrows the session through its client,
+and the executor owns the session, so the promise cannot also hold the
+executor. Passing <code>&amp;mut executor</code> at the call, while the promise is a
+separate object, is how a wait gets a mutable executor while a request is in
+flight.</p>
+<h2 id="the-same-model-in-c-and-c"><a class="header" href="#the-same-model-in-c-and-c">The same model in C and C++</a></h2>
+<p>C++ wraps the promise as <code>rclcpp::Future&lt;T&gt;</code>, and its wait takes the
+executor’s handle for the same reason the Rust API takes <code>&amp;mut executor</code>:</p>
 <pre><code class="language-cpp">auto fut = client.send_request(req);
 ResponseType resp;
 RCLCPP_TRY(fut.wait(executor.handle(), 5000, resp));
 </code></pre>
-<p><code>Future::wait()</code> takes <code>void* executor_handle</code> (from <code>executor.handle()</code> or <code>rclcpp::global_handle()</code>) for the same reason the Rust API takes <code>&amp;mut executor</code>. There is no global executor singleton; the handle is explicit.</p>
-<p><strong>C</strong> uses paired <code>_async</code> and blocking entry points:</p>
-<pre><code class="language-c">// Blocking: drives the executor internally, returns the reply or an error.
+<p>The handle comes from <code>executor.handle()</code>, or <code>rclcpp::global_handle()</code> for
+the free functions. There is no hidden global executor.</p>
+<p>C has no generics, so it has no promise type, but the pattern is the same: a
+blocking call that drives the executor for you, beside an asynchronous send
+whose result arrives by callback while you keep spinning:</p>
+<pre><code class="language-c">/* Blocking: spins the attached executor until the reply or the timeout. */
 size_t reply_len = 0;
 rclc_client_call(&amp;client, req_buf, req_len, reply_buf, sizeof(reply_buf), &amp;reply_len);
 
-// Async: returns immediately, result via callback registered ahead of time.
+/* Asynchronous: returns at once; the result comes to a callback. */
 rclc_action_send_goal_async(client, &amp;goal, sizeof(goal));
 rclc_action_client_set_result_callback(client, on_result);
-// User keeps calling rclc_executor_spin_some() to drive callbacks.
+/* keep calling rclc_executor_spin_some() */
 </code></pre>
-<p>The C API has no Future/Promise type because C lacks generics, but the <em>pattern</em> is the same: an <code>_async</code> send-without-wait paired with a callback (or polled status), and a blocking call that drives the executor for you.</p>
-<h2 id="summary"><a class="header" href="#summary">Summary</a></h2>
-<p>The four design choices that shape nano-ros’s client library:</p>
-<ol>
-<li><strong>Single executor type</strong> that owns the session – no separate context object, no executor variants.</li>
-<li><strong>No internal spin</strong> – the user always owns the spin loop; blocking helpers exist but are wrappers.</li>
-<li><strong>Explicit <code>&amp;mut Executor</code> on every blocking op</strong> – the API enforces the I/O dependency at the call site.</li>
-<li><strong>Promise as the unifying primitive</strong> – one type for callback-drive and blocking-with-timeout.</li>
-</ol>
-<p>These choices are what make the same client library viable on a Cortex-M3 and a Linux workstation without a separate “MCU client library” like rclc.</p>
+<h2 id="where-nano-ros-differs-from-ros-2"><a class="header" href="#where-nano-ros-differs-from-ros-2">Where nano-ros differs from ROS 2</a></h2>
+<ul>
+<li><strong>Nodes come from the executor.</strong> There is no <code>rclcpp::Node::make_shared</code>
+with a context of its own, and no <code>add_node</code>.</li>
+<li><strong>No <code>rclcpp::spin(node)</code> that owns a thread.</strong> The loop is yours, or the
+generated entry’s.</li>
+<li><strong>A <code>Promise</code>, not a <code>std::shared_future</code> or a Rust <code>Future</code>.</strong> You poll
+it or block on it with the executor.</li>
+<li><strong>One executor type.</strong> No <code>MultiThreadedExecutor</code> or
+<code>StaticSingleThreadedExecutor</code>; parallelism is a sched task
+(<a href="execution-model.html">The execution model</a>).</li>
+</ul>
+<p>For the rest of the C++ surface (what <code>rclcpp</code> names exist, and how they
+behave), see <a href="differences-from-ros2.html">How nano-ros differs from ROS 2 and micro-ROS</a>
+and the <a href="https://docs.ros.org/en/humble/p/rclcpp/">rclcpp documentation</a>.</p>
 <h2 id="design-background"><a class="header" href="#design-background">Design background</a></h2>
 <ul>
-<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0113-rt-unified-wait.md">RFC-0113: one wait serves every platform and RMW</a></li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0113-rt-unified-wait.md">RFC-0113</a>:
+one wait serves every platform and RMW; why there is no <code>Future</code> path.</li>
 </ul>
 <style>
 .nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;

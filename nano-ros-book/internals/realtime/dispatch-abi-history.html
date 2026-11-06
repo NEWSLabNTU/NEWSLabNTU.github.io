@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-7810b649.js";
+            window.path_to_searchindex_js = "../searchindex-9b25c94f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-0948c11b.js"></script>
@@ -179,14 +179,78 @@
                     <main>
                         <h1 id="dispatch-abi-history"><a class="header" href="#dispatch-abi-history">Dispatch ABI history</a></h1>
 <blockquote>
-<p>The user-facing description of <code>DispatchStrategy</code>, the tag API and the
-<code>__nros_node_&lt;pkg&gt;_dispatch_strategy()</code> symbol is
-<a href="../../background/dispatch-strategy.html">Dispatch Strategy</a> in the nano-ros
-Book. This page keeps the implementation history behind it: which phase
-built which piece, and which slots are still open.</p>
+<p>The user-facing description of <code>DispatchStrategy</code> and the tag API is the
+“Deferred dispatch” section of
+<a href="../../background/execution-model.html#deferred-dispatch">The execution model</a>
+in the nano-ros Book. This page keeps what a contributor needs behind it:
+the ABI symbol, the board-side trait, the compatibility contract, which
+phase built which piece, and which slots are still open.</p>
 </blockquote>
 <p>The locked spec is
 <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/archived/phase-216-baremetal-framework-integration.md"><code>docs/roadmap/archived/phase-216-baremetal-framework-integration.md</code></a>.</p>
+<h2 id="the-__nros_node_pkg_dispatch_strategy-symbol"><a class="header" href="#the-__nros_node_pkg_dispatch_strategy-symbol">The <code>__nros_node_&lt;pkg&gt;_dispatch_strategy()</code> symbol</a></h2>
+<p><code>nros::node!()</code> emits one symbol per node package:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Emitted by nros::node!(Talker).
+#[unsafe(no_mangle)]
+extern "C" fn __nros_node_talker_pkg_dispatch_strategy() -&gt; u8 {
+    &lt;Talker as ::nros::Node&gt;::DISPATCH as u8
+}
+<span class="boring">}</span></code></pre>
+<p>Its consumers:</p>
+<ol>
+<li><strong><code>nros check</code></strong> reads it from the node crate’s <code>.rmeta</code> (or, on the host,
+links the staticlib and reads it through <code>dlsym</code>) and compares it with the
+entry board’s <code>framework</code> using the framework-by-strategy matrix:
+<code>Inline</code> and <code>Deferred</code> are accepted on posix, rtos and bare-metal;
+<code>FromIsr</code> is refused on all three.</li>
+<li><strong><code>nros::main!()</code></strong> walks the registered nodes and reads each strategy. An
+entry with a dispatch task adds it only when some node is <code>Deferred</code>; the
+entries generated for the supported boards have none and register every
+node inline.</li>
+<li><strong>Introspection tools</strong> can read the symbols from a linked binary and print
+the (package, strategy) table without the source.</li>
+</ol>
+<p><code>#[repr(u8)]</code> with <code>Inline = 0</code>, <code>Deferred = 1</code>, <code>FromIsr = 2</code> is
+wire-frozen. A new strategy is a new discriminant, never a renumbering;
+<code>FromIsr</code> was reserved up front for exactly that reason, and so the <code>nros check</code> matrix can match on the enum instead of on a spelling.</p>
+<h2 id="the-board-side-trait"><a class="header" href="#the-board-side-trait">The board-side trait</a></h2>
+<p><code>NodeDispatchRuntime</code> (in <code>packages/platform/nros-platform/src/board/runtime.rs</code>)
+carries <code>signal_callback</code> and <code>dispatch_strategy</code>, both defaulted:
+<code>dispatch_strategy</code> returns <code>Inline</code>, and <code>signal_callback</code> panics. The
+Inline path never calls <code>signal_callback</code>, so the panic is louder than a
+dropped callback if a hand-written entry signals an Inline runtime. A
+Deferred runtime overrides both: <code>signal_callback</code> enqueues <code>(cb_id, snapshot)</code> on a single-producer queue (only the spin task enqueues) and wakes
+the dispatch task.</p>
+<h2 id="compatibility-contract"><a class="header" href="#compatibility-contract">Compatibility contract</a></h2>
+<ul>
+<li><code>Node::DISPATCH</code> is a defaulted associated const (<code>Inline</code>), so every
+<code>impl Component</code> that does not mention it compiles unchanged.</li>
+<li>The closure registration path (<code>create_subscription</code>, <code>create_service</code>,
+<code>create_action</code>) stays valid for Inline nodes. The macro lint rejects a
+closure only when <code>DISPATCH = Deferred</code>, and points at the <code>_static</code> form.</li>
+<li>The tag’s <code>PartialEq&lt;Callback&lt;'_&gt;&gt;</code> compares <code>&amp;'static str</code>s, a pointer
+compare in the common case where the runtime hands back the registered
+<code>&amp;'static</code>.</li>
+</ul>
+<h2 id="what-fromisr-needs"><a class="header" href="#what-fromisr-needs">What <code>FromIsr</code> needs</a></h2>
+<ul>
+<li><strong>A reentrancy audit</strong> of the dispatch path (<code>signal_callback</code>, queue push,
+RMW raw-CDR buffer ownership) against ISR-priority producers. Today’s path
+assumes thread-context callers.</li>
+<li><strong>A lock-free SPSC variant.</strong> <code>heapless::spsc::Queue</code> is single-producer,
+single-consumer at thread priority; an ISR producer with a thread consumer
+needs at least a barrier on the ISR-side push.</li>
+<li><strong>A per-node <code>#[isr_safe]</code> contract:</strong> <code>on_callback</code> must not block, panic
+or allocate.</li>
+</ul>
+<h2 id="why-per-node-not-per-callback"><a class="header" href="#why-per-node-not-per-callback">Why per-node, not per-callback</a></h2>
+<p>Per-callback strategies would multiply the framework-by-strategy matrix by
+the callbacks per node, and fork the dispatch path (each queue entry tagged
+with its own strategy at enqueue time). The dispatch task drains one queue
+and routes each entry by <code>CallbackId</code> to one node’s <code>on_callback</code>. No user
+has needed mixed strategies; the slot to reconsider is below.</p>
 <h2 id="where-each-piece-came-from"><a class="header" href="#where-each-piece-came-from">Where each piece came from</a></h2>
 <div class="table-wrapper">
 <table>
@@ -220,7 +284,7 @@ defaulted so the existing Inline implementations (<code>ExecutorNodeRuntime</cod
 <ul>
 <li><strong><code>FromIsr</code> (Phase 216.E.1).</strong> The discriminant is reserved; the
 implementation needs the reentrancy audit, the lock-free SPSC variant and
-the per-Node <code>#[isr_safe]</code> contract described on the user page. The
+the per-Node <code>#[isr_safe]</code> contract above. The
 Phase 214.J <code>atomic_waker</code> substrate is the building block for the SPSC
 variant.</li>
 <li><strong>Per-callback strategies (Phase 216.E.3).</strong> The slot to reconsider
