@@ -35,10 +35,10 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-8ab0ae28.js";
+            window.path_to_searchindex_js = "../../searchindex-5dfadf8f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../../toc-ebf3309a.js"></script>
+        <script src="../../toc-7b5fb93a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -303,6 +303,10 @@ use, and it names its own manifest:</p>
 </code></pre>
 <pre><code class="language-text probe-expect=50 variant=pinned">sdk/nros/0.6.0-nros4/share/nros/manifest.toml
 </code></pre>
+<p>Only the newest release is supported, and fixes are not backported, so a
+pin is a choice to move deliberately rather than a place to stay; a pinned
+release keeps installing, because its assets stay published
+(<a href="../../reference/support-status.html#release-support">Release support</a>).</p>
 <p>With no pin, <code>nros pin</code> says so:</p>
 <pre><code class="language-text">pinned: NOTHING — no nros-toolchain.toml at or above …/empty.
     This project floats: `nros build` will write a pin, and until it does, firmware built here is reproducible only by accident.
@@ -327,24 +331,74 @@ nros build
 <p>Take the toolchain versions the release pinned: its cross compilers, the
 Cyclone DDS ROS ships and its zenoh-pico are chosen together.</p>
 <h2 id="working-offline"><a class="header" href="#working-offline">Working offline</a></h2>
+<p>Prepare on a machine with a network and the same Ubuntu release and
+architecture as the offline one, then carry four things across.</p>
 <ol>
-<li><strong>Mirror the release asset.</strong> <code>install.sh</code> takes <code>NROS_INSTALL_URL=&lt;url&gt;</code>:
-a mirror, an air-gapped copy or a test server. The asset’s <code>.sha256</code> must
-sit beside it.</li>
-<li><strong>Pin the SDK index.</strong> <code>nros setup --index &lt;path&gt;</code> uses a copy you have;
-<code>NROS_INDEX_URL=&lt;url&gt;</code> fetches one from a mirror. The index names every
-asset’s upstream, so a full mirror rehosts those URLs in your copy.</li>
-<li><strong>Stage Corrosion</strong> with <code>nros setup --tool corrosion</code>, or the
-<code>nros setup &lt;board&gt;</code> you already run.</li>
-<li><strong>Prepare each workspace while online.</strong> <code>nros configure</code> fetches the
-crates its images need into cargo’s cache and writes everything generated.</li>
-<li><strong>Carry the stores.</strong> <code>~/.nros</code> (or <code>NROS_HOME</code>) holds the CLI, the SDK
-root and every package <code>nros setup</code> fetched. The Rust toolchain lives in
-<code>~/.rustup</code> and <code>~/.cargo</code>, with cargo’s registry cache; carry those too,
-or <code>nros setup</code> tries to download rustup again.</li>
-<li><strong>Build with <code>NROS_OFFLINE=1</code>.</strong> <code>nros</code> then fetches nothing, and runs
+<li>
+<p><strong>Carry the host packages.</strong> apt downloads only what is not installed,
+so download them in a clean container of the same release. The ROS image
+already has the ROS 2 repository, so one command covers
+<a href="../../start/install.html">Install</a>’s host packages and the ROS 2 ones:</p>
+<pre><code class="language-sh">mkdir debs
+docker run --rm -v "$PWD/debs:/debs" ros:jazzy-ros-base bash -c '
+  apt-get update &amp;&amp;
+  apt-get install -y --download-only git curl ca-certificates build-essential \
+    cmake pkg-config python3 python3-dev zstd \
+    python3-catkin-pkg python3-empy python3-lark python3-yaml \
+    ros-jazzy-rmw-zenoh-cpp &amp;&amp;
+  cp /var/cache/apt/archives/*.deb /debs/'
+</code></pre>
+<p>Use <code>ros:humble-ros-base</code> and <code>ros-humble-…</code> for Ubuntu 22.04. On the
+offline machine, after installing ROS 2 the same way, run
+<code>sudo apt install ./debs/*.deb</code>.</p>
+</li>
+<li>
+<p><strong>Mirror the release asset.</strong> A release is tagged <code>nros-&lt;version&gt;</code> and
+its asset is <code>nros-&lt;os&gt;-&lt;arch&gt;.tar.zst</code>, with a <code>.sha256</code> beside it. The
+installer’s dry run prints the exact URL for a version and this host:</p>
+<pre><code class="language-sh">curl -fsSL https://raw.githubusercontent.com/NEWSLabNTU/nano-ros/main/scripts/install.sh \
+    | sh -s -- --version 0.6.0-nros6 --dry-run
+</code></pre>
+<pre><code class="language-text">nros-install: 0.6.0-nros6 for linux-x86_64
+nros-install:   from https://github.com/NEWSLabNTU/nano-ros/releases/download/nros-0.6.0-nros6/nros-linux-x86_64.tar.zst
+</code></pre>
+<p>Download that file and its <code>.sha256</code>, carry both, and install with
+<code>NROS_INSTALL_URL=file:///path/to/nros-linux-x86_64.tar.zst sh install.sh</code>.</p>
+</li>
+<li>
+<p><strong>Pin the SDK index.</strong> A release reads the index it ships with, so the
+toolchains it provisions are the ones it was built with.
+<code>nros setup --index &lt;path&gt;</code> uses another copy you have, and
+<code>NROS_INDEX_URL=&lt;url&gt;</code> fetches one from a mirror; the index
+names every asset’s upstream, so a full mirror rehosts those URLs in your
+copy.</p>
+</li>
+<li>
+<p><strong>Provision and prepare while online.</strong> Run <code>nros setup &lt;board&gt;</code> (it
+stages Corrosion too, or <code>nros setup --tool corrosion</code> alone), then
+<code>nros configure</code> in each workspace. It fetches the crates its images need
+into cargo’s cache and writes everything generated.</p>
+</li>
+<li>
+<p><strong>Carry the stores.</strong> <code>nros setup --offline-dirs</code> prints the directories
+to copy, one per line, each with its reason on stderr:</p>
+<pre><code class="language-sh">nros setup --offline-dirs
+</code></pre>
+<pre><code class="language-text">/home/you/.nros
+/home/you/.rustup
+/home/you/.cargo
+</code></pre>
+<p><code>~/.nros</code> (or <code>NROS_HOME</code>) holds the CLI, the SDK root and every package
+<code>nros setup</code> fetched. <code>~/.rustup</code> and <code>~/.cargo</code> are rustup’s homes (or
+<code>$RUSTUP_HOME</code> and <code>$CARGO_HOME</code>): the pinned Rust toolchains and cargo’s
+registry cache. Without them <code>nros setup</code> tries to download rustup again.
+Copy them to the same paths on the offline machine.</p>
+</li>
+<li>
+<p><strong>Build with <code>NROS_OFFLINE=1</code>.</strong> <code>nros</code> then fetches nothing, and runs
 every cargo it starts with <code>CARGO_NET_OFFLINE=true</code>. A build that needs
-something missing stops and names it.</li>
+something missing stops and names it.</p>
+</li>
 </ol>
 <h2 id="if-it-doesnt-work"><a class="header" href="#if-it-doesnt-work">If it doesn’t work</a></h2>
 <ul>
