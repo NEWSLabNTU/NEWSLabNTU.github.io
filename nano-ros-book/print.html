@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-933b5823.js";
+            window.path_to_searchindex_js = "searchindex-b145198d.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-1613fc26.js"></script>
+        <script src="toc-ac62b82d.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -4186,7 +4186,7 @@ with <code>nros build posix</code>.</p>
 </thead>
 <tbody>
 <tr><td>Large messages never arrive</td><td>raise <code>frag_max_size</code>: the message exceeds the reassembly limit</td></tr>
-<tr><td>A subscription receives truncated data, or a large-type subscription fails to create</td><td>the receive slot is too small; see <a href="#sizing-the-pools">Measure static memory</a></td></tr>
+<tr><td>A subscription receives truncated data, or a large-type subscription fails to create</td><td>the receive slot is too small; see <a href="#which-knobs-the-build-derives">Size an image from its contract</a></td></tr>
 <tr><td>Service calls with large replies time out</td><td>raise <code>get_reply_buf_size</code></td></tr>
 <tr><td>Several concurrent service calls fail</td><td>raise <code>NROS_ZENOH_MAX_PENDING_GETS</code></td></tr>
 <tr><td>An entity create fails at run time</td><td>a pool is full; the <a href="#static-pool-inventory">Static pool inventory</a> names the knob that sizes it</td></tr>
@@ -4532,106 +4532,420 @@ callback limit that event callbacks share.</li>
 .nros-level-badge .nros-level-type { color: var(--links); font-weight: 600; }
 </style>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="c--c-multi-node-workspaces"><a class="header" href="#c--c-multi-node-workspaces">C / C++ multi-node workspaces</a></h1>
+<h1 id="declare-qos-in-a-contract"><a class="header" href="#declare-qos-in-a-contract">Declare QoS in a contract</a></h1>
 <div class="nros-level-badge" data-type="how-to" data-level="2"><span class="nros-level-type">How-to</span> · <span class="nros-level-name">Level 2: Building real applications</span></div>
 
-<p>This page now holds only the contract sections of the C and C++ workspace
-walkthrough. The workspace layout, the node and bringup packages, the image
-and the entry it generates moved to
-<a href="#organize-a-larger-workspace">Organize a larger workspace</a> and
-<a href="#mix-languages">Mix languages</a>.</p>
-<p>The reference C++ workspace is
-<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/cpp"><code>examples/workspaces/cpp/</code></a>.</p>
-<h2 id="contracts-for-a-c-or-c-workspace"><a class="header" href="#contracts-for-a-c-or-c-workspace">Contracts for a C or C++ workspace</a></h2>
-<h3 id="telling-the-build-what-the-component-creates"><a class="header" href="#telling-the-build-what-the-component-creates">Telling the build what the component creates</a></h3>
-<p><code>NROS_EXECUTOR_MAX_CBS</code>, the subscriber slots and the arena are <code>const</code> sizes
-compiled into nros-node before a component TU is compiled, while a typed
-component wires itself in its CONSTRUCTOR, at runtime. Nothing the macros emit
-can supply those sizes — it exists only after linking. So somebody has to state
-what the image creates, ahead of the build.</p>
-<p>That statement is a <strong>contract sidecar</strong> beside the launch file, not something
-in this CMakeLists. <code>&lt;stem&gt;.contract.yaml</code> next to <code>&lt;stem&gt;.launch.xml</code> in the
-bringup package:</p>
-<pre><code class="language-yaml"># src/demo_bringup/launch/system.contract.yaml
-version: 1
+<p><strong>Needs first:</strong> <a href="#telling-the-build-what-the-component-creates">the contract walkthrough</a> ·
+<a href="#growing-your-workspace">Project layout</a></p>
+<p>Declare an endpoint’s QoS in its contract when you want the image to reserve
+memory for the history it keeps, rather than for the backend’s default.</p>
+<p>QoS itself is the ROS 2 idea you already know: see
+<a href="https://docs.ros.org/en/rolling/Concepts/Intermediate/About-Quality-of-Service-Settings.html">About Quality of Service settings</a>.
+What differs in nano-ros is that every queue is static. The build sizes the
+receive rings, the executor arena and the transient-local retention from what
+the contract declares, before any of your code is compiled. A QoS you pass in
+code and never declare is a QoS the image did not reserve for.</p>
+<h2 id="before-you-start-9"><a class="header" href="#before-you-start-9">Before you start</a></h2>
+<ul>
+<li>A bringup that builds and runs, with a contract beside its launch file
+(<code>&lt;bringup&gt;/launch/&lt;stem&gt;.contract.yaml</code>), or beside <code>system.toml</code> for a
+bringup with no <code>launch/</code> directory
+(<a href="#contracts-for-a-bringup-with-no-launch-file">Contracts for a bringup with no launch file</a>).</li>
+<li>The endpoint is already declared under <code>nodes:</code> and wired under <code>topics:</code>.</li>
+<li>The call site registers the endpoint on an <strong>absolute</strong> name (<code>"/chatter"</code>,
+not <code>"chatter"</code>). A contract states resolved names, and the build will not
+match a relative one.</li>
+</ul>
+<h2 id="steps-9"><a class="header" href="#steps-9">Steps</a></h2>
+<ol>
+<li>
+<p><strong>Add a <code>qos:</code> block to the endpoint.</strong> Edit the endpoint’s row under
+<code>nodes.&lt;node&gt;.pub</code> or <code>nodes.&lt;node&gt;.sub</code>. The keys are those of the contract
+format’s <code>qos</code> section: <code>reliability</code>, <code>durability</code>, <code>history</code>, <code>depth</code>,
+<code>lifespan</code>, <code>liveliness</code>, <code>deadline</code>, <code>lease_duration</code>.</p>
+<pre><code class="language-yaml">nodes:
+  qos_listener:
+    sub:
+      qos_chatter:
+        qos:
+          history: keep_last
+          depth: 5
+          durability: transient_local
+</code></pre>
+<p>Use <code>history: keep_last</code> with the <code>depth:</code> you mean. <code>keep_all</code> has no
+static bound, so the build cannot size a buffer from it.</p>
+<p>A <code>qos:</code> block under <code>topics.&lt;name&gt;</code> sets the topic’s QoS for every endpoint
+on it; an endpoint’s own block overrides it.</p>
+</li>
+<li>
+<p><strong>Make the call site state the same QoS.</strong> The contract says what the build
+reserved; the code says what the endpoint asks for. Each language holds the
+two together differently.</p>
+</li>
+</ol>
+<div class="nros-tabs">
+<div class="nros-tabs-bar" role="radiogroup" aria-label="Language">
+<label class="nros-tab"><input type="radio" name="nros-tabs-e5459008-1" value="rust" checked=""><span>Rust</span></label>
+<label class="nros-tab"><input type="radio" name="nros-tabs-e5459008-1" value="c"><span>C</span></label>
+<label class="nros-tab"><input type="radio" name="nros-tabs-e5459008-1" value="cpp"><span>C++</span></label>
+</div>
+
+<div class="nros-tab-panel" data-lang="rust" role="group" aria-label="Rust">
+<p>Pass the profile to the <code>_with_qos</code> registration. Rust checks at registration:
+where the code asks for a deeper queue than the contract reserved, it takes the
+contract’s depth and logs a warning; where the code asks for a shallower one, it
+refuses the registration. From
+<code>rust_qos_talker_pkg/src/lib.rs</code>:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn qos_profile() -&gt; QoSProfile {
+    QoSProfile::default().reliable().transient_local().depth(5)
+}
+
+let pub_chatter =
+    node.create_publisher_for_topic_with_qos::&lt;Int32&gt;("/qos_chatter", qos_profile())?;
+<span class="boring">}</span></code></pre>
+</div>
+
+<div class="nros-tab-panel" data-lang="c" role="group" aria-label="C">
+<p>Build an <code>rclc_qos_t</code> and pass it to <code>rclc_subscription_init_with_qos</code> (or
+<code>rclc_publisher_init_with_qos</code>). At registration, a C subscription whose depth,
+reliability or durability differs from the contract is refused. From
+<code>c_qos_listener_pkg/src/QosListener.c</code>, whose contract row would state
+<code>depth: 1</code>:</p>
+<pre><code class="language-c">static rclc_qos_t qos_profile(void) {
+    rclc_qos_t q = RCLC_QOS_DEFAULT;
+    q.reliability = RCLC_QOS_RELIABILITY_RELIABLE;
+    q.durability = RCLC_QOS_DURABILITY_TRANSIENT_LOCAL;
+    q.history = RCLC_QOS_HISTORY_KEEP_LAST;
+    q.depth = 1;
+    return q;
+}
+
+const rclc_qos_t qos = qos_profile();
+self-&gt;sub = rcl_get_zero_initialized_subscription();
+rcl_ret_t rc = rclc_subscription_init_with_qos(
+    &amp;self-&gt;sub, node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32), "/chatter", &amp;qos);
+</code></pre>
+</div>
+
+<div class="nros-tab-panel" data-lang="cpp" role="group" aria-label="C++">
+<p>Make the QoS a <code>constexpr</code> and assert it against the contract beside the call.
+A disagreement then fails to compile, naming the topic and both values.
+<code>NROS_ASSERT_DECLARED_PUB_QOS</code> does the same for a publisher. From
+<code>examples/workspaces/cpp/src/listener_pkg/src/Listener.cpp</code>, whose contract row
+is <code>chatter: { qos: { depth: 1 } }</code>:</p>
+<pre><code class="language-cpp">constexpr ::rclcpp::QoS kChatterQos = ::rclcpp::QoS(1);
+NROS_ASSERT_DECLARED_QOS(::std_msgs::msg::String::TYPE_NAME, "/chatter", kChatterQos,
+                         "\"/chatter\"");
+::rclcpp::Result r =
+    ::rclcpp::bind_subscription&lt;::std_msgs::msg::String, Listener, &amp;Listener::on_msg&gt;(
+        node, "/chatter", this, kChatterQos);
+</code></pre>
+</div>
+
+</div>
+
+<ol start="3">
+<li>
+<p><strong>Rebuild the image.</strong></p>
+<pre><code class="language-bash">nros build linux_rust_qos
+</code></pre>
+<p>Among the stage lines, the resolve line names the file the build sized the
+image from:</p>
+<pre><code class="language-text">nros build:   resolved → &lt;workspace&gt;/build/demo_bringup__linux_rust_qos/resolved.toml (max_cbs &lt;n&gt;, nodes &lt;n&gt;, digest &lt;digest&gt;)
+</code></pre>
+<p>If it ends <code>(entity counts not derived; configured defaults kept)</code> instead,
+the contract did not describe the whole image: see
+<a href="#fix-a-contract-refusal">Fix a contract refusal</a>.</p>
+</li>
+</ol>
+<h2 id="example-8"><a class="header" href="#example-8">Example</a></h2>
+<p>The <code>features</code> workspace’s QoS pair, in
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/features"><code>examples/workspaces/features</code></a>.
+A Rust talker publishes <code>/qos_chatter</code> as transient-local with <code>KEEP_LAST(5)</code>,
+and the zenoh backend sizes its retention ring from the deepest transient-local
+depth the contract declares, so a late joiner receives the last five samples.
+This is <code>src/demo_bringup/launch/rust_qos.contract.yaml</code>, beside
+<code>rust_qos.launch.xml</code>:</p>
+<pre><code class="language-yaml">version: 1
 
 nodes:
-  talker:
+  reliable_talker:
     paths:
-      on_timer:                                  # a path with a timer trigger
-        trigger: { timer: { rate_hz: 1 } }       # IS the periodic callback
-        output: [chatter]
+      on_tick:
+        trigger: { timer: { rate_hz: 1 } }
+        output: [qos_chatter]
     pub:
-      chatter: {}
+      qos_chatter:
+        qos:
+          history: keep_last
+          depth: 5
+          durability: transient_local
+          reliability: best_effort
+
+  qos_listener:
+    sub:
+      qos_chatter:
+        qos:
+          history: keep_last
+          depth: 5
+          durability: transient_local
+    pub:
+      qos_ok:
+        qos:
+          history: keep_last
+          depth: 10
+          durability: volatile
+
+topics:
+  /qos_chatter:
+    type: std_msgs/msg/Int32
+    pub: [reliable_talker/qos_chatter]
+    sub: [qos_listener/qos_chatter]
+  /qos_ok:
+    type: std_msgs/msg/Int32
+    external: sub
+    pub: [qos_listener/qos_ok]
+</code></pre>
+<p>The talker’s code asks for <code>reliable</code>; the publisher row says <code>best_effort</code>
+because the bringup’s <code>system.toml</code> overrides it with a
+<code>qos_overrides./qos_chatter.publisher.reliability</code> parameter, and the contract
+has to state the same fact as the override.</p>
+<h2 id="if-it-doesnt-work-9"><a class="header" href="#if-it-doesnt-work-9">If it doesn’t work</a></h2>
+<ul>
+<li><strong>The build refuses with “QoS statement(s) disagree between the launch
+contract and the <code>qos_overrides.*</code> parameters”.</strong> A launch or <code>system.toml</code>
+<code>qos_overrides.*</code> parameter and the contract state one policy two ways, or
+the parameter states one the contract omits. Make the contract state the
+same value; the message names the topic, the parameter and the contract row.</li>
+<li><strong>A C++ build fails with “nros: the QoS depth passed for topic … disagrees
+with the depth declared for that topic in the contract sidecar”.</strong> The call
+site and the row differ. The <code>declared_depth_agrees&lt;declared, passed&gt;</code>
+diagnostic beside it carries both numbers. Change whichever is wrong.</li>
+<li><strong>A Rust image logs <code>declared depth: taking KEEP_LAST(…)</code> at boot.</strong> The code
+asked for more than the contract reserved, and the registration took the
+contract’s depth. Raise the contract row to keep more.</li>
+<li><strong>A registration fails at boot and the log says the contract declares a
+deeper queue, or a stronger policy, than the code.</strong> Taking it would widen
+what the code narrowed. Lower the contract row or change the call site.</li>
+</ul>
+<h2 id="see-also-8"><a class="header" href="#see-also-8">See also</a></h2>
+<ul>
+<li><a href="#size-an-image-from-its-contract">Size an image from its contract</a>: what
+the declared depths size, and how to see it.</li>
+<li><a href="https://github.com/NEWSLabNTU/ros-launch-manifest/blob/v0.3.12/docs/format-reference.md#qos">Contract format reference</a>:
+every <code>qos</code> key, generated from the grammar this release pins.</li>
+<li><a href="#use-qos-status-events-and-discovery">QoS, status events, and discovery</a>: the QoS
+policies at run time.</li>
+</ul>
+<style>
+.nros-tabs { margin: 1em 0; }
+.nros-tabs-bar { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--table-border-color); }
+.nros-tab { position: relative; padding: 0.3em 1em; margin-bottom: -1px; cursor: pointer;
+  border: 1px solid transparent; border-bottom: none; border-radius: 4px 4px 0 0; color: var(--fg); }
+.nros-tab:hover { background: var(--theme-hover); }
+.nros-tab:has(input:checked) { border-color: var(--table-border-color); background: var(--bg);
+  color: var(--links); font-weight: 600; }
+.nros-tab:has(input:focus-visible) { outline: 2px solid var(--links); outline-offset: -2px; }
+.nros-tab input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.nros-tab-panel > :first-child { margin-top: 0.6em; }
+.nros-tabs:has(> .nros-tabs-bar input[value="rust"]:not(:checked)) > .nros-tab-panel[data-lang="rust"] { display: none; }
+.nros-tabs:has(> .nros-tabs-bar input[value="c"]:not(:checked)) > .nros-tab-panel[data-lang="c"] { display: none; }
+.nros-tabs:has(> .nros-tabs-bar input[value="cpp"]:not(:checked)) > .nros-tab-panel[data-lang="cpp"] { display: none; }
+@media print {
+  .nros-tabs-bar { display: none; }
+  .nros-tab-panel { display: block !important; }
+  .nros-tab-panel::before { content: attr(aria-label); font-weight: 600; }
+}
+</style>
+<script>
+(function () {
+  if (window.nrosLangTabs) return;
+  window.nrosLangTabs = true;
+  var KEY = "nros-book-lang";
+  function radios() { return document.querySelectorAll(".nros-tabs-bar input[type=radio]"); }
+  function pick(lang) {
+    radios().forEach(function (r) { if (r.value === lang) r.checked = true; });
+  }
+  function restore() {
+    var saved = null;
+    try { saved = window.localStorage.getItem(KEY); } catch (e) {}
+    if (saved) pick(saved);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", restore);
+  else restore();
+  document.addEventListener("change", function (ev) {
+    var r = ev.target;
+    if (!r.matches || !r.matches(".nros-tabs-bar input[type=radio]")) return;
+    var before = r.getBoundingClientRect().top;
+    pick(r.value);
+    window.scrollBy(0, r.getBoundingClientRect().top - before);
+    try { window.localStorage.setItem(KEY, r.value); } catch (e) {}
+  });
+})();
+</script>
+<style>
+.nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;
+  border: 1px solid var(--table-border-color); border-radius: 999px;
+  background: var(--table-alternate-bg); color: var(--fg); font-size: 0.85em; }
+.nros-level-badge .nros-level-type { color: var(--links); font-weight: 600; }
+</style>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="size-an-image-from-its-contract"><a class="header" href="#size-an-image-from-its-contract">Size an image from its contract</a></h1>
+<div class="nros-level-badge" data-type="how-to" data-level="2"><span class="nros-level-type">How-to</span> · <span class="nros-level-name">Level 2: Building real applications</span></div>
+
+<p><strong>Needs first:</strong> <a href="#telling-the-build-what-the-component-creates">the contract walkthrough</a> ·
+<a href="#growing-your-workspace">Project layout</a></p>
+<p>Write a contract that describes every node of an image when you want the build
+to size that image’s static pools from what it creates, instead of from the
+backend’s defaults.</p>
+<p>Every pool in a nano-ros image is a fixed array: a slot costs its bytes whether
+an entity uses it or not. The build cannot count your entities from the code,
+because the crates that hold the pools compile before your components do. So it
+reads the count from the contract, once per image, before anything is compiled,
+and writes the answers where those crates read them. The steps are the same for
+Rust, C and C++ images.</p>
+<h2 id="before-you-start-10"><a class="header" href="#before-you-start-10">Before you start</a></h2>
+<ul>
+<li>An image that builds and runs with no contract, so you have a baseline.</li>
+<li>Every node the image launches, and every publisher, subscription, service,
+client, action and timer each one creates. A count over only some of them is
+refused, not guessed at (see step 3).</li>
+</ul>
+<h2 id="steps-10"><a class="header" href="#steps-10">Steps</a></h2>
+<ol>
+<li>
+<p><strong>Build without a contract and note the resolve line.</strong></p>
+<pre><code class="language-bash">nros build linux
+</code></pre>
+<p>With nothing to count from, the build keeps the configured defaults:</p>
+<pre><code class="language-text">nros build:   resolved → &lt;workspace&gt;/build/&lt;bringup&gt;__linux/resolved.toml (entity counts not derived; configured defaults kept)
+</code></pre>
+<p>If you can, measure this image’s static RAM now
+(<a href="#measure-static-memory">Measure static memory</a>), so you can show the
+saving afterwards.</p>
+</li>
+<li>
+<p><strong>Write the contract.</strong> Put it beside the launch file, as
+<code>&lt;bringup&gt;/launch/&lt;stem&gt;.contract.yaml</code> for <code>&lt;stem&gt;.launch.xml</code>, or beside
+<code>system.toml</code> for a bringup with no <code>launch/</code>
+(<a href="#contracts-for-a-bringup-with-no-launch-file">Contracts for a bringup with no launch file</a>).
+Declare each node’s endpoints under <code>nodes:</code>, keyed by their local names; a
+timer is a <code>paths:</code> entry whose trigger is <code>{ timer: { rate_hz: N } }</code>. Wire
+each endpoint to its absolute name under <code>topics:</code>, <code>services:</code> or
+<code>actions:</code>, with its type. To size the receive queues too, declare each
+endpoint’s depth (<a href="#declare-qos-in-a-contract">Declare QoS in a contract</a>).</p>
+</li>
+<li>
+<p><strong>Rebuild and read the resolve line.</strong></p>
+<pre><code class="language-bash">nros build linux
+</code></pre>
+<pre><code class="language-text">nros build:   resolved → &lt;workspace&gt;/build/&lt;bringup&gt;__linux/resolved.toml (max_cbs &lt;n&gt;, nodes &lt;n&gt;, digest &lt;digest&gt;)
+</code></pre>
+<p><code>max_cbs</code> is the executor’s callback table. A publisher claims no callback
+slot, so it is smaller than the number of entities you declared; that is
+expected. If the line still says <code>entity counts not derived</code>, the contract
+does not describe some component: see
+<a href="#fix-a-contract-refusal">Fix a contract refusal</a>.</p>
+</li>
+<li>
+<p><strong>Read what was derived.</strong> Open the <code>resolved.toml</code> the line names.
+<code>[executor]</code> holds the callback, node and action counts, <code>[pools]</code> the RMW
+session’s publisher, subscriber, queryable and liveliness counts, and
+<code>[provenance]</code> says where each number came from.</p>
+</li>
+<li>
+<p><strong>Measure again.</strong> Rebuild with the memory report, as in step 1, and compare
+the two images symbol by symbol
+(<a href="#showing-a-saving">Showing a saving</a>).</p>
+</li>
+</ol>
+<h2 id="example-9"><a class="header" href="#example-9">Example</a></h2>
+<p>The Rust listener in
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/linux/rust/listener"><code>examples/linux/rust/listener</code></a>
+runs one subscription. Its <code>system.contract.yaml</code> declares that subscription
+with <code>KEEP_LAST(1)</code>:</p>
+<pre><code class="language-yaml">version: 1
+
+nodes:
   listener:
     sub:
-      chatter: {}
+      chatter:
+        qos:
+          history: keep_last
+          depth: 1
 
 topics:
   /chatter:
-    type: std_msgs/msg/Int32
-    pub: [talker/chatter]
+    type: std_msgs/msg/String
     sub: [listener/chatter]
 </code></pre>
-<p><code>nodes:</code> keys are LOCAL endpoint names — an absolute path there is concatenated
-onto the node’s FQN and matches no topic. <code>topics:</code>, <code>services:</code> and <code>actions:</code>
-wire those endpoints to absolute names and carry the type. <code>paths:</code> is where
-timers live: the model records a path with no <code>input</code> as the periodic callback.</p>
-<p><strong>A bringup with no <code>launch/</code> writes the same file at <code>&lt;bringup&gt;/system.contract.yaml</code></strong>,
-beside its <code>system.toml</code>. Its launch file is generated from the <code>[[component]]</code>
-rows, so there is no <code>launch/</code> directory to put a sidecar in; the build carries
-this one to where the resolver looks. That is how a one-node bringup states its
-QoS — and stating it is worth real memory: one <code>sub: { chatter: { qos: { history: keep_last, depth: 1 } } }</code> row takes a one-node Rust listener on Linux from 273,802
-to 172,298 bytes of static RAM, because the zenoh backend then sizes its payload
-pools for the one sample the image keeps instead of the four it might have.</p>
-<p>The name you write must be the name the code registers, ABSOLUTELY. A contract
-states RESOLVED names; a call site writing <code>"chatter"</code> or a node the launch file
-remaps is one the build cannot match with certainty, so it refuses that endpoint
-by name and the image keeps its configured pools rather than being sized from a
-guess.</p>
-<p>The build folds it into the resolved SystemModel, and the entry passes that
-model to the sizing automatically — nothing here takes an argument for it.</p>
-<p>The derivation is all-or-nothing per image: <strong>a component the contract does not
-describe makes that image derive nothing</strong> and keep its configured
-<code>NROS_EXECUTOR_MAX_CBS</code>. A count taken over only the components that answered
-is smaller than the image needs, and a short <code>MAX_CBS</code> fails entity creation at
-boot — so “some of them” is refused rather than guessed at.</p>
-<p>Note that a publisher is inventoried but claims no callback slot, so the entity
-count and the derived <code>MAX_CBS</code> are legitimately different numbers.</p>
-<blockquote>
-<p>Earlier versions stated this per component, as
-<code>nano_ros_node_register(ENTITIES ...)</code>. That keyword is retired
-and now fails with a pointer here. It was a list beside the code with nothing
-comparing the two, and on the safety island one of them declared six
-subscriptions for a node that creates seven: every pool derived from it was
-short by one, and the eleventh subscription failed at boot with a transport
-error that named nothing.</p>
-</blockquote>
-<h4 id="the-census-the-contract-checked-against-the-code"><a class="header" href="#the-census-the-contract-checked-against-the-code">The census: the contract checked against the code</a></h4>
-<p>Since the contract is still a statement beside the code, a CROSS image (any
-image whose board is not <code>linux</code>) checks it before it configures: the host
-image generated from the same launch file is run once in census mode — it
-constructs every component against a recording backend, writes what they
-created, and exits without spinning or dialling a router — and the configure
-compares that census with the contract row by row. An endpoint the code creates
-and the contract omits refuses as <code>missing-in-contract</code> (not waivable: it is
-the short pool); one the contract declares and the code never creates refuses
-as <code>phantom</code> (waivable per row under <code>[census.waive]</code>).</p>
-<p>The configure never builds the native image itself. <code>nros build</code> does: before
-it plans a cross image, it takes that image’s census. Taking it does nothing
-when there is nothing to do — a model with no contract, or a census that still
-matches the code (freshness is by content: touching a file changes nothing,
-adding a subscription does). A build driven some other way (a hand-run
-<code>west build</code> or <code>cmake</code>) with no census, or a stale one, REFUSES at configure
-and prints the command that takes it; running <code>nros build</code> once for the image
-takes it too. A bringup that wants the old
-behaviour writes <code>[census] on_missing = "warn"</code> / <code>on_stale = "warn"</code> in its
-<code>system.toml</code>, and gets a CMake WARNING instead.</p>
-<h2 id="design-background-17"><a class="header" href="#design-background-17">Design background</a></h2>
+<p>With it, the zenoh backend sizes the subscriber’s payload pools for the one
+sample the image keeps instead of the four its ring would hold by default. The
+image’s static RAM falls from 273,802 to 172,298 bytes on Linux.</p>
+<h2 id="which-knobs-the-build-derives"><a class="header" href="#which-knobs-the-build-derives">Which knobs the build derives</a></h2>
+<p>The pools that dominate static RAM are derived per image from what the
+contract declares. The build writes the answers into its generated cargo
+<code>[env]</code> table (on Zephyr, into the Kconfig defaults). Stating one of them by
+hand is an override, not a requirement.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Knob</th><th>Derived from</th></tr>
+</thead>
+<tbody>
+<tr><td><code>NROS_ZENOH_MAX_PUBLISHERS</code>, <code>NROS_ZENOH_MAX_SUBSCRIBERS</code></td><td>the declared entity inventory, floored at 1: each sizes a fixed C array, where zero is not a smaller pool</td></tr>
+<tr><td><code>NROS_ZENOH_MAX_QUERYABLES</code></td><td>the declared service servers, plus the parameter and lifecycle services the image’s nodes register; with no readable declaration it stays at its undeclared budget (8 embedded, 32 hosted)</td></tr>
+<tr><td><code>NROS_ZENOH_MAX_LIVELINESS</code></td><td>one per node name plus the session’s own, one per publisher, subscriber, service server and client, and the parameter and lifecycle families’ entities</td></tr>
+<tr><td><code>NROS_EXECUTOR_MAX_CBS</code>, <code>NROS_EXECUTOR_ACTION_CLIENTS</code>, <code>NROS_RMW_SUBSCRIBER_SLOTS</code></td><td>the declared entity inventory</td></tr>
+<tr><td><code>NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td>the largest <em>small</em>-class message type the image subscribes to</td></tr>
+<tr><td><code>NROS_ZENOH_SUBSCRIBER_LARGE_SIZE</code></td><td>the largest <em>large</em>-class type; stated only when the large count is non-zero</td></tr>
+<tr><td><code>NROS_ZENOH_MAX_LARGE_SUBSCRIBERS</code></td><td>how many subscribed types fall in the large class. Zero is an answer, not a floor: the pool becomes zero bytes</td></tr>
+<tr><td><code>NROS_SUBSCRIPTION_BUFFER_SIZE</code></td><td>the executor’s take buffer, from the same message bounds</td></tr>
+<tr><td><code>NROS_EXECUTOR_ARENA_SIZE</code></td><td>the same inventory, in the executor’s own build; the variable is the override</td></tr>
+</tbody>
+</table>
+</div>
+<p>The transport’s wire buffers (<code>NROS_ZENOH_FRAG_MAX_SIZE</code>, the batch sizes,
+<code>NROS_ZENOH_SERVICE_BUFFER_SIZE</code>, <code>NROS_ZENOH_GET_REPLY_BUF_SIZE</code>,
+<code>NROS_ZENOH_MAX_PENDING_GETS</code>), the smoltcp socket pools and the parameter
+store limits are not derived: they are yours. They are covered in
+<a href="#transport-buffers-and-limits">Tune throughput and latency</a>.</p>
+<p><strong>Precedence.</strong> A value you state wins over a derived one: an exported
+environment variable first, then the image’s <code>[image.&lt;id&gt;.knobs]</code>, then the
+board descriptor’s <code>[knobs]</code>. The derived value comes next, and the crate’s
+own default applies only when nothing is stated and nothing can be derived.</p>
+<h2 id="if-it-doesnt-work-10"><a class="header" href="#if-it-doesnt-work-10">If it doesn’t work</a></h2>
 <ul>
-<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0122-behaviour-bringups-road-witnesses-cadence-backed-ci.md">RFC-0122</a>: behaviour bringups, single-node witnesses, and cadence-backed CI.
-The paired examples as image rows of behaviour bringups in the language
-workspaces.</li>
+<li><strong>The derived buffer size is larger than any message you send.</strong> The
+message-bound sizes (<code>NROS_SUBSCRIBER_BUFFER_SIZE</code>, the large class,
+<code>NROS_SUBSCRIPTION_BUFFER_SIZE</code>) come from every type in the interface
+closure the image links, not only the types it subscribes to, so they are an
+upper bound: never too small, sometimes larger than you need. The build names
+the type that set the size. When that type is not one of yours, state your
+own value or trim the package’s <code>&lt;depend&gt;</code> list.</li>
+<li><strong>Nothing message-bound is derived, and the build names an unbounded type.</strong>
+One unbounded type refuses the whole message-bound derivation, and the stated
+or default values stand. Bound the field in the <code>.msg</code> (<code>string&lt;=64</code>) or cap
+it <code>inline</code> in <code>nros-codegen.toml</code>; one cap on a declaring type such as
+<code>"std_msgs/Header.frame_id"</code> reaches every message that nests it.</li>
+<li><strong>Entity creation fails at boot after you trimmed the contract.</strong> Each slot
+is exactly what the contract declares, with no headroom, so a contract that
+leaves out an endpoint the code creates makes a pool one short. On an image
+for a board other than the host, the census check catches this before the
+build: see <a href="#fix-a-contract-refusal">Fix a contract refusal</a>.</li>
+</ul>
+<h2 id="see-also-9"><a class="header" href="#see-also-9">See also</a></h2>
+<ul>
+<li><a href="#static-pool-inventory">Static pool inventory</a>: every
+sizing knob, its default and what it costs at that default.</li>
+<li><a href="#measure-static-memory">Measure static memory</a>: what your image
+actually reserved.</li>
+<li><a href="https://github.com/NEWSLabNTU/ros-launch-manifest/blob/v0.3.12/docs/format-reference.md">Contract format reference</a>:
+every contract key, generated from the grammar this release pins.</li>
+<li><a href="#std-and-alloc-requirements">Static memory and pools</a>: why
+nano-ros pools are fixed-size.</li>
 </ul>
 <style>
 .nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;
@@ -4640,9 +4954,382 @@ workspaces.</li>
 .nros-level-badge .nros-level-type { color: var(--links); font-weight: 600; }
 </style>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="measuring-static-memory"><a class="header" href="#measuring-static-memory">Measuring Static Memory</a></h1>
+<h1 id="contracts-for-a-bringup-with-no-launch-file"><a class="header" href="#contracts-for-a-bringup-with-no-launch-file">Contracts for a bringup with no launch file</a></h1>
+<div class="nros-level-badge" data-type="how-to" data-level="2"><span class="nros-level-type">How-to</span> · <span class="nros-level-name">Level 2: Building real applications</span></div>
+
+<p><strong>Needs first:</strong> <a href="#growing-your-workspace">Project layout</a> ·
+<a href="#telling-the-build-what-the-component-creates">the contract walkthrough</a></p>
+<p>Write a contract for a bringup that has no <code>launch/</code> directory when you want
+its image sized from what it creates, or its QoS declared, without adding a
+launch file.</p>
+<p>A bringup with no <code>launch/</code> runs the nodes its <code>system.toml</code> lists in
+<code>[[component]]</code> rows, and the build generates its launch file from those rows.
+A contract normally sits beside the launch file it describes, but a generated
+launch file lives under <code>build/</code>, where you cannot author anything. So you
+write the contract beside <code>system.toml</code> instead, as <code>system.contract.yaml</code>, and
+the build carries it to the generated launch file.</p>
+<h2 id="before-you-start-11"><a class="header" href="#before-you-start-11">Before you start</a></h2>
+<ul>
+<li>A bringup with <code>system.toml</code>, at least one <code>[[component]]</code> row, and no
+<code>launch/</code> directory, that builds. If the bringup has a <code>launch/</code> directory,
+this page does not apply: write <code>launch/&lt;stem&gt;.contract.yaml</code> beside the
+launch file instead.</li>
+<li>The name each node registers its endpoints on, written as an absolute name
+at the call site.</li>
+</ul>
+<h2 id="steps-11"><a class="header" href="#steps-11">Steps</a></h2>
+<ol>
+<li><strong>Find each node’s name.</strong> In the generated launch file, a node’s name is
+its <code>[[component]]</code> row’s <code>name</code>, so that is the key you use under
+<code>nodes:</code>.</li>
+</ol>
+<div class="nros-tabs">
+<div class="nros-tabs-bar" role="radiogroup" aria-label="Language">
+<label class="nros-tab"><input type="radio" name="nros-tabs-1cfba722-1" value="rust" checked=""><span>Rust</span></label>
+<label class="nros-tab"><input type="radio" name="nros-tabs-1cfba722-1" value="c"><span>C</span></label>
+<label class="nros-tab"><input type="radio" name="nros-tabs-1cfba722-1" value="cpp"><span>C++</span></label>
+</div>
+
+<div class="nros-tab-panel" data-lang="rust" role="group" aria-label="Rust">
+<pre><code class="language-toml">[[component]]
+pkg = "native_listener"
+class = "native_rs_listener::Listener"
+name = "listener"
+</code></pre>
+</div>
+
+<div class="nros-tab-panel" data-lang="c" role="group" aria-label="C">
+<pre><code class="language-toml">[[component]]
+pkg = "native_c_listener"
+class = "native_c_listener::Listener"
+name = "listener"
+</code></pre>
+</div>
+
+<div class="nros-tab-panel" data-lang="cpp" role="group" aria-label="C++">
+<pre><code class="language-toml">[[component]]
+pkg = "cpp_listener"
+class = "cpp_listener::Listener"
+name = "listener"
+</code></pre>
+</div>
+
+</div>
+
+<ol start="2">
+<li>
+<p><strong>Write <code>system.contract.yaml</code> beside <code>system.toml</code>.</strong> Key <code>nodes:</code> by the
+<code>name</code> from step 1 and each endpoint by its local name; wire it under
+<code>topics:</code> to the absolute name the code registers:</p>
+<pre><code class="language-yaml">version: 1
+
+nodes:
+  listener:
+    sub:
+      chatter:
+        qos:
+          history: keep_last
+          depth: 1
+
+topics:
+  /chatter:
+    type: std_msgs/msg/String
+    sub: [listener/chatter]
+</code></pre>
+<p>For a C or C++ node, state the depth its call site passes: a C or C++
+registration whose depth differs from the contract’s is refused
+(<a href="#declare-qos-in-a-contract">Declare QoS in a contract</a>).</p>
+</li>
+<li>
+<p><strong>Build the image.</strong></p>
+<pre><code class="language-bash">nros build linux
+</code></pre>
+<p>The build generates the launch file and copies your contract beside it. In
+a workspace, both are under <code>build/nros/launch/&lt;bringup&gt;/launch/</code>:</p>
+<pre><code class="language-bash">ls build/nros/launch/&lt;bringup&gt;/launch/
+</code></pre>
+<pre><code class="language-text">system.contract.yaml
+system.launch.xml
+</code></pre>
+<p>For a single package that holds its own <code>system.toml</code>, the directory is
+<code>&lt;package&gt;/build/nros/launch/&lt;package&gt;/</code>. The copy is rewritten only when
+your file changes, and deleted when you delete yours.</p>
+</li>
+<li>
+<p><strong>Check the resolve line.</strong> It reports the counts the contract produced:</p>
+<pre><code class="language-text">nros build:   resolved → &lt;workspace&gt;/build/&lt;bringup&gt;__linux/resolved.toml (max_cbs &lt;n&gt;, nodes &lt;n&gt;, digest &lt;digest&gt;)
+</code></pre>
+<p><code>(entity counts not derived; configured defaults kept)</code> means some
+component is not described: see
+<a href="#fix-a-contract-refusal">Fix a contract refusal</a>.</p>
+</li>
+</ol>
+<h2 id="example-10"><a class="header" href="#example-10">Example</a></h2>
+<p><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/linux/rust/listener"><code>examples/linux/rust/listener</code></a>
+is a single-package Rust listener with no <code>launch/</code>. Its <code>system.toml</code> holds
+the <code>[[component]]</code> row from the Rust tab above and an <code>[image.linux]</code>, and
+its <code>system.contract.yaml</code> is the file from step 2. The code registers the
+subscription on <code>/chatter</code>, the absolute name the contract states:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>node.create_subscription_for_callback_name::&lt;StringMsg&gt;("on_chatter", "/chatter")?;
+<span class="boring">}</span></code></pre>
+<p>The contract’s one line of QoS takes the image’s static RAM on Linux from
+273,802 to 172,298 bytes, because the zenoh backend then sizes its payload
+pools for one sample instead of four. The listener still receives every
+message a 1 Hz talker publishes.</p>
+<h2 id="if-it-doesnt-work-11"><a class="header" href="#if-it-doesnt-work-11">If it doesn’t work</a></h2>
+<ul>
+<li>
+<p><strong>The build ignores <code>system.contract.yaml</code>.</strong> The bringup has a <code>launch/</code>
+directory, so its own launch files are used and nothing is generated or
+carried. Move the contract to <code>launch/&lt;stem&gt;.contract.yaml</code>, beside the
+launch file it describes.</p>
+</li>
+<li>
+<p><strong>The build warns that the bringup has no <code>launch/</code> directory and no
+<code>[[component]]</code> row.</strong> The warning reads:</p>
+<pre><code class="language-text">nros: warning: &lt;bringup&gt;/system.toml: this bringup has no `launch/` directory and no `[[component]]` row, so nothing says what it runs and no system model is resolved for it. Add a `[[component]]` row (pkg, class, name) to system.toml, or add `launch/system.launch.xml`.
+</code></pre>
+<p>With no row, there is no launch file to carry the contract to. Add the row.</p>
+</li>
+<li>
+<p><strong>A node’s endpoints are refused, or never matched.</strong> The <code>nodes:</code> key is not
+the row’s <code>name</code>, or the code registers a relative name. Use the row’s
+<code>name</code>, and an absolute name at the call site. See
+<a href="#fix-a-contract-refusal">Fix a contract refusal</a> for the messages.</p>
+</li>
+</ul>
+<h2 id="see-also-10"><a class="header" href="#see-also-10">See also</a></h2>
+<ul>
+<li><a href="#size-an-image-from-its-contract">Size an image from its contract</a>: what
+the counts size, and how to measure the result.</li>
+<li><a href="#declare-qos-in-a-contract">Declare QoS in a contract</a>.</li>
+<li><a href="https://github.com/NEWSLabNTU/ros-launch-manifest/blob/v0.3.12/docs/format-reference.md">Contract format reference</a>:
+every contract key, generated from the grammar this release pins.</li>
+</ul>
+<style>
+.nros-tabs { margin: 1em 0; }
+.nros-tabs-bar { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--table-border-color); }
+.nros-tab { position: relative; padding: 0.3em 1em; margin-bottom: -1px; cursor: pointer;
+  border: 1px solid transparent; border-bottom: none; border-radius: 4px 4px 0 0; color: var(--fg); }
+.nros-tab:hover { background: var(--theme-hover); }
+.nros-tab:has(input:checked) { border-color: var(--table-border-color); background: var(--bg);
+  color: var(--links); font-weight: 600; }
+.nros-tab:has(input:focus-visible) { outline: 2px solid var(--links); outline-offset: -2px; }
+.nros-tab input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.nros-tab-panel > :first-child { margin-top: 0.6em; }
+.nros-tabs:has(> .nros-tabs-bar input[value="rust"]:not(:checked)) > .nros-tab-panel[data-lang="rust"] { display: none; }
+.nros-tabs:has(> .nros-tabs-bar input[value="c"]:not(:checked)) > .nros-tab-panel[data-lang="c"] { display: none; }
+.nros-tabs:has(> .nros-tabs-bar input[value="cpp"]:not(:checked)) > .nros-tab-panel[data-lang="cpp"] { display: none; }
+@media print {
+  .nros-tabs-bar { display: none; }
+  .nros-tab-panel { display: block !important; }
+  .nros-tab-panel::before { content: attr(aria-label); font-weight: 600; }
+}
+</style>
+<script>
+(function () {
+  if (window.nrosLangTabs) return;
+  window.nrosLangTabs = true;
+  var KEY = "nros-book-lang";
+  function radios() { return document.querySelectorAll(".nros-tabs-bar input[type=radio]"); }
+  function pick(lang) {
+    radios().forEach(function (r) { if (r.value === lang) r.checked = true; });
+  }
+  function restore() {
+    var saved = null;
+    try { saved = window.localStorage.getItem(KEY); } catch (e) {}
+    if (saved) pick(saved);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", restore);
+  else restore();
+  document.addEventListener("change", function (ev) {
+    var r = ev.target;
+    if (!r.matches || !r.matches(".nros-tabs-bar input[type=radio]")) return;
+    var before = r.getBoundingClientRect().top;
+    pick(r.value);
+    window.scrollBy(0, r.getBoundingClientRect().top - before);
+    try { window.localStorage.setItem(KEY, r.value); } catch (e) {}
+  });
+})();
+</script>
+<style>
+.nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;
+  border: 1px solid var(--table-border-color); border-radius: 999px;
+  background: var(--table-alternate-bg); color: var(--fg); font-size: 0.85em; }
+.nros-level-badge .nros-level-type { color: var(--links); font-weight: 600; }
+</style>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="fix-a-contract-refusal"><a class="header" href="#fix-a-contract-refusal">Fix a contract refusal</a></h1>
+<div class="nros-level-badge" data-type="how-to" data-level="2"><span class="nros-level-type">How-to</span> · <span class="nros-level-name">Level 2: Building real applications</span></div>
+
+<p><strong>Needs first:</strong> <a href="#telling-the-build-what-the-component-creates">the contract walkthrough</a> ·
+<a href="#size-an-image-from-its-contract">Size an image from its contract</a></p>
+<p>Use this page when <code>nros build</code> refuses a contract, or builds the image without
+sizing it from the contract, and you need to know which statement is wrong.</p>
+<p>The contract is a statement about the code, made beside it. The build checks it
+at several points, and each check refuses rather than guesses, because a pool
+sized from a wrong statement fails at boot on a board that may have no
+console. Find the message you have below; each section names the fix. In the
+messages, angle brackets stand for your own names.</p>
+<h2 id="before-you-start-12"><a class="header" href="#before-you-start-12">Before you start</a></h2>
+<ul>
+<li>The full output of the <code>nros build &lt;image&gt;</code> that failed.</li>
+<li>The contract it read: <code>&lt;bringup&gt;/launch/&lt;stem&gt;.contract.yaml</code>, or
+<code>&lt;bringup&gt;/system.contract.yaml</code> for a bringup with no <code>launch/</code>.</li>
+</ul>
+<h2 id="steps-12"><a class="header" href="#steps-12">Steps</a></h2>
+<ol>
+<li>
+<p><strong>Rebuild the image and keep the output.</strong></p>
+<pre><code class="language-bash">nros build &lt;image&gt;
+</code></pre>
+</li>
+<li>
+<p><strong>Find the first refusal in the output</strong> and match it to a section below.
+Fix the contract or the code, then rebuild.</p>
+</li>
+</ol>
+<h3 id="the-contract-does-not-parse"><a class="header" href="#the-contract-does-not-parse">The contract does not parse</a></h3>
+<p>The contract grammar refuses any key it does not list:</p>
+<pre><code class="language-text">at '&lt;path&gt;': unknown key in `qos` — did you mean `depth`? An unrecognised key used to be discarded in silence, which deleted whatever it was meant to declare
+</code></pre>
+<p>Correct the spelling; the <a href="https://github.com/NEWSLabNTU/ros-launch-manifest/blob/v0.3.12/docs/format-reference.md">contract format reference</a>
+lists every key. An endpoint key holding a <code>/</code> is refused the same way:</p>
+<pre><code class="language-text">endpoint key `/chatter` contains `/`: an endpoint key is a local name, and the node's FQN is prefixed to it (`/chatter` would become `&lt;node&gt;//chatter`). Use the endpoint's local name; remap the topic in the launch file or wire it under `topics:`
+</code></pre>
+<p>Key the endpoint by its local name (<code>chatter</code>) and put the absolute name under
+<code>topics:</code>. Once a contract has been refused, later commands refuse the model it
+left behind until a resolve succeeds:</p>
+<pre><code class="language-text">SystemModel `&lt;model&gt;` was refused by its producer and cannot be trusted (marker `&lt;marker&gt;`):
+  check: &lt;check&gt;
+  input: &lt;input&gt;
+  Fix the input and run `nros configure`; the next successful resolve removes the marker.
+</code></pre>
+<p>Fix the contract and run <code>nros configure</code> (or <code>nros build</code>) again.</p>
+<h3 id="the-contract-and-a-qos_overrides-parameter-disagree"><a class="header" href="#the-contract-and-a-qos_overrides-parameter-disagree">The contract and a <code>qos_overrides</code> parameter disagree</a></h3>
+<pre><code class="language-text">&lt;n&gt; QoS statement(s) disagree between the launch contract and the `qos_overrides.*` parameters.
+</code></pre>
+<p>Each disagreement that follows names the topic, the parameter and its node,
+and the contract row, or says the row <code>states no</code> such policy. Make the
+contract state the value the parameter sets. The parameter configures the
+runtime and the contract sizes the buffers, so the two must agree.</p>
+<h3 id="the-image-was-built-with-its-configured-defaults"><a class="header" href="#the-image-was-built-with-its-configured-defaults">The image was built with its configured defaults</a></h3>
+<p>The resolve line says the contract sized nothing:</p>
+<pre><code class="language-text">nros build:   resolved → &lt;workspace&gt;/build/&lt;bringup&gt;__&lt;image&gt;/resolved.toml (entity counts not derived; configured defaults kept)
+</code></pre>
+<p>The reason is the <code>refused</code> line under <code>[provenance]</code> in that <code>resolved.toml</code>.
+The most common one:</p>
+<pre><code class="language-text">&lt;n&gt; of &lt;m&gt; components in this image declare no entities:
+    &lt;pkg&gt;::&lt;component&gt; (&lt;class&gt;)
+Deriving over only the components that did would publish a slot count smaller than the image needs, and a short NROS_EXECUTOR_MAX_CBS fails entity creation at boot.
+</code></pre>
+<p>Sizing is all or nothing per image. Declare every listed component under
+<code>nodes:</code>, keyed by its node name. If the reason begins <code>the launch tree resolved, and it declares neither wiring nor parameters</code>, the build found no
+contract at all: check its file name and where it sits.</p>
+<h3 id="an-endpoint-is-not-matched"><a class="header" href="#an-endpoint-is-not-matched">An endpoint is not matched</a></h3>
+<p>On a Rust image the build prints one line per endpoint it could not match to
+the contract, for example:</p>
+<pre><code class="language-text">nros build:   subscription `chatter`: this subscription registers on `chatter`, which is not an absolute name. A contract states RESOLVED names, and resolving `chatter` needs the node's namespace AND its remappings -- neither of which reaches this reader per endpoint. Write the name absolutely at the call site, or declare the endpoint the contract already names
+</code></pre>
+<p>Write the name absolutely at the call site (<code>"/chatter"</code>). A node the launch
+file remaps is refused too (<code>the launch description applies name REMAPPINGS to node</code>): drop the remap, or accept that the endpoint keeps its worst-case
+sizes. A line beginning <code>no subscription in this image's contract carries type</code> names what the contract does describe; correct the type
+or the topic.</p>
+<h3 id="the-census-check-refuses-a-cross-image"><a class="header" href="#the-census-check-refuses-a-cross-image">The census check refuses a cross image</a></h3>
+<p>Before it builds an image for a board other than the host, <code>nros build</code> runs
+the host image generated from the same launch file once, records what every
+component creates, and compares that census with the contract, row by row:</p>
+<pre><code class="language-text">error missing-in-contract &lt;node&gt; sub /chatter
+    the code creates this subscription on `/chatter`; no `sub:` row of `nodes.&lt;node&gt;` is wired to it, so no `topics:` entry names it either
+    in &lt;contract&gt;, add under `nodes.&lt;node&gt;.sub` (the alias is the author's; `chatter` is this name's last segment):
+        chatter: { qos: { depth: &lt;depth&gt; } }
+    and wire it under `topics`:
+        /chatter:
+          type: &lt;package&gt;/msg/&lt;Name&gt;
+          sub: [&lt;node&gt;/chatter]
+    not waivable: every pool derives one short; the first catch is ExecutorFull on a board with no console
+census check: &lt;n&gt; confirmed, &lt;n&gt; error(s), &lt;n&gt; warning(s), &lt;n&gt; waived
+</code></pre>
+<p>Each row gives the edit. The verdicts:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Verdict</th><th>Means</th><th>Fix</th></tr>
+</thead>
+<tbody>
+<tr><td><code>missing-in-contract</code></td><td>the code creates it, the contract does not declare it</td><td>add the row the message prints</td></tr>
+<tr><td><code>phantom</code></td><td>the contract declares and wires it, the code never creates it</td><td>remove the row, or waive it</td></tr>
+<tr><td><code>unwired</code></td><td>declared under <code>nodes:</code> but named by no <code>topics:</code>, <code>services:</code> or <code>actions:</code> entry</td><td>wire it or remove it</td></tr>
+<tr><td><code>depth-mismatch</code>, <code>qos-mismatch</code>, <code>type-mismatch</code></td><td>both sides name it and disagree</td><td>change one side</td></tr>
+<tr><td><code>period-mismatch</code></td><td>a timer’s period differs from its path’s <code>rate_hz</code></td><td>change one side</td></tr>
+<tr><td><code>param-missing-in-contract</code>, <code>param-phantom</code>, <code>param-type-mismatch</code></td><td>the same, for a node’s <code>params:</code></td><td>as above</td></tr>
+</tbody>
+</table>
+</div>
+<p>Only <code>phantom</code> and <code>param-phantom</code> rows are waivable, one row at a time, in the
+bringup’s <code>system.toml</code>. The message prints the key to copy:</p>
+<pre><code class="language-toml">[census.waive."&lt;node&gt;:sub:/chatter"]
+reason = "..."
+</code></pre>
+<p>A refusal that begins <code>census missing:</code> or <code>census stale:</code> means the census is
+absent or older than the code. Run <code>nros build &lt;image&gt;</code> for the cross image,
+which takes the census first. If it reports that the bringup <code>declares no HOST image resolved from the same launch and arguments</code>, add one, such as
+<code>[image.linux] board = "linux"</code> with the same <code>launch</code> and <code>args</code>.</p>
+<h2 id="example-11"><a class="header" href="#example-11">Example</a></h2>
+<p>The C++ workspace in
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/cpp"><code>examples/workspaces/cpp</code></a>
+declares both its nodes in <code>src/demo_bringup/launch/system.contract.yaml</code>.
+Delete the listener from it:</p>
+<pre><code class="language-yaml">version: 1
+
+nodes:
+  talker:
+    paths:
+      on_timer:
+        trigger: { timer: { rate_hz: 1 } }
+        output: [chatter]
+    pub:
+      chatter: { qos: { depth: 1 } }
+
+topics:
+  /chatter:
+    type: std_msgs/msg/String
+    pub: [talker/chatter]
+</code></pre>
+<p>The listener’s code still subscribes to <code>/chatter</code>, so building the
+<code>freertos</code> image (board <code>mps2-an385-freertos</code>) is refused by the census: one
+<code>missing-in-contract</code> row for <code>listener sub /chatter</code>, whose remedy is the
+<code>listener:</code> entry with <code>chatter: { qos: { depth: 1 } }</code> and the
+<code>sub: [listener/chatter]</code> wiring. Put them back and the census confirms every
+row.</p>
+<h2 id="if-it-doesnt-work-12"><a class="header" href="#if-it-doesnt-work-12">If it doesn’t work</a></h2>
+<ul>
+<li><strong>A configure stops with <code>ENTITIES was retired</code>.</strong> A <code>CMakeLists.txt</code> still
+passes <code>ENTITIES</code> to <code>nano_ros_node_register</code>. Delete the argument and state
+the component’s entities in the contract.</li>
+<li><strong><code>[census] on_missing = "warn"</code> or <code>on_stale = "warn"</code> is set.</strong> The bringup
+has opted out of the refusal, and the build prints a <code>census missing (WARNING</code> line instead. Remove the key to make it a refusal again.</li>
+</ul>
+<h2 id="see-also-11"><a class="header" href="#see-also-11">See also</a></h2>
+<ul>
+<li><a href="#declare-qos-in-a-contract">Declare QoS in a contract</a>: the compile-time
+and boot-time QoS checks for each language.</li>
+<li><a href="https://github.com/NEWSLabNTU/ros-launch-manifest/blob/v0.3.12/docs/format-reference.md">Contract format reference</a>:
+every contract key, generated from the grammar this release pins.</li>
+</ul>
+<style>
+.nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;
+  border: 1px solid var(--table-border-color); border-radius: 999px;
+  background: var(--table-alternate-bg); color: var(--fg); font-size: 0.85em; }
+.nros-level-badge .nros-level-type { color: var(--links); font-weight: 600; }
+</style>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="measure-static-memory"><a class="header" href="#measure-static-memory">Measure static memory</a></h1>
 <div class="nros-level-badge" data-type="how-to" data-level="3"><span class="nros-level-type">How-to</span> · <span class="nros-level-name">Level 3: Production and tuning</span></div>
 
+<p><strong>Needs first:</strong> <a href="#size-an-image-from-its-contract">Size an image from its contract</a></p>
 <p>The <a href="#static-pool-inventory">Static Pool Inventory</a> tells you
 which knobs exist and what each one costs: a byte figure at its default where
 the pool is a plain product of knobs, and otherwise <em>where</em> its bytes go — a
@@ -4717,9 +5404,12 @@ what your node actually does: a publisher-only node still reserves the service
 and large-payload pools in full. If your image looks far larger than the entities
 you created would suggest, that is expected rather than a misconfiguration on
 your side. Turning the corresponding knobs down is the current remedy (see
-<a href="#sizing-the-pools">Sizing the pools</a> for which knobs the build already
-derives).</p>
+<a href="#which-knobs-the-build-derives">Which knobs the build derives</a>).</p>
 <h3 id="the-three-service-inboxes-zenoh"><a class="header" href="#the-three-service-inboxes-zenoh">The three service inboxes (zenoh)</a></h3>
+<blockquote>
+<p>Why these rings are fixed and how their slots are chosen is background: see
+<a href="#std-and-alloc-requirements">Static memory and pools</a>.</p>
+</blockquote>
 <p>Every service server is a zenoh queryable, and each queryable owns one inbox
 ring: requests wait there between the read task and the executor’s spin. The
 rings sit in three tables, one per family, so a family is sized for its own
@@ -4775,61 +5465,6 @@ written by an older version of the tool lists only its top symbols; the report
 marks it incomplete and will not call a symbol “new” on its evidence.</p>
 <p>This is also how a change to nano-ros itself should report a memory saving: as
 a measured difference between two named images, not as an estimate.</p>
-<h2 id="sizing-the-pools"><a class="header" href="#sizing-the-pools">Sizing the pools</a></h2>
-<p>Before you turn a knob down, know which pools you size and which the build
-sizes for you. The pools that dominate static RAM are <strong>derived per image</strong>
-from what the image’s components declare, and the build writes the answers
-into its generated cargo <code>[env]</code> table (on Zephyr, into the Kconfig defaults).
-Stating one of them by hand is an override, not a requirement.</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Knob</th><th>Derived from</th></tr>
-</thead>
-<tbody>
-<tr><td><code>NROS_ZENOH_MAX_PUBLISHERS</code>, <code>NROS_ZENOH_MAX_SUBSCRIBERS</code></td><td>the declared entity inventory, floored at 1: each sizes a fixed C array, where zero is not a smaller pool</td></tr>
-<tr><td><code>NROS_ZENOH_MAX_QUERYABLES</code></td><td>the declared service servers, plus the parameter and lifecycle services the image’s nodes register; with no readable declaration it stays at its undeclared budget (8 embedded, 32 hosted)</td></tr>
-<tr><td><code>NROS_ZENOH_MAX_LIVELINESS</code></td><td>one per node name plus the session’s own, one per publisher, subscriber, service server and client, and the parameter and lifecycle families’ entities</td></tr>
-<tr><td><code>NROS_EXECUTOR_MAX_CBS</code>, <code>NROS_EXECUTOR_ACTION_CLIENTS</code>, <code>NROS_RMW_SUBSCRIBER_SLOTS</code></td><td>the declared entity inventory</td></tr>
-<tr><td><code>NROS_SUBSCRIBER_BUFFER_SIZE</code></td><td>the largest <em>small</em>-class message type the image subscribes to</td></tr>
-<tr><td><code>NROS_ZENOH_SUBSCRIBER_LARGE_SIZE</code></td><td>the largest <em>large</em>-class type; stated only when the large count is non-zero</td></tr>
-<tr><td><code>NROS_ZENOH_MAX_LARGE_SUBSCRIBERS</code></td><td>how many subscribed types fall in the large class. Zero is an answer, not a floor: the pool becomes zero bytes</td></tr>
-<tr><td><code>NROS_SUBSCRIPTION_BUFFER_SIZE</code></td><td>the executor’s take buffer, from the same message bounds</td></tr>
-<tr><td><code>NROS_EXECUTOR_ARENA_SIZE</code></td><td>the same inventory, in the executor’s own build; the variable is the override</td></tr>
-</tbody>
-</table>
-</div>
-<p>The transport’s wire buffers (<code>NROS_ZENOH_FRAG_MAX_SIZE</code>, the batch sizes,
-<code>NROS_ZENOH_SERVICE_BUFFER_SIZE</code>, <code>NROS_ZENOH_GET_REPLY_BUF_SIZE</code>,
-<code>NROS_ZENOH_MAX_PENDING_GETS</code>), the smoltcp socket pools and the parameter
-store limits are not derived: they are yours. They are covered in
-<a href="#set-the-wire-buffers">Tune throughput and latency</a>
-and listed in the <a href="#buffer-tuning">Environment variables reference</a>.</p>
-<p><strong>Precedence.</strong> A value you state wins over a derived one: an exported
-environment variable first, then the image’s <code>[image.&lt;id&gt;.knobs]</code>, then the
-board descriptor’s <code>[knobs]</code>. The derived value comes next, and the crate’s
-own default applies only when nothing is stated and nothing can be derived.
-<code>nros config explain</code> shows which rung answered for each knob.</p>
-<p>Two properties of the message-bound sizes (<code>NROS_SUBSCRIBER_BUFFER_SIZE</code>, the
-large class, <code>NROS_SUBSCRIPTION_BUFFER_SIZE</code>) are worth knowing:</p>
-<ul>
-<li><strong>The derived number is an upper bound.</strong> The bounds come from every type in
-the interface closure the image links, not only the types it subscribes to,
-so the size is never too small but can be larger than you need. The build
-names the type that set it. When that type is not one of yours, state your
-own value or trim the package’s <code>&lt;depend&gt;</code> list.</li>
-<li><strong>One unbounded type refuses the whole derivation.</strong> Nothing is derived, the
-stated or default values stand, and the build names every offending type
-and the member that makes it unbounded. Bound the field in the <code>.msg</code>
-(<code>string&lt;=64</code>) or cap it <code>inline</code> in <code>nros-codegen.toml</code>; one cap on a
-declaring type such as <code>"std_msgs/Header.frame_id"</code> reaches every message
-that nests it.</li>
-</ul>
-<p>Every slot of a fixed pool costs its bytes whether or not an entity uses it,
-so an over-provisioned count is wasted RAM and an under-provisioned one is a
-create that fails at run time. The <a href="#static-pool-inventory">Static Pool Inventory</a>
-gives each pool’s cost at its defaults; the memory report above gives what
-your image actually reserved.</p>
 <h2 id="cross-compiled-images"><a class="header" href="#cross-compiled-images">Cross-compiled images</a></h2>
 <p>The tool prefers <code>llvm-nm</code>, which reads ELF files for any target; your host’s
 GNU <code>nm</code> is built for one target family and refuses a cross-built image with
@@ -4842,6 +5477,82 @@ usable <code>nm</code>, run:</p>
 </code></pre>
 <p><code>llvm-cxxfilt</code> (from a system LLVM) is used when present to demangle; without
 it the tool falls back to <code>nm -C</code>.</p>
+<h2 id="see-also-12"><a class="header" href="#see-also-12">See also</a></h2>
+<ul>
+<li><a href="#size-an-image-from-its-contract">Size an image from its contract</a>: the
+pools the build sizes for you, and how to override one.</li>
+<li><a href="#static-pool-inventory">Static pool inventory</a>: every
+sizing knob and its default.</li>
+<li><a href="#std-and-alloc-requirements">Static memory and pools</a>: why
+nano-ros reserves its memory statically.</li>
+</ul>
+<style>
+.nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;
+  border: 1px solid var(--table-border-color); border-radius: 999px;
+  background: var(--table-alternate-bg); color: var(--fg); font-size: 0.85em; }
+.nros-level-badge .nros-level-type { color: var(--links); font-weight: 600; }
+</style>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="c--c-multi-node-workspaces"><a class="header" href="#c--c-multi-node-workspaces">C / C++ multi-node workspaces</a></h1>
+<div class="nros-level-badge" data-type="how-to" data-level="2"><span class="nros-level-type">How-to</span> · <span class="nros-level-name">Level 2: Building real applications</span></div>
+
+<p>This page now holds only the contract sections of the C and C++ workspace
+walkthrough. The workspace layout, the node and bringup packages, the image
+and the entry it generates moved to
+<a href="#organize-a-larger-workspace">Organize a larger workspace</a> and
+<a href="#mix-languages">Mix languages</a>.</p>
+<p>The reference C++ workspace is
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/cpp"><code>examples/workspaces/cpp/</code></a>.</p>
+<h2 id="contracts-for-a-c-or-c-workspace"><a class="header" href="#contracts-for-a-c-or-c-workspace">Contracts for a C or C++ workspace</a></h2>
+<h3 id="telling-the-build-what-the-component-creates"><a class="header" href="#telling-the-build-what-the-component-creates">Telling the build what the component creates</a></h3>
+<p><code>NROS_EXECUTOR_MAX_CBS</code>, the subscriber slots and the arena are <code>const</code> sizes
+compiled into nros-node before a component TU is compiled, while a typed
+component wires itself in its CONSTRUCTOR, at runtime. Nothing the macros emit
+can supply those sizes — it exists only after linking. So somebody has to state
+what the image creates, ahead of the build.</p>
+<p>That statement is a <strong>contract sidecar</strong> beside the launch file, not something
+in this CMakeLists. <code>&lt;stem&gt;.contract.yaml</code> next to <code>&lt;stem&gt;.launch.xml</code> in the
+bringup package:</p>
+<pre><code class="language-yaml"># src/demo_bringup/launch/system.contract.yaml
+version: 1
+
+nodes:
+  talker:
+    paths:
+      on_timer:                                  # a path with a timer trigger
+        trigger: { timer: { rate_hz: 1 } }       # IS the periodic callback
+        output: [chatter]
+    pub:
+      chatter: {}
+  listener:
+    sub:
+      chatter: {}
+
+topics:
+  /chatter:
+    type: std_msgs/msg/Int32
+    pub: [talker/chatter]
+    sub: [listener/chatter]
+</code></pre>
+<p><code>nodes:</code> keys are LOCAL endpoint names — an absolute path there is concatenated
+onto the node’s FQN and matches no topic. <code>topics:</code>, <code>services:</code> and <code>actions:</code>
+wire those endpoints to absolute names and carry the type. <code>paths:</code> is where
+timers live: the model records a path with no <code>input</code> as the periodic callback.</p>
+<p>The build folds it into the resolved SystemModel and sizes the image’s pools
+from it; nothing in the CMakeLists takes an argument for it. The tasks that
+build on this sidecar have their own pages, for every language:</p>
+<ul>
+<li><a href="#declare-qos-in-a-contract">Declare QoS in a contract</a></li>
+<li><a href="#size-an-image-from-its-contract">Size an image from its contract</a></li>
+<li><a href="#contracts-for-a-bringup-with-no-launch-file">Contracts for a bringup with no launch file</a></li>
+<li><a href="#fix-a-contract-refusal">Fix a contract refusal</a></li>
+</ul>
+<h2 id="design-background-17"><a class="header" href="#design-background-17">Design background</a></h2>
+<ul>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0122-behaviour-bringups-road-witnesses-cadence-backed-ci.md">RFC-0122</a>: behaviour bringups, single-node witnesses, and cadence-backed CI.
+The paired examples as image rows of behaviour bringups in the language
+workspaces.</li>
+</ul>
 <style>
 .nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;
   border: 1px solid var(--table-border-color); border-radius: 999px;
@@ -4872,13 +5583,13 @@ entry under <code>build/</code> and hands off to cargo, CMake or west.</li>
 <p>The workspace root has no build file at all. Where ROS 2 has you write a
 launch file and a <code>main()</code> per process, nano-ros generates the entry from the
 image row, so adding a board is adding a row, never a package.</p>
-<h2 id="before-you-start-9"><a class="header" href="#before-you-start-9">Before you start</a></h2>
+<h2 id="before-you-start-13"><a class="header" href="#before-you-start-13">Before you start</a></h2>
 <ul>
 <li>nano-ros installed and the board provisioned, for example
 <code>nros setup linux</code>.</li>
 <li>ROS 2 sourced for the first build, which generates message bindings from it.</li>
 </ul>
-<h2 id="steps-9"><a class="header" href="#steps-9">Steps</a></h2>
+<h2 id="steps-13"><a class="header" href="#steps-13">Steps</a></h2>
 <ol>
 <li>
 <p>Start from a one-node workspace:</p>
@@ -5016,7 +5727,7 @@ host_node_bringup  &lt;- host_node, listener_pkg
 </code></pre>
 </li>
 </ol>
-<h2 id="example-8"><a class="header" href="#example-8">Example</a></h2>
+<h2 id="example-12"><a class="header" href="#example-12">Example</a></h2>
 <p>The bringup after the steps above:</p>
 <pre><code class="language-toml"># src/host_node_bringup/system.toml
 [system]
@@ -5062,7 +5773,7 @@ runtime starts. Rust images only.</li>
 <code>src/&lt;image&gt;_entry/</code> as a package you own. <code>nros build</code> then leaves it
 alone; delete the directory to go back to a generated one.</li>
 </ol>
-<h2 id="if-it-doesnt-work-9"><a class="header" href="#if-it-doesnt-work-9">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-13"><a class="header" href="#if-it-doesnt-work-13">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>nros build</code> refuses a <code>system.toml</code>.</strong> It sits beside a <code>Cargo.toml</code> or
 <code>CMakeLists.txt</code>. A <code>system.toml</code> lives only in a bringup package; the
@@ -5073,7 +5784,7 @@ more than one node or image. Name <code>&lt;bringup&gt;:&lt;image&gt;</code>.</l
 <code>src/&lt;image&gt;_entry/</code> with a <code>Cargo.toml</code> or <code>CMakeLists.txt</code> takes
 precedence. Move its settings to the <code>[image.*]</code> row and delete it.</li>
 </ul>
-<h2 id="see-also-8"><a class="header" href="#see-also-8">See also</a></h2>
+<h2 id="see-also-13"><a class="header" href="#see-also-13">See also</a></h2>
 <ul>
 <li><a href="#systemtoml-keys">system.toml keys</a>: every <code>[image.&lt;id&gt;]</code>
 key and how blocks fold over <code>[image_defaults]</code>.</li>
@@ -5154,14 +5865,14 @@ Rust: C code you want to keep in C, beside new C++ or Rust nodes.</p>
 a package and a class whatever language implements it, and each node package
 registers itself through a C ABI the generated entry calls. The workspace shape
 does not change with the language, and neither does <code>system.toml</code>.</p>
-<h2 id="before-you-start-10"><a class="header" href="#before-you-start-10">Before you start</a></h2>
+<h2 id="before-you-start-14"><a class="header" href="#before-you-start-14">Before you start</a></h2>
 <ul>
 <li>A workspace with a bringup, as in
 <a href="#organize-a-larger-workspace">Organize a larger workspace</a>.</li>
 <li>ROS 2 sourced for the first build. It generates the message bindings for
 every language.</li>
 </ul>
-<h2 id="steps-10"><a class="header" href="#steps-10">Steps</a></h2>
+<h2 id="steps-14"><a class="header" href="#steps-14">Steps</a></h2>
 <ol>
 <li>
 <p>Add a node package per language. From the workspace root, <code>--lang</code> picks
@@ -5253,7 +5964,7 @@ You do not write it, and the workspace has no root build file.</p>
 </code></pre>
 </li>
 </ol>
-<h2 id="example-9"><a class="header" href="#example-9">Example</a></h2>
+<h2 id="example-13"><a class="header" href="#example-13">Example</a></h2>
 <p><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/mixed"><code>examples/workspaces/mixed/</code></a>
 runs a C talker, a C++ listener and a Rust heartbeat in one image, with C and
 C++ service and action pairs beside them. Its bringup states the image the
@@ -5303,7 +6014,7 @@ cargo’s.</li>
 <code>rmw =</code> on one image block. See
 <a href="#switch-the-rmw-per-image">Switch the RMW per image</a>.</li>
 </ul>
-<h2 id="if-it-doesnt-work-10"><a class="header" href="#if-it-doesnt-work-10">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-14"><a class="header" href="#if-it-doesnt-work-14">If it doesn’t work</a></h2>
 <ul>
 <li><strong>A node is missing at run time.</strong> Its <code>[[component]]</code> row or launch
 <code>&lt;node&gt;</code> names a package or class that does not match the package’s own
@@ -5311,7 +6022,7 @@ registration (<code>PLUGIN</code> in CMake, the class in <code>nros::node!</code
 <li><strong>The first build stops on <code>AMENT_PREFIX_PATH</code>.</strong> ROS 2 was not sourced and
 the workspace has no recorded prefix yet. Source ROS 2 and build again.</li>
 </ul>
-<h2 id="see-also-9"><a class="header" href="#see-also-9">See also</a></h2>
+<h2 id="see-also-14"><a class="header" href="#see-also-14">See also</a></h2>
 <ul>
 <li><a href="#c-c-and-mixed-workspaces-cmake">Build outputs</a>:
 where a CMake-driven image lands.</li>
@@ -5347,12 +6058,12 @@ resolved system, the image’s build settings) and then runs the host build
 tool. A project that stays in west, CMake, NuttX <code>make</code> or an IDE runs the
 preparation step, <code>nros configure</code>, from that tool’s own configure step
 instead.</p>
-<h2 id="before-you-start-11"><a class="header" href="#before-you-start-11">Before you start</a></h2>
+<h2 id="before-you-start-15"><a class="header" href="#before-you-start-15">Before you start</a></h2>
 <ul>
 <li>A workspace with a bringup and at least one image, as in
 <a href="#organize-a-larger-workspace">Organize a larger workspace</a>.</li>
 </ul>
-<h2 id="steps-11"><a class="header" href="#steps-11">Steps</a></h2>
+<h2 id="steps-15"><a class="header" href="#steps-15">Steps</a></h2>
 <h3 id="see-what-the-image-resolves-to"><a class="header" href="#see-what-the-image-resolves-to">See what the image resolves to</a></h3>
 <p><code>nros config show</code> prints the resolved configuration of the bringup, with the
 file and table each value came from:</p>
@@ -5495,7 +6206,7 @@ hand-written direct-mode image whose peak you measured.</p>
 </ol>
 <p>Moving from ethernet to a serial link is the largest saving. The measured
 sizes are in <a href="#measured-footprint">Build outputs</a>.</p>
-<h2 id="example-10"><a class="header" href="#example-10">Example</a></h2>
+<h2 id="example-14"><a class="header" href="#example-14">Example</a></h2>
 <p>A bare-metal image on a lab network, with its own router and a log ceiling:</p>
 <pre><code class="language-toml"># src/sensor_bringup/system.toml
 [system]
@@ -5544,7 +6255,7 @@ fn main() -&gt; ! {
         // ...
     })
 }</code></pre>
-<h2 id="if-it-doesnt-work-11"><a class="header" href="#if-it-doesnt-work-11">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-15"><a class="header" href="#if-it-doesnt-work-15">If it doesn’t work</a></h2>
 <ul>
 <li><strong>The build names a retired key.</strong> <code>ip</code>, <code>gateway</code>, <code>netmask</code>,
 <code>transport</code> and <code>[image.&lt;id&gt;.net.&lt;if&gt;]</code> moved to the board network file and
@@ -5555,7 +6266,7 @@ no interfaces. Zephyr boards take their address from Kconfig.</li>
 <li><strong>An image with a zenoh file is refused.</strong> It also states a <code>locator</code>. With
 a file, the file is the wiring; remove one of the two.</li>
 </ul>
-<h2 id="see-also-10"><a class="header" href="#see-also-10">See also</a></h2>
+<h2 id="see-also-15"><a class="header" href="#see-also-15">See also</a></h2>
 <ul>
 <li><a href="#systemtoml-keys">system.toml keys</a>: every image key, the
 network file, the run, flash and console tables.</li>
@@ -5591,12 +6302,12 @@ debug, and profile the build when it takes too long.</p>
 optimization level once, on the image, and the build passes it to every crate
 and library it builds: the cargo profile on the cargo driver,
 <code>CMAKE_BUILD_TYPE</code> on the CMake one.</p>
-<h2 id="before-you-start-12"><a class="header" href="#before-you-start-12">Before you start</a></h2>
+<h2 id="before-you-start-16"><a class="header" href="#before-you-start-16">Before you start</a></h2>
 <ul>
 <li>A workspace with an image, or a CMake project that adds nano-ros as in
 <a href="#build-inside-an-existing-cmake-or-vendor-tree">Build inside an existing CMake or vendor tree</a>.</li>
 </ul>
-<h2 id="steps-12"><a class="header" href="#steps-12">Steps</a></h2>
+<h2 id="steps-16"><a class="header" href="#steps-16">Steps</a></h2>
 <h3 id="set-the-profile-on-the-image"><a class="header" href="#set-the-profile-on-the-image">Set the profile on the image</a></h3>
 <ol>
 <li>
@@ -5697,7 +6408,7 @@ compiled more than once, and a job count too high for the RAM. Silence
 them with <code>--no-hints</code>.</p>
 </li>
 </ol>
-<h2 id="example-11"><a class="header" href="#example-11">Example</a></h2>
+<h2 id="example-15"><a class="header" href="#example-15">Example</a></h2>
 <p>One workspace, a debuggable host image and a small board image:</p>
 <pre><code class="language-toml"># src/demo_bringup/system.toml (images)
 [image_defaults]
@@ -5712,7 +6423,7 @@ profile = "nros-minsizerel"
 </code></pre>
 <pre><code class="language-bash">nros build --all
 </code></pre>
-<h2 id="if-it-doesnt-work-12"><a class="header" href="#if-it-doesnt-work-12">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-16"><a class="header" href="#if-it-doesnt-work-16">If it doesn’t work</a></h2>
 <ul>
 <li><strong>A board image is larger than expected.</strong> It built at the default,
 <code>nros-relwithdebinfo</code>, which trades size for build speed. Use
@@ -5723,7 +6434,7 @@ zenoh-pico’s handshake window at low optimization.</li>
 <li><strong><code>error: profile '&lt;name&gt;' is not defined</code>.</strong> A profile of your own needs a
 definition where cargo looks for one; see above.</li>
 </ul>
-<h2 id="see-also-11"><a class="header" href="#see-also-11">See also</a></h2>
+<h2 id="see-also-16"><a class="header" href="#see-also-16">See also</a></h2>
 <ul>
 <li><a href="#shrink-the-image-for-a-small-board">Configure an image</a>:
 the size knobs beside the profile.</li>
@@ -5752,7 +6463,7 @@ everything below for you. Start at
 builds against, the <em>SDK root</em>. Nothing is on crates.io and there is no
 prebuilt library or install prefix, so “vendoring” nano-ros means pinning and
 mirroring a release, not copying its repository into your tree.</p>
-<h2 id="before-you-start-13"><a class="header" href="#before-you-start-13">Before you start</a></h2>
+<h2 id="before-you-start-17"><a class="header" href="#before-you-start-17">Before you start</a></h2>
 <ul>
 <li>A release installed and pinned, as in
 <a href="#pinning-a-version">Install options, pinning, working offline</a>.</li>
@@ -5760,7 +6471,7 @@ mirroring a release, not copying its repository into your tree.</p>
 CMake build, that also installs Corrosion, which a C or C++ configure needs
 and never downloads.</li>
 </ul>
-<h2 id="steps-13"><a class="header" href="#steps-13">Steps</a></h2>
+<h2 id="steps-17"><a class="header" href="#steps-17">Steps</a></h2>
 <h3 id="add-nano-ros-to-a-cmake-tree"><a class="header" href="#add-nano-ros-to-a-cmake-tree">Add nano-ros to a CMake tree</a></h3>
 <ol>
 <li>
@@ -5838,7 +6549,7 @@ tree, laid out like the SDK’s <code>packages/boards/</code>. Board keys stay g
 name under two roots is an error. A new platform, an RTOS port of your own, is
 the one extension that edits nano-ros itself; see
 <a href="#custom-platform">Add a platform</a>.</p>
-<h2 id="example-12"><a class="header" href="#example-12">Example</a></h2>
+<h2 id="example-16"><a class="header" href="#example-16">Example</a></h2>
 <p>A complete C project with no <code>system.toml</code>, <code>my_app/CMakeLists.txt</code>:</p>
 <pre><code class="language-cmake">cmake_minimum_required(VERSION 3.22)
 project(my_app C)
@@ -5857,7 +6568,7 @@ target_link_libraries(my_app PRIVATE std_msgs__nano_ros_c)
 <pre><code class="language-bash">cmake -B build -DNANO_ROS_SDK="$(nros locate nano-ros)"
 cmake --build build
 </code></pre>
-<h2 id="if-it-doesnt-work-13"><a class="header" href="#if-it-doesnt-work-13">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-17"><a class="header" href="#if-it-doesnt-work-17">If it doesn’t work</a></h2>
 <ul>
 <li><strong>The configure stops and names <code>nros setup --tool corrosion</code>.</strong> Corrosion
 is not in the SDK store. Run that command, or the <code>nros setup &lt;board&gt;</code> you
@@ -5871,7 +6582,7 @@ registry name (<code>std_msgs = "*"</code>). Let <code>nros build</code> write t
 already derives it from the image’s <code>board</code>. Remove it: two answers to one
 question.</li>
 </ul>
-<h2 id="see-also-12"><a class="header" href="#see-also-12">See also</a></h2>
+<h2 id="see-also-17"><a class="header" href="#see-also-17">See also</a></h2>
 <ul>
 <li><a href="#install-options-pinning-working-offline">Install options, pinning, working offline</a>: pin the
 release, mirror it, and build with no network.</li>
@@ -5906,7 +6617,7 @@ as source in its <em>SDK root</em>, which <code>nros build</code> compiles into 
 There is no prebuilt library, no system-wide install and no nano-ros clone.
 Its <code>nros-sdk-index.toml</code> pins every toolchain and SDK version <code>nros setup</code>
 provisions, so pinning nano-ros is pinning a release.</p>
-<h2 id="before-you-start-14"><a class="header" href="#before-you-start-14">Before you start</a></h2>
+<h2 id="before-you-start-18"><a class="header" href="#before-you-start-18">Before you start</a></h2>
 <ul>
 <li>Linux. The host board is <code>linux</code>; macOS is not supported.</li>
 <li>The host packages <a href="#install">Install</a> lists. Each tool’s
@@ -6063,7 +6774,7 @@ or <code>nros setup</code> tries to download rustup again.</li>
 every cargo it starts with <code>CARGO_NET_OFFLINE=true</code>. A build that needs
 something missing stops and names it.</li>
 </ol>
-<h2 id="if-it-doesnt-work-14"><a class="header" href="#if-it-doesnt-work-14">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-18"><a class="header" href="#if-it-doesnt-work-18">If it doesn’t work</a></h2>
 <ul>
 <li><strong>The first configure stops on <code>AMENT_PREFIX_PATH</code>.</strong> Source ROS 2 once
 (<code>source /opt/ros/humble/setup.bash</code>) and configure again; see
@@ -6078,7 +6789,7 @@ or it listens on another endpoint. <code>nros setup</code> reports where it foun
 <li><strong><code>nros doctor</code> reports a retired store entry.</strong> Remove it with the command
 it prints.</li>
 </ul>
-<h2 id="see-also-13"><a class="header" href="#see-also-13">See also</a></h2>
+<h2 id="see-also-18"><a class="header" href="#see-also-18">See also</a></h2>
 <ul>
 <li><a href="#build-inside-an-existing-cmake-or-vendor-tree">Build inside an existing CMake or vendor tree</a>:
 nano-ros in a tree you already build.</li>
@@ -8999,7 +9710,7 @@ cd apps/my_app &amp;&amp; nros configure &amp;&amp; cd ../..
 <a href="#build-8"><code>west build</code> line</a>, and the same
 <a href="#run-on-native_sim-1">run on native_sim</a>. The log line reads
 <code>&lt;inf&gt; nros: rustapp: Published: 1</code>, from Zephyr’s logger.</p>
-<h2 id="if-it-doesnt-work-15"><a class="header" href="#if-it-doesnt-work-15">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-19"><a class="header" href="#if-it-doesnt-work-19">If it doesn’t work</a></h2>
 <p><strong><code>Could not find a package configuration file provided by "nano_ros"</code>.</strong>
 The module is not in the build. Check that <code>nros locate nano-ros</code> prints a
 directory, and that the build line passes it as <code>-DZEPHYR_EXTRA_MODULES</code>
@@ -9259,7 +9970,7 @@ not a callback group.</p>
 <p>The scheduling theory behind the choice (fixed-priority preemption,
 rate-monotonic assignment, EDF, priority inversion) belongs to
 <a href="#the-real-time-execution-model">The execution model</a>.</p>
-<h2 id="before-you-start-15"><a class="header" href="#before-you-start-15">Before you start</a></h2>
+<h2 id="before-you-start-19"><a class="header" href="#before-you-start-19">Before you start</a></h2>
 <ul>
 <li>A workspace whose image runs on an RTOS or on Linux.</li>
 <li>The capabilities your platform delivers, from the generated
@@ -9267,7 +9978,7 @@ rate-monotonic assignment, EDF, priority inversion) belongs to
 Zephyr, the sporadic server on NuttX, preemption threshold on ThreadX, core
 affinity on most.</li>
 </ul>
-<h2 id="steps-14"><a class="header" href="#steps-14">Steps</a></h2>
+<h2 id="steps-18"><a class="header" href="#steps-18">Steps</a></h2>
 <ol>
 <li>
 <p>Name a callback group for each urgency, in the node’s code.</p>
@@ -9374,7 +10085,7 @@ each node logs the sched task it registered on:</p>
 </code></pre>
 </li>
 </ol>
-<h2 id="example-13"><a class="header" href="#example-13">Example</a></h2>
+<h2 id="example-17"><a class="header" href="#example-17">Example</a></h2>
 <p><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/realtime-rust"><code>examples/workspaces/realtime-rust/</code></a>
 runs a 10 ms control node on <code>high</code> and a 100 ms telemetry node on <code>low</code>, with
 sched-task tables for Linux, FreeRTOS, NuttX, ThreadX and Zephyr in one
@@ -9419,7 +10130,7 @@ locator = "tcp/10.0.2.2:7891"
 </code></pre>
 <pre><code class="language-bash">nros run demo_bringup:linux
 </code></pre>
-<h2 id="if-it-doesnt-work-16"><a class="header" href="#if-it-doesnt-work-16">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-20"><a class="header" href="#if-it-doesnt-work-20">If it doesn’t work</a></h2>
 <ul>
 <li><strong>The build refuses a priority.</strong> It lands on the board’s reserved
 transport band, or outranks it. Pick one from the application pool the
@@ -9430,7 +10141,7 @@ any more. Put <code>core</code> on a sched task nano-ros spawns.</li>
 <li><strong><code>MultiThreadedExecutor</code> does not compile.</strong> It has no nano-ros form. Move
 the callbacks that need their own thread to a sched task of their own.</li>
 </ul>
-<h2 id="see-also-14"><a class="header" href="#see-also-14">See also</a></h2>
+<h2 id="see-also-19"><a class="header" href="#see-also-19">See also</a></h2>
 <ul>
 <li><a href="#analyze-timing">Analyze timing</a>: check the callbacks a sched task runs
 for unbounded work.</li>
@@ -9477,12 +10188,12 @@ make it unbounded:</p>
 </tbody>
 </table>
 </div>
-<h2 id="before-you-start-16"><a class="header" href="#before-you-start-16">Before you start</a></h2>
+<h2 id="before-you-start-20"><a class="header" href="#before-you-start-20">Before you start</a></h2>
 <ul>
 <li>A Rust node package that builds with <code>nros build</code>.</li>
 <li><code>rustup</code> with a nightly toolchain, for the stack analysis.</li>
 </ul>
-<h2 id="steps-15"><a class="header" href="#steps-15">Steps</a></h2>
+<h2 id="steps-19"><a class="header" href="#steps-19">Steps</a></h2>
 <ol>
 <li>
 <p>Run Clippy with the loop and recursion lints as errors, from the node
@@ -9617,7 +10328,7 @@ jobs:
 depend on the target: serialization, state machines, protocol code.</p>
 </li>
 </ol>
-<h2 id="example-14"><a class="header" href="#example-14">Example</a></h2>
+<h2 id="example-18"><a class="header" href="#example-18">Example</a></h2>
 <p>The one command to paste for a strict local check:</p>
 <pre><code class="language-bash">cargo clippy -- \
     -D warnings -D clippy::all \
@@ -9627,7 +10338,7 @@ depend on the target: serialization, state machines, protocol code.</p>
     -W clippy::large_stack_arrays -W clippy::large_types_passed_by_value \
     -W clippy::cognitive_complexity
 </code></pre>
-<h2 id="if-it-doesnt-work-17"><a class="header" href="#if-it-doesnt-work-17">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-21"><a class="header" href="#if-it-doesnt-work-21">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>cargo-call-stack</code> reports nothing useful.</strong> The build was not fat-LTO,
 or the package links <code>std</code>. Analyze the <code>no_std</code> firmware crate.</li>
@@ -9639,7 +10350,7 @@ board.</li>
 callback or an allocation in an interrupt handler. A Dylint library of your
 own can; see the Dylint documentation below.</li>
 </ul>
-<h2 id="see-also-15"><a class="header" href="#see-also-15">See also</a></h2>
+<h2 id="see-also-20"><a class="header" href="#see-also-20">See also</a></h2>
 <ul>
 <li><a href="#pick-a-scheduling-model">Pick a scheduling model</a>: the periods these
 checks protect.</li>
@@ -9666,14 +10377,14 @@ runs on, verify it from ROS 2, and check it is ready to ship.</p>
 <p>The order is the same on every target: build the image, put it where it
 runs, then verify ROS 2 communication. On a host or an emulator <code>nros run</code>
 does the last two; on hardware <code>nros flash --monitor</code> does.</p>
-<h2 id="before-you-start-17"><a class="header" href="#before-you-start-17">Before you start</a></h2>
+<h2 id="before-you-start-21"><a class="header" href="#before-you-start-21">Before you start</a></h2>
 <ul>
 <li>A workspace whose images build, and the boards provisioned
 (<code>nros setup</code> at the workspace root).</li>
 <li>For a zenoh image, ROS 2’s router; see
 <a href="#ros-2-and-the-zenoh-router">ROS 2 and the zenoh router</a>.</li>
 </ul>
-<h2 id="steps-16"><a class="header" href="#steps-16">Steps</a></h2>
+<h2 id="steps-20"><a class="header" href="#steps-20">Steps</a></h2>
 <ol>
 <li>
 <p>Build every image the workspace declares:</p>
@@ -9784,7 +10495,7 @@ which nano-ros ships.</li>
 Cyclone DDS and Micro-XRCE-DDS-Client carry their own. nano-ros has no
 commercial support entity, so plan for in-house expertise.</li>
 </ul>
-<h2 id="example-15"><a class="header" href="#example-15">Example</a></h2>
+<h2 id="example-19"><a class="header" href="#example-19">Example</a></h2>
 <p>A workspace with a host image and a board image, built, smoke-tested, then
 flashed:</p>
 <pre><code class="language-bash">nros build --all
@@ -9830,7 +10541,7 @@ with the vendor’s own tools.</p>
 <code>$NROS_HOME/bench.toml</code>, so <code>nros flash</code> and <code>nros monitor</code> find the port and
 probe without being told. <code>nros bench list</code> prints the file and what is
 attached now.</p>
-<h2 id="if-it-doesnt-work-18"><a class="header" href="#if-it-doesnt-work-18">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-22"><a class="header" href="#if-it-doesnt-work-22">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>nros run</code> refuses and names a flashing step.</strong> The image’s board is
 hardware. Use <code>nros flash --monitor</code>.</li>
@@ -9840,7 +10551,7 @@ endpoint in the run plan’s <code>[link]</code>.</li>
 <li><strong><code>nros flash</code> cannot find the board.</strong> Run <code>nros bench scan</code> with the
 board attached, or pass <code>--port</code>.</li>
 </ul>
-<h2 id="see-also-16"><a class="header" href="#see-also-16">See also</a></h2>
+<h2 id="see-also-21"><a class="header" href="#see-also-21">See also</a></h2>
 <ul>
 <li><a href="#troubleshoot">Troubleshoot</a>: failures by symptom.</li>
 <li><a href="#what-nros-build-produces">Build outputs</a>: artifacts and the
@@ -9873,7 +10584,7 @@ of <code>rclcpp::Logger</code> and <code>rcutils_logging</code>. Every record go
 platform: stderr on Linux, Zephyr’s log subsystem, NuttX’s <code>syslog</code>, a UART on
 FreeRTOS and ThreadX. The table is in
 <a href="#logging-nros-log">Platform differences</a>.</p>
-<h2 id="before-you-start-18"><a class="header" href="#before-you-start-18">Before you start</a></h2>
+<h2 id="before-you-start-22"><a class="header" href="#before-you-start-22">Before you start</a></h2>
 <ul>
 <li>A node package in a workspace that runs, for example the talker of
 <a href="#first-project">Run a talker</a>.</li>
@@ -10130,7 +10841,7 @@ wraps before a late reader sees anything. Check anything found this way
 again with the probe detached, using the two records above.</p>
 </li>
 </ol>
-<h2 id="example-16"><a class="header" href="#example-16">Example</a></h2>
+<h2 id="example-20"><a class="header" href="#example-20">Example</a></h2>
 <p>A Rust node that logs once at start and throttles a warning, in an image
 whose ceiling is <code>info</code>:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -10145,7 +10856,7 @@ max_level = "info"
 </code></pre>
 <p>The logging demos, one node package per language, are in
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/features"><code>examples/workspaces/features</code></a>.</p>
-<h2 id="if-it-doesnt-work-19"><a class="header" href="#if-it-doesnt-work-19">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-23"><a class="header" href="#if-it-doesnt-work-23">If it doesn’t work</a></h2>
 <ul>
 <li><strong>A <code>debug!</code> record never appears.</strong> The compile-time ceiling is above it,
 or the logger’s level is. Lower <code>max_level</code>, then the logger’s level.</li>
@@ -10155,7 +10866,7 @@ Humble.</li>
 <li><strong>A throttled call does not compile.</strong> <code>throttle</code> needs the platform clock;
 a clockless image refuses it.</li>
 </ul>
-<h2 id="see-also-17"><a class="header" href="#see-also-17">See also</a></h2>
+<h2 id="see-also-22"><a class="header" href="#see-also-22">See also</a></h2>
 <ul>
 <li><a href="#logging">Environment variables: logging</a>:
 the ceiling and the buffer knobs.</li>
@@ -10245,12 +10956,12 @@ them. As in rclcpp, the method name carries the choice:</p>
 notice that real time passed; a paused simulator must not pause it. Older
 nano-ros code used <code>create_timer</code> for the wall timer. It no longer means that,
 and there is no alias.</p>
-<h2 id="before-you-start-19"><a class="header" href="#before-you-start-19">Before you start</a></h2>
+<h2 id="before-you-start-23"><a class="header" href="#before-you-start-23">Before you start</a></h2>
 <ul>
 <li>A node package whose timers should follow the simulation.</li>
 <li>A <code>/clock</code> source: a simulator, or <code>ros2 bag play --clock</code>.</li>
 </ul>
-<h2 id="steps-17"><a class="header" href="#steps-17">Steps</a></h2>
+<h2 id="steps-21"><a class="header" href="#steps-21">Steps</a></h2>
 <ol>
 <li>
 <p>Enable the feature in a Rust node package. The <code>/clock</code> subscription costs
@@ -10326,7 +11037,7 @@ node.get_clock()-&gt;started();             // has a first sample arrived?
 </code></pre>
 </li>
 </ol>
-<h2 id="example-17"><a class="header" href="#example-17">Example</a></h2>
+<h2 id="example-21"><a class="header" href="#example-21">Example</a></h2>
 <p>A talker that publishes every 100 ms of simulated time, switched on from its
 parameters file:</p>
 <pre><code class="language-yaml"># config/talker.param.yaml
@@ -10368,7 +11079,7 @@ spin loop.</li>
 <li><strong>Timers only.</strong> Message delivery, QoS deadlines and transport leases stay
 on the monotonic clock, so a link stays up while the simulation is paused.</li>
 </ul>
-<h2 id="if-it-doesnt-work-20"><a class="header" href="#if-it-doesnt-work-20">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-24"><a class="header" href="#if-it-doesnt-work-24">If it doesn’t work</a></h2>
 <ul>
 <li>
 <p><strong>ROS-time timers never fire.</strong> A never-connected <code>/clock</code> looks exactly
@@ -10387,7 +11098,7 @@ running on SYSTEM time meanwhile. Publish rosgraph_msgs/msg/Clock (ros2 bag play
 clock, or leave that rule off for the topic under simulation.</p>
 </li>
 </ul>
-<h2 id="see-also-18"><a class="header" href="#see-also-18">See also</a></h2>
+<h2 id="see-also-23"><a class="header" href="#see-also-23">See also</a></h2>
 <ul>
 <li><a href="#pick-a-scheduling-model">Pick a scheduling model</a>: the
 timer overrun policy.</li>
@@ -10467,14 +11178,14 @@ following does not cover. Find the symptom, then apply its fix.</p>
 <li>Several backends in one binary:
 <a href="#if-it-doesnt-work-6">Bridge between backends</a>.</li>
 </ul>
-<h2 id="before-you-start-20"><a class="header" href="#before-you-start-20">Before you start</a></h2>
+<h2 id="before-you-start-24"><a class="header" href="#before-you-start-24">Before you start</a></h2>
 <p>Run the doctor in the workspace. It checks the SDK paths, toolchains and
 environment, and names what is missing:</p>
 <pre><code class="language-bash">nros doctor
 </code></pre>
 <p>Outside a workspace it checks the install instead, and reports store entries
 you can remove, with the command to remove them.</p>
-<h2 id="steps-18"><a class="header" href="#steps-18">Steps</a></h2>
+<h2 id="steps-22"><a class="header" href="#steps-22">Steps</a></h2>
 <ol>
 <li>Run <code>nros doctor</code> and fix what it names.</li>
 <li>Run the failing step again with <code>--dry-run</code> where it has one
@@ -10567,20 +11278,20 @@ index instead of a pointer.</p>
 <p><strong>Symptom:</strong> a callback passed between Rust and C receives garbage
 arguments.</p>
 <p><strong>Fix:</strong> declare it <code>extern "C" fn</code>, not a plain <code>fn</code>.</p>
-<h2 id="example-18"><a class="header" href="#example-18">Example</a></h2>
+<h2 id="example-22"><a class="header" href="#example-22">Example</a></h2>
 <p>The usual first pass on a failing image:</p>
 <pre><code class="language-bash">nros doctor
 nros build &lt;image&gt; --dry-run
 nros run &lt;bringup&gt;:&lt;image&gt; --dry-run --why
 </code></pre>
-<h2 id="if-it-doesnt-work-21"><a class="header" href="#if-it-doesnt-work-21">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-25"><a class="header" href="#if-it-doesnt-work-25">If it doesn’t work</a></h2>
 <ul>
 <li>Look the error up in the
 <a href="#troubleshooting--first-10-minutes">troubleshooting index</a>, which
 also lists the zenoh-pico error codes.</li>
 <li>File an issue with the doctor’s output and the dry-run plan.</li>
 </ul>
-<h2 id="see-also-19"><a class="header" href="#see-also-19">See also</a></h2>
+<h2 id="see-also-24"><a class="header" href="#see-also-24">See also</a></h2>
 <ul>
 <li><a href="#log-and-observe-a-board">Log and observe a board</a>: what to read when a board
 has no console.</li>
@@ -10605,7 +11316,7 @@ root carries the CMake side: the <code>ament_*</code> verbs, <code>Find&lt;pkg&g
 for the most-cited ROS 2 packages, and <code>diagnostic_updater</code>. So a port is
 mostly build glue. What the source still needs is what the compiler names:
 nano-ros has no exceptions, and a few handles observe rather than own.</p>
-<h2 id="before-you-start-21"><a class="header" href="#before-you-start-21">Before you start</a></h2>
+<h2 id="before-you-start-25"><a class="header" href="#before-you-start-25">Before you start</a></h2>
 <ul>
 <li>nano-ros installed, the host provisioned with <code>nros setup linux</code>, and ROS 2
 sourced for the first configure.</li>
@@ -10614,7 +11325,7 @@ For a project with its own message packages, source the project’s install
 too (<code>source &lt;project&gt;/install/setup.bash</code>); nano-ros generates its own
 bindings from those <code>.msg</code> files.</li>
 </ul>
-<h2 id="steps-19"><a class="header" href="#steps-19">Steps</a></h2>
+<h2 id="steps-23"><a class="header" href="#steps-23">Steps</a></h2>
 <ol>
 <li>
 <p>Keep the package’s <code>CMakeLists.txt</code> as it is. It needs no nano-ros line:</p>
@@ -10739,7 +11450,7 @@ ros_args = ["--ros-args", "-p", "update_rate:=10.0"]
 as mps2-an385 in QEMU.</p>
 </li>
 </ol>
-<h2 id="example-19"><a class="header" href="#example-19">Example</a></h2>
+<h2 id="example-23"><a class="header" href="#example-23">Example</a></h2>
 <p><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/cpp-port-minimal-publisher"><code>examples/templates/cpp-port-minimal-publisher/</code></a>
 vendors the ROS 2 tutorial’s <code>minimal_publisher.cpp</code> unmodified and builds it
 through the steps above, on Linux and, from its <code>mps2-an385-freertos/</code> and
@@ -10789,7 +11500,7 @@ type hash: <code>create_generic_publisher(topic, type, type_hash, qos)</code>).
 Parameters are not persisted across boots.</p>
 </li>
 </ul>
-<h2 id="if-it-doesnt-work-22"><a class="header" href="#if-it-doesnt-work-22">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-26"><a class="header" href="#if-it-doesnt-work-26">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>find_package(&lt;pkg&gt;)</code> is refused, naming an installed file.</strong> nano-ros
 does not ship that upstream library (<code>bondcpp</code>, <code>tf2_ros</code>). Remove the
@@ -10804,7 +11515,7 @@ construction.</li>
 configures in one CMake run, so it is the workspace root. Use
 <code>${PROJECT_SOURCE_DIR}</code>.</li>
 </ul>
-<h2 id="see-also-20"><a class="header" href="#see-also-20">See also</a></h2>
+<h2 id="see-also-25"><a class="header" href="#see-also-25">See also</a></h2>
 <ul>
 <li><a href="#rclcpp-compatibility">rclcpp compatibility</a>:
 every upstream spelling and what it maps to, and the measured ports.</li>
@@ -10856,13 +11567,13 @@ libraries and no runtime plugin loading:</p>
 </div>
 <p>The full account of the differences is in
 <a href="#differences-from-standard-ros-2">How nano-ros differs from ROS 2</a>.</p>
-<h2 id="before-you-start-22"><a class="header" href="#before-you-start-22">Before you start</a></h2>
+<h2 id="before-you-start-26"><a class="header" href="#before-you-start-26">Before you start</a></h2>
 <ul>
 <li>A ROS 2 Humble workspace that builds with <code>colcon build</code>.</li>
 <li>ROS 2 Humble installed. nano-ros generates its message bindings from it,
 and its zenoh router is ROS 2’s <code>rmw_zenohd</code>.</li>
 </ul>
-<h2 id="steps-20"><a class="header" href="#steps-20">Steps</a></h2>
+<h2 id="steps-24"><a class="header" href="#steps-24">Steps</a></h2>
 <ol>
 <li>
 <p>Install the CLI and provision the host, in place of the distro install
@@ -10930,7 +11641,7 @@ ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
 </code></pre>
 </li>
 </ol>
-<h2 id="example-20"><a class="header" href="#example-20">Example</a></h2>
+<h2 id="example-24"><a class="header" href="#example-24">Example</a></h2>
 <p>The whole move for a two-node project that ran as
 <code>ros2 launch my_robot system.launch.xml</code> with Cyclone DDS:</p>
 <pre><code class="language-text">my_robot_ws/
@@ -10967,7 +11678,7 @@ nros run my_robot_bringup:linux
 </code></pre>
 <p>Cyclone DDS needs no router, so this interoperates with <code>rmw_cyclonedds_cpp</code>
 nodes directly.</p>
-<h2 id="if-it-doesnt-work-23"><a class="header" href="#if-it-doesnt-work-23">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-27"><a class="header" href="#if-it-doesnt-work-27">If it doesn’t work</a></h2>
 <ul>
 <li><strong>Changing <code>RMW_IMPLEMENTATION</code> changes nothing.</strong> The backend is compiled
 in. Edit <code>[system] rmw</code> and build again.</li>
@@ -10982,7 +11693,7 @@ install provides. Remove it or add the package.</li>
 <code>nros toolchain gc --older-than 90d</code> proposes what to remove; it removes
 nothing without <code>--delete</code>, and never an entry a pin names.</li>
 </ul>
-<h2 id="see-also-21"><a class="header" href="#see-also-21">See also</a></h2>
+<h2 id="see-also-26"><a class="header" href="#see-also-26">See also</a></h2>
 <ul>
 <li><a href="#port-a-c-node">Port a C++ node</a>.</li>
 <li><a href="#differences-from-standard-ros-2">How nano-ros differs from ROS 2</a>
@@ -11918,7 +12629,7 @@ impl ExecutableNode for Listener {
 <code>State</code> field, and the <code>on_callback</code> body. The closure body in the
 “before” version becomes the <code>if state.sub_chatter == cb { ... }</code>
 branch in the “after” version — same code, hoisted to a method.</p>
-<h2 id="see-also-22"><a class="header" href="#see-also-22">See also</a></h2>
+<h2 id="see-also-27"><a class="header" href="#see-also-27">See also</a></h2>
 <ul>
 <li><a href="#rtos-cooperation">RTOS Cooperation</a> — the supported execution
 shapes, and why Embassy is not one.</li>
@@ -12080,7 +12791,7 @@ spin loop’s “where does the thread sleep” question maps as:</p>
 </div>
 <p>In all cases the user-visible API is <code>Executor::spin_once(timeout)</code>;
 the platform-correct sleep happens transparently underneath.</p>
-<h2 id="see-also-23"><a class="header" href="#see-also-23">See also</a></h2>
+<h2 id="see-also-28"><a class="header" href="#see-also-28">See also</a></h2>
 <ul>
 <li><a href="#rmw-api-design-nros-rmw-vs-ros2rmw">RMW API Design</a> — the architectural reasons
 the runtime / RMW boundary is shaped the way it is.</li>
@@ -13152,7 +13863,7 @@ transport pattern via <code>nros_platform_*</code> C ABI (see
 <li>XRCE Agent deployment stays the same — point nano-ros’s XRCE
 backend at the same Agent.</li>
 </ul>
-<h2 id="see-also-24"><a class="header" href="#see-also-24">See also</a></h2>
+<h2 id="see-also-29"><a class="header" href="#see-also-29">See also</a></h2>
 <ul>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/research/build-config-deploy-comparison.md">Build / config / deploy workflow comparison</a>
 — historical comparison of the three workflow axes vs micro-ROS, Zenoh-pico,
@@ -16825,7 +17536,7 @@ libc required; bare-metal Cortex-A is not in the coverage matrix.</li>
 template is the canonical entry path — see
 <a href="#px4-autopilot-external-module">PX4 Autopilot</a>.</li>
 </ul>
-<h2 id="see-also-25"><a class="header" href="#see-also-25">See also</a></h2>
+<h2 id="see-also-30"><a class="header" href="#see-also-30">See also</a></h2>
 <ul>
 <li><a href="#board-support-levels">Board Support Levels</a> — what each status word
 means.</li>
@@ -17278,7 +17989,7 @@ moves with it.</p>
 <p>These statics move with the knobs beside them, but their element is a
 struct (or the region is a heap), so no formula over defaults can state
 their size exactly — and a guessed multiplier is the defect this page
-exists to avoid. The memory report (<a href="#measuring-static-memory">Static memory</a>) gives each one’s exact bytes
+exists to avoid. The memory report (<a href="#measure-static-memory">Static memory</a>) gives each one’s exact bytes
 in the image you built, beside the knobs listed here.</p>
 <div class="table-wrapper">
 <table>
@@ -17742,7 +18453,7 @@ data: 'Hello World: 3'
 <p>If you see all three of these — talker logging, ROS 2 echo
 output, and matching counter values — interop is verified
 end-to-end.</p>
-<h2 id="see-also-26"><a class="header" href="#see-also-26">See also</a></h2>
+<h2 id="see-also-31"><a class="header" href="#see-also-31">See also</a></h2>
 <ul>
 <li><a href="#install">Install + first build</a> — full setup walkthrough</li>
 <li><a href="#first-node--rust-linux">First Node — Rust</a> — the canonical Rust starter</li>
@@ -18526,7 +19237,7 @@ compile_error!("Enable at least one transport: `ethernet` or `serial`");</code><
 </table>
 </div>
 <p>The bare-metal <code>nros-board-mps2-an385</code> is the simplest starting point. The FreeRTOS variant shows how to add RTOS task creation and lwIP networking.</p>
-<h2 id="see-also-27"><a class="header" href="#see-also-27">See also</a></h2>
+<h2 id="see-also-32"><a class="header" href="#see-also-32">See also</a></h2>
 <ul>
 <li><a href="#custom-platform">Custom Platform</a> – writing the platform crate that sits underneath a board crate</li>
 <li><a href="#porting-overview">Porting Overview</a> – the three customization axes (RMW, platform, board)</li>
@@ -20320,7 +21031,7 @@ The board layer owns:</p>
 stay at <code>packages/api/nros-c/cmake/nros-&lt;rtos&gt;.cmake</code>. The
 modules <code>include(...)</code> those helpers — the per-platform file is the
 <strong>dispatch entry</strong>, not the implementation.</p>
-<h2 id="see-also-28"><a class="header" href="#see-also-28">See also</a></h2>
+<h2 id="see-also-33"><a class="header" href="#see-also-33">See also</a></h2>
 <ul>
 <li><a href="#custom-platform">Custom Platform</a> — Rust-side trait
 implementations (clock, alloc, threading, networking)</li>
@@ -21338,7 +22049,7 @@ real session). Run via:</p>
 <pre><code class="language-bash">cargo test -p nros-rmw-xrce --features platform-posix \
     --test custom_transport
 </code></pre>
-<h2 id="see-also-29"><a class="header" href="#see-also-29">See also</a></h2>
+<h2 id="see-also-34"><a class="header" href="#see-also-34">See also</a></h2>
 <ul>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/packages/api/nros-c/include/rclc/detail/nros_generated.h"><code>&lt;nros/transport.h&gt;</code></a> — C header</li>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/packages/api/nros-cpp/include/rclcpp/transport.hpp"><code>&lt;rclcpp/transport.hpp&gt;</code></a> — C++ header</li>
