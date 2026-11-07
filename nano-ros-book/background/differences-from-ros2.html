@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-dcc9d70c.js";
+            window.path_to_searchindex_js = "../searchindex-1097bdeb.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-c81e2d9d.js"></script>
+        <script src="../toc-f6c86eff.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -268,6 +268,38 @@ backend keeps its C client out of an image that does not use it; and the
 build knows what to link. The cost is that changing backends means
 rebuilding. One binary can still link several backends and bridge between
 them (<a href="../guide/rmw/bridge-between-backends.html">Bridge between backends</a>).</p>
+<h3 id="how-each-backend-reaches-ros-2"><a class="header" href="#how-each-backend-reaches-ros-2">How each backend reaches ROS 2</a></h3>
+<p>The three backends differ less in what they can carry than in the shape of
+the network around the device: what else has to run, who does discovery, and
+what happens when a process goes away.</p>
+<ul>
+<li><strong>zenoh.</strong> The device runs zenoh-pico, a small C client, in client mode,
+and connects to a zenoh router over serial, TCP or UDP. The router is ROS
+2’s own <code>rmw_zenohd</code>; ROS 2 nodes running <code>rmw_zenoh_cpp</code> connect to the
+same router, which forwards messages without translating them. The device
+joins ROS 2 graph discovery through liveliness tokens, so <code>ros2 topic list</code>
+sees it. On a serial-only link the build leaves out the device’s own graph
+cache, its view of the other nodes, to save RAM. Zenoh also defines a peer mode with no router, which
+nano-ros does not ship: its multicast transport and scouting cost flash,
+and every nano-ros deployment reaches its peers through a router.
+<code>NROS_SESSION_MODE=peer</code> is refused at session open. If the router stops,
+the device keeps running but reaches no one.</li>
+<li><strong>XRCE-DDS.</strong> The device runs the Micro XRCE-DDS client, the same one
+micro-ROS uses, and asks an agent, <code>MicroXRCEAgent</code>, to create DDS
+entities on its behalf. The agent does discovery and bridges data to the
+DDS data space, so ROS 2 nodes on any DDS RMW reach the device through it.
+The client allocates when a session or entity is created, never per
+message. If the agent stops, the device loses all connectivity.</li>
+<li><strong>Cyclone DDS.</strong> The image links Eclipse Cyclone DDS, the implementation
+ROS 2 itself uses through <code>rmw_cyclonedds_cpp</code>. The device is a full DDS
+participant: SPDP and SEDP discovery over UDP multicast (or a static
+unicast peer list), the same wire protocol and no key rewriting. Nothing
+runs beside it, and when a peer goes away only that peer’s samples stop.
+Cyclone allocates with <code>malloc</code> and runs its own receive threads, so it
+needs a heap and an operating system with a network stack.</li>
+</ul>
+<p>All three are linked through one RMW C ABI below the client library, which
+is why a node package does not change when its image’s backend does.</p>
 <h3 id="no-introspection-on-the-device"><a class="header" href="#no-introspection-on-the-device">No introspection on the device</a></h3>
 <p><code>ros2 topic list</code>, <code>ros2 node info</code> and the <code>rmw_get_*</code> graph queries run on
 a host. A nano-ros image answers what its backend’s discovery exposes, and you
