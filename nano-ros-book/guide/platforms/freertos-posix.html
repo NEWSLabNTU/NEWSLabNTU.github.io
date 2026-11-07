@@ -35,7 +35,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-b64e0262.js";
+            window.path_to_searchindex_js = "../../searchindex-e2a92b5d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-f6c86eff.js"></script>
@@ -187,32 +187,29 @@
 </blockquote>
 <!-- END GENERATED platform status -->
 <p>The <a href="../../starters/freertos-posix.html">starter</a> scaffolded a C talker for
-<code>board = "freertos-posix"</code> and ran it: the FreeRTOS kernel, through its POSIX
-port, as an ordinary Linux process. This page covers what comes after it: the
+<code>board = "freertos-posix"</code> over Cyclone DDS and ran it: the FreeRTOS kernel,
+through its POSIX port, as an ordinary Linux process. This page covers what comes after it: the
 image’s configuration, what is particular to the simulator, moving a
 workspace between it and the emulated Cortex-M3, and the native build.</p>
 <h2 id="configure-the-platform"><a class="header" href="#configure-the-platform">Configure the platform</a></h2>
 <p>The bringup’s <code>src/fp_node_bringup/system.toml</code> holds one image. Its
-<code>[system]</code> table and image, with a <code>locator</code> added, read:</p>
+<code>[system]</code> table and image read:</p>
 <pre><code class="language-toml">[system]
 name = "fp_node"
-rmw = "zenoh"
+rmw = "cyclonedds"
 domain_id = 0
 
 [image.freertos]
 board = "freertos-posix"
-locator = "tcp/127.0.0.1:7447"
 </code></pre>
-<p>The image dials the router on the host directly: there is no emulator and no
-gateway between them. With no <code>locator</code>, as scaffolded, it dials the default,
-<code>tcp/127.0.0.1:7447</code>, and <code>nros run</code> starts ROS’s <code>rmw_zenohd</code> there. To
-use a router you already run, pass <code>--router &lt;its locator&gt;</code>.</p>
-<p>A FreeRTOS image gives up after one attempt to open its session, with
-<code>Failed to open session</code>, when no router answers. An image that should wait
-for a router started later sets a knob:</p>
-<pre><code class="language-toml">[image.freertos.knobs.zenoh.limits]
-connect_forever = true        # or connect_timeout_ms = 30000 for a bounded wait
-</code></pre>
+<p>The RMW comes from <code>[system] rmw</code>, and an image can override it with its own
+<code>rmw</code> key. On this board, use <code>cyclonedds</code>. Zenoh on this board is not
+supported yet: its image does not build, because zenoh’s FreeRTOS support
+expects lwIP and this board’s network is the host’s own. Cyclone DDS runs
+inside the image’s process and finds its peers by multicast discovery on the
+host’s network, so the image has no <code>locator</code> and nothing runs beside it.
+<code>domain_id</code> is the DDS domain, which ROS 2 calls <code>ROS_DOMAIN_ID</code>; a ROS 2
+node on another domain does not see the talker.</p>
 <p>Task stacks and priorities come from the board crate’s defaults.
 <a href="../build/configure-an-image.html">Configure an image</a> lists the keys and
 knobs, and <a href="../realtime/pick-a-scheduling-model.html">Pick a scheduling model</a>
@@ -226,14 +223,19 @@ test application logic, not to measure real-time behavior.</li>
 <li><strong>C and C++ only.</strong> The board has no Rust entry shape. For a Rust node on
 FreeRTOS, use the emulated <a href="freertos.html">mps2-an385 board</a>.</li>
 <li><strong>The network is the host’s.</strong> The image uses the host’s sockets, so it
-reaches a router on loopback with no network setup and no root access.</li>
+finds its DDS peers with no network setup and no root access. For the same
+reason it has no lwIP, which zenoh on FreeRTOS needs, so zenoh is not
+supported on this board yet.</li>
 <li><strong>The console is standard output.</strong></li>
 </ul>
 <h2 id="move-a-workspace-to-the-emulated-board"><a class="header" href="#move-a-workspace-to-the-emulated-board">Move a workspace to the emulated board</a></h2>
 <p>The node package names no board, so the same C or C++ workspace builds for
-the mps2-an385 FreeRTOS board in QEMU. Add an image for it beside the first:</p>
+the mps2-an385 FreeRTOS board in QEMU. Add an image for it beside the first.
+That board’s starter runs zenoh, so the image names it, with the router it
+dials:</p>
 <pre><code class="language-toml">[image.freertos_qemu]
 board = "mps2-an385-freertos"
+rmw = "zenoh"
 locator = "tcp/10.0.2.2:7447"
 </code></pre>
 <p><code>10.0.2.2</code> is QEMU’s gateway to the host. With two images, name the one you
@@ -245,9 +247,8 @@ mps2-an385</a> covers it.</p>
 <p>From the starter’s workspace, print the plan <code>nros run</code> follows:</p>
 <pre><code class="language-bash probe=410">nros run fp_node --dry-run --why
 </code></pre>
-<p>The target is a host process, its console is standard output, and its link
-is the image’s <code>locator</code> on loopback. <code>--why</code> names where each fact came
-from.</p>
+<p>The target is a host process and its console is standard output. <code>--why</code>
+names where each fact came from.</p>
 <h2 id="drive-the-native-build-yourself"><a class="header" href="#drive-the-native-build-yourself">Drive the native build yourself</a></h2>
 <p><code>nros build</code> writes the generated FreeRTOS entry, the startup task that runs
 your node, under <code>build/</code>, then runs CMake on it with the board’s toolchain
@@ -259,8 +260,11 @@ a CI cache step. For a CMake tree that is not a nano-ros workspace, see
 <a href="../build/existing-cmake-or-vendor-tree.html">Build inside an existing CMake or vendor tree</a>.</p>
 <h2 id="if-it-doesnt-work"><a class="header" href="#if-it-doesnt-work">If it doesn’t work</a></h2>
 <ul>
-<li><strong><code>Failed to open session</code>:</strong> no router answered the image’s one attempt.
-Start the router first, or set <code>connect_forever</code>.</li>
+<li><strong>The build stops on <code>lwipopts.h</code>:</strong> the image’s RMW is zenoh, which this
+board does not support yet. Set <code>rmw = "cyclonedds"</code>.</li>
+<li><strong><code>ros2 topic echo</code> prints nothing:</strong> set
+<code>RMW_IMPLEMENTATION=rmw_cyclonedds_cpp</code>, and check that both sides use the
+same domain. A firewall that drops multicast also stops DDS discovery.</li>
 <li><strong><code>nros new --lang rust</code> refuses the board:</strong> it is a C and C++ board.</li>
 <li><strong>Everything else:</strong> <a href="../deploy/troubleshoot.html">Troubleshoot</a>.</li>
 </ul>
