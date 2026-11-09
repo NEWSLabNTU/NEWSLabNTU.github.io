@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-987bdd24.js";
+            window.path_to_searchindex_js = "../searchindex-84a37ae5.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-f6c86eff.js"></script>
@@ -191,7 +191,7 @@ machine (<code>rv32imac</code>), and shows its messages arriving in ROS 2. NuttX
 POSIX-style RTOS, so the talker runs as an ordinary NuttX task, with NuttX’s
 own network stack on a virtio-net device. You need no NuttX checkout of your
 own: <code>nros setup</code> fetches the kernel and its apps tree, and <code>nros run</code> links
-your node into a bootable kernel. You write the talker in Rust or in C; pick
+your node into a bootable kernel. You write the talker in Rust, C or C++; pick
 a tab and every tab on the page follows.</p>
 <h2 id="what-you-need"><a class="header" href="#what-you-need">What you need</a></h2>
 <ul>
@@ -233,6 +233,7 @@ set it in the shell you build and run from:</p>
 <div class="nros-tabs-bar" role="radiogroup" aria-label="Language">
 <label class="nros-tab"><input type="radio" name="nros-tabs-867a56e8-1" value="rust" checked=""><span>Rust</span></label>
 <label class="nros-tab"><input type="radio" name="nros-tabs-867a56e8-1" value="c"><span>C</span></label>
+<label class="nros-tab"><input type="radio" name="nros-tabs-867a56e8-1" value="cpp"><span>C++</span></label>
 </div>
 
 <div class="nros-tab-panel" data-lang="rust" role="group" aria-label="Rust">
@@ -249,6 +250,13 @@ cd nx_ws
 </code></pre>
 </div>
 
+<div class="nros-tab-panel" data-lang="cpp" role="group" aria-label="C++">
+<pre><code class="language-bash probe=40">export QEMU_SYSTEM_RISCV32="$(command -v qemu-system-riscv32)"
+nros new nx_ws --board rv-virt-nuttx --template talker --lang cpp
+cd nx_ws
+</code></pre>
+</div>
+
 </div>
 
 <p>That wrote a workspace with two packages: <code>src/nx_node/</code>, the talker, a
@@ -258,22 +266,16 @@ generated from the bringup when you build. A Rust talker builds for the
 board’s <code>riscv32imac-unknown-nuttx-elf</code> target, which the build compiles the
 Rust standard library for itself.</p>
 <h2 id="run-it-in-qemu"><a class="header" href="#run-it-in-qemu">Run it in QEMU</a></h2>
-<p>The guest sits on QEMU’s user-mode network at <code>10.0.2.15</code>, and dials the
-router through the gateway <code>10.0.2.2</code>, which is your host, on port 7447.
-Start the router first, in its own terminal, listening on every interface so
-the guest’s connection arrives:</p>
-<!-- removed when the board descriptor states its default locator -->
-<pre><code class="language-bash probe=50 probe-run=60 probe-keep">source /opt/ros/humble/setup.bash
-ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:7447"];scouting/multicast/enabled=false' \
-    ros2 run rmw_zenoh_cpp rmw_zenohd
-</code></pre>
-<pre><code class="language-text probe-expect=50">Started Zenoh router with id
-</code></pre>
-<p>Then, back in the workspace terminal, source ROS 2 and build and run the
+<p>The image dials a zenoh router on your host through QEMU’s user-mode
+network: the guest reaches your host as <code>10.0.2.2</code>, on port 7447. <code>nros run</code>
+starts that router itself, listening on every interface so the guest’s
+connection arrives, and stops it when the run ends. If a router already runs
+on that port, <code>nros run --router auto</code> uses it instead.</p>
+<p>In the workspace, source ROS 2 and build and run the
 talker. This first run records the ROS 2 prefix in the workspace, so later
 runs of it need no sourced shell:</p>
 <pre><code class="language-bash probe=60 probe-run=1500">source /opt/ros/humble/setup.bash
-nros run nx_node --expect 'Publishing:'
+nros run nx_node --expect "Publishing: 'Hello World: 1'"
 </code></pre>
 <pre><code class="language-text probe-expect=60">Publishing: 'Hello World: 1'
 nros run: matched after
@@ -284,7 +286,7 @@ builds take seconds), then boots it with the <code>qemu-system-riscv32</code> th
 <code>QEMU_SYSTEM_RISCV32</code> names. The image starts its application itself, so
 what you see is the talker on the NuttX console. With <code>--expect</code> it stops
 QEMU and exits 0 at the first console line containing that text, and exits 1
-if the board stops first. The router keeps running.</p>
+if the board stops first. It stops the router it started, too.</p>
 <p>Without <code>--expect</code> it keeps running until you press Ctrl-C, which stops QEMU:</p>
 <pre><code class="language-bash probe=65 probe-run=120 probe-keep">nros run nx_node
 </code></pre>
@@ -292,7 +294,8 @@ if the board stops first. The router keeps running.</p>
 Publishing: 'Hello World: 2'
 </code></pre>
 <h2 id="see-it-in-ros-2"><a class="header" href="#see-it-in-ros-2">See it in ROS 2</a></h2>
-<p>Leave the router and <code>nros run</code> going. In a third terminal:</p>
+<p>Leave <code>nros run</code> going; its router stays up while it runs. In a second
+terminal:</p>
 <pre><code class="language-bash probe=70 probe-run=120">source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
@@ -307,7 +310,8 @@ which receives nothing from it. That is why the command asks for best-effort.</p
 emulator:</strong> this shell has no <code>QEMU_SYSTEM_RISCV32</code>. Run the <code>export</code> line
 again, after installing <code>qemu-system-misc</code>.</li>
 <li><strong>No <code>Publishing:</code> line within a minute of boot:</strong> the talker did not reach
-the router. Check that the router listens on <code>0.0.0.0:7447</code>: one on
+the router. If you run your own
+router with <code>--router auto</code>, check that it listens on <code>0.0.0.0:7447</code>: one on
 <code>127.0.0.1</code> is out of the guest’s reach.</li>
 <li><strong><code>nros setup</code> stops and names <code>python3-venv</code> or <code>unzip</code>:</strong> you left
 <code>--sudo</code> off. Run the command it printed.</li>

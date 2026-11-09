@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-987bdd24.js";
+            window.path_to_searchindex_js = "../searchindex-84a37ae5.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-f6c86eff.js"></script>
@@ -191,7 +191,7 @@ and shows its messages arriving in ROS 2. The board is Arm’s MPS2-AN385 in
 QEMU, the board this book teaches nano-ros on: it costs nothing and behaves
 like a real microcontroller. FreeRTOS runs the talker as a task, with lwIP as
 its network stack on the board’s emulated LAN9118 ethernet. You write the
-talker in Rust or in C; pick a tab and every tab on the page follows.</p>
+talker in Rust, C or C++; pick a tab and every tab on the page follows.</p>
 <h2 id="what-you-need"><a class="header" href="#what-you-need">What you need</a></h2>
 <ul>
 <li>A Linux host with the <a href="../start/install.html">install</a> done, so <code>nros</code> is on
@@ -222,6 +222,7 @@ ROS 2; with none sourced, it writes Humble. On Jazzy, source
 <div class="nros-tabs-bar" role="radiogroup" aria-label="Language">
 <label class="nros-tab"><input type="radio" name="nros-tabs-56330950-1" value="rust" checked=""><span>Rust</span></label>
 <label class="nros-tab"><input type="radio" name="nros-tabs-56330950-1" value="c"><span>C</span></label>
+<label class="nros-tab"><input type="radio" name="nros-tabs-56330950-1" value="cpp"><span>C++</span></label>
 </div>
 
 <div class="nros-tab-panel" data-lang="rust" role="group" aria-label="Rust">
@@ -232,6 +233,12 @@ cd fr_ws
 
 <div class="nros-tab-panel" data-lang="c" role="group" aria-label="C">
 <pre><code class="language-bash probe=40">nros new fr_ws --board mps2-an385-freertos --template talker --lang c
+cd fr_ws
+</code></pre>
+</div>
+
+<div class="nros-tab-panel" data-lang="cpp" role="group" aria-label="C++">
+<pre><code class="language-bash probe=40">nros new fr_ws --board mps2-an385-freertos --template talker --lang cpp
 cd fr_ws
 </code></pre>
 </div>
@@ -250,21 +257,16 @@ says what the talker runs on. The FreeRTOS startup task that runs your node is
 generated from it when you build, so you do not need to open it for this
 starter.</p>
 <h2 id="run-it-in-qemu"><a class="header" href="#run-it-in-qemu">Run it in QEMU</a></h2>
-<p>The image dials the router through QEMU’s user-mode network: the guest
-reaches your host as <code>10.0.2.2</code>, on port 7447. Start the router first, in its
-own terminal, listening on every interface so the guest’s connection arrives:</p>
-<!-- removed when the board descriptor states its default locator -->
-<pre><code class="language-bash probe=50 probe-run=60 probe-keep">source /opt/ros/humble/setup.bash
-ZENOH_CONFIG_OVERRIDE='listen/endpoints=["tcp/0.0.0.0:7447"];scouting/multicast/enabled=false' \
-    ros2 run rmw_zenoh_cpp rmw_zenohd
-</code></pre>
-<pre><code class="language-text probe-expect=50">Started Zenoh router with id
-</code></pre>
-<p>Then, in a second terminal, source ROS 2 and build and run the talker. This
+<p>The image dials a zenoh router on your host through QEMU’s user-mode
+network: the guest reaches your host as <code>10.0.2.2</code>, on port 7447. <code>nros run</code>
+starts that router itself, listening on every interface so the guest’s
+connection arrives, and stops it when the run ends. If a router already runs
+on that port, <code>nros run --router auto</code> uses it instead.</p>
+<p>In the workspace, source ROS 2 and build and run the talker. This
 first run records the ROS 2 prefix in the workspace, so later runs of it need
 no sourced shell:</p>
 <pre><code class="language-bash probe=60 probe-run=1500">source /opt/ros/humble/setup.bash
-nros run fr_node --expect 'Publishing:'
+nros run fr_node --expect "Publishing: 'Hello World: 1'"
 </code></pre>
 <pre><code class="language-text probe-expect=60">Publishing: 'Hello World: 1'
 nros run: matched after
@@ -274,7 +276,7 @@ FreeRTOS kernel and lwIP, about three minutes for C and five for Rust; later
 builds take seconds), then boots it in QEMU with the board’s LAN9118 on the
 user-mode network. What it prints is the board’s console. With <code>--expect</code> it
 stops the board and exits 0 at the first console line containing that text,
-and exits 1 if the board stops first. The router keeps running.</p>
+and exits 1 if the board stops first. It stops the router it started, too.</p>
 <p>Without <code>--expect</code> it keeps running until you press Ctrl-C, which stops QEMU:</p>
 <pre><code class="language-bash probe=65 probe-run=120 probe-keep">nros run fr_node
 </code></pre>
@@ -282,7 +284,8 @@ and exits 1 if the board stops first. The router keeps running.</p>
 Publishing: 'Hello World: 2'
 </code></pre>
 <h2 id="see-it-in-ros-2"><a class="header" href="#see-it-in-ros-2">See it in ROS 2</a></h2>
-<p>Leave the router and <code>nros run</code> going. In a third terminal:</p>
+<p>Leave <code>nros run</code> going; its router stays up while it runs. In a second
+terminal:</p>
 <pre><code class="language-bash probe=70 probe-run=90">source /opt/ros/humble/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 ros2 topic echo /chatter std_msgs/msg/String --qos-reliability best_effort
@@ -296,10 +299,12 @@ which receives nothing from it. That is why the command asks for best-effort.</p
 <ul>
 <li><strong>No <code>Publishing:</code> line within 30 seconds of boot:</strong> the board did not
 reach the router. A cold boot through FreeRTOS, lwIP and the zenoh session
-takes 10 to 15 seconds. Check that the router is running and listens on
+takes 10 to 15 seconds. If you run your own
+router with <code>--router auto</code>, check that it listens on
 <code>0.0.0.0:7447</code>: one on <code>127.0.0.1</code> is out of the guest’s reach.</li>
 <li><strong><code>Failed to open session</code> on the console:</strong> the talker tried once, found no
-router, and stopped. Start the router first, then run again.</li>
+router, and stopped. With <code>--router auto</code>, start your router before
+<code>nros run</code>.</li>
 <li><strong><code>nros run</code> stops at once and names <code>AMENT_PREFIX_PATH</code>:</strong> this shell has
 not sourced ROS 2, and no earlier build of the workspace recorded it.</li>
 <li><strong>Everything else:</strong> <a href="../reference/troubleshooting-index.html">Troubleshooting - First 10 Minutes</a>.</li>
