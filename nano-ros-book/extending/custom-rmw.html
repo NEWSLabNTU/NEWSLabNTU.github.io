@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-8f17d964.js";
+            window.path_to_searchindex_js = "../searchindex-4c5d1c1c.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-f6c86eff.js"></script>
@@ -181,30 +181,29 @@
 <div class="nros-level-badge" data-type="how-to" data-level="4"><span class="nros-level-type">How-to</span> · <span class="nros-level-name">Level 4: Extending nano-ros</span></div>
 
 <p><strong>Needs first:</strong> <a href="../background/how-a-build-becomes-an-image.html">How a build becomes an image</a></p>
-<p>nano-ros ships backends for zenoh-pico, XRCE-DDS, Cyclone DDS and PX4’s uORB.
-When your middleware is none of these (MQTT, a proprietary bus, a
-vendor’s DDS), you write a backend: the code that turns publish, take, request
-and reply into your protocol. By the end of this page your backend registers
-with nano-ros, and an image publishes and subscribes through it.</p>
-<p>Most link problems are not new middleware. If the protocol is zenoh or
-XRCE-DDS and only the wire is new, <a href="add-a-transport.html">add a transport</a>
-instead: it is four functions, not a backend.</p>
+<p>nano-ros’s own backends are listed in the
+<a href="../reference/platform-api.html#backends-in-the-tree">RMW API reference</a>.
+When your middleware is none of them (MQTT, a proprietary bus, a vendor’s
+DDS), you write a backend: the code that turns publish, take, request and
+reply into your protocol. The backend is a package in your own workspace,
+found by its <code>package.xml</code> announcement the way nano-ros’s own backends are,
+so nothing in nano-ros changes. By the end of this page an image selects
+your backend by name and publishes through it.</p>
+<p>If the protocol is zenoh or XRCE-DDS and only the wire is new,
+<a href="add-a-transport.html">add a transport</a> instead: four functions, not a backend.</p>
 <h2 id="before-you-start"><a class="header" href="#before-you-start">Before you start</a></h2>
 <ul>
-<li>You know how nano-ros’s RMW layer differs from ROS 2’s: it leaves the I/O
-buffers to the caller, replaces wait sets with one call that drives I/O,
-and binds the backend when the image links. <a href="../background/how-a-build-becomes-an-image.html">How a build becomes an image</a>
-explains the three choices; <a href="../internals/rmw/rmw-api-design.html">Internals → RMW API design</a>
-argues them against ROS 2’s <code>rmw.h</code>.</li>
+<li>You know how nano-ros’s RMW layer differs from ROS 2’s: the caller owns
+the I/O buffers, one call drives I/O instead of wait sets, and the backend
+binds when the image links. <a href="../internals/rmw/rmw-api-design.html">Internals → RMW API design</a>
+argues these against ROS 2’s <code>rmw.h</code>.</li>
 <li>You have chosen the backend’s language. A Rust backend implements the
 traits of <code>nros-rmw</code>. A C or C++ backend fills the C table
 <code>nros_rmw_vtable_t</code> from <code>&lt;nros/rmw_vtable.h&gt;</code>. Either way the runtime
 calls the backend through that one C table.</li>
-<li>Plan for a change to nano-ros. An image selects its backend by name in
-<code>system.toml</code> (<code>rmw = "..."</code>), and today the names the build accepts are the
-backends in nano-ros’s own tree. A backend outside it registers and runs
-from your own code, but <code>nros build</code> refuses its name until it is
-contributed. Step 5 says what that touches.</li>
+<li>For the worked example below: a Linux host with nano-ros
+<a href="../start/install.html">installed</a>, and ROS 2 Humble (on Jazzy, replace
+<code>humble</code> in each command).</li>
 </ul>
 <h2 id="steps"><a class="header" href="#steps">Steps</a></h2>
 <ol>
@@ -253,33 +252,178 @@ a resource is busy, <code>BufferTooSmall</code> when the caller’s slice is sho
 for what fits none of them.</p>
 </li>
 <li>
-<p>Register the backend before the first session opens, under its name:</p>
+<p>Register the backend under its name, in one function the image calls
+before the first session opens:</p>
 <ul>
 <li>A Rust backend wraps its <code>Rmw</code> type in the adapter of <code>nros-rmw-cffi</code>:
 <code>RustBackendAdapter::&lt;MyRmw&gt;::register_named(c"myproto".as_ptr())</code>.</li>
 <li>A C or C++ backend calls
 <code>nros_rmw_cffi_register_named("myproto", &amp;MY_VTABLE)</code>.</li>
 </ul>
-<p>An image may register several backends; it opens the one it names.</p>
 </li>
 <li>
-<p>Make it a backend nano-ros can select. This is the contribution. The
-backend is a package whose <code>package.xml</code> announces
-<code>&lt;nano_ros_provides kind="rmw" name="myproto"/&gt;</code>, with an <code>nros-rmw.toml</code>
-beside it. The descriptor is required, because two facts cannot be derived
-from the name: <code>[rmw] cpp_define</code>, the define C++ code tests for the
-backend, and how the backend reaches the link (<code>[rmw.provides.cargo]</code>
-with its <code>crate</code> and <code>register</code> function for a Rust backend,
-<code>[rmw.provides.cmake]</code> with its <code>dir</code> and <code>target</code> for a CMake one, and
-<code>[rmw.link]</code>). Start from the descriptor of the in-tree backend nearest
-yours.</p>
+<p>Announce it. Put the backend in a package of its own in your workspace,
+whose <code>package.xml</code> exports <code>&lt;nano_ros_provides kind="rmw" name="myproto"/&gt;</code>,
+with an <code>nros-rmw.toml</code> beside it. The descriptor states what the name
+cannot: <code>[rmw] cpp_define</code>, the define C++ code tests for the backend, and
+how the backend reaches the link. A Rust backend names its crate and its
+register function under <code>[rmw.provides.cargo]</code>; a CMake one names its
+<code>dir</code> and <code>target</code> under <code>[rmw.provides.cmake]</code>. Then <code>[rmw.link]</code>, and
+<code>[rmw.host] peer</code>: what <code>nros run</code> starts beside the image. Start
+from the descriptor of the backend nearest yours.</p>
 </li>
 <li>
-<p>Build an image with <code>rmw = "myproto"</code> and run a talker and a listener.
-Then check the pair against a stock ROS 2 node, as the next section
+<p>Select it. An image names the backend in its bringup’s <code>system.toml</code>
+(<code>rmw = "myproto"</code>). The build looks the name up among the announcements
+in your workspace and in nano-ros, so a misspelt name fails with the names
+it found. A Rust image links the backend’s crate and calls its register
+function itself; a C or C++ image’s CMake configure resolves the name
+through the same lookup. Run a talker and a listener, then check the pair
+against a stock ROS 2 node, as <a href="#what-ros-2-tools-expect">What ROS 2 tools expect</a>
 describes.</p>
 </li>
 </ol>
+<h2 id="worked-example-a-backend-in-your-workspace"><a class="header" href="#worked-example-a-backend-in-your-workspace">Worked example: a backend in your workspace</a></h2>
+<p>The backend here, <code>acme</code>, is the smallest that runs: zenoh’s table under
+its own name, with two slots of its own. One reports its name; the other
+wraps <code>publish</code> and logs a line on the first message, so you can see the
+image chose it. A real backend fills every slot with its own protocol.</p>
+<p>Install the zenoh router ROS 2 ships and provision the host:</p>
+<pre><code class="language-bash probe=610 track=installed">sudo apt-get install -y ros-humble-rmw-zenoh-cpp
+nros setup linux --rmw zenoh
+</code></pre>
+<p>Scaffold a Rust talker workspace for the Linux host. Source ROS 2 first:
+<code>nros new</code> takes the ROS 2 edition from it.</p>
+<pre><code class="language-bash probe=620 track=installed">source /opt/ros/humble/setup.bash
+nros new acme_ws --board linux --template talker --lang rust --rmw zenoh
+cd acme_ws
+mkdir -p src/acme_rmw/src
+</code></pre>
+<p>The backend’s package. The <code>nano_ros_provides</code> line is what the build finds:</p>
+<pre><code class="language-bash probe=630 track=installed">cat &gt; src/acme_rmw/package.xml &lt;&lt;'EOF'
+&lt;?xml version="1.0"?&gt;
+&lt;package format="3"&gt;
+  &lt;name&gt;acme_rmw&lt;/name&gt;
+  &lt;version&gt;0.1.0&lt;/version&gt;
+  &lt;description&gt;The acme RMW backend.&lt;/description&gt;
+  &lt;maintainer email="dev@example.com"&gt;Developer&lt;/maintainer&gt;
+  &lt;license&gt;Apache-2.0&lt;/license&gt;
+  &lt;export&gt;
+    &lt;build_type&gt;nros_cargo&lt;/build_type&gt;
+    &lt;nano_ros_provides kind="rmw" name="acme"/&gt;
+  &lt;/export&gt;
+&lt;/package&gt;
+EOF
+</code></pre>
+<p>Its descriptor. The image links the crate <code>acme-rmw</code> and calls its
+<code>register()</code>; the linux board’s <code>platform-posix</code> feature and the ROS edition
+pass through to it. <code>acme</code> speaks zenoh, so it needs a zenoh router:</p>
+<pre><code class="language-bash probe=640 track=installed">cat &gt; src/acme_rmw/nros-rmw.toml &lt;&lt;'EOF'
+[rmw]
+cpp_define = "NROS_RMW_ACME"
+
+[rmw.host]
+peer = "zenoh-router"
+
+[rmw.provides.cargo]
+crate = "acme-rmw"
+register = "register"
+
+[rmw.provides.cargo.platform_features]
+platform-posix = "platform-posix"
+
+[rmw.link]
+rlib_dep = "acme-rmw"
+edition_feature = "ros-{edition}"
+needs_cxx_linker = false
+EOF
+</code></pre>
+<p>Its crate. It names nano-ros’s crates by version, as any third-party crate
+would; the build points each one at the nano-ros it builds against:</p>
+<pre><code class="language-bash probe=650 track=installed">cat &gt; src/acme_rmw/Cargo.toml &lt;&lt;'EOF'
+[package]
+name = "acme-rmw"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "acme_rmw"
+
+[dependencies]
+nros-rmw-cffi = { version = "*", default-features = false, features = ["alloc"] }
+nros-rmw-zenoh = { version = "*", default-features = false }
+nros-log = { version = "*", default-features = false }
+
+[features]
+platform-posix = ["nros-rmw-zenoh/platform-posix"]
+ros-humble = ["nros-rmw-zenoh/ros-humble"]
+ros-iron = ["nros-rmw-zenoh/ros-iron"]
+ros-jazzy = ["nros-rmw-zenoh/ros-jazzy"]
+EOF
+cat &gt; src/acme_rmw/src/lib.rs &lt;&lt;'EOF'
+#![no_std]
+
+use core::{
+    ffi::c_char,
+    sync::atomic::{AtomicBool, Ordering},
+};
+
+use nros_rmw_cffi::{
+    NROS_RMW_RET_OK, NrosRmwRet, NrosRmwVtable, RustBackendAdapter, nros_rmw_cffi_register_named,
+    rmw_byte_span_t, rmw_publisher_t, rmw_ret_t,
+};
+use nros_rmw_zenoh::ZenohRmw;
+
+const ZENOH: NrosRmwVtable = RustBackendAdapter::&lt;ZenohRmw&gt;::VTABLE;
+
+static ACME_VTABLE: NrosRmwVtable = NrosRmwVtable {
+    get_implementation_identifier: Some(acme_identifier),
+    publish: Some(acme_publish),
+    ..ZENOH
+};
+
+static ANNOUNCED: AtomicBool = AtomicBool::new(false);
+
+unsafe extern "C" fn acme_identifier() -&gt; *const c_char {
+    c"acme".as_ptr()
+}
+
+unsafe extern "C" fn acme_publish(
+    publisher: *const rmw_publisher_t,
+    payload: rmw_byte_span_t,
+) -&gt; rmw_ret_t {
+    if !ANNOUNCED.swap(true, Ordering::AcqRel) {
+        nros_log::log_info!(nros_log::get_logger("acme_rmw"), "publishing through backend acme");
+    }
+    match ZENOH.publish {
+        Some(inner) =&gt; unsafe { inner(publisher, payload) },
+        None =&gt; nros_rmw_cffi::NROS_RMW_RET_ERROR,
+    }
+}
+
+pub struct RegisterError(pub NrosRmwRet);
+
+pub fn register() -&gt; Result&lt;(), RegisterError&gt; {
+    let rc = unsafe { nros_rmw_cffi_register_named(c"acme".as_ptr(), &amp;ACME_VTABLE) };
+    if rc == NROS_RMW_RET_OK { Ok(()) } else { Err(RegisterError(rc)) }
+}
+EOF
+</code></pre>
+<p>Select it in the bringup:</p>
+<pre><code class="language-bash probe=660 track=installed">sed -i 's/^rmw = "zenoh"/rmw = "acme"/' src/acme_node_bringup/system.toml
+grep -n '^rmw' src/acme_node_bringup/system.toml
+</code></pre>
+<pre><code class="language-text">7:rmw = "acme"
+</code></pre>
+<p>Build and run the talker. <code>nros run</code> reads the descriptor’s <code>peer</code>, starts
+the router, then the talker:</p>
+<pre><code class="language-bash probe=680 probe-run=1200 track=installed">source /opt/ros/humble/setup.bash
+nros run acme_node
+</code></pre>
+<pre><code class="language-text probe-expect=680">publishing through backend acme
+Publishing: 'Hello World:
+</code></pre>
+<p>The first line is your backend’s: every message goes through <code>acme_publish</code>.</p>
 <h2 id="what-ros-2-tools-expect"><a class="header" href="#what-ros-2-tools-expect">What ROS 2 tools expect</a></h2>
 <p>A backend that implements the traits passes messages between nano-ros nodes.
 To appear in <code>ros2 topic list</code> and to talk to <code>rmw_zenoh_cpp</code> or a DDS
@@ -299,16 +443,14 @@ ROS edition: the literal <code>TypeHashNotSupported</code> on Humble, an <code>R
 hash from Iron on. Your backend puts it where your wire carries it; a peer
 that disagrees about the hash never matches.</li>
 <li><strong>QoS.</strong> Honour reliability, durability, history and depth, or refuse the
-ones you cannot. A best-effort publisher matched with a reliable
-subscriber is a QoS mismatch in ROS 2, and the backend should report it
-rather than lose messages.</li>
+ones you cannot. Report a mismatch (a best-effort publisher with a
+reliable subscriber) rather than lose messages.</li>
 </ul>
 <p>Actions need nothing more: the runtime composes each action from three
 services and two topics.</p>
-<h2 id="example"><a class="header" href="#example">Example</a></h2>
-<p>A backend that loops each published message back to its subscribers, with no
-network. Only publish and take are shown; the service and client types follow
-the same pattern:</p>
+<h2 id="example-the-traits"><a class="header" href="#example-the-traits">Example: the traits</a></h2>
+<p>A backend that loops each published message back to its subscribers. Only
+publish and take are shown; services and clients follow the same pattern:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span>#![no_std]
 <span class="boring">fn main() {
@@ -352,18 +494,23 @@ impl Subscription for EchoSub {
 <p><code>EchoSession::create_publisher</code> returns <code>Ok(EchoPub)</code>, <code>create_subscription</code>
 returns <code>Ok(EchoSub)</code>, <code>drive_io</code> returns <code>Ok(())</code>, and <code>EchoRmw::open</code>
 returns the session.</p>
-<p>Two in-tree backends are complete examples to read beside it.
-<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/rmw/metadata"><code>nros-rmw-metadata</code></a>
-is a small Rust backend that records what a node declares instead of sending
-it, registered through <code>RustBackendAdapter</code>.
-<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/rmw/uorb/nros-rmw-uorb"><code>nros-rmw-uorb</code></a>
-is a C++ backend over PX4’s uORB, with its <code>package.xml</code> and <code>nros-rmw.toml</code>.</p>
+<p>Complete examples:
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/rmw/metadata"><code>nros-rmw-metadata</code></a>,
+a small Rust backend registered through <code>RustBackendAdapter</code>, and
+<a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/rmw/uorb/nros-rmw-uorb"><code>nros-rmw-uorb</code></a>,
+a C++ backend with its <code>package.xml</code> and <code>nros-rmw.toml</code>.</p>
 <h2 id="if-it-doesnt-work"><a class="header" href="#if-it-doesnt-work">If it doesn’t work</a></h2>
 <ul>
-<li><strong><code>unknown rmw </code>myproto``</strong>, from <code>nros build</code>. The build knows only the
-backends in nano-ros’s tree; see step 5.</li>
-<li><strong>The executor opens no session.</strong> The backend registered after the first
-session opened, or under a different name from the one the image selects.</li>
+<li><strong><code>no package provides rmw </code>myproto``</strong>, from <code>nros build</code>. No
+<code>package.xml</code> announces that name. Check the spelling on both sides against
+the names the message lists, and that the package sits under <code>src/</code>.</li>
+<li><strong><code>nros run</code> says the descriptor does not say what it needs on the host.</strong>
+Add <code>[rmw.host] peer</code>: <code>"zenoh-router"</code>, <code>"xrce-agent"</code> or <code>"none"</code>.</li>
+<li><strong>The build refuses a backend with no <code>[rmw.provides.cargo]</code>.</strong> A Rust
+image links the backend through its crate, so a backend with only a CMake
+table cannot serve one.</li>
+<li><strong>The executor opens no session.</strong> The backend registered under a
+different name from the one the image selects.</li>
 <li><strong>Services or actions time out while topics work.</strong> <code>take_request</code> or
 <code>take_response_raw</code> blocks instead of answering “no data”, so the
 executor never reaches <code>drive_io</code>.</li>
@@ -374,7 +521,7 @@ discovery traffic; see “What ROS 2 tools expect”.</li>
 </ul>
 <h2 id="see-also"><a class="header" href="#see-also">See also</a></h2>
 <ul>
-<li><a href="../reference/platform-api.html#the-rmw-api">RMW API</a>: the C table and the in-tree backends.</li>
+<li><a href="../reference/platform-api.html#the-rmw-api">RMW API</a>: the C table and the backends in the tree.</li>
 <li><a href="../internals/rmw/rmw-vs-upstream.html">Internals → RMW API vs upstream</a>:
 every difference from <code>rmw.h</code>, for a porter coming from a ROS 2 backend.</li>
 <li><a href="../internals/rmw/zenoh-protocol.html">Internals → RMW Zenoh protocol</a>: the
@@ -383,7 +530,7 @@ key expressions and attachments a zenoh-compatible backend must produce.</li>
 <h2 id="design-background"><a class="header" href="#design-background">Design background</a></h2>
 <ul>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0054-c-header-abi-ssot.md">RFC-0054: C headers as the ABI single source of truth</a>: why every backend is reached through the C table</li>
-<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0071-rmw-backend-descriptor.md">RFC-0071: RMW backend descriptor</a>: <code>nros-rmw.toml</code> and what the toolchain lowers from it</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/design/0071-rmw-backend-descriptor.md">RFC-0071: RMW backend descriptor</a>: <code>nros-rmw.toml</code>, and how the build finds and links a backend in your workspace</li>
 </ul>
 <style>
 .nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;
