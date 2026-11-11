@@ -11,6 +11,7 @@ var platform__net_8h =
     [ "nros_platform_tcp_free_endpoint", "platform__net_8h.html#ad12ee142676cc8b843630a71c3cb7ad7", null ],
     [ "nros_platform_tcp_listen", "platform__net_8h.html#ae4c7a222327a36407e2f8e4dbc406bcd", null ],
     [ "nros_platform_tcp_open", "platform__net_8h.html#ac77c21e0744384a1d9084d3f0849f3aa", null ],
+    [ "nros_platform_tcp_open_within", "platform__net_8h.html#a3ee4af79fdce2531e2d7ab82b0d253ec", null ],
     [ "nros_platform_tcp_read", "platform__net_8h.html#a4842adf25216d79abad1ca023a51a77d", null ],
     [ "nros_platform_tcp_read_exact", "platform__net_8h.html#ab1b695f85edeaba3dbe8a34c2b388cb8", null ],
     [ "nros_platform_tcp_send", "platform__net_8h.html#a2bb29758b76f7f2bd1d0f0eafeb28ebf", null ],
