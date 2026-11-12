@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-9cf083ca.js";
+            window.path_to_searchindex_js = "../searchindex-46ff6bb3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-41e5d0b0.js"></script>
@@ -293,8 +293,11 @@ a null field.</p>
 </div>
 
 <p>zenoh-pico frames its own wire protocol, so the bytes your callbacks carry
-need no framing. A Rust image also turns on the backend’s <code>link-custom</code>
-option, beside its other dependencies:</p>
+need no framing. The image also needs zenoh-pico’s custom link compiled in.
+Stating the locator in the image (step 4) does that for Rust, C and C++
+alike. A Rust image that opens its session on a <code>custom/…</code> locator in code,
+without stating it, turns on the backend’s <code>link-custom</code> option instead,
+beside its other dependencies:</p>
 <pre><code class="language-toml">nros-rmw-zenoh = { version = "*", default-features = false, features = ["link-custom"] }
 </code></pre>
 <h3 id="3-or-register-them-for-xrce-dds"><a class="header" href="#3-or-register-them-for-xrce-dds">3. Or register them, for XRCE-DDS</a></h3>
@@ -307,14 +310,21 @@ packet link (UDP, BLE GATT). Call
 <code>read</code> and <code>write</code> at the same time. A board usually makes this call in its
 entry, as the bare-metal MPS2-AN385 board does for its UART.</p>
 <h3 id="4-point-the-image-at-the-custom-link"><a class="header" href="#4-point-the-image-at-the-custom-link">4. Point the image at the custom link</a></h3>
-<p>The locator’s scheme is the link. In the bringup’s <code>system.toml</code>:</p>
+<p>The locator’s scheme is the link. In the bringup’s <code>system.toml</code>, for
+zenoh:</p>
 <pre><code class="language-toml">[image.my_image]
 board = "my-board"
-locator = "custom://uart"
+locator = "custom/uart"
 </code></pre>
-<p>On a byte-stream link like this one, the build leaves the IP transports out
-of the image. What follows the scheme is a label for your own logs and must
-not be empty.</p>
+<p>and for XRCE-DDS, <code>locator = "custom://uart"</code>. The two backends spell the
+scheme differently: zenoh reads <code>custom://uart</code> as a scheme named <code>custom:</code>,
+which it does not know.</p>
+<p>On a custom link the build leaves the IP transports out of the image, and
+for zenoh it compiles in the custom link. What follows the scheme is a label
+for your own logs and must not be empty.</p>
+<p>The far end of your link has to speak the protocol back: for zenoh, a router
+or a peer that answers the session’s handshake. A loop that only returns the
+image’s own bytes cannot, and the session refuses right after <code>open</code>.</p>
 <h3 id="5-run-the-image"><a class="header" href="#5-run-the-image">5. Run the image</a></h3>
 <p>The session opens over your link: your <code>open</code> runs once, every publish
 reaches <code>write</code>, and the executor’s spin calls <code>read</code>.</p>
@@ -341,8 +351,8 @@ fn main() {
 <p>The full image is
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/linux/rust/custom-transport-talker"><code>examples/linux/rust/custom-transport-talker</code></a>,
 which also registers its backend first and logs each message. A C image that
-loops the bytes through a ring buffer, and exits non-zero unless all four
-callbacks ran, is
+carries the bytes over a TCP connection it opens itself, and exits non-zero
+unless all four callbacks ran, is
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/linux/c/custom-transport-loopback"><code>examples/linux/c/custom-transport-loopback</code></a>.
 On a board, the Rust workspace’s
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/rust/src/pubsub_bringup/system.toml"><code>baremetal_talker_xrce_serial</code> image</a>
@@ -350,8 +360,12 @@ runs XRCE-DDS over the mps2-an385 UART through <code>locator = "custom://uart"</
 <h2 id="if-it-doesnt-work"><a class="header" href="#if-it-doesnt-work">If it doesn’t work</a></h2>
 <ul>
 <li><strong>The session never opens, and <code>open</code> never ran.</strong> The transport was
-registered after the session opened, or the zenoh image lacks <code>link-custom</code>
-and treats <code>custom</code> as an unknown scheme.</li>
+registered after the session opened, or zenoh-pico’s custom link is not in
+the image: the image states no <code>custom/…</code> locator (step 4) and, in Rust,
+names no <code>link-custom</code>, or the locator is spelled <code>custom://…</code>. zenoh then
+treats the scheme as unknown.</li>
+<li><strong><code>open</code> ran, then the session refused.</strong> Nothing on the far end answered
+the handshake (step 4).</li>
 <li><strong>Registration fails.</strong> <code>abi_version</code> is not
 <code>NROS_TRANSPORT_OPS_ABI_VERSION_V1</code>, or the struct was built without
 setting it.</li>
