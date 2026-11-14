@@ -37,7 +37,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d2121e18.js";
+            window.path_to_searchindex_js = "searchindex-ee79ee5d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-271e84d7.js"></script>
@@ -2034,8 +2034,9 @@ sudo apt-get install -y qemu-system-misc
 <p>The first line fetches the RISC-V cross-compiler and the NuttX kernel and apps
 sources into a shared store under <code>~/.nros</code>. Before it downloads anything it
 names the host packages that are missing, and <code>--sudo</code> lets it run the one
-install command it composed for your package manager. Leave <code>--sudo</code> off and
-it only prints that command. The second line installs the emulator. Neither
+install command it composed for your package manager
+(<code>sudo apt-get install -y kconfig-frontends-nox unzip</code> on Debian or Ubuntu).
+Leave <code>--sudo</code> off and it only prints that command. The second line installs the emulator. Neither
 installs a router: the router is ROS’s <code>rmw_zenohd</code>.</p>
 <h2 id="scaffold-the-project-5"><a class="header" href="#scaffold-the-project-5">Scaffold the project</a></h2>
 <p>Source ROS 2 first, in the shell you scaffold from. <code>nros new</code> writes
@@ -13420,7 +13421,10 @@ and stops the image with
 <code>nros: stack overflow: the main stack grew past its stated size</code>. Nothing
 below the stack is overwritten. Raise the size with
 <code>NROS_BAREMETAL_STACK_KB</code> in the image’s build environment. A size too big
-for the image’s statics fails the link, naming the same knob.</li>
+for the image’s statics fails the link, naming the same knob. A size below
+the image’s stack floor, a heuristic estimate of what nano-ros needs, fails
+the build with the value to set
+(<a href="#a11-the-stack-is-below-the-images-floor">A11</a>).</li>
 <li><strong>No <code>alloc</code> by default.</strong> The build is <code>no_std</code> with <code>heapless</code>
 collections. To use <code>alloc</code>, enable the board crate’s <code>alloc</code> feature and
 supply a <code>#[global_allocator]</code>.</li>
@@ -21248,7 +21252,7 @@ Precedence, highest first: a command-line or build flag, <code>[image.&lt;id&gt;
 <tr><td><code>producers</code></td><td><code>false</code> builds without the host board’s census recorder and profiler</td></tr>
 <tr><td><code>params_files</code>, <code>ros_args</code></td><td>Parameters and ROS arguments baked into the image for <code>rclcpp::init</code></td></tr>
 <tr><td><code>stack_floor_image</code></td><td>The key its measured stack peak (an <code>[[observed]]</code> row) is filed under in <code>config/stack-floors.toml</code>, <code>&lt;template&gt;/&lt;lang&gt;/&lt;rmw&gt;@&lt;board&gt;</code>. <code>nros new</code> writes it; unset, the image is keyed <code>&lt;bringup&gt;@&lt;board&gt;</code></td></tr>
-<tr><td><code>stack_floor</code></td><td><code>"check"</code> (the default) or <code>"raise"</code>. With <code>"raise"</code>, a FreeRTOS image whose measured stack floor is above the stack it states is built once more at the floor instead of failing. The raise never lowers a stack, is worked out again on every build and is never stored. The build prints the value it used</td></tr>
+<tr><td><code>stack_floor</code></td><td><code>"check"</code> (the default) or <code>"raise"</code>. The floor is a heuristic: the deepest call path a walk of the compiled code finds, plus a margin, usually well above the stack the image really uses (<a href="#a11-the-stack-is-below-the-images-floor">A11</a>). With <code>"raise"</code>, a FreeRTOS image whose floor is above the stack it states is built once more at the floor instead of failing. The raise never lowers a stack, is worked out again on every build and is never stored. The build prints the value it used</td></tr>
 </tbody>
 </table>
 </div>
@@ -23928,6 +23932,28 @@ nros build
 <p>That configure records the prefix in the project. Later builds and runs of
 the same project reuse it, from any shell, an IDE or a CI step. A new
 project records its own, so its first build needs a sourced shell again.</p>
+<h3 id="a11-the-stack-is-below-the-images-floor"><a class="header" href="#a11-the-stack-is-below-the-images-floor">A11. The stack is below the image’s floor</a></h3>
+<pre><code class="language-text">nros-stack-floor: ERROR: the OPEN stack is 26624 B, below the measured floor 56368 B. Raise it: NROS_BAREMETAL_STACK_KB=56
+</code></pre>
+<p>Every build of an embedded image works out a stack floor for the thread that
+opens nano-ros and runs its executor. It walks the compiled code for the
+deepest call path, counts every indirect call as able to reach every function
+it could reach, and adds a margin. That makes it a heuristic floor: it usually
+sits well above the stack the image really uses, because no run takes every
+path the walk allows, and it is not a proof that a larger stack never
+overflows. An exact search that would tighten it is not done yet.</p>
+<p>An image template whose real peak has been observed on a run is measured.
+For a measured image, a stack below the floor fails the build, and the
+message names the setting to raise and the value that clears it:
+<code>NROS_BAREMETAL_STACK_KB</code> on bare metal, <code>NROS_FREERTOS_APP_STACK_KB</code> on
+FreeRTOS, <code>CONFIG_MAIN_STACK_SIZE</code> in a Zephyr image’s <code>os_config</code>. Raise it
+to that value and build again. <code>nros new</code> writes a stack that holds the floor
+into the projects it scaffolds. A FreeRTOS image can instead state
+<code>stack_floor = "raise"</code> under <code>[image.&lt;id&gt;]</code> in <code>system.toml</code>, and the build
+rebuilds it once at the floor (<a href="#systemtoml-keys"><code>system.toml</code> reference</a>).</p>
+<p>For an image nobody has measured, the floor is only printed, as a <code>WARNING</code>
+that names the same setting. Nothing is refused, and if the image overflows
+that setting is the first thing to try.</p>
 <h2 id="b-binary-runs-but-no-output"><a class="header" href="#b-binary-runs-but-no-output">B. Binary runs but no output</a></h2>
 <h3 id="b1-rust-rmw-session-open-failed--transportconnectionfailed"><a class="header" href="#b1-rust-rmw-session-open-failed--transportconnectionfailed">B1. Rust: <code>RMW session open failed — Transport(ConnectionFailed)</code></a></h3>
 <pre><code class="language-text">[ERROR nros] RMW session open failed — Transport(ConnectionFailed)
