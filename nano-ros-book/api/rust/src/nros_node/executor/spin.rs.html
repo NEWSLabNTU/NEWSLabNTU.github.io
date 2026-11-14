@@ -17499,664 +17499,665 @@
 <a href=#17499 id=17499 data-nosnippet>17499</a>        </span>fqn: <span class="string">"sched-context"</span>,
 <a href=#17500 id=17500 data-nosnippet>17500</a>        measured: elapsed_us,
 <a href=#17501 id=17501 data-nosnippet>17501</a>        declared: deadline_us,
-<a href=#17502 id=17502 data-nosnippet>17502</a>    };
-<a href=#17503 id=17503 data-nosnippet>17503</a>    <span class="kw">match </span>sc.deadline_action {
-<a href=#17504 id=17504 data-nosnippet>17504</a>        DeadlineAction::Ignore =&gt; {}
-<a href=#17505 id=17505 data-nosnippet>17505</a>        DeadlineAction::Warn =&gt; {
-<a href=#17506 id=17506 data-nosnippet>17506</a>            <span class="kw">let _ </span>= misses.push(v);
-<a href=#17507 id=17507 data-nosnippet>17507</a>        }
-<a href=#17508 id=17508 data-nosnippet>17508</a>        DeadlineAction::Skip =&gt; {
-<a href=#17509 id=17509 data-nosnippet>17509</a>            <span class="kw">if </span>sc_idx &lt; <span class="number">64 </span>{
-<a href=#17510 id=17510 data-nosnippet>17510</a>                <span class="kw-2">*</span>skipped_scs |= <span class="number">1u64 </span>&lt;&lt; sc_idx;
-<a href=#17511 id=17511 data-nosnippet>17511</a>            }
-<a href=#17512 id=17512 data-nosnippet>17512</a>            <span class="kw">let _ </span>= misses.push(v);
-<a href=#17513 id=17513 data-nosnippet>17513</a>        }
-<a href=#17514 id=17514 data-nosnippet>17514</a>        DeadlineAction::Fault =&gt; {
-<a href=#17515 id=17515 data-nosnippet>17515</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(f) = fault_fn {
-<a href=#17516 id=17516 data-nosnippet>17516</a>                f(<span class="kw-2">&amp;</span>v);
-<a href=#17517 id=17517 data-nosnippet>17517</a>                <span class="kw">let _ </span>= misses.push(v);
-<a href=#17518 id=17518 data-nosnippet>17518</a>            } <span class="kw">else if let </span><span class="prelude-val">Some</span>((f, ctx)) = reaction_hook {
-<a href=#17519 id=17519 data-nosnippet>17519</a>                <span class="comment">// phase-503 — the reaction hook is the fault path a C or C++
-<a href=#17520 id=17520 data-nosnippet>17520</a>                // image can install; reaction id 0, the SC slot as the row.
-<a href=#17521 id=17521 data-nosnippet>17521</a>                </span><span class="kw">let </span>ev = <span class="kw">super</span>::monitor::ReactionEvent {
-<a href=#17522 id=17522 data-nosnippet>17522</a>                    reaction_id: <span class="kw">super</span>::monitor::REACTION_NONE <span class="kw">as </span>u32,
-<a href=#17523 id=17523 data-nosnippet>17523</a>                    row: sc_idx <span class="kw">as </span>u32,
-<a href=#17524 id=17524 data-nosnippet>17524</a>                    rule_code: <span class="kw">super</span>::monitor::rule_code(v.rule),
-<a href=#17525 id=17525 data-nosnippet>17525</a>                    measured_ms: elapsed_us / <span class="number">1_000</span>,
-<a href=#17526 id=17526 data-nosnippet>17526</a>                    declared_ms: deadline_us / <span class="number">1_000</span>,
-<a href=#17527 id=17527 data-nosnippet>17527</a>                    mechanism: <span class="kw">super</span>::monitor::MECHANISM_EXECUTOR,
-<a href=#17528 id=17528 data-nosnippet>17528</a>                    fired_at_us,
-<a href=#17529 id=17529 data-nosnippet>17529</a>                };
-<a href=#17530 id=17530 data-nosnippet>17530</a>                <span class="comment">// SAFETY: as in `check_route_deadlines`.
-<a href=#17531 id=17531 data-nosnippet>17531</a>                </span><span class="kw">unsafe </span>{ f(<span class="kw-2">&amp;</span>ev, ctx) };
-<a href=#17532 id=17532 data-nosnippet>17532</a>                <span class="kw">let _ </span>= misses.push(v);
-<a href=#17533 id=17533 data-nosnippet>17533</a>            } <span class="kw">else </span>{
-<a href=#17534 id=17534 data-nosnippet>17534</a>                <span class="macro">panic!</span>(
-<a href=#17535 id=17535 data-nosnippet>17535</a>                    <span class="string">"nros: deadline fault — dispatch ran {elapsed_us} us past a {deadline_us} us deadline"
-<a href=#17536 id=17536 data-nosnippet>17536</a>                </span>);
-<a href=#17537 id=17537 data-nosnippet>17537</a>            }
-<a href=#17538 id=17538 data-nosnippet>17538</a>        }
-<a href=#17539 id=17539 data-nosnippet>17539</a>    }
-<a href=#17540 id=17540 data-nosnippet>17540</a>}
-<a href=#17541 id=17541 data-nosnippet>17541</a>
-<a href=#17542 id=17542 data-nosnippet>17542</a><span class="comment">// Timer-accounting clock default (issue: no_std sched tasks with no `clock_us`
-<a href=#17543 id=17543 data-nosnippet>17543</a>// credited each spin the REQUESTED timeout — spin.rs `delta_us` fallback —
-<a href=#17544 id=17544 data-nosnippet>17544</a>// so shared-session wakes made low-rate timers fire early (a 100 ms timer
-<a href=#17545 id=17545 data-nosnippet>17545</a>// at ~67 ms on Zephyr native_sim) and tick rounding made fast tiers fire
-<a href=#17546 id=17546 data-nosnippet>17546</a>// late. Measured on that native_sim image; mechanism documented at the
-<a href=#17547 id=17547 data-nosnippet>17547</a>// fallback site.)
-<a href=#17548 id=17548 data-nosnippet>17548</a>//
-<a href=#17549 id=17549 data-nosnippet>17549</a>// Every platform port exports `nros_platform_clock_ns` through the same
-<a href=#17550 id=17550 data-nosnippet>17550</a>// linkage contract the wake primitives rely on (`nros_platform_export_clock!`
-<a href=#17551 id=17551 data-nosnippet>17551</a>// in nros-platform-cffi), so an rmw-cffi no_std build can safely default the
-<a href=#17552 id=17552 data-nosnippet>17552</a>// executor clock to it; `ExecutorConfig::clock_us` stays as an override.
-<a href=#17553 id=17553 data-nosnippet>17553</a></span><span class="attr">#[cfg(feature = <span class="string">"rmw-cffi"</span>)]
-<a href=#17554 id=17554 data-nosnippet>17554</a></span><span class="kw">unsafe extern </span><span class="string">"C" </span>{
-<a href=#17555 id=17555 data-nosnippet>17555</a>    <span class="kw">fn </span>nros_platform_clock_ns() -&gt; u64;
-<a href=#17556 id=17556 data-nosnippet>17556</a>}
-<a href=#17557 id=17557 data-nosnippet>17557</a>
-<a href=#17558 id=17558 data-nosnippet>17558</a><span class="attr">#[cfg(feature = <span class="string">"rmw-cffi"</span>)]
-<a href=#17559 id=17559 data-nosnippet>17559</a></span><span class="kw">fn </span>default_platform_clock_us() -&gt; u64 {
-<a href=#17560 id=17560 data-nosnippet>17560</a>    <span class="comment">// SAFETY: bare query of the platform's monotonic ns counter; the symbol
-<a href=#17561 id=17561 data-nosnippet>17561</a>    // is guaranteed by whichever platform port linked the binary (the same
-<a href=#17562 id=17562 data-nosnippet>17562</a>    // contract `nros_platform_wake_*` already depends on).
-<a href=#17563 id=17563 data-nosnippet>17563</a>    //
-<a href=#17564 id=17564 data-nosnippet>17564</a>    // RFC-0073 made the ABI nanoseconds; the executor's own accounting is
-<a href=#17565 id=17565 data-nosnippet>17565</a>    // still microseconds (`clock_us_fn`, `delta_us`), so the division lives
-<a href=#17566 id=17566 data-nosnippet>17566</a>    // here rather than being pushed into every port.
-<a href=#17567 id=17567 data-nosnippet>17567</a>    </span><span class="kw">unsafe </span>{ nros_platform_clock_ns() / <span class="number">1_000 </span>}
-<a href=#17568 id=17568 data-nosnippet>17568</a>}
-<a href=#17569 id=17569 data-nosnippet>17569</a>
-<a href=#17570 id=17570 data-nosnippet>17570</a><span class="doccomment">/// Sleep, through the platform ABI.
-<a href=#17571 id=17571 data-nosnippet>17571</a>///
-<a href=#17572 id=17572 data-nosnippet>17572</a>/// phase-359 W10 — the spin loops used `std::thread::sleep`. Every port already
-<a href=#17573 id=17573 data-nosnippet>17573</a>/// exports `nros_platform_sleep_us` (the ABI's own pacing primitive, the one an
-<a href=#17574 id=17574 data-nosnippet>17574</a>/// RTOS build has always used), so a hosted loop and an embedded one now pace
-<a href=#17575 id=17575 data-nosnippet>17575</a>/// the same way. The µs entry point is used rather than `_ms` because
-<a href=#17576 id=17576 data-nosnippet>17576</a>/// `spin_one_period_timed` sleeps off a remainder, which rounds badly at
-<a href=#17577 id=17577 data-nosnippet>17577</a>/// millisecond granularity on short periods.
-<a href=#17578 id=17578 data-nosnippet>17578</a></span><span class="attr">#[cfg(feature = <span class="string">"alloc"</span>)]
-<a href=#17579 id=17579 data-nosnippet>17579</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>platform_sleep(d: core::time::Duration) {
-<a href=#17580 id=17580 data-nosnippet>17580</a>    <span class="kw">unsafe extern </span><span class="string">"C" </span>{
-<a href=#17581 id=17581 data-nosnippet>17581</a>        <span class="kw">fn </span>nros_platform_sleep_us(us: usize);
-<a href=#17582 id=17582 data-nosnippet>17582</a>    }
-<a href=#17583 id=17583 data-nosnippet>17583</a>    <span class="kw">let </span>us = d.as_micros().min(usize::MAX <span class="kw">as </span>u128) <span class="kw">as </span>usize;
-<a href=#17584 id=17584 data-nosnippet>17584</a>    <span class="kw">if </span>us == <span class="number">0 </span>{
-<a href=#17585 id=17585 data-nosnippet>17585</a>        <span class="kw">return</span>;
-<a href=#17586 id=17586 data-nosnippet>17586</a>    }
-<a href=#17587 id=17587 data-nosnippet>17587</a>    <span class="comment">// SAFETY: a bare pacing call with no pointer arguments, guaranteed by
-<a href=#17588 id=17588 data-nosnippet>17588</a>    // whichever port linked the binary — the same contract the clock and wake
-<a href=#17589 id=17589 data-nosnippet>17589</a>    // symbols in this file already rely on.
-<a href=#17590 id=17590 data-nosnippet>17590</a>    </span><span class="kw">unsafe </span>{ nros_platform_sleep_us(us) }
-<a href=#17591 id=17591 data-nosnippet>17591</a>}
-<a href=#17592 id=17592 data-nosnippet>17592</a>
-<a href=#17593 id=17593 data-nosnippet>17593</a><span class="doccomment">/// A monotonic µs reader, or `None` when this build has no clock at all.
-<a href=#17594 id=17594 data-nosnippet>17594</a>///
-<a href=#17595 id=17595 data-nosnippet>17595</a>/// phase-359 W10 — one provider, chosen by what is LINKED rather than by which
-<a href=#17596 id=17596 data-nosnippet>17596</a>/// flavour the crate was built in. W4 unified the executor's clock ACCESSOR and
-<a href=#17597 id=17597 data-nosnippet>17597</a>/// said the provider was the last piece; this is it.
-<a href=#17598 id=17598 data-nosnippet>17598</a>///
-<a href=#17599 id=17599 data-nosnippet>17599</a>/// `rmw-cffi` means a platform port is linked, and every port exports
-<a href=#17600 id=17600 data-nosnippet>17600</a>/// `nros_platform_clock_ns` under the same contract the wake primitives use —
-<a href=#17601 id=17601 data-nosnippet>17601</a>/// so a hosted build reads the same counter an embedded one does, instead of
-<a href=#17602 id=17602 data-nosnippet>17602</a>/// `Instant` on one and the platform on the other. `Instant` survives only
-<a href=#17603 id=17603 data-nosnippet>17603</a>/// where there is no port to ask: `std` without `rmw-cffi`.
-<a href=#17604 id=17604 data-nosnippet>17604</a>///
-<a href=#17605 id=17605 data-nosnippet>17605</a>/// phase-359 W10 follow-up — this comment claimed the metadata PROBE was that
-<a href=#17606 id=17606 data-nosnippet>17606</a>/// configuration, and **it is not**. The probe's generated manifest deps
-<a href=#17607 id=17607 data-nosnippet>17607</a>/// `nros-platform-cffi` with `posix-c-port` (issue 0288 layer 5, so it links),
-<a href=#17608 id=17608 data-nosnippet>17608</a>/// and its `nros` resolves with `rmw-cffi` ON — feature-unified from the
-<a href=#17609 id=17609 data-nosnippet>17609</a>/// component's board crate. Measured on a real probe tree: `alloc default
-<a href=#17610 id=17610 data-nosnippet>17610</a>/// macros rmw-cffi ros-humble std`. It takes the PORT arm.
-<a href=#17611 id=17611 data-nosnippet>17611</a>///
-<a href=#17612 id=17612 data-nosnippet>17612</a>/// What is real: `nros-rmw-metadata` and `nros-tests` do resolve `nros` with
-<a href=#17613 id=17613 data-nosnippet>17613</a>/// `std` and no `rmw-cffi`, and have no port crate in their graphs. But nothing
-<a href=#17614 id=17614 data-nosnippet>17614</a>/// in either uses this arm — deleting it and building the workspace
-<a href=#17615 id=17615 data-nosnippet>17615</a>/// `--all-targets` is clean, and there is no in-tree caller of
-<a href=#17616 id=17616 data-nosnippet>17616</a>/// `nros::time::now` at all. So the arm serves an OUT-OF-TREE contract only: a
-<a href=#17617 id=17617 data-nosnippet>17617</a>/// consumer with `std`, no `rmw-cffi`, and its own `Session`.
-<a href=#17618 id=17618 data-nosnippet>17618</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>default_clock_us_fn() -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw">fn</span>() -&gt; u64&gt; {
-<a href=#17619 id=17619 data-nosnippet>17619</a>    <span class="attr">#[cfg(feature = <span class="string">"rmw-cffi"</span>)]
-<a href=#17620 id=17620 data-nosnippet>17620</a>    </span>{
-<a href=#17621 id=17621 data-nosnippet>17621</a>        <span class="prelude-val">Some</span>(default_platform_clock_us)
-<a href=#17622 id=17622 data-nosnippet>17622</a>    }
-<a href=#17623 id=17623 data-nosnippet>17623</a>    <span class="attr">#[cfg(not(feature = <span class="string">"rmw-cffi"</span>))]
-<a href=#17624 id=17624 data-nosnippet>17624</a>    </span>{
-<a href=#17625 id=17625 data-nosnippet>17625</a>        <span class="prelude-val">None
-<a href=#17626 id=17626 data-nosnippet>17626</a>    </span>}
-<a href=#17627 id=17627 data-nosnippet>17627</a>}
-<a href=#17628 id=17628 data-nosnippet>17628</a>
-<a href=#17629 id=17629 data-nosnippet>17629</a><span class="comment">// =============================================================================
-<a href=#17630 id=17630 data-nosnippet>17630</a>// phase-425 W3b — the `/clock` time source's executor half.
-<a href=#17631 id=17631 data-nosnippet>17631</a>//
-<a href=#17632 id=17632 data-nosnippet>17632</a>// Its OWN impl block, gated on `sim-time`, because the methods were first
-<a href=#17633 id=17633 data-nosnippet>17633</a>// written next to `declare_parameter` — which lives in a
-<a href=#17634 id=17634 data-nosnippet>17634</a>// `#[cfg(feature = "param-store")]` block, so `reconcile_ros_time_source`
-<a href=#17635 id=17635 data-nosnippet>17635</a>// silently disappeared in every combo without parameter services, including the
-<a href=#17636 id=17636 data-nosnippet>17636</a>// one `spin_once` calls it from.
-<a href=#17637 id=17637 data-nosnippet>17637</a>// =============================================================================
-<a href=#17638 id=17638 data-nosnippet>17638</a></span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
-<a href=#17639 id=17639 data-nosnippet>17639</a></span><span class="kw">impl</span>&lt;<span class="lifetime">'s</span>&gt; Executor&lt;<span class="lifetime">'s</span>&gt; {
-<a href=#17640 id=17640 data-nosnippet>17640</a>    <span class="doccomment">/// phase-425 W3b — bring the `/clock` subscription in line with the last
-<a href=#17641 id=17641 data-nosnippet>17641</a>    /// requested `use_sim_time`.
-<a href=#17642 id=17642 data-nosnippet>17642</a>    ///
-<a href=#17643 id=17643 data-nosnippet>17643</a>    /// Called at the head of every spin, and cheap when there is nothing to do:
-<a href=#17644 id=17644 data-nosnippet>17644</a>    /// the common case is one bool comparison. It is a RECONCILE rather than an
-<a href=#17645 id=17645 data-nosnippet>17645</a>    /// action at the request site because the request routinely arrives before
-<a href=#17646 id=17646 data-nosnippet>17646</a>    /// there is a node to hang the subscription on — `nros::main!` emits
-<a href=#17647 id=17647 data-nosnippet>17647</a>    /// `apply_param_services` before its per-node `register` calls, by design,
-<a href=#17648 id=17648 data-nosnippet>17648</a>    /// so the store exists when each cell is created.
-<a href=#17649 id=17649 data-nosnippet>17649</a>    ///
-<a href=#17650 id=17650 data-nosnippet>17650</a>    /// Turning it off stops SAMPLES from being installed; the subscription
-<a href=#17651 id=17651 data-nosnippet>17651</a>    /// itself stays, because the executor has no entity removal and inventing
-<a href=#17652 id=17652 data-nosnippet>17652</a>    /// one for this would be a much larger change than the switch is worth. The
-<a href=#17653 id=17653 data-nosnippet>17653</a>    /// gate is `time_source::set_active`, which the subscription callback reads.
-<a href=#17654 id=17654 data-nosnippet>17654</a>    ///
-<a href=#17655 id=17655 data-nosnippet>17655</a>    /// Turning it off also does NOT clear the override: a node that stops
-<a href=#17656 id=17656 data-nosnippet>17656</a>    /// listening keeps the last simulated time rather than jumping back to the
-<a href=#17657 id=17657 data-nosnippet>17657</a>    /// wall clock, which every ROS-time timer would otherwise absorb as a
-<a href=#17658 id=17658 data-nosnippet>17658</a>    /// backwards jump.
-<a href=#17659 id=17659 data-nosnippet>17659</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
-<a href=#17660 id=17660 data-nosnippet>17660</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>reconcile_ros_time_source(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
-<a href=#17661 id=17661 data-nosnippet>17661</a>        <span class="comment">// An executor nobody told about `use_sim_time` has NO opinion, and the
-<a href=#17662 id=17662 data-nosnippet>17662</a>        // gate is process-global, so writing its default here is not a no-op --
-<a href=#17663 id=17663 data-nosnippet>17663</a>        // it is one executor overruling another. Say nothing until asked.
-<a href=#17664 id=17664 data-nosnippet>17664</a>        </span><span class="kw">if </span>!<span class="self">self</span>.sim_time_stated {
-<a href=#17665 id=17665 data-nosnippet>17665</a>            <span class="kw">return</span>;
-<a href=#17666 id=17666 data-nosnippet>17666</a>        }
-<a href=#17667 id=17667 data-nosnippet>17667</a>        <span class="kw">if </span><span class="self">self</span>.sim_time_requested == <span class="kw">crate</span>::time_source::is_active()
-<a href=#17668 id=17668 data-nosnippet>17668</a>            &amp;&amp; (!<span class="self">self</span>.sim_time_requested || <span class="self">self</span>.sim_time_source.is_some())
-<a href=#17669 id=17669 data-nosnippet>17669</a>        {
-<a href=#17670 id=17670 data-nosnippet>17670</a>            <span class="kw">return</span>;
-<a href=#17671 id=17671 data-nosnippet>17671</a>        }
-<a href=#17672 id=17672 data-nosnippet>17672</a>        <span class="kw">crate</span>::time_source::set_active(<span class="self">self</span>.sim_time_requested);
-<a href=#17673 id=17673 data-nosnippet>17673</a>        <span class="kw">if </span>!<span class="self">self</span>.sim_time_requested {
-<a href=#17674 id=17674 data-nosnippet>17674</a>            <span class="comment">// phase-430 W1 — the source is no longer wanted, so its silence is
-<a href=#17675 id=17675 data-nosnippet>17675</a>            // no longer a symptom. Disarming here (rather than only re-arming
-<a href=#17676 id=17676 data-nosnippet>17676</a>            // on attach) is what makes a later re-attach start a FRESH
-<a href=#17677 id=17677 data-nosnippet>17677</a>            // interval: the watch that was counting is put down, not paused.
-<a href=#17678 id=17678 data-nosnippet>17678</a>            </span><span class="self">self</span>.sim_time_silence.disarm();
-<a href=#17679 id=17679 data-nosnippet>17679</a>            <span class="kw">return</span>;
-<a href=#17680 id=17680 data-nosnippet>17680</a>        }
-<a href=#17681 id=17681 data-nosnippet>17681</a>        <span class="kw">if </span><span class="self">self</span>.sim_time_source.is_none() {
-<a href=#17682 id=17682 data-nosnippet>17682</a>            <span class="comment">// No node yet — stay pending and try again next spin. Not an error:
-<a href=#17683 id=17683 data-nosnippet>17683</a>            // it is the ordinary order of a generated entry, which declares
-<a href=#17684 id=17684 data-nosnippet>17684</a>            // parameters before it registers components.
-<a href=#17685 id=17685 data-nosnippet>17685</a>            </span><span class="kw">if </span><span class="self">self</span>.nodes.is_empty() {
-<a href=#17686 id=17686 data-nosnippet>17686</a>                <span class="kw">return</span>;
-<a href=#17687 id=17687 data-nosnippet>17687</a>            }
-<a href=#17688 id=17688 data-nosnippet>17688</a>            <span class="kw">if let </span><span class="prelude-val">Ok</span>(handle) = <span class="self">self</span>.install_ros_time_source(
-<a href=#17689 id=17689 data-nosnippet>17689</a>                <span class="kw">super</span>::node_record::NodeId::PRIMARY,
-<a href=#17690 id=17690 data-nosnippet>17690</a>                <span class="kw">crate</span>::time_source::CLOCK_TOPIC,
-<a href=#17691 id=17691 data-nosnippet>17691</a>            ) {
-<a href=#17692 id=17692 data-nosnippet>17692</a>                <span class="self">self</span>.sim_time_source = <span class="prelude-val">Some</span>(handle);
-<a href=#17693 id=17693 data-nosnippet>17693</a>                <span class="comment">// phase-430 W1 — the interval starts HERE, at attach, and not
-<a href=#17694 id=17694 data-nosnippet>17694</a>                // at construction: before the subscription exists there is
-<a href=#17695 id=17695 data-nosnippet>17695</a>                // nothing to be silent about, so counting from boot would
-<a href=#17696 id=17696 data-nosnippet>17696</a>                // accuse an image that spent the interval bringing a transport
-<a href=#17697 id=17697 data-nosnippet>17697</a>                // up.
-<a href=#17698 id=17698 data-nosnippet>17698</a>                </span><span class="self">self</span>.sim_time_silence.arm();
-<a href=#17699 id=17699 data-nosnippet>17699</a>            }
-<a href=#17700 id=17700 data-nosnippet>17700</a>        } <span class="kw">else </span>{
-<a href=#17701 id=17701 data-nosnippet>17701</a>            <span class="comment">// Re-attached: `use_sim_time` went false and back to true while the
-<a href=#17702 id=17702 data-nosnippet>17702</a>            // subscription (which the executor cannot remove) stayed. W1 asks
-<a href=#17703 id=17703 data-nosnippet>17703</a>            // for the one-shot to reset in exactly this case.
-<a href=#17704 id=17704 data-nosnippet>17704</a>            </span><span class="self">self</span>.sim_time_silence.arm();
-<a href=#17705 id=17705 data-nosnippet>17705</a>        }
-<a href=#17706 id=17706 data-nosnippet>17706</a>    }
-<a href=#17707 id=17707 data-nosnippet>17707</a>
-<a href=#17708 id=17708 data-nosnippet>17708</a>    <span class="doccomment">/// phase-430 W1 — credit one spin's elapsed time to the silence watch and
-<a href=#17709 id=17709 data-nosnippet>17709</a>    /// emit the diagnostic if this is the spin that crosses the threshold.
-<a href=#17710 id=17710 data-nosnippet>17710</a>    ///
-<a href=#17711 id=17711 data-nosnippet>17711</a>    /// `delta_us` is the executor's OWN per-spin elapsed measure — the same one
-<a href=#17712 id=17712 data-nosnippet>17712</a>    /// every wall timer on this executor accumulates, including its "no clock,
-<a href=#17713 id=17713 data-nosnippet>17713</a>    /// credit the requested timeout" fallback. See
-<a href=#17714 id=17714 data-nosnippet>17714</a>    /// [`SILENCE_WARN_US`](crate::time_source::SILENCE_WARN_US) for why that is
-<a href=#17715 id=17715 data-nosnippet>17715</a>    /// the unit and not a spin count or an independent wall clock.
-<a href=#17716 id=17716 data-nosnippet>17716</a>    ///
-<a href=#17717 id=17717 data-nosnippet>17717</a>    /// Scope: the source the EXECUTOR installed for `use_sim_time`. An
-<a href=#17718 id=17718 data-nosnippet>17718</a>    /// application that calls
-<a href=#17719 id=17719 data-nosnippet>17719</a>    /// [`Node::install_ros_time_source`](super::node::Node::install_ros_time_source)
-<a href=#17720 id=17720 data-nosnippet>17720</a>    /// directly is not watched, because the line this would print names
-<a href=#17721 id=17721 data-nosnippet>17721</a>    /// `use_sim_time`, and that application never set it — the honest
-<a href=#17722 id=17722 data-nosnippet>17722</a>    /// diagnostic for the explicit path would be a different sentence, and
-<a href=#17723 id=17723 data-nosnippet>17723</a>    /// inventing one nobody asked for is how a warning becomes noise.
-<a href=#17724 id=17724 data-nosnippet>17724</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
-<a href=#17725 id=17725 data-nosnippet>17725</a>    </span><span class="kw">fn </span>note_sim_time_silence(<span class="kw-2">&amp;mut </span><span class="self">self</span>, delta_us: u64) {
-<a href=#17726 id=17726 data-nosnippet>17726</a>        <span class="kw">if </span><span class="self">self</span>.sim_time_silence.tick(
-<a href=#17727 id=17727 data-nosnippet>17727</a>            delta_us,
-<a href=#17728 id=17728 data-nosnippet>17728</a>            nros_core::clock::Clock::is_ros_time_override_active(),
-<a href=#17729 id=17729 data-nosnippet>17729</a>        ) {
-<a href=#17730 id=17730 data-nosnippet>17730</a>            <span class="kw">crate</span>::time_source::report_silence(<span class="kw">crate</span>::time_source::CLOCK_TOPIC);
-<a href=#17731 id=17731 data-nosnippet>17731</a>        }
-<a href=#17732 id=17732 data-nosnippet>17732</a>    }
-<a href=#17733 id=17733 data-nosnippet>17733</a>
-<a href=#17734 id=17734 data-nosnippet>17734</a>    <span class="doccomment">/// phase-430 W1 — how many times this executor has reported that
-<a href=#17735 id=17735 data-nosnippet>17735</a>    /// `use_sim_time` is on with no `/clock` sample.
-<a href=#17736 id=17736 data-nosnippet>17736</a>    ///
-<a href=#17737 id=17737 data-nosnippet>17737</a>    /// The count rather than a bool, and an accessor rather than a log grep: a
-<a href=#17738 id=17738 data-nosnippet>17738</a>    /// diagnostic whose contract is "exactly once" needs an assertion that can
-<a href=#17739 id=17739 data-nosnippet>17739</a>    /// tell one from two, and a log sink is not present on every target that
-<a href=#17740 id=17740 data-nosnippet>17740</a>    /// runs the test. It is also the question an application supervising its
-<a href=#17741 id=17741 data-nosnippet>17741</a>    /// own configuration would ask.
-<a href=#17742 id=17742 data-nosnippet>17742</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
-<a href=#17743 id=17743 data-nosnippet>17743</a>    </span><span class="kw">pub fn </span>sim_time_silence_warnings(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; u32 {
-<a href=#17744 id=17744 data-nosnippet>17744</a>        <span class="self">self</span>.sim_time_silence.reports()
-<a href=#17745 id=17745 data-nosnippet>17745</a>    }
-<a href=#17746 id=17746 data-nosnippet>17746</a>
-<a href=#17747 id=17747 data-nosnippet>17747</a>    <span class="doccomment">/// phase-425 W3b — re-read `use_sim_time` from the parameter store.
-<a href=#17748 id=17748 data-nosnippet>17748</a>    ///
-<a href=#17749 id=17749 data-nosnippet>17749</a>    /// Called after a parameter service actually handled something, which is
-<a href=#17750 id=17750 data-nosnippet>17750</a>    /// what makes a runtime `ros2 param set &lt;node&gt; use_sim_time true` work
-<a href=#17751 id=17751 data-nosnippet>17751</a>    /// without a per-spin scan of the store.
-<a href=#17752 id=17752 data-nosnippet>17752</a>    ///
-<a href=#17753 id=17753 data-nosnippet>17753</a>    /// phase-430 W3 / issue 1202 — the declaration path calls it too, through
-<a href=#17754 id=17754 data-nosnippet>17754</a>    /// `note_reserved_parameter`, once the store has accepted the write. It
-<a href=#17755 id=17755 data-nosnippet>17755</a>    /// used to record the value directly from the caller's argument, which is
-<a href=#17756 id=17756 data-nosnippet>17756</a>    /// the same thing only while the store never refuses. One read for both
-<a href=#17757 id=17757 data-nosnippet>17757</a>    /// paths; a second spelling is the drift this function exists to prevent.
-<a href=#17758 id=17758 data-nosnippet>17758</a>    /// `pub(crate)` for the same reason: a test that changes the store directly
-<a href=#17759 id=17759 data-nosnippet>17759</a>    /// needs the entry point a parameter service uses, not a copy of it.
-<a href=#17760 id=17760 data-nosnippet>17760</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, feature = <span class="string">"param-store"</span>, any(has_rmw, test)))]
-<a href=#17761 id=17761 data-nosnippet>17761</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>refresh_use_sim_time_from_store(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
-<a href=#17762 id=17762 data-nosnippet>17762</a>        <span class="comment">// phase-426 W1 — the store is keyed by NODE, and the simulated clock is
-<a href=#17763 id=17763 data-nosnippet>17763</a>        // not. This function is where those two facts meet, so the rule is
-<a href=#17764 id=17764 data-nosnippet>17764</a>        // stated here rather than left to whichever call site got there first.
-<a href=#17765 id=17765 data-nosnippet>17765</a>        //
-<a href=#17766 id=17766 data-nosnippet>17766</a>        // `use_sim_time` is a per-node parameter in ROS 2, and rclcpp means it:
-<a href=#17767 id=17767 data-nosnippet>17767</a>        // every `Node` builds its own `TimeSource` over its own `Clock`, so two
-<a href=#17768 id=17768 data-nosnippet>17768</a>        // nodes composed into one process CAN be configured differently and
-<a href=#17769 id=17769 data-nosnippet>17769</a>        // stamp messages from different clocks at the same instant. This tree
-<a href=#17770 id=17770 data-nosnippet>17770</a>        // deliberately does not follow that (phase-425): "the override is
-<a href=#17771 id=17771 data-nosnippet>17771</a>        // process-global — one simulated clock per image, the model
-<a href=#17772 id=17772 data-nosnippet>17772</a>        // `nros_core::Clock` already documents — so there is nothing to attach
-<a href=#17773 id=17773 data-nosnippet>17773</a>        // to and nothing to fan out." That is the right trade for an image with
-<a href=#17774 id=17774 data-nosnippet>17774</a>        // a fixed RAM budget, and it makes "whose `use_sim_time`?" a question
-<a href=#17775 id=17775 data-nosnippet>17775</a>        // rclcpp never has to answer and this executor now does.
-<a href=#17776 id=17776 data-nosnippet>17776</a>        //
-<a href=#17777 id=17777 data-nosnippet>17777</a>        // ANY node asking arms the one source. Two reasons, and the second is
-<a href=#17778 id=17778 data-nosnippet>17778</a>        // the binding one:
-<a href=#17779 id=17779 data-nosnippet>17779</a>        //
-<a href=#17780 id=17780 data-nosnippet>17780</a>        //   * it is the only rule the CALLERS can implement. `note_param_
-<a href=#17781 id=17781 data-nosnippet>17781</a>        //     services_ran` fires after a runtime `ros2 param set` and knows
-<a href=#17782 id=17782 data-nosnippet>17782</a>        //     only that N requests were handled — not which node was written.
-<a href=#17783 id=17783 data-nosnippet>17783</a>        //     A last-writer-wins rule would need a writer identity that does
-<a href=#17784 id=17784 data-nosnippet>17784</a>        //     not reach here, so it would silently degrade to "whatever node 0
-<a href=#17785 id=17785 data-nosnippet>17785</a>        //     says", which is the default-to-primary bug phase-426 W1 exists to
-<a href=#17786 id=17786 data-nosnippet>17786</a>        //     remove.
-<a href=#17787 id=17787 data-nosnippet>17787</a>        //   * one node still wanting simulated time is a reason to keep the
-<a href=#17788 id=17788 data-nosnippet>17788</a>        //     source attached, and detaching is the destructive direction:
-<a href=#17789 id=17789 data-nosnippet>17789</a>        //     phase-425 already records that turning it off "stops SAMPLES, not
-<a href=#17790 id=17790 data-nosnippet>17790</a>        //     the subscription", precisely so a mid-run change does not read as
-<a href=#17791 id=17791 data-nosnippet>17791</a>        //     a clock jump.
-<a href=#17792 id=17792 data-nosnippet>17792</a>        //
-<a href=#17793 id=17793 data-nosnippet>17793</a>        // The scan is over the executor's own node table, which is the same
-<a href=#17794 id=17794 data-nosnippet>17794</a>        // `u8` index space `NodeKey` wraps, so there is one node identity here
-<a href=#17795 id=17795 data-nosnippet>17795</a>        // and not two.
-<a href=#17796 id=17796 data-nosnippet>17796</a>        </span><span class="kw">let </span><span class="prelude-val">Some</span>(params) = <span class="self">self</span>.params.as_deref() <span class="kw">else </span>{
-<a href=#17797 id=17797 data-nosnippet>17797</a>            <span class="kw">return</span>;
-<a href=#17798 id=17798 data-nosnippet>17798</a>        };
-<a href=#17799 id=17799 data-nosnippet>17799</a>        <span class="kw">let </span><span class="kw-2">mut </span>stated = <span class="bool-val">false</span>;
-<a href=#17800 id=17800 data-nosnippet>17800</a>        <span class="kw">let </span><span class="kw-2">mut </span>enable = <span class="bool-val">false</span>;
-<a href=#17801 id=17801 data-nosnippet>17801</a>        <span class="comment">// A `NodeId` IS the index into this table (`NodeId::index`), so the
-<a href=#17802 id=17802 data-nosnippet>17802</a>        // enumeration is the key space — no second derivation of the number.
-<a href=#17803 id=17803 data-nosnippet>17803</a>        //
-<a href=#17804 id=17804 data-nosnippet>17804</a>        // `.max(1)` because `NodeId::PRIMARY` is IMPLICIT: the executor's node
-<a href=#17805 id=17805 data-nosnippet>17805</a>        // table starts empty and a parameter can be declared on the primary
-<a href=#17806 id=17806 data-nosnippet>17806</a>        // node before any `create_node` puts a record in it. Scanning only the
-<a href=#17807 id=17807 data-nosnippet>17807</a>        // table would then find nothing and leave `sim_time_stated` false, so a
-<a href=#17808 id=17808 data-nosnippet>17808</a>        // `use_sim_time` declared before the first node would never arm the
-<a href=#17809 id=17809 data-nosnippet>17809</a>        // source — which `use_sim_time_attaches_and_detaches_the_clock_source`
-<a href=#17810 id=17810 data-nosnippet>17810</a>        // catches, since its whole first half runs while "there is still no
-<a href=#17811 id=17811 data-nosnippet>17811</a>        // node". Slot 0 is always a legitimate key; at worst the lookup misses.
-<a href=#17812 id=17812 data-nosnippet>17812</a>        </span><span class="kw">for </span>idx <span class="kw">in </span><span class="number">0</span>..<span class="self">self</span>.nodes.len().max(<span class="number">1</span>) {
-<a href=#17813 id=17813 data-nosnippet>17813</a>            <span class="kw">let </span>key = nros_params::NodeKey::new(idx <span class="kw">as </span>u8);
-<a href=#17814 id=17814 data-nosnippet>17814</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(v) = params
-<a href=#17815 id=17815 data-nosnippet>17815</a>                .server
-<a href=#17816 id=17816 data-nosnippet>17816</a>                .get_bool(key, <span class="kw">crate</span>::time_source::USE_SIM_TIME_PARAM)
-<a href=#17817 id=17817 data-nosnippet>17817</a>            {
-<a href=#17818 id=17818 data-nosnippet>17818</a>                stated = <span class="bool-val">true</span>;
-<a href=#17819 id=17819 data-nosnippet>17819</a>                enable |= v;
-<a href=#17820 id=17820 data-nosnippet>17820</a>            }
-<a href=#17821 id=17821 data-nosnippet>17821</a>        }
-<a href=#17822 id=17822 data-nosnippet>17822</a>        <span class="kw">if </span>stated {
-<a href=#17823 id=17823 data-nosnippet>17823</a>            <span class="self">self</span>.sim_time_requested = enable;
-<a href=#17824 id=17824 data-nosnippet>17824</a>            <span class="self">self</span>.sim_time_stated = <span class="bool-val">true</span>;
-<a href=#17825 id=17825 data-nosnippet>17825</a>        }
-<a href=#17826 id=17826 data-nosnippet>17826</a>    }
-<a href=#17827 id=17827 data-nosnippet>17827</a>
-<a href=#17828 id=17828 data-nosnippet>17828</a>    <span class="doccomment">/// phase-425 W3b — the installed `/clock` subscription, if any.
-<a href=#17829 id=17829 data-nosnippet>17829</a>    ///
-<a href=#17830 id=17830 data-nosnippet>17830</a>    /// The HANDLE rather than a bool, because "did we subscribe twice" is the
-<a href=#17831 id=17831 data-nosnippet>17831</a>    /// question a reconciliation loop has to be able to answer: a second
-<a href=#17832 id=17832 data-nosnippet>17832</a>    /// registration takes a new slot, so a stable handle across spins is the
-<a href=#17833 id=17833 data-nosnippet>17833</a>    /// evidence that the loop is idempotent.
-<a href=#17834 id=17834 data-nosnippet>17834</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
-<a href=#17835 id=17835 data-nosnippet>17835</a>    </span><span class="kw">pub fn </span>ros_time_source_handle(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;HandleId&gt; {
-<a href=#17836 id=17836 data-nosnippet>17836</a>        <span class="self">self</span>.sim_time_source
-<a href=#17837 id=17837 data-nosnippet>17837</a>    }
-<a href=#17838 id=17838 data-nosnippet>17838</a>
-<a href=#17839 id=17839 data-nosnippet>17839</a>    <span class="doccomment">/// phase-425 W3b — whether a `/clock` subscription is currently installed.
-<a href=#17840 id=17840 data-nosnippet>17840</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
-<a href=#17841 id=17841 data-nosnippet>17841</a>    </span><span class="kw">pub fn </span>ros_time_source_installed(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
-<a href=#17842 id=17842 data-nosnippet>17842</a>        <span class="self">self</span>.sim_time_source.is_some()
-<a href=#17843 id=17843 data-nosnippet>17843</a>    }
-<a href=#17844 id=17844 data-nosnippet>17844</a>
-<a href=#17845 id=17845 data-nosnippet>17845</a>    <span class="doccomment">/// phase-425 W3 — subscribe `topic` and install every sample as this
-<a href=#17846 id=17846 data-nosnippet>17846</a>    /// image's ROS time. The registration behind
-<a href=#17847 id=17847 data-nosnippet>17847</a>    /// [`Node::install_ros_time_source`](super::node::Node::install_ros_time_source)
-<a href=#17848 id=17848 data-nosnippet>17848</a>    /// and behind the `use_sim_time` reconciliation, so both spell the QoS and
-<a href=#17849 id=17849 data-nosnippet>17849</a>    /// the conversion exactly once.
-<a href=#17850 id=17850 data-nosnippet>17850</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
-<a href=#17851 id=17851 data-nosnippet>17851</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>install_ros_time_source(
-<a href=#17852 id=17852 data-nosnippet>17852</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
-<a href=#17853 id=17853 data-nosnippet>17853</a>        node_id: <span class="kw">super</span>::node_record::NodeId,
-<a href=#17854 id=17854 data-nosnippet>17854</a>        topic: <span class="kw-2">&amp;</span>str,
-<a href=#17855 id=17855 data-nosnippet>17855</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;HandleId, NodeError&gt; {
-<a href=#17856 id=17856 data-nosnippet>17856</a>        <span class="self">self</span>.register_subscription_buffered_on::&lt;
-<a href=#17857 id=17857 data-nosnippet>17857</a>            nros_rosgraph_msgs::msg::Clock,
-<a href=#17858 id=17858 data-nosnippet>17858</a>            <span class="kw">_</span>,
-<a href=#17859 id=17859 data-nosnippet>17859</a>            { <span class="kw">crate</span>::config::DEFAULT_RX_BUF_SIZE },
-<a href=#17860 id=17860 data-nosnippet>17860</a>        &gt;(
-<a href=#17861 id=17861 data-nosnippet>17861</a>            node_id,
-<a href=#17862 id=17862 data-nosnippet>17862</a>            topic,
-<a href=#17863 id=17863 data-nosnippet>17863</a>            QoSProfile::clock_default(),
-<a href=#17864 id=17864 data-nosnippet>17864</a>            |msg: <span class="kw-2">&amp;</span>nros_rosgraph_msgs::msg::Clock| {
-<a href=#17865 id=17865 data-nosnippet>17865</a>                <span class="comment">// The `use_sim_time` gate is read HERE rather than by removing
-<a href=#17866 id=17866 data-nosnippet>17866</a>                // the subscription, because there is no entity removal. An
-<a href=#17867 id=17867 data-nosnippet>17867</a>                // image that never touches `use_sim_time` and installs the
-<a href=#17868 id=17868 data-nosnippet>17868</a>                // source explicitly is active by default.
-<a href=#17869 id=17869 data-nosnippet>17869</a>                </span><span class="kw">if </span>!<span class="kw">crate</span>::time_source::is_active() {
-<a href=#17870 id=17870 data-nosnippet>17870</a>                    <span class="kw">return</span>;
-<a href=#17871 id=17871 data-nosnippet>17871</a>                }
-<a href=#17872 id=17872 data-nosnippet>17872</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(nanos) =
-<a href=#17873 id=17873 data-nosnippet>17873</a>                    <span class="kw">crate</span>::time_source::override_nanos(msg.clock.sec, msg.clock.nanosec)
-<a href=#17874 id=17874 data-nosnippet>17874</a>                {
-<a href=#17875 id=17875 data-nosnippet>17875</a>                    nros_core::clock::Clock::set_ros_time_override(nanos);
-<a href=#17876 id=17876 data-nosnippet>17876</a>                }
-<a href=#17877 id=17877 data-nosnippet>17877</a>            },
-<a href=#17878 id=17878 data-nosnippet>17878</a>            <span class="prelude-val">None</span>, <span class="comment">// no group — node default
-<a href=#17879 id=17879 data-nosnippet>17879</a>            </span><span class="prelude-val">None</span>, <span class="comment">// the configured default RX buffer, unchanged
-<a href=#17880 id=17880 data-nosnippet>17880</a>        </span>)
-<a href=#17881 id=17881 data-nosnippet>17881</a>    }
-<a href=#17882 id=17882 data-nosnippet>17882</a>}
-<a href=#17883 id=17883 data-nosnippet>17883</a>
-<a href=#17884 id=17884 data-nosnippet>17884</a><span class="comment">// ============================================================================
-<a href=#17885 id=17885 data-nosnippet>17885</a>// phase-417 W4.c — cancel / is_spinning
-<a href=#17886 id=17886 data-nosnippet>17886</a>// ============================================================================
-<a href=#17887 id=17887 data-nosnippet>17887</a>//
-<a href=#17888 id=17888 data-nosnippet>17888</a>// Same gate as `executor::tests`, exactly: `ConcreteSession` is `MockSession`
-<a href=#17889 id=17889 data-nosnippet>17889</a>// only while no rmw-* feature is unified in (see `executor/mod.rs`), and
-<a href=#17890 id=17890 data-nosnippet>17890</a>// `from_session_with` / `halt_flag` are `alloc`. No `std` gate — `cfg(test)`
-<a href=#17891 id=17891 data-nosnippet>17891</a>// already means a hosted harness, which is why `lib.rs` brings `std` in under
-<a href=#17892 id=17892 data-nosnippet>17892</a>// `test` as well. (It said "exactly" while missing `alloc`, and `std` was not in
-<a href=#17893 id=17893 data-nosnippet>17893</a>// scope: 20 errors, hidden by feature unification under `--workspace`.)
-<a href=#17894 id=17894 data-nosnippet>17894</a></span><span class="attr">#[cfg(all(test, feature = <span class="string">"alloc"</span>, not(feature = <span class="string">"rmw-cffi"</span>)))]
-<a href=#17895 id=17895 data-nosnippet>17895</a></span><span class="kw">mod </span>cancel_tests {
-<a href=#17896 id=17896 data-nosnippet>17896</a>    <span class="kw">use </span><span class="kw">super</span>::Executor;
-<a href=#17897 id=17897 data-nosnippet>17897</a>    <span class="kw">use crate</span>::{executor::types::ExecutorConfig, mock::MockSession};
-<a href=#17898 id=17898 data-nosnippet>17898</a>
-<a href=#17899 id=17899 data-nosnippet>17899</a>    <span class="doccomment">/// The core has no default clock and says so (issue 0709), so a test that
-<a href=#17900 id=17900 data-nosnippet>17900</a>    /// measures elapsed time brings its own — the same seam a board uses.
-<a href=#17901 id=17901 data-nosnippet>17901</a>    </span><span class="kw">fn </span>test_clock_us() -&gt; u64 {
-<a href=#17902 id=17902 data-nosnippet>17902</a>        <span class="kw">use </span>std::{sync::OnceLock, time::Instant};
-<a href=#17903 id=17903 data-nosnippet>17903</a>        <span class="kw">static </span>EPOCH: OnceLock&lt;Instant&gt; = OnceLock::new();
-<a href=#17904 id=17904 data-nosnippet>17904</a>        EPOCH.get_or_init(Instant::now).elapsed().as_micros() <span class="kw">as </span>u64
-<a href=#17905 id=17905 data-nosnippet>17905</a>    }
-<a href=#17906 id=17906 data-nosnippet>17906</a>
-<a href=#17907 id=17907 data-nosnippet>17907</a>    <span class="kw">fn </span>executor() -&gt; Executor&lt;<span class="lifetime">'static</span>&gt; {
-<a href=#17908 id=17908 data-nosnippet>17908</a>        <span class="kw">let </span>cfg = ExecutorConfig::default().clock_us(test_clock_us);
-<a href=#17909 id=17909 data-nosnippet>17909</a>        Executor::from_session_with(MockSession::new(), <span class="kw-2">&amp;</span>cfg)
-<a href=#17910 id=17910 data-nosnippet>17910</a>    }
-<a href=#17911 id=17911 data-nosnippet>17911</a>
-<a href=#17912 id=17912 data-nosnippet>17912</a>    <span class="doccomment">/// A fresh executor is neither cancelled nor spinning — the two questions
-<a href=#17913 id=17913 data-nosnippet>17913</a>    /// are independent, and this is the state where both answers are `false`.
-<a href=#17914 id=17914 data-nosnippet>17914</a>    </span><span class="attr">#[test]
-<a href=#17915 id=17915 data-nosnippet>17915</a>    </span><span class="kw">fn </span>a_fresh_executor_is_neither_cancelled_nor_spinning() {
-<a href=#17916 id=17916 data-nosnippet>17916</a>        <span class="kw">let </span>exec = executor();
-<a href=#17917 id=17917 data-nosnippet>17917</a>        <span class="macro">assert!</span>(!exec.is_halted(), <span class="string">"nothing has asked it to stop"</span>);
-<a href=#17918 id=17918 data-nosnippet>17918</a>        <span class="macro">assert!</span>(!exec.is_spinning(), <span class="string">"no spin loop is running"</span>);
-<a href=#17919 id=17919 data-nosnippet>17919</a>    }
-<a href=#17920 id=17920 data-nosnippet>17920</a>
-<a href=#17921 id=17921 data-nosnippet>17921</a>    <span class="doccomment">/// `cancel()` raises the request bit without starting or stopping anything.
-<a href=#17922 id=17922 data-nosnippet>17922</a>    </span><span class="attr">#[test]
-<a href=#17923 id=17923 data-nosnippet>17923</a>    </span><span class="kw">fn </span>cancel_requests_without_spinning() {
-<a href=#17924 id=17924 data-nosnippet>17924</a>        <span class="kw">let </span>exec = executor();
-<a href=#17925 id=17925 data-nosnippet>17925</a>        exec.cancel();
-<a href=#17926 id=17926 data-nosnippet>17926</a>        <span class="macro">assert!</span>(exec.is_halted(), <span class="string">"cancel() must be observable immediately"</span>);
-<a href=#17927 id=17927 data-nosnippet>17927</a>        <span class="macro">assert!</span>(
-<a href=#17928 id=17928 data-nosnippet>17928</a>            !exec.is_spinning(),
-<a href=#17929 id=17929 data-nosnippet>17929</a>            <span class="string">"cancel() must not make a non-spinning executor claim to spin"
-<a href=#17930 id=17930 data-nosnippet>17930</a>        </span>);
-<a href=#17931 id=17931 data-nosnippet>17931</a>    }
-<a href=#17932 id=17932 data-nosnippet>17932</a>
-<a href=#17933 id=17933 data-nosnippet>17933</a>    <span class="doccomment">/// The load-bearing one: `cancel()` from a peer thread TERMINATES a running
-<a href=#17934 id=17934 data-nosnippet>17934</a>    /// `spin`, `is_spinning()` is true while the loop runs, and false
-<a href=#17935 id=17935 data-nosnippet>17935</a>    /// once it has returned.
-<a href=#17936 id=17936 data-nosnippet>17936</a>    ///
-<a href=#17937 id=17937 data-nosnippet>17937</a>    /// The peer asserts `is_spinning()` from OUTSIDE the spinning thread, which
-<a href=#17938 id=17938 data-nosnippet>17938</a>    /// is the whole point of the observable — it is what a signal handler or a
-<a href=#17939 id=17939 data-nosnippet>17939</a>    /// supervisor sees.
-<a href=#17940 id=17940 data-nosnippet>17940</a>    </span><span class="attr">#[test]
-<a href=#17941 id=17941 data-nosnippet>17941</a>    </span><span class="kw">fn </span>cancel_terminates_a_spin_and_is_spinning_tracks_it() {
-<a href=#17942 id=17942 data-nosnippet>17942</a>        <span class="kw">use </span>std::{
-<a href=#17943 id=17943 data-nosnippet>17943</a>            sync::{
-<a href=#17944 id=17944 data-nosnippet>17944</a>                Arc,
-<a href=#17945 id=17945 data-nosnippet>17945</a>                atomic::{AtomicBool, Ordering},
-<a href=#17946 id=17946 data-nosnippet>17946</a>            },
-<a href=#17947 id=17947 data-nosnippet>17947</a>            thread,
-<a href=#17948 id=17948 data-nosnippet>17948</a>            time::{Duration, Instant},
-<a href=#17949 id=17949 data-nosnippet>17949</a>        };
-<a href=#17950 id=17950 data-nosnippet>17950</a>
-<a href=#17951 id=17951 data-nosnippet>17951</a>        <span class="kw">let </span><span class="kw-2">mut </span>exec = executor();
-<a href=#17952 id=17952 data-nosnippet>17952</a>        <span class="macro">assert!</span>(!exec.is_spinning());
-<a href=#17953 id=17953 data-nosnippet>17953</a>
-<a href=#17954 id=17954 data-nosnippet>17954</a>        <span class="comment">// `Executor` is not `Sync`, so the peer thread cannot hold a reference
-<a href=#17955 id=17955 data-nosnippet>17955</a>        // to it. It observes and drives through the two flag handles instead —
-<a href=#17956 id=17956 data-nosnippet>17956</a>        // which is the supported cross-thread surface (`halt_flag()`), and
-<a href=#17957 id=17957 data-nosnippet>17957</a>        // keeps this test on the same seam a signal handler uses.
-<a href=#17958 id=17958 data-nosnippet>17958</a>        </span><span class="kw">let </span>cancel_bit = exec.halt_flag();
-<a href=#17959 id=17959 data-nosnippet>17959</a>        <span class="kw">let </span>saw_spinning = Arc::new(AtomicBool::new(<span class="bool-val">false</span>));
-<a href=#17960 id=17960 data-nosnippet>17960</a>        <span class="kw">let </span>saw_spinning_peer = Arc::clone(<span class="kw-2">&amp;</span>saw_spinning);
-<a href=#17961 id=17961 data-nosnippet>17961</a>
-<a href=#17962 id=17962 data-nosnippet>17962</a>        <span class="kw">let </span>peer = thread::spawn(<span class="kw">move </span>|| {
-<a href=#17963 id=17963 data-nosnippet>17963</a>            <span class="comment">// Give the loop time to enter. Bounded, and the assertion below is
-<a href=#17964 id=17964 data-nosnippet>17964</a>            // on what was OBSERVED, so a slow host cannot turn this green by
-<a href=#17965 id=17965 data-nosnippet>17965</a>            // accident — it fails instead.
-<a href=#17966 id=17966 data-nosnippet>17966</a>            </span>thread::sleep(Duration::from_millis(<span class="number">50</span>));
-<a href=#17967 id=17967 data-nosnippet>17967</a>            saw_spinning_peer.store(<span class="bool-val">true</span>, Ordering::SeqCst);
-<a href=#17968 id=17968 data-nosnippet>17968</a>            cancel_bit.store(<span class="bool-val">true</span>, Ordering::SeqCst);
-<a href=#17969 id=17969 data-nosnippet>17969</a>        });
-<a href=#17970 id=17970 data-nosnippet>17970</a>
-<a href=#17971 id=17971 data-nosnippet>17971</a>        <span class="kw">let </span>started = Instant::now();
-<a href=#17972 id=17972 data-nosnippet>17972</a>        exec.spin(<span class="kw">crate</span>::executor::types::SpinOptions::default())
-<a href=#17973 id=17973 data-nosnippet>17973</a>            .expect(<span class="string">"an untimed spin runs until cancelled"</span>);
-<a href=#17974 id=17974 data-nosnippet>17974</a>        <span class="kw">let </span>elapsed = started.elapsed();
-<a href=#17975 id=17975 data-nosnippet>17975</a>
-<a href=#17976 id=17976 data-nosnippet>17976</a>        peer.join().expect(<span class="string">"peer thread must not panic"</span>);
-<a href=#17977 id=17977 data-nosnippet>17977</a>
-<a href=#17978 id=17978 data-nosnippet>17978</a>        <span class="macro">assert!</span>(
-<a href=#17979 id=17979 data-nosnippet>17979</a>            saw_spinning.load(Ordering::SeqCst),
-<a href=#17980 id=17980 data-nosnippet>17980</a>            <span class="string">"the peer must have run before spin returned"
-<a href=#17981 id=17981 data-nosnippet>17981</a>        </span>);
-<a href=#17982 id=17982 data-nosnippet>17982</a>        <span class="macro">assert!</span>(
-<a href=#17983 id=17983 data-nosnippet>17983</a>            !exec.is_spinning(),
-<a href=#17984 id=17984 data-nosnippet>17984</a>            <span class="string">"is_spinning() must be false once the loop has returned"
-<a href=#17985 id=17985 data-nosnippet>17985</a>        </span>);
-<a href=#17986 id=17986 data-nosnippet>17986</a>        <span class="macro">assert!</span>(
-<a href=#17987 id=17987 data-nosnippet>17987</a>            exec.is_halted(),
-<a href=#17988 id=17988 data-nosnippet>17988</a>            <span class="string">"the cancel request survives the loop it ended"
-<a href=#17989 id=17989 data-nosnippet>17989</a>        </span>);
-<a href=#17990 id=17990 data-nosnippet>17990</a>        <span class="comment">// LOWER bound too: a spin that never waited would prove nothing about
-<a href=#17991 id=17991 data-nosnippet>17991</a>        // termination. The peer sleeps 50 ms before cancelling.
-<a href=#17992 id=17992 data-nosnippet>17992</a>        </span><span class="macro">assert!</span>(
-<a href=#17993 id=17993 data-nosnippet>17993</a>            elapsed &gt;= Duration::from_millis(<span class="number">40</span>),
-<a href=#17994 id=17994 data-nosnippet>17994</a>            <span class="string">"spin returned in {elapsed:?} — it cannot have spun"
-<a href=#17995 id=17995 data-nosnippet>17995</a>        </span>);
-<a href=#17996 id=17996 data-nosnippet>17996</a>        <span class="comment">// ...and an UPPER bound, because "terminated" is the claim: without the
-<a href=#17997 id=17997 data-nosnippet>17997</a>        // cancel check this loop never returns and the test would hang rather
-<a href=#17998 id=17998 data-nosnippet>17998</a>        // than fail. 10 s is far past any scheduling noise.
-<a href=#17999 id=17999 data-nosnippet>17999</a>        </span><span class="macro">assert!</span>(
-<a href=#18000 id=18000 data-nosnippet>18000</a>            elapsed &lt; Duration::from_secs(<span class="number">10</span>),
-<a href=#18001 id=18001 data-nosnippet>18001</a>            <span class="string">"spin took {elapsed:?} to observe the cancel"
-<a href=#18002 id=18002 data-nosnippet>18002</a>        </span>);
-<a href=#18003 id=18003 data-nosnippet>18003</a>    }
-<a href=#18004 id=18004 data-nosnippet>18004</a>
-<a href=#18005 id=18005 data-nosnippet>18005</a>    <span class="doccomment">/// `is_spinning()` is true from INSIDE the loop. Read from a timer callback,
-<a href=#18006 id=18006 data-nosnippet>18006</a>    /// which is the only place the executor is genuinely mid-spin, and asserted
-<a href=#18007 id=18007 data-nosnippet>18007</a>    /// after the loop so a callback that never fired cannot pass silently.
-<a href=#18008 id=18008 data-nosnippet>18008</a>    </span><span class="attr">#[test]
-<a href=#18009 id=18009 data-nosnippet>18009</a>    </span><span class="kw">fn </span>is_spinning_is_true_inside_the_loop() {
-<a href=#18010 id=18010 data-nosnippet>18010</a>        <span class="kw">use </span>std::time::Duration;
-<a href=#18011 id=18011 data-nosnippet>18011</a>
-<a href=#18012 id=18012 data-nosnippet>18012</a>        <span class="kw">let </span><span class="kw-2">mut </span>exec = executor();
-<a href=#18013 id=18013 data-nosnippet>18013</a>        <span class="comment">// `only_next` runs exactly one iteration, so this is a single poll
-<a href=#18014 id=18014 data-nosnippet>18014</a>        // inside a spin scope — bounded, no thread, no clock dependency beyond
-<a href=#18015 id=18015 data-nosnippet>18015</a>        // the one the fixture installs.
-<a href=#18016 id=18016 data-nosnippet>18016</a>        </span><span class="macro">assert!</span>(!exec.is_spinning());
-<a href=#18017 id=18017 data-nosnippet>18017</a>        exec.spin(<span class="kw">crate</span>::executor::types::SpinOptions::spin_once())
-<a href=#18018 id=18018 data-nosnippet>18018</a>            .expect(<span class="string">"a single-iteration spin must succeed"</span>);
-<a href=#18019 id=18019 data-nosnippet>18019</a>        <span class="macro">assert!</span>(
-<a href=#18020 id=18020 data-nosnippet>18020</a>            !exec.is_spinning(),
-<a href=#18021 id=18021 data-nosnippet>18021</a>            <span class="string">"the scope must close when the loop returns"
-<a href=#18022 id=18022 data-nosnippet>18022</a>        </span>);
-<a href=#18023 id=18023 data-nosnippet>18023</a>
-<a href=#18024 id=18024 data-nosnippet>18024</a>        <span class="comment">// The inside-the-loop reading needs a second thread to do it, because
-<a href=#18025 id=18025 data-nosnippet>18025</a>        // the spinning thread is blocked in the loop and `Executor` is `!Sync`
-<a href=#18026 id=18026 data-nosnippet>18026</a>        // so no `&amp;Executor` may cross. What crosses is a pointer to the one
-<a href=#18027 id=18027 data-nosnippet>18027</a>        // atomic, which is the same thing the C and C++ APIs hold: they observe
-<a href=#18028 id=18028 data-nosnippet>18028</a>        // `is_spinning` through a raw executor handle, and that is the case this
-<a href=#18029 id=18029 data-nosnippet>18029</a>        // flag exists to serve.
-<a href=#18030 id=18030 data-nosnippet>18030</a>        </span><span class="kw">struct </span>FlagPtr(<span class="kw-2">*const </span>portable_atomic::AtomicBool);
-<a href=#18031 id=18031 data-nosnippet>18031</a>        <span class="comment">// SAFETY: the pointee is an `AtomicBool`, which is `Sync`; the only
-<a href=#18032 id=18032 data-nosnippet>18032</a>        // operation performed through it is a relaxed-or-stronger load. The
-<a href=#18033 id=18033 data-nosnippet>18033</a>        // executor outlives the thread — `peer.join()` below happens before
-<a href=#18034 id=18034 data-nosnippet>18034</a>        // `exec` is dropped at the end of the test.
-<a href=#18035 id=18035 data-nosnippet>18035</a>        </span><span class="kw">unsafe impl </span>Send <span class="kw">for </span>FlagPtr {}
-<a href=#18036 id=18036 data-nosnippet>18036</a>
-<a href=#18037 id=18037 data-nosnippet>18037</a>        <span class="kw">let </span>cancel_bit = exec.halt_flag();
-<a href=#18038 id=18038 data-nosnippet>18038</a>        <span class="kw">let </span>observed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(<span class="bool-val">false</span>));
-<a href=#18039 id=18039 data-nosnippet>18039</a>        <span class="kw">let </span>spinning_bit_seen = std::sync::Arc::clone(<span class="kw-2">&amp;</span>observed);
-<a href=#18040 id=18040 data-nosnippet>18040</a>        <span class="kw">let </span>flag = FlagPtr(<span class="kw-2">&amp;</span>exec.spinning <span class="kw">as </span><span class="kw-2">*const </span>portable_atomic::AtomicBool);
-<a href=#18041 id=18041 data-nosnippet>18041</a>        <span class="kw">let </span>peer = std::thread::spawn(<span class="kw">move </span>|| {
-<a href=#18042 id=18042 data-nosnippet>18042</a>            <span class="kw">let </span>flag = flag;
-<a href=#18043 id=18043 data-nosnippet>18043</a>            <span class="kw">for _ in </span><span class="number">0</span>..<span class="number">500 </span>{
-<a href=#18044 id=18044 data-nosnippet>18044</a>                <span class="comment">// SAFETY: see the `unsafe impl Send` above.
-<a href=#18045 id=18045 data-nosnippet>18045</a>                </span><span class="kw">if unsafe </span>{ <span class="kw-2">&amp;*</span>flag.<span class="number">0 </span>}.load(core::sync::atomic::Ordering::SeqCst) {
-<a href=#18046 id=18046 data-nosnippet>18046</a>                    spinning_bit_seen.store(<span class="bool-val">true</span>, std::sync::atomic::Ordering::SeqCst);
-<a href=#18047 id=18047 data-nosnippet>18047</a>                    <span class="kw">break</span>;
-<a href=#18048 id=18048 data-nosnippet>18048</a>                }
-<a href=#18049 id=18049 data-nosnippet>18049</a>                std::thread::sleep(Duration::from_millis(<span class="number">2</span>));
-<a href=#18050 id=18050 data-nosnippet>18050</a>            }
-<a href=#18051 id=18051 data-nosnippet>18051</a>            cancel_bit.store(<span class="bool-val">true</span>, std::sync::atomic::Ordering::SeqCst);
-<a href=#18052 id=18052 data-nosnippet>18052</a>        });
-<a href=#18053 id=18053 data-nosnippet>18053</a>
-<a href=#18054 id=18054 data-nosnippet>18054</a>        exec.spin(<span class="kw">crate</span>::executor::types::SpinOptions::default())
-<a href=#18055 id=18055 data-nosnippet>18055</a>            .expect(<span class="string">"an untimed spin runs until cancelled"</span>);
-<a href=#18056 id=18056 data-nosnippet>18056</a>        peer.join().expect(<span class="string">"peer thread must not panic"</span>);
-<a href=#18057 id=18057 data-nosnippet>18057</a>
-<a href=#18058 id=18058 data-nosnippet>18058</a>        <span class="macro">assert!</span>(
-<a href=#18059 id=18059 data-nosnippet>18059</a>            observed.load(std::sync::atomic::Ordering::SeqCst),
-<a href=#18060 id=18060 data-nosnippet>18060</a>            <span class="string">"is_spinning() must read true while spin is running"
-<a href=#18061 id=18061 data-nosnippet>18061</a>        </span>);
-<a href=#18062 id=18062 data-nosnippet>18062</a>    }
-<a href=#18063 id=18063 data-nosnippet>18063</a>
-<a href=#18064 id=18064 data-nosnippet>18064</a>    <span class="doccomment">/// `spin_period` maintains the same scope, and a period this build cannot
-<a href=#18065 id=18065 data-nosnippet>18065</a>    /// pace is an error that must NOT leave the executor claiming to spin.
-<a href=#18066 id=18066 data-nosnippet>18066</a>    </span><span class="attr">#[test]
-<a href=#18067 id=18067 data-nosnippet>18067</a>    </span><span class="kw">fn </span>spin_period_with_no_clock_leaves_is_spinning_false() {
-<a href=#18068 id=18068 data-nosnippet>18068</a>        <span class="kw">let </span><span class="kw-2">mut </span>exec = executor();
-<a href=#18069 id=18069 data-nosnippet>18069</a>        exec.clock_us_fn = <span class="prelude-val">None</span>;
-<a href=#18070 id=18070 data-nosnippet>18070</a>        <span class="kw">let </span>err = exec
-<a href=#18071 id=18071 data-nosnippet>18071</a>            .spin_period(core::time::Duration::from_millis(<span class="number">10</span>))
-<a href=#18072 id=18072 data-nosnippet>18072</a>            .expect_err(<span class="string">"a period with no clock must fail (issue 0709)"</span>);
-<a href=#18073 id=18073 data-nosnippet>18073</a>        <span class="macro">assert_eq!</span>(err, <span class="kw">crate</span>::NodeError::NotInitialized);
-<a href=#18074 id=18074 data-nosnippet>18074</a>        <span class="macro">assert!</span>(
-<a href=#18075 id=18075 data-nosnippet>18075</a>            !exec.is_spinning(),
-<a href=#18076 id=18076 data-nosnippet>18076</a>            <span class="string">"a spin that never started must not report that it did"
-<a href=#18077 id=18077 data-nosnippet>18077</a>        </span>);
-<a href=#18078 id=18078 data-nosnippet>18078</a>    }
-<a href=#18079 id=18079 data-nosnippet>18079</a>
-<a href=#18080 id=18080 data-nosnippet>18080</a>    <span class="doccomment">/// Entering a spin CLEARS a stale cancel: a cancel requested before this
-<a href=#18081 id=18081 data-nosnippet>18081</a>    /// spin is not a cancel of this spin. Documents the ADOPT-BOUNDED envelope's
-<a href=#18082 id=18082 data-nosnippet>18082</a>    /// one sharp edge.
-<a href=#18083 id=18083 data-nosnippet>18083</a>    </span><span class="attr">#[test]
-<a href=#18084 id=18084 data-nosnippet>18084</a>    </span><span class="kw">fn </span>entering_a_spin_clears_a_stale_cancel() {
-<a href=#18085 id=18085 data-nosnippet>18085</a>        <span class="kw">let </span>exec = executor();
-<a href=#18086 id=18086 data-nosnippet>18086</a>        exec.cancel();
-<a href=#18087 id=18087 data-nosnippet>18087</a>        <span class="macro">assert!</span>(exec.is_halted());
-<a href=#18088 id=18088 data-nosnippet>18088</a>        exec.enter_spin_loop();
-<a href=#18089 id=18089 data-nosnippet>18089</a>        <span class="macro">assert!</span>(
-<a href=#18090 id=18090 data-nosnippet>18090</a>            !exec.is_halted(),
-<a href=#18091 id=18091 data-nosnippet>18091</a>            <span class="string">"a cancel raised before the loop started must not end it instantly"
-<a href=#18092 id=18092 data-nosnippet>18092</a>        </span>);
-<a href=#18093 id=18093 data-nosnippet>18093</a>        <span class="macro">assert!</span>(exec.is_spinning());
-<a href=#18094 id=18094 data-nosnippet>18094</a>        exec.exit_spin_loop();
-<a href=#18095 id=18095 data-nosnippet>18095</a>        <span class="macro">assert!</span>(!exec.is_spinning());
-<a href=#18096 id=18096 data-nosnippet>18096</a>    }
-<a href=#18097 id=18097 data-nosnippet>18097</a>}
-<a href=#18098 id=18098 data-nosnippet>18098</a>
-<a href=#18099 id=18099 data-nosnippet>18099</a><span class="doccomment">/// phase-509 P9b item 3 (RFC-0108 D7) -- the arrival path wakes only the
-<a href=#18100 id=18100 data-nosnippet>18100</a>/// worker whose band holds the slot.
-<a href=#18101 id=18101 data-nosnippet>18101</a></span><span class="attr">#[cfg(all(test, feature = <span class="string">"alloc"</span>, feature = <span class="string">"rmw-cffi"</span>))]
-<a href=#18102 id=18102 data-nosnippet>18102</a></span><span class="kw">mod </span>band_wake_routing_tests {
-<a href=#18103 id=18103 data-nosnippet>18103</a>    <span class="kw">use super</span>::{<span class="kw">super</span>::scheduler::BandWaiter, WakeCtx};
-<a href=#18104 id=18104 data-nosnippet>18104</a>    <span class="kw">use </span>core::ffi::c_void;
-<a href=#18105 id=18105 data-nosnippet>18105</a>    <span class="kw">use </span>portable_atomic::{AtomicUsize, Ordering};
-<a href=#18106 id=18106 data-nosnippet>18106</a>
-<a href=#18107 id=18107 data-nosnippet>18107</a>    <span class="kw">static </span>WOKEN: [AtomicUsize; <span class="number">2</span>] = [AtomicUsize::new(<span class="number">0</span>), AtomicUsize::new(<span class="number">0</span>)];
-<a href=#18108 id=18108 data-nosnippet>18108</a>
-<a href=#18109 id=18109 data-nosnippet>18109</a>    <span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>wake(ctx: <span class="kw-2">*mut </span>c_void) {
-<a href=#18110 id=18110 data-nosnippet>18110</a>        WOKEN[ctx <span class="kw">as </span>usize].fetch_add(<span class="number">1</span>, Ordering::SeqCst);
-<a href=#18111 id=18111 data-nosnippet>18111</a>    }
-<a href=#18112 id=18112 data-nosnippet>18112</a>
-<a href=#18113 id=18113 data-nosnippet>18113</a>    <span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>wait(_ctx: <span class="kw-2">*mut </span>c_void, _us: u64) -&gt; i32 {
-<a href=#18114 id=18114 data-nosnippet>18114</a>        <span class="number">0
-<a href=#18115 id=18115 data-nosnippet>18115</a>    </span>}
-<a href=#18116 id=18116 data-nosnippet>18116</a>
-<a href=#18117 id=18117 data-nosnippet>18117</a>    <span class="attr">#[test]
-<a href=#18118 id=18118 data-nosnippet>18118</a>    </span><span class="kw">fn </span>an_attributed_arrival_wakes_its_band_and_an_unattributed_one_wakes_all() {
-<a href=#18119 id=18119 data-nosnippet>18119</a>        <span class="comment">// SAFETY: the contexts are plain indices `wake` decodes.
-<a href=#18120 id=18120 data-nosnippet>18120</a>        </span><span class="kw">static </span>A: BandWaiter = <span class="kw">unsafe </span>{ BandWaiter::new(wake, wait, core::ptr::null_mut()) };
-<a href=#18121 id=18121 data-nosnippet>18121</a>        <span class="kw">static </span>B: BandWaiter =
-<a href=#18122 id=18122 data-nosnippet>18122</a>            <span class="kw">unsafe </span>{ BandWaiter::new(wake, wait, core::ptr::without_provenance_mut(<span class="number">1</span>)) };
-<a href=#18123 id=18123 data-nosnippet>18123</a>        A.slots.store(<span class="number">0b0011</span>, Ordering::SeqCst);
-<a href=#18124 id=18124 data-nosnippet>18124</a>        B.slots.store(<span class="number">0b0100</span>, Ordering::SeqCst);
-<a href=#18125 id=18125 data-nosnippet>18125</a>        <span class="kw">let </span>flag = portable_atomic_util::Arc::new(portable_atomic::AtomicBool::new(<span class="bool-val">false</span>));
-<a href=#18126 id=18126 data-nosnippet>18126</a>        <span class="kw">let </span>ctx = WakeCtx::new(flag.clone(), <span class="prelude-val">None</span>);
-<a href=#18127 id=18127 data-nosnippet>18127</a>        B.next.store(<span class="kw-2">&amp;</span>A <span class="kw">as </span><span class="kw-2">*const </span><span class="kw">_ as </span><span class="kw-2">*mut </span><span class="kw">_</span>, Ordering::SeqCst);
-<a href=#18128 id=18128 data-nosnippet>18128</a>        ctx.band_waiters
-<a href=#18129 id=18129 data-nosnippet>18129</a>            .store(<span class="kw-2">&amp;</span>B <span class="kw">as </span><span class="kw-2">*const </span><span class="kw">_ as </span><span class="kw-2">*mut </span><span class="kw">_</span>, Ordering::SeqCst);
-<a href=#18130 id=18130 data-nosnippet>18130</a>
-<a href=#18131 id=18131 data-nosnippet>18131</a>        ctx.mark_ready(<span class="number">2</span>);
-<a href=#18132 id=18132 data-nosnippet>18132</a>        <span class="macro">assert_eq!</span>(WOKEN[<span class="number">1</span>].load(Ordering::SeqCst), <span class="number">1</span>, <span class="string">"slot 2 is B's"</span>);
-<a href=#18133 id=18133 data-nosnippet>18133</a>        <span class="macro">assert_eq!</span>(WOKEN[<span class="number">0</span>].load(Ordering::SeqCst), <span class="number">0</span>);
-<a href=#18134 id=18134 data-nosnippet>18134</a>        <span class="macro">assert!</span>(
-<a href=#18135 id=18135 data-nosnippet>18135</a>            !flag.load(Ordering::SeqCst),
-<a href=#18136 id=18136 data-nosnippet>18136</a>            <span class="string">"the executor's own worker sleeps on"
-<a href=#18137 id=18137 data-nosnippet>18137</a>        </span>);
-<a href=#18138 id=18138 data-nosnippet>18138</a>
-<a href=#18139 id=18139 data-nosnippet>18139</a>        ctx.mark_ready(<span class="number">1</span>);
-<a href=#18140 id=18140 data-nosnippet>18140</a>        <span class="macro">assert_eq!</span>(WOKEN[<span class="number">0</span>].load(Ordering::SeqCst), <span class="number">1</span>, <span class="string">"slot 1 is A's"</span>);
-<a href=#18141 id=18141 data-nosnippet>18141</a>
-<a href=#18142 id=18142 data-nosnippet>18142</a>        ctx.mark_ready(<span class="number">5</span>);
-<a href=#18143 id=18143 data-nosnippet>18143</a>        <span class="macro">assert!</span>(
-<a href=#18144 id=18144 data-nosnippet>18144</a>            flag.load(Ordering::SeqCst),
-<a href=#18145 id=18145 data-nosnippet>18145</a>            <span class="string">"no band holds slot 5: own worker"
-<a href=#18146 id=18146 data-nosnippet>18146</a>        </span>);
-<a href=#18147 id=18147 data-nosnippet>18147</a>        <span class="macro">assert_eq!</span>(
-<a href=#18148 id=18148 data-nosnippet>18148</a>            WOKEN[<span class="number">0</span>].load(Ordering::SeqCst) + WOKEN[<span class="number">1</span>].load(Ordering::SeqCst),
-<a href=#18149 id=18149 data-nosnippet>18149</a>            <span class="number">2
-<a href=#18150 id=18150 data-nosnippet>18150</a>        </span>);
-<a href=#18151 id=18151 data-nosnippet>18151</a>
-<a href=#18152 id=18152 data-nosnippet>18152</a>        ctx.signal();
-<a href=#18153 id=18153 data-nosnippet>18153</a>        <span class="macro">assert_eq!</span>(
-<a href=#18154 id=18154 data-nosnippet>18154</a>            WOKEN[<span class="number">0</span>].load(Ordering::SeqCst),
-<a href=#18155 id=18155 data-nosnippet>18155</a>            <span class="number">2</span>,
-<a href=#18156 id=18156 data-nosnippet>18156</a>            <span class="string">"unattributed: every band"
-<a href=#18157 id=18157 data-nosnippet>18157</a>        </span>);
-<a href=#18158 id=18158 data-nosnippet>18158</a>        <span class="macro">assert_eq!</span>(WOKEN[<span class="number">1</span>].load(Ordering::SeqCst), <span class="number">2</span>);
-<a href=#18159 id=18159 data-nosnippet>18159</a>        <span class="macro">assert_eq!</span>(ctx.ready.load(Ordering::SeqCst), <span class="number">0b100110</span>);
-<a href=#18160 id=18160 data-nosnippet>18160</a>    }
-<a href=#18161 id=18161 data-nosnippet>18161</a>}
+<a href=#17502 id=17502 data-nosnippet>17502</a>        level: <span class="string">""</span>,
+<a href=#17503 id=17503 data-nosnippet>17503</a>    };
+<a href=#17504 id=17504 data-nosnippet>17504</a>    <span class="kw">match </span>sc.deadline_action {
+<a href=#17505 id=17505 data-nosnippet>17505</a>        DeadlineAction::Ignore =&gt; {}
+<a href=#17506 id=17506 data-nosnippet>17506</a>        DeadlineAction::Warn =&gt; {
+<a href=#17507 id=17507 data-nosnippet>17507</a>            <span class="kw">let _ </span>= misses.push(v);
+<a href=#17508 id=17508 data-nosnippet>17508</a>        }
+<a href=#17509 id=17509 data-nosnippet>17509</a>        DeadlineAction::Skip =&gt; {
+<a href=#17510 id=17510 data-nosnippet>17510</a>            <span class="kw">if </span>sc_idx &lt; <span class="number">64 </span>{
+<a href=#17511 id=17511 data-nosnippet>17511</a>                <span class="kw-2">*</span>skipped_scs |= <span class="number">1u64 </span>&lt;&lt; sc_idx;
+<a href=#17512 id=17512 data-nosnippet>17512</a>            }
+<a href=#17513 id=17513 data-nosnippet>17513</a>            <span class="kw">let _ </span>= misses.push(v);
+<a href=#17514 id=17514 data-nosnippet>17514</a>        }
+<a href=#17515 id=17515 data-nosnippet>17515</a>        DeadlineAction::Fault =&gt; {
+<a href=#17516 id=17516 data-nosnippet>17516</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(f) = fault_fn {
+<a href=#17517 id=17517 data-nosnippet>17517</a>                f(<span class="kw-2">&amp;</span>v);
+<a href=#17518 id=17518 data-nosnippet>17518</a>                <span class="kw">let _ </span>= misses.push(v);
+<a href=#17519 id=17519 data-nosnippet>17519</a>            } <span class="kw">else if let </span><span class="prelude-val">Some</span>((f, ctx)) = reaction_hook {
+<a href=#17520 id=17520 data-nosnippet>17520</a>                <span class="comment">// phase-503 — the reaction hook is the fault path a C or C++
+<a href=#17521 id=17521 data-nosnippet>17521</a>                // image can install; reaction id 0, the SC slot as the row.
+<a href=#17522 id=17522 data-nosnippet>17522</a>                </span><span class="kw">let </span>ev = <span class="kw">super</span>::monitor::ReactionEvent {
+<a href=#17523 id=17523 data-nosnippet>17523</a>                    reaction_id: <span class="kw">super</span>::monitor::REACTION_NONE <span class="kw">as </span>u32,
+<a href=#17524 id=17524 data-nosnippet>17524</a>                    row: sc_idx <span class="kw">as </span>u32,
+<a href=#17525 id=17525 data-nosnippet>17525</a>                    rule_code: <span class="kw">super</span>::monitor::rule_code(v.rule),
+<a href=#17526 id=17526 data-nosnippet>17526</a>                    measured_ms: elapsed_us / <span class="number">1_000</span>,
+<a href=#17527 id=17527 data-nosnippet>17527</a>                    declared_ms: deadline_us / <span class="number">1_000</span>,
+<a href=#17528 id=17528 data-nosnippet>17528</a>                    mechanism: <span class="kw">super</span>::monitor::MECHANISM_EXECUTOR,
+<a href=#17529 id=17529 data-nosnippet>17529</a>                    fired_at_us,
+<a href=#17530 id=17530 data-nosnippet>17530</a>                };
+<a href=#17531 id=17531 data-nosnippet>17531</a>                <span class="comment">// SAFETY: as in `check_route_deadlines`.
+<a href=#17532 id=17532 data-nosnippet>17532</a>                </span><span class="kw">unsafe </span>{ f(<span class="kw-2">&amp;</span>ev, ctx) };
+<a href=#17533 id=17533 data-nosnippet>17533</a>                <span class="kw">let _ </span>= misses.push(v);
+<a href=#17534 id=17534 data-nosnippet>17534</a>            } <span class="kw">else </span>{
+<a href=#17535 id=17535 data-nosnippet>17535</a>                <span class="macro">panic!</span>(
+<a href=#17536 id=17536 data-nosnippet>17536</a>                    <span class="string">"nros: deadline fault — dispatch ran {elapsed_us} us past a {deadline_us} us deadline"
+<a href=#17537 id=17537 data-nosnippet>17537</a>                </span>);
+<a href=#17538 id=17538 data-nosnippet>17538</a>            }
+<a href=#17539 id=17539 data-nosnippet>17539</a>        }
+<a href=#17540 id=17540 data-nosnippet>17540</a>    }
+<a href=#17541 id=17541 data-nosnippet>17541</a>}
+<a href=#17542 id=17542 data-nosnippet>17542</a>
+<a href=#17543 id=17543 data-nosnippet>17543</a><span class="comment">// Timer-accounting clock default (issue: no_std sched tasks with no `clock_us`
+<a href=#17544 id=17544 data-nosnippet>17544</a>// credited each spin the REQUESTED timeout — spin.rs `delta_us` fallback —
+<a href=#17545 id=17545 data-nosnippet>17545</a>// so shared-session wakes made low-rate timers fire early (a 100 ms timer
+<a href=#17546 id=17546 data-nosnippet>17546</a>// at ~67 ms on Zephyr native_sim) and tick rounding made fast tiers fire
+<a href=#17547 id=17547 data-nosnippet>17547</a>// late. Measured on that native_sim image; mechanism documented at the
+<a href=#17548 id=17548 data-nosnippet>17548</a>// fallback site.)
+<a href=#17549 id=17549 data-nosnippet>17549</a>//
+<a href=#17550 id=17550 data-nosnippet>17550</a>// Every platform port exports `nros_platform_clock_ns` through the same
+<a href=#17551 id=17551 data-nosnippet>17551</a>// linkage contract the wake primitives rely on (`nros_platform_export_clock!`
+<a href=#17552 id=17552 data-nosnippet>17552</a>// in nros-platform-cffi), so an rmw-cffi no_std build can safely default the
+<a href=#17553 id=17553 data-nosnippet>17553</a>// executor clock to it; `ExecutorConfig::clock_us` stays as an override.
+<a href=#17554 id=17554 data-nosnippet>17554</a></span><span class="attr">#[cfg(feature = <span class="string">"rmw-cffi"</span>)]
+<a href=#17555 id=17555 data-nosnippet>17555</a></span><span class="kw">unsafe extern </span><span class="string">"C" </span>{
+<a href=#17556 id=17556 data-nosnippet>17556</a>    <span class="kw">fn </span>nros_platform_clock_ns() -&gt; u64;
+<a href=#17557 id=17557 data-nosnippet>17557</a>}
+<a href=#17558 id=17558 data-nosnippet>17558</a>
+<a href=#17559 id=17559 data-nosnippet>17559</a><span class="attr">#[cfg(feature = <span class="string">"rmw-cffi"</span>)]
+<a href=#17560 id=17560 data-nosnippet>17560</a></span><span class="kw">fn </span>default_platform_clock_us() -&gt; u64 {
+<a href=#17561 id=17561 data-nosnippet>17561</a>    <span class="comment">// SAFETY: bare query of the platform's monotonic ns counter; the symbol
+<a href=#17562 id=17562 data-nosnippet>17562</a>    // is guaranteed by whichever platform port linked the binary (the same
+<a href=#17563 id=17563 data-nosnippet>17563</a>    // contract `nros_platform_wake_*` already depends on).
+<a href=#17564 id=17564 data-nosnippet>17564</a>    //
+<a href=#17565 id=17565 data-nosnippet>17565</a>    // RFC-0073 made the ABI nanoseconds; the executor's own accounting is
+<a href=#17566 id=17566 data-nosnippet>17566</a>    // still microseconds (`clock_us_fn`, `delta_us`), so the division lives
+<a href=#17567 id=17567 data-nosnippet>17567</a>    // here rather than being pushed into every port.
+<a href=#17568 id=17568 data-nosnippet>17568</a>    </span><span class="kw">unsafe </span>{ nros_platform_clock_ns() / <span class="number">1_000 </span>}
+<a href=#17569 id=17569 data-nosnippet>17569</a>}
+<a href=#17570 id=17570 data-nosnippet>17570</a>
+<a href=#17571 id=17571 data-nosnippet>17571</a><span class="doccomment">/// Sleep, through the platform ABI.
+<a href=#17572 id=17572 data-nosnippet>17572</a>///
+<a href=#17573 id=17573 data-nosnippet>17573</a>/// phase-359 W10 — the spin loops used `std::thread::sleep`. Every port already
+<a href=#17574 id=17574 data-nosnippet>17574</a>/// exports `nros_platform_sleep_us` (the ABI's own pacing primitive, the one an
+<a href=#17575 id=17575 data-nosnippet>17575</a>/// RTOS build has always used), so a hosted loop and an embedded one now pace
+<a href=#17576 id=17576 data-nosnippet>17576</a>/// the same way. The µs entry point is used rather than `_ms` because
+<a href=#17577 id=17577 data-nosnippet>17577</a>/// `spin_one_period_timed` sleeps off a remainder, which rounds badly at
+<a href=#17578 id=17578 data-nosnippet>17578</a>/// millisecond granularity on short periods.
+<a href=#17579 id=17579 data-nosnippet>17579</a></span><span class="attr">#[cfg(feature = <span class="string">"alloc"</span>)]
+<a href=#17580 id=17580 data-nosnippet>17580</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>platform_sleep(d: core::time::Duration) {
+<a href=#17581 id=17581 data-nosnippet>17581</a>    <span class="kw">unsafe extern </span><span class="string">"C" </span>{
+<a href=#17582 id=17582 data-nosnippet>17582</a>        <span class="kw">fn </span>nros_platform_sleep_us(us: usize);
+<a href=#17583 id=17583 data-nosnippet>17583</a>    }
+<a href=#17584 id=17584 data-nosnippet>17584</a>    <span class="kw">let </span>us = d.as_micros().min(usize::MAX <span class="kw">as </span>u128) <span class="kw">as </span>usize;
+<a href=#17585 id=17585 data-nosnippet>17585</a>    <span class="kw">if </span>us == <span class="number">0 </span>{
+<a href=#17586 id=17586 data-nosnippet>17586</a>        <span class="kw">return</span>;
+<a href=#17587 id=17587 data-nosnippet>17587</a>    }
+<a href=#17588 id=17588 data-nosnippet>17588</a>    <span class="comment">// SAFETY: a bare pacing call with no pointer arguments, guaranteed by
+<a href=#17589 id=17589 data-nosnippet>17589</a>    // whichever port linked the binary — the same contract the clock and wake
+<a href=#17590 id=17590 data-nosnippet>17590</a>    // symbols in this file already rely on.
+<a href=#17591 id=17591 data-nosnippet>17591</a>    </span><span class="kw">unsafe </span>{ nros_platform_sleep_us(us) }
+<a href=#17592 id=17592 data-nosnippet>17592</a>}
+<a href=#17593 id=17593 data-nosnippet>17593</a>
+<a href=#17594 id=17594 data-nosnippet>17594</a><span class="doccomment">/// A monotonic µs reader, or `None` when this build has no clock at all.
+<a href=#17595 id=17595 data-nosnippet>17595</a>///
+<a href=#17596 id=17596 data-nosnippet>17596</a>/// phase-359 W10 — one provider, chosen by what is LINKED rather than by which
+<a href=#17597 id=17597 data-nosnippet>17597</a>/// flavour the crate was built in. W4 unified the executor's clock ACCESSOR and
+<a href=#17598 id=17598 data-nosnippet>17598</a>/// said the provider was the last piece; this is it.
+<a href=#17599 id=17599 data-nosnippet>17599</a>///
+<a href=#17600 id=17600 data-nosnippet>17600</a>/// `rmw-cffi` means a platform port is linked, and every port exports
+<a href=#17601 id=17601 data-nosnippet>17601</a>/// `nros_platform_clock_ns` under the same contract the wake primitives use —
+<a href=#17602 id=17602 data-nosnippet>17602</a>/// so a hosted build reads the same counter an embedded one does, instead of
+<a href=#17603 id=17603 data-nosnippet>17603</a>/// `Instant` on one and the platform on the other. `Instant` survives only
+<a href=#17604 id=17604 data-nosnippet>17604</a>/// where there is no port to ask: `std` without `rmw-cffi`.
+<a href=#17605 id=17605 data-nosnippet>17605</a>///
+<a href=#17606 id=17606 data-nosnippet>17606</a>/// phase-359 W10 follow-up — this comment claimed the metadata PROBE was that
+<a href=#17607 id=17607 data-nosnippet>17607</a>/// configuration, and **it is not**. The probe's generated manifest deps
+<a href=#17608 id=17608 data-nosnippet>17608</a>/// `nros-platform-cffi` with `posix-c-port` (issue 0288 layer 5, so it links),
+<a href=#17609 id=17609 data-nosnippet>17609</a>/// and its `nros` resolves with `rmw-cffi` ON — feature-unified from the
+<a href=#17610 id=17610 data-nosnippet>17610</a>/// component's board crate. Measured on a real probe tree: `alloc default
+<a href=#17611 id=17611 data-nosnippet>17611</a>/// macros rmw-cffi ros-humble std`. It takes the PORT arm.
+<a href=#17612 id=17612 data-nosnippet>17612</a>///
+<a href=#17613 id=17613 data-nosnippet>17613</a>/// What is real: `nros-rmw-metadata` and `nros-tests` do resolve `nros` with
+<a href=#17614 id=17614 data-nosnippet>17614</a>/// `std` and no `rmw-cffi`, and have no port crate in their graphs. But nothing
+<a href=#17615 id=17615 data-nosnippet>17615</a>/// in either uses this arm — deleting it and building the workspace
+<a href=#17616 id=17616 data-nosnippet>17616</a>/// `--all-targets` is clean, and there is no in-tree caller of
+<a href=#17617 id=17617 data-nosnippet>17617</a>/// `nros::time::now` at all. So the arm serves an OUT-OF-TREE contract only: a
+<a href=#17618 id=17618 data-nosnippet>17618</a>/// consumer with `std`, no `rmw-cffi`, and its own `Session`.
+<a href=#17619 id=17619 data-nosnippet>17619</a></span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>default_clock_us_fn() -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw">fn</span>() -&gt; u64&gt; {
+<a href=#17620 id=17620 data-nosnippet>17620</a>    <span class="attr">#[cfg(feature = <span class="string">"rmw-cffi"</span>)]
+<a href=#17621 id=17621 data-nosnippet>17621</a>    </span>{
+<a href=#17622 id=17622 data-nosnippet>17622</a>        <span class="prelude-val">Some</span>(default_platform_clock_us)
+<a href=#17623 id=17623 data-nosnippet>17623</a>    }
+<a href=#17624 id=17624 data-nosnippet>17624</a>    <span class="attr">#[cfg(not(feature = <span class="string">"rmw-cffi"</span>))]
+<a href=#17625 id=17625 data-nosnippet>17625</a>    </span>{
+<a href=#17626 id=17626 data-nosnippet>17626</a>        <span class="prelude-val">None
+<a href=#17627 id=17627 data-nosnippet>17627</a>    </span>}
+<a href=#17628 id=17628 data-nosnippet>17628</a>}
+<a href=#17629 id=17629 data-nosnippet>17629</a>
+<a href=#17630 id=17630 data-nosnippet>17630</a><span class="comment">// =============================================================================
+<a href=#17631 id=17631 data-nosnippet>17631</a>// phase-425 W3b — the `/clock` time source's executor half.
+<a href=#17632 id=17632 data-nosnippet>17632</a>//
+<a href=#17633 id=17633 data-nosnippet>17633</a>// Its OWN impl block, gated on `sim-time`, because the methods were first
+<a href=#17634 id=17634 data-nosnippet>17634</a>// written next to `declare_parameter` — which lives in a
+<a href=#17635 id=17635 data-nosnippet>17635</a>// `#[cfg(feature = "param-store")]` block, so `reconcile_ros_time_source`
+<a href=#17636 id=17636 data-nosnippet>17636</a>// silently disappeared in every combo without parameter services, including the
+<a href=#17637 id=17637 data-nosnippet>17637</a>// one `spin_once` calls it from.
+<a href=#17638 id=17638 data-nosnippet>17638</a>// =============================================================================
+<a href=#17639 id=17639 data-nosnippet>17639</a></span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
+<a href=#17640 id=17640 data-nosnippet>17640</a></span><span class="kw">impl</span>&lt;<span class="lifetime">'s</span>&gt; Executor&lt;<span class="lifetime">'s</span>&gt; {
+<a href=#17641 id=17641 data-nosnippet>17641</a>    <span class="doccomment">/// phase-425 W3b — bring the `/clock` subscription in line with the last
+<a href=#17642 id=17642 data-nosnippet>17642</a>    /// requested `use_sim_time`.
+<a href=#17643 id=17643 data-nosnippet>17643</a>    ///
+<a href=#17644 id=17644 data-nosnippet>17644</a>    /// Called at the head of every spin, and cheap when there is nothing to do:
+<a href=#17645 id=17645 data-nosnippet>17645</a>    /// the common case is one bool comparison. It is a RECONCILE rather than an
+<a href=#17646 id=17646 data-nosnippet>17646</a>    /// action at the request site because the request routinely arrives before
+<a href=#17647 id=17647 data-nosnippet>17647</a>    /// there is a node to hang the subscription on — `nros::main!` emits
+<a href=#17648 id=17648 data-nosnippet>17648</a>    /// `apply_param_services` before its per-node `register` calls, by design,
+<a href=#17649 id=17649 data-nosnippet>17649</a>    /// so the store exists when each cell is created.
+<a href=#17650 id=17650 data-nosnippet>17650</a>    ///
+<a href=#17651 id=17651 data-nosnippet>17651</a>    /// Turning it off stops SAMPLES from being installed; the subscription
+<a href=#17652 id=17652 data-nosnippet>17652</a>    /// itself stays, because the executor has no entity removal and inventing
+<a href=#17653 id=17653 data-nosnippet>17653</a>    /// one for this would be a much larger change than the switch is worth. The
+<a href=#17654 id=17654 data-nosnippet>17654</a>    /// gate is `time_source::set_active`, which the subscription callback reads.
+<a href=#17655 id=17655 data-nosnippet>17655</a>    ///
+<a href=#17656 id=17656 data-nosnippet>17656</a>    /// Turning it off also does NOT clear the override: a node that stops
+<a href=#17657 id=17657 data-nosnippet>17657</a>    /// listening keeps the last simulated time rather than jumping back to the
+<a href=#17658 id=17658 data-nosnippet>17658</a>    /// wall clock, which every ROS-time timer would otherwise absorb as a
+<a href=#17659 id=17659 data-nosnippet>17659</a>    /// backwards jump.
+<a href=#17660 id=17660 data-nosnippet>17660</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
+<a href=#17661 id=17661 data-nosnippet>17661</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>reconcile_ros_time_source(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
+<a href=#17662 id=17662 data-nosnippet>17662</a>        <span class="comment">// An executor nobody told about `use_sim_time` has NO opinion, and the
+<a href=#17663 id=17663 data-nosnippet>17663</a>        // gate is process-global, so writing its default here is not a no-op --
+<a href=#17664 id=17664 data-nosnippet>17664</a>        // it is one executor overruling another. Say nothing until asked.
+<a href=#17665 id=17665 data-nosnippet>17665</a>        </span><span class="kw">if </span>!<span class="self">self</span>.sim_time_stated {
+<a href=#17666 id=17666 data-nosnippet>17666</a>            <span class="kw">return</span>;
+<a href=#17667 id=17667 data-nosnippet>17667</a>        }
+<a href=#17668 id=17668 data-nosnippet>17668</a>        <span class="kw">if </span><span class="self">self</span>.sim_time_requested == <span class="kw">crate</span>::time_source::is_active()
+<a href=#17669 id=17669 data-nosnippet>17669</a>            &amp;&amp; (!<span class="self">self</span>.sim_time_requested || <span class="self">self</span>.sim_time_source.is_some())
+<a href=#17670 id=17670 data-nosnippet>17670</a>        {
+<a href=#17671 id=17671 data-nosnippet>17671</a>            <span class="kw">return</span>;
+<a href=#17672 id=17672 data-nosnippet>17672</a>        }
+<a href=#17673 id=17673 data-nosnippet>17673</a>        <span class="kw">crate</span>::time_source::set_active(<span class="self">self</span>.sim_time_requested);
+<a href=#17674 id=17674 data-nosnippet>17674</a>        <span class="kw">if </span>!<span class="self">self</span>.sim_time_requested {
+<a href=#17675 id=17675 data-nosnippet>17675</a>            <span class="comment">// phase-430 W1 — the source is no longer wanted, so its silence is
+<a href=#17676 id=17676 data-nosnippet>17676</a>            // no longer a symptom. Disarming here (rather than only re-arming
+<a href=#17677 id=17677 data-nosnippet>17677</a>            // on attach) is what makes a later re-attach start a FRESH
+<a href=#17678 id=17678 data-nosnippet>17678</a>            // interval: the watch that was counting is put down, not paused.
+<a href=#17679 id=17679 data-nosnippet>17679</a>            </span><span class="self">self</span>.sim_time_silence.disarm();
+<a href=#17680 id=17680 data-nosnippet>17680</a>            <span class="kw">return</span>;
+<a href=#17681 id=17681 data-nosnippet>17681</a>        }
+<a href=#17682 id=17682 data-nosnippet>17682</a>        <span class="kw">if </span><span class="self">self</span>.sim_time_source.is_none() {
+<a href=#17683 id=17683 data-nosnippet>17683</a>            <span class="comment">// No node yet — stay pending and try again next spin. Not an error:
+<a href=#17684 id=17684 data-nosnippet>17684</a>            // it is the ordinary order of a generated entry, which declares
+<a href=#17685 id=17685 data-nosnippet>17685</a>            // parameters before it registers components.
+<a href=#17686 id=17686 data-nosnippet>17686</a>            </span><span class="kw">if </span><span class="self">self</span>.nodes.is_empty() {
+<a href=#17687 id=17687 data-nosnippet>17687</a>                <span class="kw">return</span>;
+<a href=#17688 id=17688 data-nosnippet>17688</a>            }
+<a href=#17689 id=17689 data-nosnippet>17689</a>            <span class="kw">if let </span><span class="prelude-val">Ok</span>(handle) = <span class="self">self</span>.install_ros_time_source(
+<a href=#17690 id=17690 data-nosnippet>17690</a>                <span class="kw">super</span>::node_record::NodeId::PRIMARY,
+<a href=#17691 id=17691 data-nosnippet>17691</a>                <span class="kw">crate</span>::time_source::CLOCK_TOPIC,
+<a href=#17692 id=17692 data-nosnippet>17692</a>            ) {
+<a href=#17693 id=17693 data-nosnippet>17693</a>                <span class="self">self</span>.sim_time_source = <span class="prelude-val">Some</span>(handle);
+<a href=#17694 id=17694 data-nosnippet>17694</a>                <span class="comment">// phase-430 W1 — the interval starts HERE, at attach, and not
+<a href=#17695 id=17695 data-nosnippet>17695</a>                // at construction: before the subscription exists there is
+<a href=#17696 id=17696 data-nosnippet>17696</a>                // nothing to be silent about, so counting from boot would
+<a href=#17697 id=17697 data-nosnippet>17697</a>                // accuse an image that spent the interval bringing a transport
+<a href=#17698 id=17698 data-nosnippet>17698</a>                // up.
+<a href=#17699 id=17699 data-nosnippet>17699</a>                </span><span class="self">self</span>.sim_time_silence.arm();
+<a href=#17700 id=17700 data-nosnippet>17700</a>            }
+<a href=#17701 id=17701 data-nosnippet>17701</a>        } <span class="kw">else </span>{
+<a href=#17702 id=17702 data-nosnippet>17702</a>            <span class="comment">// Re-attached: `use_sim_time` went false and back to true while the
+<a href=#17703 id=17703 data-nosnippet>17703</a>            // subscription (which the executor cannot remove) stayed. W1 asks
+<a href=#17704 id=17704 data-nosnippet>17704</a>            // for the one-shot to reset in exactly this case.
+<a href=#17705 id=17705 data-nosnippet>17705</a>            </span><span class="self">self</span>.sim_time_silence.arm();
+<a href=#17706 id=17706 data-nosnippet>17706</a>        }
+<a href=#17707 id=17707 data-nosnippet>17707</a>    }
+<a href=#17708 id=17708 data-nosnippet>17708</a>
+<a href=#17709 id=17709 data-nosnippet>17709</a>    <span class="doccomment">/// phase-430 W1 — credit one spin's elapsed time to the silence watch and
+<a href=#17710 id=17710 data-nosnippet>17710</a>    /// emit the diagnostic if this is the spin that crosses the threshold.
+<a href=#17711 id=17711 data-nosnippet>17711</a>    ///
+<a href=#17712 id=17712 data-nosnippet>17712</a>    /// `delta_us` is the executor's OWN per-spin elapsed measure — the same one
+<a href=#17713 id=17713 data-nosnippet>17713</a>    /// every wall timer on this executor accumulates, including its "no clock,
+<a href=#17714 id=17714 data-nosnippet>17714</a>    /// credit the requested timeout" fallback. See
+<a href=#17715 id=17715 data-nosnippet>17715</a>    /// [`SILENCE_WARN_US`](crate::time_source::SILENCE_WARN_US) for why that is
+<a href=#17716 id=17716 data-nosnippet>17716</a>    /// the unit and not a spin count or an independent wall clock.
+<a href=#17717 id=17717 data-nosnippet>17717</a>    ///
+<a href=#17718 id=17718 data-nosnippet>17718</a>    /// Scope: the source the EXECUTOR installed for `use_sim_time`. An
+<a href=#17719 id=17719 data-nosnippet>17719</a>    /// application that calls
+<a href=#17720 id=17720 data-nosnippet>17720</a>    /// [`Node::install_ros_time_source`](super::node::Node::install_ros_time_source)
+<a href=#17721 id=17721 data-nosnippet>17721</a>    /// directly is not watched, because the line this would print names
+<a href=#17722 id=17722 data-nosnippet>17722</a>    /// `use_sim_time`, and that application never set it — the honest
+<a href=#17723 id=17723 data-nosnippet>17723</a>    /// diagnostic for the explicit path would be a different sentence, and
+<a href=#17724 id=17724 data-nosnippet>17724</a>    /// inventing one nobody asked for is how a warning becomes noise.
+<a href=#17725 id=17725 data-nosnippet>17725</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
+<a href=#17726 id=17726 data-nosnippet>17726</a>    </span><span class="kw">fn </span>note_sim_time_silence(<span class="kw-2">&amp;mut </span><span class="self">self</span>, delta_us: u64) {
+<a href=#17727 id=17727 data-nosnippet>17727</a>        <span class="kw">if </span><span class="self">self</span>.sim_time_silence.tick(
+<a href=#17728 id=17728 data-nosnippet>17728</a>            delta_us,
+<a href=#17729 id=17729 data-nosnippet>17729</a>            nros_core::clock::Clock::is_ros_time_override_active(),
+<a href=#17730 id=17730 data-nosnippet>17730</a>        ) {
+<a href=#17731 id=17731 data-nosnippet>17731</a>            <span class="kw">crate</span>::time_source::report_silence(<span class="kw">crate</span>::time_source::CLOCK_TOPIC);
+<a href=#17732 id=17732 data-nosnippet>17732</a>        }
+<a href=#17733 id=17733 data-nosnippet>17733</a>    }
+<a href=#17734 id=17734 data-nosnippet>17734</a>
+<a href=#17735 id=17735 data-nosnippet>17735</a>    <span class="doccomment">/// phase-430 W1 — how many times this executor has reported that
+<a href=#17736 id=17736 data-nosnippet>17736</a>    /// `use_sim_time` is on with no `/clock` sample.
+<a href=#17737 id=17737 data-nosnippet>17737</a>    ///
+<a href=#17738 id=17738 data-nosnippet>17738</a>    /// The count rather than a bool, and an accessor rather than a log grep: a
+<a href=#17739 id=17739 data-nosnippet>17739</a>    /// diagnostic whose contract is "exactly once" needs an assertion that can
+<a href=#17740 id=17740 data-nosnippet>17740</a>    /// tell one from two, and a log sink is not present on every target that
+<a href=#17741 id=17741 data-nosnippet>17741</a>    /// runs the test. It is also the question an application supervising its
+<a href=#17742 id=17742 data-nosnippet>17742</a>    /// own configuration would ask.
+<a href=#17743 id=17743 data-nosnippet>17743</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
+<a href=#17744 id=17744 data-nosnippet>17744</a>    </span><span class="kw">pub fn </span>sim_time_silence_warnings(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; u32 {
+<a href=#17745 id=17745 data-nosnippet>17745</a>        <span class="self">self</span>.sim_time_silence.reports()
+<a href=#17746 id=17746 data-nosnippet>17746</a>    }
+<a href=#17747 id=17747 data-nosnippet>17747</a>
+<a href=#17748 id=17748 data-nosnippet>17748</a>    <span class="doccomment">/// phase-425 W3b — re-read `use_sim_time` from the parameter store.
+<a href=#17749 id=17749 data-nosnippet>17749</a>    ///
+<a href=#17750 id=17750 data-nosnippet>17750</a>    /// Called after a parameter service actually handled something, which is
+<a href=#17751 id=17751 data-nosnippet>17751</a>    /// what makes a runtime `ros2 param set &lt;node&gt; use_sim_time true` work
+<a href=#17752 id=17752 data-nosnippet>17752</a>    /// without a per-spin scan of the store.
+<a href=#17753 id=17753 data-nosnippet>17753</a>    ///
+<a href=#17754 id=17754 data-nosnippet>17754</a>    /// phase-430 W3 / issue 1202 — the declaration path calls it too, through
+<a href=#17755 id=17755 data-nosnippet>17755</a>    /// `note_reserved_parameter`, once the store has accepted the write. It
+<a href=#17756 id=17756 data-nosnippet>17756</a>    /// used to record the value directly from the caller's argument, which is
+<a href=#17757 id=17757 data-nosnippet>17757</a>    /// the same thing only while the store never refuses. One read for both
+<a href=#17758 id=17758 data-nosnippet>17758</a>    /// paths; a second spelling is the drift this function exists to prevent.
+<a href=#17759 id=17759 data-nosnippet>17759</a>    /// `pub(crate)` for the same reason: a test that changes the store directly
+<a href=#17760 id=17760 data-nosnippet>17760</a>    /// needs the entry point a parameter service uses, not a copy of it.
+<a href=#17761 id=17761 data-nosnippet>17761</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, feature = <span class="string">"param-store"</span>, any(has_rmw, test)))]
+<a href=#17762 id=17762 data-nosnippet>17762</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>refresh_use_sim_time_from_store(<span class="kw-2">&amp;mut </span><span class="self">self</span>) {
+<a href=#17763 id=17763 data-nosnippet>17763</a>        <span class="comment">// phase-426 W1 — the store is keyed by NODE, and the simulated clock is
+<a href=#17764 id=17764 data-nosnippet>17764</a>        // not. This function is where those two facts meet, so the rule is
+<a href=#17765 id=17765 data-nosnippet>17765</a>        // stated here rather than left to whichever call site got there first.
+<a href=#17766 id=17766 data-nosnippet>17766</a>        //
+<a href=#17767 id=17767 data-nosnippet>17767</a>        // `use_sim_time` is a per-node parameter in ROS 2, and rclcpp means it:
+<a href=#17768 id=17768 data-nosnippet>17768</a>        // every `Node` builds its own `TimeSource` over its own `Clock`, so two
+<a href=#17769 id=17769 data-nosnippet>17769</a>        // nodes composed into one process CAN be configured differently and
+<a href=#17770 id=17770 data-nosnippet>17770</a>        // stamp messages from different clocks at the same instant. This tree
+<a href=#17771 id=17771 data-nosnippet>17771</a>        // deliberately does not follow that (phase-425): "the override is
+<a href=#17772 id=17772 data-nosnippet>17772</a>        // process-global — one simulated clock per image, the model
+<a href=#17773 id=17773 data-nosnippet>17773</a>        // `nros_core::Clock` already documents — so there is nothing to attach
+<a href=#17774 id=17774 data-nosnippet>17774</a>        // to and nothing to fan out." That is the right trade for an image with
+<a href=#17775 id=17775 data-nosnippet>17775</a>        // a fixed RAM budget, and it makes "whose `use_sim_time`?" a question
+<a href=#17776 id=17776 data-nosnippet>17776</a>        // rclcpp never has to answer and this executor now does.
+<a href=#17777 id=17777 data-nosnippet>17777</a>        //
+<a href=#17778 id=17778 data-nosnippet>17778</a>        // ANY node asking arms the one source. Two reasons, and the second is
+<a href=#17779 id=17779 data-nosnippet>17779</a>        // the binding one:
+<a href=#17780 id=17780 data-nosnippet>17780</a>        //
+<a href=#17781 id=17781 data-nosnippet>17781</a>        //   * it is the only rule the CALLERS can implement. `note_param_
+<a href=#17782 id=17782 data-nosnippet>17782</a>        //     services_ran` fires after a runtime `ros2 param set` and knows
+<a href=#17783 id=17783 data-nosnippet>17783</a>        //     only that N requests were handled — not which node was written.
+<a href=#17784 id=17784 data-nosnippet>17784</a>        //     A last-writer-wins rule would need a writer identity that does
+<a href=#17785 id=17785 data-nosnippet>17785</a>        //     not reach here, so it would silently degrade to "whatever node 0
+<a href=#17786 id=17786 data-nosnippet>17786</a>        //     says", which is the default-to-primary bug phase-426 W1 exists to
+<a href=#17787 id=17787 data-nosnippet>17787</a>        //     remove.
+<a href=#17788 id=17788 data-nosnippet>17788</a>        //   * one node still wanting simulated time is a reason to keep the
+<a href=#17789 id=17789 data-nosnippet>17789</a>        //     source attached, and detaching is the destructive direction:
+<a href=#17790 id=17790 data-nosnippet>17790</a>        //     phase-425 already records that turning it off "stops SAMPLES, not
+<a href=#17791 id=17791 data-nosnippet>17791</a>        //     the subscription", precisely so a mid-run change does not read as
+<a href=#17792 id=17792 data-nosnippet>17792</a>        //     a clock jump.
+<a href=#17793 id=17793 data-nosnippet>17793</a>        //
+<a href=#17794 id=17794 data-nosnippet>17794</a>        // The scan is over the executor's own node table, which is the same
+<a href=#17795 id=17795 data-nosnippet>17795</a>        // `u8` index space `NodeKey` wraps, so there is one node identity here
+<a href=#17796 id=17796 data-nosnippet>17796</a>        // and not two.
+<a href=#17797 id=17797 data-nosnippet>17797</a>        </span><span class="kw">let </span><span class="prelude-val">Some</span>(params) = <span class="self">self</span>.params.as_deref() <span class="kw">else </span>{
+<a href=#17798 id=17798 data-nosnippet>17798</a>            <span class="kw">return</span>;
+<a href=#17799 id=17799 data-nosnippet>17799</a>        };
+<a href=#17800 id=17800 data-nosnippet>17800</a>        <span class="kw">let </span><span class="kw-2">mut </span>stated = <span class="bool-val">false</span>;
+<a href=#17801 id=17801 data-nosnippet>17801</a>        <span class="kw">let </span><span class="kw-2">mut </span>enable = <span class="bool-val">false</span>;
+<a href=#17802 id=17802 data-nosnippet>17802</a>        <span class="comment">// A `NodeId` IS the index into this table (`NodeId::index`), so the
+<a href=#17803 id=17803 data-nosnippet>17803</a>        // enumeration is the key space — no second derivation of the number.
+<a href=#17804 id=17804 data-nosnippet>17804</a>        //
+<a href=#17805 id=17805 data-nosnippet>17805</a>        // `.max(1)` because `NodeId::PRIMARY` is IMPLICIT: the executor's node
+<a href=#17806 id=17806 data-nosnippet>17806</a>        // table starts empty and a parameter can be declared on the primary
+<a href=#17807 id=17807 data-nosnippet>17807</a>        // node before any `create_node` puts a record in it. Scanning only the
+<a href=#17808 id=17808 data-nosnippet>17808</a>        // table would then find nothing and leave `sim_time_stated` false, so a
+<a href=#17809 id=17809 data-nosnippet>17809</a>        // `use_sim_time` declared before the first node would never arm the
+<a href=#17810 id=17810 data-nosnippet>17810</a>        // source — which `use_sim_time_attaches_and_detaches_the_clock_source`
+<a href=#17811 id=17811 data-nosnippet>17811</a>        // catches, since its whole first half runs while "there is still no
+<a href=#17812 id=17812 data-nosnippet>17812</a>        // node". Slot 0 is always a legitimate key; at worst the lookup misses.
+<a href=#17813 id=17813 data-nosnippet>17813</a>        </span><span class="kw">for </span>idx <span class="kw">in </span><span class="number">0</span>..<span class="self">self</span>.nodes.len().max(<span class="number">1</span>) {
+<a href=#17814 id=17814 data-nosnippet>17814</a>            <span class="kw">let </span>key = nros_params::NodeKey::new(idx <span class="kw">as </span>u8);
+<a href=#17815 id=17815 data-nosnippet>17815</a>            <span class="kw">if let </span><span class="prelude-val">Some</span>(v) = params
+<a href=#17816 id=17816 data-nosnippet>17816</a>                .server
+<a href=#17817 id=17817 data-nosnippet>17817</a>                .get_bool(key, <span class="kw">crate</span>::time_source::USE_SIM_TIME_PARAM)
+<a href=#17818 id=17818 data-nosnippet>17818</a>            {
+<a href=#17819 id=17819 data-nosnippet>17819</a>                stated = <span class="bool-val">true</span>;
+<a href=#17820 id=17820 data-nosnippet>17820</a>                enable |= v;
+<a href=#17821 id=17821 data-nosnippet>17821</a>            }
+<a href=#17822 id=17822 data-nosnippet>17822</a>        }
+<a href=#17823 id=17823 data-nosnippet>17823</a>        <span class="kw">if </span>stated {
+<a href=#17824 id=17824 data-nosnippet>17824</a>            <span class="self">self</span>.sim_time_requested = enable;
+<a href=#17825 id=17825 data-nosnippet>17825</a>            <span class="self">self</span>.sim_time_stated = <span class="bool-val">true</span>;
+<a href=#17826 id=17826 data-nosnippet>17826</a>        }
+<a href=#17827 id=17827 data-nosnippet>17827</a>    }
+<a href=#17828 id=17828 data-nosnippet>17828</a>
+<a href=#17829 id=17829 data-nosnippet>17829</a>    <span class="doccomment">/// phase-425 W3b — the installed `/clock` subscription, if any.
+<a href=#17830 id=17830 data-nosnippet>17830</a>    ///
+<a href=#17831 id=17831 data-nosnippet>17831</a>    /// The HANDLE rather than a bool, because "did we subscribe twice" is the
+<a href=#17832 id=17832 data-nosnippet>17832</a>    /// question a reconciliation loop has to be able to answer: a second
+<a href=#17833 id=17833 data-nosnippet>17833</a>    /// registration takes a new slot, so a stable handle across spins is the
+<a href=#17834 id=17834 data-nosnippet>17834</a>    /// evidence that the loop is idempotent.
+<a href=#17835 id=17835 data-nosnippet>17835</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
+<a href=#17836 id=17836 data-nosnippet>17836</a>    </span><span class="kw">pub fn </span>ros_time_source_handle(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;HandleId&gt; {
+<a href=#17837 id=17837 data-nosnippet>17837</a>        <span class="self">self</span>.sim_time_source
+<a href=#17838 id=17838 data-nosnippet>17838</a>    }
+<a href=#17839 id=17839 data-nosnippet>17839</a>
+<a href=#17840 id=17840 data-nosnippet>17840</a>    <span class="doccomment">/// phase-425 W3b — whether a `/clock` subscription is currently installed.
+<a href=#17841 id=17841 data-nosnippet>17841</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
+<a href=#17842 id=17842 data-nosnippet>17842</a>    </span><span class="kw">pub fn </span>ros_time_source_installed(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
+<a href=#17843 id=17843 data-nosnippet>17843</a>        <span class="self">self</span>.sim_time_source.is_some()
+<a href=#17844 id=17844 data-nosnippet>17844</a>    }
+<a href=#17845 id=17845 data-nosnippet>17845</a>
+<a href=#17846 id=17846 data-nosnippet>17846</a>    <span class="doccomment">/// phase-425 W3 — subscribe `topic` and install every sample as this
+<a href=#17847 id=17847 data-nosnippet>17847</a>    /// image's ROS time. The registration behind
+<a href=#17848 id=17848 data-nosnippet>17848</a>    /// [`Node::install_ros_time_source`](super::node::Node::install_ros_time_source)
+<a href=#17849 id=17849 data-nosnippet>17849</a>    /// and behind the `use_sim_time` reconciliation, so both spell the QoS and
+<a href=#17850 id=17850 data-nosnippet>17850</a>    /// the conversion exactly once.
+<a href=#17851 id=17851 data-nosnippet>17851</a>    </span><span class="attr">#[cfg(all(feature = <span class="string">"sim-time"</span>, any(has_rmw, test)))]
+<a href=#17852 id=17852 data-nosnippet>17852</a>    </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>install_ros_time_source(
+<a href=#17853 id=17853 data-nosnippet>17853</a>        <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+<a href=#17854 id=17854 data-nosnippet>17854</a>        node_id: <span class="kw">super</span>::node_record::NodeId,
+<a href=#17855 id=17855 data-nosnippet>17855</a>        topic: <span class="kw-2">&amp;</span>str,
+<a href=#17856 id=17856 data-nosnippet>17856</a>    ) -&gt; <span class="prelude-ty">Result</span>&lt;HandleId, NodeError&gt; {
+<a href=#17857 id=17857 data-nosnippet>17857</a>        <span class="self">self</span>.register_subscription_buffered_on::&lt;
+<a href=#17858 id=17858 data-nosnippet>17858</a>            nros_rosgraph_msgs::msg::Clock,
+<a href=#17859 id=17859 data-nosnippet>17859</a>            <span class="kw">_</span>,
+<a href=#17860 id=17860 data-nosnippet>17860</a>            { <span class="kw">crate</span>::config::DEFAULT_RX_BUF_SIZE },
+<a href=#17861 id=17861 data-nosnippet>17861</a>        &gt;(
+<a href=#17862 id=17862 data-nosnippet>17862</a>            node_id,
+<a href=#17863 id=17863 data-nosnippet>17863</a>            topic,
+<a href=#17864 id=17864 data-nosnippet>17864</a>            QoSProfile::clock_default(),
+<a href=#17865 id=17865 data-nosnippet>17865</a>            |msg: <span class="kw-2">&amp;</span>nros_rosgraph_msgs::msg::Clock| {
+<a href=#17866 id=17866 data-nosnippet>17866</a>                <span class="comment">// The `use_sim_time` gate is read HERE rather than by removing
+<a href=#17867 id=17867 data-nosnippet>17867</a>                // the subscription, because there is no entity removal. An
+<a href=#17868 id=17868 data-nosnippet>17868</a>                // image that never touches `use_sim_time` and installs the
+<a href=#17869 id=17869 data-nosnippet>17869</a>                // source explicitly is active by default.
+<a href=#17870 id=17870 data-nosnippet>17870</a>                </span><span class="kw">if </span>!<span class="kw">crate</span>::time_source::is_active() {
+<a href=#17871 id=17871 data-nosnippet>17871</a>                    <span class="kw">return</span>;
+<a href=#17872 id=17872 data-nosnippet>17872</a>                }
+<a href=#17873 id=17873 data-nosnippet>17873</a>                <span class="kw">if let </span><span class="prelude-val">Some</span>(nanos) =
+<a href=#17874 id=17874 data-nosnippet>17874</a>                    <span class="kw">crate</span>::time_source::override_nanos(msg.clock.sec, msg.clock.nanosec)
+<a href=#17875 id=17875 data-nosnippet>17875</a>                {
+<a href=#17876 id=17876 data-nosnippet>17876</a>                    nros_core::clock::Clock::set_ros_time_override(nanos);
+<a href=#17877 id=17877 data-nosnippet>17877</a>                }
+<a href=#17878 id=17878 data-nosnippet>17878</a>            },
+<a href=#17879 id=17879 data-nosnippet>17879</a>            <span class="prelude-val">None</span>, <span class="comment">// no group — node default
+<a href=#17880 id=17880 data-nosnippet>17880</a>            </span><span class="prelude-val">None</span>, <span class="comment">// the configured default RX buffer, unchanged
+<a href=#17881 id=17881 data-nosnippet>17881</a>        </span>)
+<a href=#17882 id=17882 data-nosnippet>17882</a>    }
+<a href=#17883 id=17883 data-nosnippet>17883</a>}
+<a href=#17884 id=17884 data-nosnippet>17884</a>
+<a href=#17885 id=17885 data-nosnippet>17885</a><span class="comment">// ============================================================================
+<a href=#17886 id=17886 data-nosnippet>17886</a>// phase-417 W4.c — cancel / is_spinning
+<a href=#17887 id=17887 data-nosnippet>17887</a>// ============================================================================
+<a href=#17888 id=17888 data-nosnippet>17888</a>//
+<a href=#17889 id=17889 data-nosnippet>17889</a>// Same gate as `executor::tests`, exactly: `ConcreteSession` is `MockSession`
+<a href=#17890 id=17890 data-nosnippet>17890</a>// only while no rmw-* feature is unified in (see `executor/mod.rs`), and
+<a href=#17891 id=17891 data-nosnippet>17891</a>// `from_session_with` / `halt_flag` are `alloc`. No `std` gate — `cfg(test)`
+<a href=#17892 id=17892 data-nosnippet>17892</a>// already means a hosted harness, which is why `lib.rs` brings `std` in under
+<a href=#17893 id=17893 data-nosnippet>17893</a>// `test` as well. (It said "exactly" while missing `alloc`, and `std` was not in
+<a href=#17894 id=17894 data-nosnippet>17894</a>// scope: 20 errors, hidden by feature unification under `--workspace`.)
+<a href=#17895 id=17895 data-nosnippet>17895</a></span><span class="attr">#[cfg(all(test, feature = <span class="string">"alloc"</span>, not(feature = <span class="string">"rmw-cffi"</span>)))]
+<a href=#17896 id=17896 data-nosnippet>17896</a></span><span class="kw">mod </span>cancel_tests {
+<a href=#17897 id=17897 data-nosnippet>17897</a>    <span class="kw">use </span><span class="kw">super</span>::Executor;
+<a href=#17898 id=17898 data-nosnippet>17898</a>    <span class="kw">use crate</span>::{executor::types::ExecutorConfig, mock::MockSession};
+<a href=#17899 id=17899 data-nosnippet>17899</a>
+<a href=#17900 id=17900 data-nosnippet>17900</a>    <span class="doccomment">/// The core has no default clock and says so (issue 0709), so a test that
+<a href=#17901 id=17901 data-nosnippet>17901</a>    /// measures elapsed time brings its own — the same seam a board uses.
+<a href=#17902 id=17902 data-nosnippet>17902</a>    </span><span class="kw">fn </span>test_clock_us() -&gt; u64 {
+<a href=#17903 id=17903 data-nosnippet>17903</a>        <span class="kw">use </span>std::{sync::OnceLock, time::Instant};
+<a href=#17904 id=17904 data-nosnippet>17904</a>        <span class="kw">static </span>EPOCH: OnceLock&lt;Instant&gt; = OnceLock::new();
+<a href=#17905 id=17905 data-nosnippet>17905</a>        EPOCH.get_or_init(Instant::now).elapsed().as_micros() <span class="kw">as </span>u64
+<a href=#17906 id=17906 data-nosnippet>17906</a>    }
+<a href=#17907 id=17907 data-nosnippet>17907</a>
+<a href=#17908 id=17908 data-nosnippet>17908</a>    <span class="kw">fn </span>executor() -&gt; Executor&lt;<span class="lifetime">'static</span>&gt; {
+<a href=#17909 id=17909 data-nosnippet>17909</a>        <span class="kw">let </span>cfg = ExecutorConfig::default().clock_us(test_clock_us);
+<a href=#17910 id=17910 data-nosnippet>17910</a>        Executor::from_session_with(MockSession::new(), <span class="kw-2">&amp;</span>cfg)
+<a href=#17911 id=17911 data-nosnippet>17911</a>    }
+<a href=#17912 id=17912 data-nosnippet>17912</a>
+<a href=#17913 id=17913 data-nosnippet>17913</a>    <span class="doccomment">/// A fresh executor is neither cancelled nor spinning — the two questions
+<a href=#17914 id=17914 data-nosnippet>17914</a>    /// are independent, and this is the state where both answers are `false`.
+<a href=#17915 id=17915 data-nosnippet>17915</a>    </span><span class="attr">#[test]
+<a href=#17916 id=17916 data-nosnippet>17916</a>    </span><span class="kw">fn </span>a_fresh_executor_is_neither_cancelled_nor_spinning() {
+<a href=#17917 id=17917 data-nosnippet>17917</a>        <span class="kw">let </span>exec = executor();
+<a href=#17918 id=17918 data-nosnippet>17918</a>        <span class="macro">assert!</span>(!exec.is_halted(), <span class="string">"nothing has asked it to stop"</span>);
+<a href=#17919 id=17919 data-nosnippet>17919</a>        <span class="macro">assert!</span>(!exec.is_spinning(), <span class="string">"no spin loop is running"</span>);
+<a href=#17920 id=17920 data-nosnippet>17920</a>    }
+<a href=#17921 id=17921 data-nosnippet>17921</a>
+<a href=#17922 id=17922 data-nosnippet>17922</a>    <span class="doccomment">/// `cancel()` raises the request bit without starting or stopping anything.
+<a href=#17923 id=17923 data-nosnippet>17923</a>    </span><span class="attr">#[test]
+<a href=#17924 id=17924 data-nosnippet>17924</a>    </span><span class="kw">fn </span>cancel_requests_without_spinning() {
+<a href=#17925 id=17925 data-nosnippet>17925</a>        <span class="kw">let </span>exec = executor();
+<a href=#17926 id=17926 data-nosnippet>17926</a>        exec.cancel();
+<a href=#17927 id=17927 data-nosnippet>17927</a>        <span class="macro">assert!</span>(exec.is_halted(), <span class="string">"cancel() must be observable immediately"</span>);
+<a href=#17928 id=17928 data-nosnippet>17928</a>        <span class="macro">assert!</span>(
+<a href=#17929 id=17929 data-nosnippet>17929</a>            !exec.is_spinning(),
+<a href=#17930 id=17930 data-nosnippet>17930</a>            <span class="string">"cancel() must not make a non-spinning executor claim to spin"
+<a href=#17931 id=17931 data-nosnippet>17931</a>        </span>);
+<a href=#17932 id=17932 data-nosnippet>17932</a>    }
+<a href=#17933 id=17933 data-nosnippet>17933</a>
+<a href=#17934 id=17934 data-nosnippet>17934</a>    <span class="doccomment">/// The load-bearing one: `cancel()` from a peer thread TERMINATES a running
+<a href=#17935 id=17935 data-nosnippet>17935</a>    /// `spin`, `is_spinning()` is true while the loop runs, and false
+<a href=#17936 id=17936 data-nosnippet>17936</a>    /// once it has returned.
+<a href=#17937 id=17937 data-nosnippet>17937</a>    ///
+<a href=#17938 id=17938 data-nosnippet>17938</a>    /// The peer asserts `is_spinning()` from OUTSIDE the spinning thread, which
+<a href=#17939 id=17939 data-nosnippet>17939</a>    /// is the whole point of the observable — it is what a signal handler or a
+<a href=#17940 id=17940 data-nosnippet>17940</a>    /// supervisor sees.
+<a href=#17941 id=17941 data-nosnippet>17941</a>    </span><span class="attr">#[test]
+<a href=#17942 id=17942 data-nosnippet>17942</a>    </span><span class="kw">fn </span>cancel_terminates_a_spin_and_is_spinning_tracks_it() {
+<a href=#17943 id=17943 data-nosnippet>17943</a>        <span class="kw">use </span>std::{
+<a href=#17944 id=17944 data-nosnippet>17944</a>            sync::{
+<a href=#17945 id=17945 data-nosnippet>17945</a>                Arc,
+<a href=#17946 id=17946 data-nosnippet>17946</a>                atomic::{AtomicBool, Ordering},
+<a href=#17947 id=17947 data-nosnippet>17947</a>            },
+<a href=#17948 id=17948 data-nosnippet>17948</a>            thread,
+<a href=#17949 id=17949 data-nosnippet>17949</a>            time::{Duration, Instant},
+<a href=#17950 id=17950 data-nosnippet>17950</a>        };
+<a href=#17951 id=17951 data-nosnippet>17951</a>
+<a href=#17952 id=17952 data-nosnippet>17952</a>        <span class="kw">let </span><span class="kw-2">mut </span>exec = executor();
+<a href=#17953 id=17953 data-nosnippet>17953</a>        <span class="macro">assert!</span>(!exec.is_spinning());
+<a href=#17954 id=17954 data-nosnippet>17954</a>
+<a href=#17955 id=17955 data-nosnippet>17955</a>        <span class="comment">// `Executor` is not `Sync`, so the peer thread cannot hold a reference
+<a href=#17956 id=17956 data-nosnippet>17956</a>        // to it. It observes and drives through the two flag handles instead —
+<a href=#17957 id=17957 data-nosnippet>17957</a>        // which is the supported cross-thread surface (`halt_flag()`), and
+<a href=#17958 id=17958 data-nosnippet>17958</a>        // keeps this test on the same seam a signal handler uses.
+<a href=#17959 id=17959 data-nosnippet>17959</a>        </span><span class="kw">let </span>cancel_bit = exec.halt_flag();
+<a href=#17960 id=17960 data-nosnippet>17960</a>        <span class="kw">let </span>saw_spinning = Arc::new(AtomicBool::new(<span class="bool-val">false</span>));
+<a href=#17961 id=17961 data-nosnippet>17961</a>        <span class="kw">let </span>saw_spinning_peer = Arc::clone(<span class="kw-2">&amp;</span>saw_spinning);
+<a href=#17962 id=17962 data-nosnippet>17962</a>
+<a href=#17963 id=17963 data-nosnippet>17963</a>        <span class="kw">let </span>peer = thread::spawn(<span class="kw">move </span>|| {
+<a href=#17964 id=17964 data-nosnippet>17964</a>            <span class="comment">// Give the loop time to enter. Bounded, and the assertion below is
+<a href=#17965 id=17965 data-nosnippet>17965</a>            // on what was OBSERVED, so a slow host cannot turn this green by
+<a href=#17966 id=17966 data-nosnippet>17966</a>            // accident — it fails instead.
+<a href=#17967 id=17967 data-nosnippet>17967</a>            </span>thread::sleep(Duration::from_millis(<span class="number">50</span>));
+<a href=#17968 id=17968 data-nosnippet>17968</a>            saw_spinning_peer.store(<span class="bool-val">true</span>, Ordering::SeqCst);
+<a href=#17969 id=17969 data-nosnippet>17969</a>            cancel_bit.store(<span class="bool-val">true</span>, Ordering::SeqCst);
+<a href=#17970 id=17970 data-nosnippet>17970</a>        });
+<a href=#17971 id=17971 data-nosnippet>17971</a>
+<a href=#17972 id=17972 data-nosnippet>17972</a>        <span class="kw">let </span>started = Instant::now();
+<a href=#17973 id=17973 data-nosnippet>17973</a>        exec.spin(<span class="kw">crate</span>::executor::types::SpinOptions::default())
+<a href=#17974 id=17974 data-nosnippet>17974</a>            .expect(<span class="string">"an untimed spin runs until cancelled"</span>);
+<a href=#17975 id=17975 data-nosnippet>17975</a>        <span class="kw">let </span>elapsed = started.elapsed();
+<a href=#17976 id=17976 data-nosnippet>17976</a>
+<a href=#17977 id=17977 data-nosnippet>17977</a>        peer.join().expect(<span class="string">"peer thread must not panic"</span>);
+<a href=#17978 id=17978 data-nosnippet>17978</a>
+<a href=#17979 id=17979 data-nosnippet>17979</a>        <span class="macro">assert!</span>(
+<a href=#17980 id=17980 data-nosnippet>17980</a>            saw_spinning.load(Ordering::SeqCst),
+<a href=#17981 id=17981 data-nosnippet>17981</a>            <span class="string">"the peer must have run before spin returned"
+<a href=#17982 id=17982 data-nosnippet>17982</a>        </span>);
+<a href=#17983 id=17983 data-nosnippet>17983</a>        <span class="macro">assert!</span>(
+<a href=#17984 id=17984 data-nosnippet>17984</a>            !exec.is_spinning(),
+<a href=#17985 id=17985 data-nosnippet>17985</a>            <span class="string">"is_spinning() must be false once the loop has returned"
+<a href=#17986 id=17986 data-nosnippet>17986</a>        </span>);
+<a href=#17987 id=17987 data-nosnippet>17987</a>        <span class="macro">assert!</span>(
+<a href=#17988 id=17988 data-nosnippet>17988</a>            exec.is_halted(),
+<a href=#17989 id=17989 data-nosnippet>17989</a>            <span class="string">"the cancel request survives the loop it ended"
+<a href=#17990 id=17990 data-nosnippet>17990</a>        </span>);
+<a href=#17991 id=17991 data-nosnippet>17991</a>        <span class="comment">// LOWER bound too: a spin that never waited would prove nothing about
+<a href=#17992 id=17992 data-nosnippet>17992</a>        // termination. The peer sleeps 50 ms before cancelling.
+<a href=#17993 id=17993 data-nosnippet>17993</a>        </span><span class="macro">assert!</span>(
+<a href=#17994 id=17994 data-nosnippet>17994</a>            elapsed &gt;= Duration::from_millis(<span class="number">40</span>),
+<a href=#17995 id=17995 data-nosnippet>17995</a>            <span class="string">"spin returned in {elapsed:?} — it cannot have spun"
+<a href=#17996 id=17996 data-nosnippet>17996</a>        </span>);
+<a href=#17997 id=17997 data-nosnippet>17997</a>        <span class="comment">// ...and an UPPER bound, because "terminated" is the claim: without the
+<a href=#17998 id=17998 data-nosnippet>17998</a>        // cancel check this loop never returns and the test would hang rather
+<a href=#17999 id=17999 data-nosnippet>17999</a>        // than fail. 10 s is far past any scheduling noise.
+<a href=#18000 id=18000 data-nosnippet>18000</a>        </span><span class="macro">assert!</span>(
+<a href=#18001 id=18001 data-nosnippet>18001</a>            elapsed &lt; Duration::from_secs(<span class="number">10</span>),
+<a href=#18002 id=18002 data-nosnippet>18002</a>            <span class="string">"spin took {elapsed:?} to observe the cancel"
+<a href=#18003 id=18003 data-nosnippet>18003</a>        </span>);
+<a href=#18004 id=18004 data-nosnippet>18004</a>    }
+<a href=#18005 id=18005 data-nosnippet>18005</a>
+<a href=#18006 id=18006 data-nosnippet>18006</a>    <span class="doccomment">/// `is_spinning()` is true from INSIDE the loop. Read from a timer callback,
+<a href=#18007 id=18007 data-nosnippet>18007</a>    /// which is the only place the executor is genuinely mid-spin, and asserted
+<a href=#18008 id=18008 data-nosnippet>18008</a>    /// after the loop so a callback that never fired cannot pass silently.
+<a href=#18009 id=18009 data-nosnippet>18009</a>    </span><span class="attr">#[test]
+<a href=#18010 id=18010 data-nosnippet>18010</a>    </span><span class="kw">fn </span>is_spinning_is_true_inside_the_loop() {
+<a href=#18011 id=18011 data-nosnippet>18011</a>        <span class="kw">use </span>std::time::Duration;
+<a href=#18012 id=18012 data-nosnippet>18012</a>
+<a href=#18013 id=18013 data-nosnippet>18013</a>        <span class="kw">let </span><span class="kw-2">mut </span>exec = executor();
+<a href=#18014 id=18014 data-nosnippet>18014</a>        <span class="comment">// `only_next` runs exactly one iteration, so this is a single poll
+<a href=#18015 id=18015 data-nosnippet>18015</a>        // inside a spin scope — bounded, no thread, no clock dependency beyond
+<a href=#18016 id=18016 data-nosnippet>18016</a>        // the one the fixture installs.
+<a href=#18017 id=18017 data-nosnippet>18017</a>        </span><span class="macro">assert!</span>(!exec.is_spinning());
+<a href=#18018 id=18018 data-nosnippet>18018</a>        exec.spin(<span class="kw">crate</span>::executor::types::SpinOptions::spin_once())
+<a href=#18019 id=18019 data-nosnippet>18019</a>            .expect(<span class="string">"a single-iteration spin must succeed"</span>);
+<a href=#18020 id=18020 data-nosnippet>18020</a>        <span class="macro">assert!</span>(
+<a href=#18021 id=18021 data-nosnippet>18021</a>            !exec.is_spinning(),
+<a href=#18022 id=18022 data-nosnippet>18022</a>            <span class="string">"the scope must close when the loop returns"
+<a href=#18023 id=18023 data-nosnippet>18023</a>        </span>);
+<a href=#18024 id=18024 data-nosnippet>18024</a>
+<a href=#18025 id=18025 data-nosnippet>18025</a>        <span class="comment">// The inside-the-loop reading needs a second thread to do it, because
+<a href=#18026 id=18026 data-nosnippet>18026</a>        // the spinning thread is blocked in the loop and `Executor` is `!Sync`
+<a href=#18027 id=18027 data-nosnippet>18027</a>        // so no `&amp;Executor` may cross. What crosses is a pointer to the one
+<a href=#18028 id=18028 data-nosnippet>18028</a>        // atomic, which is the same thing the C and C++ APIs hold: they observe
+<a href=#18029 id=18029 data-nosnippet>18029</a>        // `is_spinning` through a raw executor handle, and that is the case this
+<a href=#18030 id=18030 data-nosnippet>18030</a>        // flag exists to serve.
+<a href=#18031 id=18031 data-nosnippet>18031</a>        </span><span class="kw">struct </span>FlagPtr(<span class="kw-2">*const </span>portable_atomic::AtomicBool);
+<a href=#18032 id=18032 data-nosnippet>18032</a>        <span class="comment">// SAFETY: the pointee is an `AtomicBool`, which is `Sync`; the only
+<a href=#18033 id=18033 data-nosnippet>18033</a>        // operation performed through it is a relaxed-or-stronger load. The
+<a href=#18034 id=18034 data-nosnippet>18034</a>        // executor outlives the thread — `peer.join()` below happens before
+<a href=#18035 id=18035 data-nosnippet>18035</a>        // `exec` is dropped at the end of the test.
+<a href=#18036 id=18036 data-nosnippet>18036</a>        </span><span class="kw">unsafe impl </span>Send <span class="kw">for </span>FlagPtr {}
+<a href=#18037 id=18037 data-nosnippet>18037</a>
+<a href=#18038 id=18038 data-nosnippet>18038</a>        <span class="kw">let </span>cancel_bit = exec.halt_flag();
+<a href=#18039 id=18039 data-nosnippet>18039</a>        <span class="kw">let </span>observed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(<span class="bool-val">false</span>));
+<a href=#18040 id=18040 data-nosnippet>18040</a>        <span class="kw">let </span>spinning_bit_seen = std::sync::Arc::clone(<span class="kw-2">&amp;</span>observed);
+<a href=#18041 id=18041 data-nosnippet>18041</a>        <span class="kw">let </span>flag = FlagPtr(<span class="kw-2">&amp;</span>exec.spinning <span class="kw">as </span><span class="kw-2">*const </span>portable_atomic::AtomicBool);
+<a href=#18042 id=18042 data-nosnippet>18042</a>        <span class="kw">let </span>peer = std::thread::spawn(<span class="kw">move </span>|| {
+<a href=#18043 id=18043 data-nosnippet>18043</a>            <span class="kw">let </span>flag = flag;
+<a href=#18044 id=18044 data-nosnippet>18044</a>            <span class="kw">for _ in </span><span class="number">0</span>..<span class="number">500 </span>{
+<a href=#18045 id=18045 data-nosnippet>18045</a>                <span class="comment">// SAFETY: see the `unsafe impl Send` above.
+<a href=#18046 id=18046 data-nosnippet>18046</a>                </span><span class="kw">if unsafe </span>{ <span class="kw-2">&amp;*</span>flag.<span class="number">0 </span>}.load(core::sync::atomic::Ordering::SeqCst) {
+<a href=#18047 id=18047 data-nosnippet>18047</a>                    spinning_bit_seen.store(<span class="bool-val">true</span>, std::sync::atomic::Ordering::SeqCst);
+<a href=#18048 id=18048 data-nosnippet>18048</a>                    <span class="kw">break</span>;
+<a href=#18049 id=18049 data-nosnippet>18049</a>                }
+<a href=#18050 id=18050 data-nosnippet>18050</a>                std::thread::sleep(Duration::from_millis(<span class="number">2</span>));
+<a href=#18051 id=18051 data-nosnippet>18051</a>            }
+<a href=#18052 id=18052 data-nosnippet>18052</a>            cancel_bit.store(<span class="bool-val">true</span>, std::sync::atomic::Ordering::SeqCst);
+<a href=#18053 id=18053 data-nosnippet>18053</a>        });
+<a href=#18054 id=18054 data-nosnippet>18054</a>
+<a href=#18055 id=18055 data-nosnippet>18055</a>        exec.spin(<span class="kw">crate</span>::executor::types::SpinOptions::default())
+<a href=#18056 id=18056 data-nosnippet>18056</a>            .expect(<span class="string">"an untimed spin runs until cancelled"</span>);
+<a href=#18057 id=18057 data-nosnippet>18057</a>        peer.join().expect(<span class="string">"peer thread must not panic"</span>);
+<a href=#18058 id=18058 data-nosnippet>18058</a>
+<a href=#18059 id=18059 data-nosnippet>18059</a>        <span class="macro">assert!</span>(
+<a href=#18060 id=18060 data-nosnippet>18060</a>            observed.load(std::sync::atomic::Ordering::SeqCst),
+<a href=#18061 id=18061 data-nosnippet>18061</a>            <span class="string">"is_spinning() must read true while spin is running"
+<a href=#18062 id=18062 data-nosnippet>18062</a>        </span>);
+<a href=#18063 id=18063 data-nosnippet>18063</a>    }
+<a href=#18064 id=18064 data-nosnippet>18064</a>
+<a href=#18065 id=18065 data-nosnippet>18065</a>    <span class="doccomment">/// `spin_period` maintains the same scope, and a period this build cannot
+<a href=#18066 id=18066 data-nosnippet>18066</a>    /// pace is an error that must NOT leave the executor claiming to spin.
+<a href=#18067 id=18067 data-nosnippet>18067</a>    </span><span class="attr">#[test]
+<a href=#18068 id=18068 data-nosnippet>18068</a>    </span><span class="kw">fn </span>spin_period_with_no_clock_leaves_is_spinning_false() {
+<a href=#18069 id=18069 data-nosnippet>18069</a>        <span class="kw">let </span><span class="kw-2">mut </span>exec = executor();
+<a href=#18070 id=18070 data-nosnippet>18070</a>        exec.clock_us_fn = <span class="prelude-val">None</span>;
+<a href=#18071 id=18071 data-nosnippet>18071</a>        <span class="kw">let </span>err = exec
+<a href=#18072 id=18072 data-nosnippet>18072</a>            .spin_period(core::time::Duration::from_millis(<span class="number">10</span>))
+<a href=#18073 id=18073 data-nosnippet>18073</a>            .expect_err(<span class="string">"a period with no clock must fail (issue 0709)"</span>);
+<a href=#18074 id=18074 data-nosnippet>18074</a>        <span class="macro">assert_eq!</span>(err, <span class="kw">crate</span>::NodeError::NotInitialized);
+<a href=#18075 id=18075 data-nosnippet>18075</a>        <span class="macro">assert!</span>(
+<a href=#18076 id=18076 data-nosnippet>18076</a>            !exec.is_spinning(),
+<a href=#18077 id=18077 data-nosnippet>18077</a>            <span class="string">"a spin that never started must not report that it did"
+<a href=#18078 id=18078 data-nosnippet>18078</a>        </span>);
+<a href=#18079 id=18079 data-nosnippet>18079</a>    }
+<a href=#18080 id=18080 data-nosnippet>18080</a>
+<a href=#18081 id=18081 data-nosnippet>18081</a>    <span class="doccomment">/// Entering a spin CLEARS a stale cancel: a cancel requested before this
+<a href=#18082 id=18082 data-nosnippet>18082</a>    /// spin is not a cancel of this spin. Documents the ADOPT-BOUNDED envelope's
+<a href=#18083 id=18083 data-nosnippet>18083</a>    /// one sharp edge.
+<a href=#18084 id=18084 data-nosnippet>18084</a>    </span><span class="attr">#[test]
+<a href=#18085 id=18085 data-nosnippet>18085</a>    </span><span class="kw">fn </span>entering_a_spin_clears_a_stale_cancel() {
+<a href=#18086 id=18086 data-nosnippet>18086</a>        <span class="kw">let </span>exec = executor();
+<a href=#18087 id=18087 data-nosnippet>18087</a>        exec.cancel();
+<a href=#18088 id=18088 data-nosnippet>18088</a>        <span class="macro">assert!</span>(exec.is_halted());
+<a href=#18089 id=18089 data-nosnippet>18089</a>        exec.enter_spin_loop();
+<a href=#18090 id=18090 data-nosnippet>18090</a>        <span class="macro">assert!</span>(
+<a href=#18091 id=18091 data-nosnippet>18091</a>            !exec.is_halted(),
+<a href=#18092 id=18092 data-nosnippet>18092</a>            <span class="string">"a cancel raised before the loop started must not end it instantly"
+<a href=#18093 id=18093 data-nosnippet>18093</a>        </span>);
+<a href=#18094 id=18094 data-nosnippet>18094</a>        <span class="macro">assert!</span>(exec.is_spinning());
+<a href=#18095 id=18095 data-nosnippet>18095</a>        exec.exit_spin_loop();
+<a href=#18096 id=18096 data-nosnippet>18096</a>        <span class="macro">assert!</span>(!exec.is_spinning());
+<a href=#18097 id=18097 data-nosnippet>18097</a>    }
+<a href=#18098 id=18098 data-nosnippet>18098</a>}
+<a href=#18099 id=18099 data-nosnippet>18099</a>
+<a href=#18100 id=18100 data-nosnippet>18100</a><span class="doccomment">/// phase-509 P9b item 3 (RFC-0108 D7) -- the arrival path wakes only the
+<a href=#18101 id=18101 data-nosnippet>18101</a>/// worker whose band holds the slot.
+<a href=#18102 id=18102 data-nosnippet>18102</a></span><span class="attr">#[cfg(all(test, feature = <span class="string">"alloc"</span>, feature = <span class="string">"rmw-cffi"</span>))]
+<a href=#18103 id=18103 data-nosnippet>18103</a></span><span class="kw">mod </span>band_wake_routing_tests {
+<a href=#18104 id=18104 data-nosnippet>18104</a>    <span class="kw">use super</span>::{<span class="kw">super</span>::scheduler::BandWaiter, WakeCtx};
+<a href=#18105 id=18105 data-nosnippet>18105</a>    <span class="kw">use </span>core::ffi::c_void;
+<a href=#18106 id=18106 data-nosnippet>18106</a>    <span class="kw">use </span>portable_atomic::{AtomicUsize, Ordering};
+<a href=#18107 id=18107 data-nosnippet>18107</a>
+<a href=#18108 id=18108 data-nosnippet>18108</a>    <span class="kw">static </span>WOKEN: [AtomicUsize; <span class="number">2</span>] = [AtomicUsize::new(<span class="number">0</span>), AtomicUsize::new(<span class="number">0</span>)];
+<a href=#18109 id=18109 data-nosnippet>18109</a>
+<a href=#18110 id=18110 data-nosnippet>18110</a>    <span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>wake(ctx: <span class="kw-2">*mut </span>c_void) {
+<a href=#18111 id=18111 data-nosnippet>18111</a>        WOKEN[ctx <span class="kw">as </span>usize].fetch_add(<span class="number">1</span>, Ordering::SeqCst);
+<a href=#18112 id=18112 data-nosnippet>18112</a>    }
+<a href=#18113 id=18113 data-nosnippet>18113</a>
+<a href=#18114 id=18114 data-nosnippet>18114</a>    <span class="kw">unsafe extern </span><span class="string">"C" </span><span class="kw">fn </span>wait(_ctx: <span class="kw-2">*mut </span>c_void, _us: u64) -&gt; i32 {
+<a href=#18115 id=18115 data-nosnippet>18115</a>        <span class="number">0
+<a href=#18116 id=18116 data-nosnippet>18116</a>    </span>}
+<a href=#18117 id=18117 data-nosnippet>18117</a>
+<a href=#18118 id=18118 data-nosnippet>18118</a>    <span class="attr">#[test]
+<a href=#18119 id=18119 data-nosnippet>18119</a>    </span><span class="kw">fn </span>an_attributed_arrival_wakes_its_band_and_an_unattributed_one_wakes_all() {
+<a href=#18120 id=18120 data-nosnippet>18120</a>        <span class="comment">// SAFETY: the contexts are plain indices `wake` decodes.
+<a href=#18121 id=18121 data-nosnippet>18121</a>        </span><span class="kw">static </span>A: BandWaiter = <span class="kw">unsafe </span>{ BandWaiter::new(wake, wait, core::ptr::null_mut()) };
+<a href=#18122 id=18122 data-nosnippet>18122</a>        <span class="kw">static </span>B: BandWaiter =
+<a href=#18123 id=18123 data-nosnippet>18123</a>            <span class="kw">unsafe </span>{ BandWaiter::new(wake, wait, core::ptr::without_provenance_mut(<span class="number">1</span>)) };
+<a href=#18124 id=18124 data-nosnippet>18124</a>        A.slots.store(<span class="number">0b0011</span>, Ordering::SeqCst);
+<a href=#18125 id=18125 data-nosnippet>18125</a>        B.slots.store(<span class="number">0b0100</span>, Ordering::SeqCst);
+<a href=#18126 id=18126 data-nosnippet>18126</a>        <span class="kw">let </span>flag = portable_atomic_util::Arc::new(portable_atomic::AtomicBool::new(<span class="bool-val">false</span>));
+<a href=#18127 id=18127 data-nosnippet>18127</a>        <span class="kw">let </span>ctx = WakeCtx::new(flag.clone(), <span class="prelude-val">None</span>);
+<a href=#18128 id=18128 data-nosnippet>18128</a>        B.next.store(<span class="kw-2">&amp;</span>A <span class="kw">as </span><span class="kw-2">*const </span><span class="kw">_ as </span><span class="kw-2">*mut </span><span class="kw">_</span>, Ordering::SeqCst);
+<a href=#18129 id=18129 data-nosnippet>18129</a>        ctx.band_waiters
+<a href=#18130 id=18130 data-nosnippet>18130</a>            .store(<span class="kw-2">&amp;</span>B <span class="kw">as </span><span class="kw-2">*const </span><span class="kw">_ as </span><span class="kw-2">*mut </span><span class="kw">_</span>, Ordering::SeqCst);
+<a href=#18131 id=18131 data-nosnippet>18131</a>
+<a href=#18132 id=18132 data-nosnippet>18132</a>        ctx.mark_ready(<span class="number">2</span>);
+<a href=#18133 id=18133 data-nosnippet>18133</a>        <span class="macro">assert_eq!</span>(WOKEN[<span class="number">1</span>].load(Ordering::SeqCst), <span class="number">1</span>, <span class="string">"slot 2 is B's"</span>);
+<a href=#18134 id=18134 data-nosnippet>18134</a>        <span class="macro">assert_eq!</span>(WOKEN[<span class="number">0</span>].load(Ordering::SeqCst), <span class="number">0</span>);
+<a href=#18135 id=18135 data-nosnippet>18135</a>        <span class="macro">assert!</span>(
+<a href=#18136 id=18136 data-nosnippet>18136</a>            !flag.load(Ordering::SeqCst),
+<a href=#18137 id=18137 data-nosnippet>18137</a>            <span class="string">"the executor's own worker sleeps on"
+<a href=#18138 id=18138 data-nosnippet>18138</a>        </span>);
+<a href=#18139 id=18139 data-nosnippet>18139</a>
+<a href=#18140 id=18140 data-nosnippet>18140</a>        ctx.mark_ready(<span class="number">1</span>);
+<a href=#18141 id=18141 data-nosnippet>18141</a>        <span class="macro">assert_eq!</span>(WOKEN[<span class="number">0</span>].load(Ordering::SeqCst), <span class="number">1</span>, <span class="string">"slot 1 is A's"</span>);
+<a href=#18142 id=18142 data-nosnippet>18142</a>
+<a href=#18143 id=18143 data-nosnippet>18143</a>        ctx.mark_ready(<span class="number">5</span>);
+<a href=#18144 id=18144 data-nosnippet>18144</a>        <span class="macro">assert!</span>(
+<a href=#18145 id=18145 data-nosnippet>18145</a>            flag.load(Ordering::SeqCst),
+<a href=#18146 id=18146 data-nosnippet>18146</a>            <span class="string">"no band holds slot 5: own worker"
+<a href=#18147 id=18147 data-nosnippet>18147</a>        </span>);
+<a href=#18148 id=18148 data-nosnippet>18148</a>        <span class="macro">assert_eq!</span>(
+<a href=#18149 id=18149 data-nosnippet>18149</a>            WOKEN[<span class="number">0</span>].load(Ordering::SeqCst) + WOKEN[<span class="number">1</span>].load(Ordering::SeqCst),
+<a href=#18150 id=18150 data-nosnippet>18150</a>            <span class="number">2
+<a href=#18151 id=18151 data-nosnippet>18151</a>        </span>);
+<a href=#18152 id=18152 data-nosnippet>18152</a>
+<a href=#18153 id=18153 data-nosnippet>18153</a>        ctx.signal();
+<a href=#18154 id=18154 data-nosnippet>18154</a>        <span class="macro">assert_eq!</span>(
+<a href=#18155 id=18155 data-nosnippet>18155</a>            WOKEN[<span class="number">0</span>].load(Ordering::SeqCst),
+<a href=#18156 id=18156 data-nosnippet>18156</a>            <span class="number">2</span>,
+<a href=#18157 id=18157 data-nosnippet>18157</a>            <span class="string">"unattributed: every band"
+<a href=#18158 id=18158 data-nosnippet>18158</a>        </span>);
+<a href=#18159 id=18159 data-nosnippet>18159</a>        <span class="macro">assert_eq!</span>(WOKEN[<span class="number">1</span>].load(Ordering::SeqCst), <span class="number">2</span>);
+<a href=#18160 id=18160 data-nosnippet>18160</a>        <span class="macro">assert_eq!</span>(ctx.ready.load(Ordering::SeqCst), <span class="number">0b100110</span>);
+<a href=#18161 id=18161 data-nosnippet>18161</a>    }
+<a href=#18162 id=18162 data-nosnippet>18162</a>}
 </code></pre></div></section></main></body></html>
