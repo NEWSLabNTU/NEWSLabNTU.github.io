@@ -1,8 +1,12 @@
 var searchData=
 [
-  ['handle_0',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md193',1,'']]],
-  ['handling_20errors_1',['Pattern: Handling Errors',['../error_codes.html#autotoc_md441',1,'']]],
-  ['header_20organisation_2',['Header Organisation',['../index.html#autotoc_md412',1,'']]],
-  ['here_20rather_20than_20discovered_3',['A WEAKER QUESTION THAN UPSTREAM&apos;S, stated here rather than discovered',['../nros__generated_8h.html#autotoc_md250',1,'']]],
-  ['how_20this_20differs_20from_20rcl_4',['Overflow, and how this differs from rcl',['../timer_8h.html#autotoc_md408',1,'']]]
+  ['image_20must_20not_20use_20these_20macros_0',['Scope — a bridge image must not use these macros',['../serialization__format_8h.html#autotoc_md407',1,'']]],
+  ['install_1',['System Install',['../getting_started.html#autotoc_md421',1,'']]],
+  ['integration_2',['Zephyr Integration',['../getting_started.html#autotoc_md422',1,'']]],
+  ['interoperability_3',['ROS 2 Interoperability',['../ros2_interop.html',1,'index']]],
+  ['is_20not_20upstream_20s_4',['Shape, and why it is not upstream&apos;s',['../nros__generated_8h.html#autotoc_md243',1,'']]],
+  ['is_20read_20from_5',['Which clock &quot;now&quot; is read from',['../nros__generated_8h.html#autotoc_md404',1,'']]],
+  ['issues_6',['Issues',['../troubleshooting.html#autotoc_md434',1,'Build Issues'],['../ros2_interop.html#autotoc_md431',1,'Common Issues']]],
+  ['it_20is_20not_20upstream_20s_7',['Shape, and why it is not upstream&apos;s',['../nros__generated_8h.html#autotoc_md243',1,'']]],
+  ['it_20takes_20two_20strings_20rather_20than_20a_20handle_8',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md193',1,'']]]
 ];

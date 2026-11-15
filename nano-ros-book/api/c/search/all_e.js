@@ -1,12 +1,21 @@
 var searchData=
 [
-  ['handle_0',['handle',['../structActionServerInternal.html#aa2562be2e2b8e961dd523ed952847240',1,'ActionServerInternal::handle'],['../nros__generated_8h.html#autotoc_md193',1,'Why this exists, and why it takes two strings rather than a handle']]],
-  ['handle_5fcount_1',['handle_count',['../structrclc__executor__t.html#a3de11bd70adafa5327dd8230ba377c79',1,'rclc_executor_t']]],
-  ['handle_5fid_2',['handle_id',['../structrcl__subscription__t.html#aa3635e1b947bb3d139776baf882d49c8',1,'rcl_subscription_t::handle_id'],['../structrcl__timer__t.html#a53888d8f47a585b135f1afd2a2600cea',1,'rcl_timer_t::handle_id'],['../structrcl__guard__condition__t.html#a882f0567cf33ee803251a39f8e1be450',1,'rcl_guard_condition_t::handle_id']]],
-  ['handles_5fnumber_3',['handles_number',['../structrclc__action__server__rclc__state__t.html#af76d95ff722f56fb50b4090231500fd6',1,'rclc_action_server_rclc_state_t']]],
-  ['handling_20errors_4',['Pattern: Handling Errors',['../error_codes.html#autotoc_md441',1,'']]],
-  ['header_20organisation_5',['Header Organisation',['../index.html#autotoc_md412',1,'']]],
-  ['here_20rather_20than_20discovered_6',['A WEAKER QUESTION THAN UPSTREAM&apos;S, stated here rather than discovered',['../nros__generated_8h.html#autotoc_md250',1,'']]],
-  ['history_7',['history',['../structrclc__qos__t.html#a0a5fe6f269934597c157ed33de083391',1,'rclc_qos_t']]],
-  ['how_20this_20differs_20from_20rcl_8',['Overflow, and how this differs from rcl',['../timer_8h.html#autotoc_md408',1,'']]]
+  ['image_20must_20not_20use_20these_20macros_0',['Scope — a bridge image must not use these macros',['../serialization__format_8h.html#autotoc_md407',1,'']]],
+  ['in_5fdispatch_1',['in_dispatch',['../structrclc__executor__t.html#ab9dc2f2a067997def961a19e4e70372a',1,'rclc_executor_t']]],
+  ['info_5fcallback_2',['info_callback',['../structrcl__timer__t.html#abd566e24d967c7d6e3ad68f1302b46df',1,'rcl_timer_t']]],
+  ['init_3',['init',['../group__grp__init.html',1,'']]],
+  ['init_2eh_4',['init.h',['../init_8h.html',1,'']]],
+  ['initialized_5',['initialized',['../structrcl__lifecycle__state__machine__t.html#a2068221669e2e44a55a10405d024cec0',1,'rcl_lifecycle_state_machine_t']]],
+  ['install_6',['System Install',['../getting_started.html#autotoc_md421',1,'']]],
+  ['integer_5farray_5fvalue_7',['integer_array_value',['../structrcl__interfaces____msg____ParameterValue.html#ada8958c0a27ded898d1a3227753c14e7',1,'rcl_interfaces__msg__ParameterValue']]],
+  ['integer_5fvalue_8',['integer_value',['../structrcl__interfaces____msg____ParameterValue.html#a990392e57fa9cfbdd46a8c42c12986b7',1,'rcl_interfaces__msg__ParameterValue']]],
+  ['integration_9',['Zephyr Integration',['../getting_started.html#autotoc_md422',1,'']]],
+  ['interoperability_10',['ROS 2 Interoperability',['../ros2_interop.html',1,'index']]],
+  ['invocation_5ftime_5fns_11',['invocation_time_ns',['../structrclc__executor__t.html#a123aa2ade306e100e18aa1f5743ec1e0',1,'rclc_executor_t']]],
+  ['is_20not_20upstream_20s_12',['Shape, and why it is not upstream&apos;s',['../nros__generated_8h.html#autotoc_md243',1,'']]],
+  ['is_20read_20from_13',['Which clock &quot;now&quot; is read from',['../nros__generated_8h.html#autotoc_md404',1,'']]],
+  ['is_5fpublisher_14',['is_publisher',['../structrclc__endpoint__info__t.html#a613ee941cc1745867b7815537bc8d2f7',1,'rclc_endpoint_info_t']]],
+  ['issues_15',['Issues',['../troubleshooting.html#autotoc_md434',1,'Build Issues'],['../ros2_interop.html#autotoc_md431',1,'Common Issues']]],
+  ['it_20is_20not_20upstream_20s_16',['Shape, and why it is not upstream&apos;s',['../nros__generated_8h.html#autotoc_md243',1,'']]],
+  ['it_20takes_20two_20strings_20rather_20than_20a_20handle_17',['Why this exists, and why it takes two strings rather than a handle',['../nros__generated_8h.html#autotoc_md193',1,'']]]
 ];

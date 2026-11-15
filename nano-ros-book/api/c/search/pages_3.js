@@ -1,5 +1,4 @@
 var searchData=
 [
-  ['3_20rmw_20backend_20selection_0',['3. RMW Backend Selection',['../getting_started.html#autotoc_md418',1,'']]],
-  ['3_20terminals_1',['Quick Start (3 Terminals)',['../ros2_interop.html#autotoc_md429',1,'']]]
+  ['4_20write_20a_20publisher_0',['4. Write a Publisher',['../getting_started.html#autotoc_md419',1,'']]]
 ];

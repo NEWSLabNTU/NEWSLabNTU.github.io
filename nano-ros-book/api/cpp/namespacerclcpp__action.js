@@ -46,13 +46,13 @@ var namespacerclcpp__action =
     [ "cancel_goal", "namespacerclcpp__action.html#a559485ffe24bcf6ef5a21c2c93f7137d", null ],
     [ "Client", "namespacerclcpp__action.html#a80cde9ba09194e3cf209c8302b2bd959", null ],
     [ "Client", "namespacerclcpp__action.html#a0f707c3597d62c38e3dcff3d7f617e31", null ],
+    [ "consumed", "namespacerclcpp__action.html#a58aad375b149b80bbc1a990106dd540c", null ],
     [ "feedback_stream", "namespacerclcpp__action.html#a2e1d1a37f26e3f4dc046ee8803d8fd5c", null ],
     [ "get_result_async", "namespacerclcpp__action.html#a6df4deff9dff3735d841f62409eadb76", null ],
     [ "get_result_async", "namespacerclcpp__action.html#a9d7d71f0d845b913c567e0a5279597fd", null ],
     [ "get_result_future", "namespacerclcpp__action.html#a6c6b101077d690d0eb5e8fd738c20e6d", null ],
     [ "get_result_future", "namespacerclcpp__action.html#ae7f55d7c3ae1c86b113ed8ce064e4f98", null ],
     [ "get_result_future_sized", "namespacerclcpp__action.html#a9d4e7b0d21b6c02cdf002bb3013520e0", null ],
-    [ "GOAL", "namespacerclcpp__action.html#a6555a2b0fe9bd162295f8d2c33928ba1", null ],
     [ "is_valid", "namespacerclcpp__action.html#ad72034642036655a14893d8e22e70b95", null ],
     [ "operator=", "namespacerclcpp__action.html#aa00ff409f1785aa7741b9f863a5bd2f3", null ],
     [ "poll", "namespacerclcpp__action.html#a76e18a97285174cf883b1477c5e8b90b", null ],
@@ -65,8 +65,11 @@ var namespacerclcpp__action =
     [ "try_recv_feedback", "namespacerclcpp__action.html#a0dc9e34eb9ef37367cfef7ac371381f4", null ],
     [ "try_recv_feedback_sized", "namespacerclcpp__action.html#a88d2a86c07f921949a537e509d5e931f", null ],
     [ "~Client", "namespacerclcpp__action.html#a3729d06e702adc67905d7144a6a5c787", null ],
+    [ "acceptance", "namespacerclcpp__action.html#ab1c1cf6158c6738184538f31abff6598", null ],
     [ "ACTION_NAME_MAX", "namespacerclcpp__action.html#a6a044dc9c2a7f207d5e493c2724d28a0", null ],
     [ "CANCEL_STASH_CAP", "namespacerclcpp__action.html#a9bc65504c2b5801e8311a609ec886c96", null ],
-    [ "GOAL", "namespacerclcpp__action.html#af8908bcdf917e2aa2afacee0ec7598b7", null ],
-    [ "MAX_CANCEL_INFOS", "namespacerclcpp__action.html#aa9ea08468135c44ff69b4bb5e5e7d578", null ]
+    [ "consumed", "namespacerclcpp__action.html#a601ffc24394d04b75dc3b043f6adf73e", null ],
+    [ "flight", "namespacerclcpp__action.html#a88f0b10c7e8937b36f30fdba300450e2", null ],
+    [ "MAX_CANCEL_INFOS", "namespacerclcpp__action.html#aa9ea08468135c44ff69b4bb5e5e7d578", null ],
+    [ "threaded", "namespacerclcpp__action.html#ad2f2eb52f7db6e9f4158e67ce82cd73e", null ]
 ];
