@@ -17,6 +17,7 @@ var rmw__ret_8h =
     [ "NROS_RMW_RET_NO_DATA", "rmw__ret_8h.html#afd8b8a259cd19347c12febb3916c101e", null ],
     [ "NROS_RMW_RET_NODE_NAME_NON_EXISTENT", "rmw__ret_8h.html#add0322e20624b77d3076e033a88fbc55", null ],
     [ "NROS_RMW_RET_OK", "rmw__ret_8h.html#a4759ddbd6e81ed515349ff15085682cd", null ],
+    [ "NROS_RMW_RET_SESSION_LOST", "rmw__ret_8h.html#aa577ae1edf0d65f9533d044a50431cb7", null ],
     [ "NROS_RMW_RET_TIMEOUT", "rmw__ret_8h.html#a1c047c382c6ee8ebfef95bcd48dc4e19", null ],
     [ "NROS_RMW_RET_TOPIC_NAME_INVALID", "rmw__ret_8h.html#a712a9866e89b315d8cb7fa82f214a005", null ],
     [ "NROS_RMW_RET_UNKNOWN_BACKEND", "rmw__ret_8h.html#a6b511b4ed59f9898c3398a9d0d80eb15", null ],

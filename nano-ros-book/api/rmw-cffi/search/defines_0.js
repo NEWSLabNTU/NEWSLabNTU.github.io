@@ -60,13 +60,14 @@ var searchData=
   ['nros_5frmw_5fret_5fno_5fdata_57',['NROS_RMW_RET_NO_DATA',['../rmw__ret_8h.html#afd8b8a259cd19347c12febb3916c101e',1,'rmw_ret.h']]],
   ['nros_5frmw_5fret_5fnode_5fname_5fnon_5fexistent_58',['NROS_RMW_RET_NODE_NAME_NON_EXISTENT',['../rmw__ret_8h.html#add0322e20624b77d3076e033a88fbc55',1,'rmw_ret.h']]],
   ['nros_5frmw_5fret_5fok_59',['NROS_RMW_RET_OK',['../rmw__ret_8h.html#a4759ddbd6e81ed515349ff15085682cd',1,'rmw_ret.h']]],
-  ['nros_5frmw_5fret_5ftimeout_60',['NROS_RMW_RET_TIMEOUT',['../rmw__ret_8h.html#a1c047c382c6ee8ebfef95bcd48dc4e19',1,'rmw_ret.h']]],
-  ['nros_5frmw_5fret_5ftopic_5fname_5finvalid_61',['NROS_RMW_RET_TOPIC_NAME_INVALID',['../rmw__ret_8h.html#a712a9866e89b315d8cb7fa82f214a005',1,'rmw_ret.h']]],
-  ['nros_5frmw_5fret_5funknown_5fbackend_62',['NROS_RMW_RET_UNKNOWN_BACKEND',['../rmw__ret_8h.html#a6b511b4ed59f9898c3398a9d0d80eb15',1,'rmw_ret.h']]],
-  ['nros_5frmw_5fret_5funsupported_63',['NROS_RMW_RET_UNSUPPORTED',['../rmw__ret_8h.html#a32b3737346f1d3871e3447dd3efcba0e',1,'rmw_ret.h']]],
-  ['nros_5frmw_5fret_5fwould_5fblock_64',['NROS_RMW_RET_WOULD_BLOCK',['../rmw__ret_8h.html#a459b5c4b826e50ccf03d3f9d8ef096ea',1,'rmw_ret.h']]],
-  ['nros_5frmw_5fsequence_5fid_5funknown_65',['NROS_RMW_SEQUENCE_ID_UNKNOWN',['../rmw__entity_8h.html#a70b2d1cd2285ee4a5ca97cdbe5af5fd4',1,'rmw_entity.h']]],
-  ['nros_5frmw_5ftake_5flen_5funknown_66',['NROS_RMW_TAKE_LEN_UNKNOWN',['../rmw__entity_8h.html#a4868629c3e4e0aa0f57dde88a8960852',1,'rmw_entity.h']]],
-  ['nros_5frmw_5fvisitor_5fdefined_67',['NROS_RMW_VISITOR_DEFINED',['../rmw__vtable_8h.html#a51d01d52cea514675d48183f41d54056',1,'rmw_vtable.h']]],
-  ['nros_5ftransport_5fops_5fabi_5fversion_5fv1_68',['NROS_TRANSPORT_OPS_ABI_VERSION_V1',['../rmw__transport_8h.html#a8ca6c1c3e7dc095fe5aaaded0aa5eac7',1,'rmw_transport.h']]]
+  ['nros_5frmw_5fret_5fsession_5flost_60',['NROS_RMW_RET_SESSION_LOST',['../rmw__ret_8h.html#aa577ae1edf0d65f9533d044a50431cb7',1,'rmw_ret.h']]],
+  ['nros_5frmw_5fret_5ftimeout_61',['NROS_RMW_RET_TIMEOUT',['../rmw__ret_8h.html#a1c047c382c6ee8ebfef95bcd48dc4e19',1,'rmw_ret.h']]],
+  ['nros_5frmw_5fret_5ftopic_5fname_5finvalid_62',['NROS_RMW_RET_TOPIC_NAME_INVALID',['../rmw__ret_8h.html#a712a9866e89b315d8cb7fa82f214a005',1,'rmw_ret.h']]],
+  ['nros_5frmw_5fret_5funknown_5fbackend_63',['NROS_RMW_RET_UNKNOWN_BACKEND',['../rmw__ret_8h.html#a6b511b4ed59f9898c3398a9d0d80eb15',1,'rmw_ret.h']]],
+  ['nros_5frmw_5fret_5funsupported_64',['NROS_RMW_RET_UNSUPPORTED',['../rmw__ret_8h.html#a32b3737346f1d3871e3447dd3efcba0e',1,'rmw_ret.h']]],
+  ['nros_5frmw_5fret_5fwould_5fblock_65',['NROS_RMW_RET_WOULD_BLOCK',['../rmw__ret_8h.html#a459b5c4b826e50ccf03d3f9d8ef096ea',1,'rmw_ret.h']]],
+  ['nros_5frmw_5fsequence_5fid_5funknown_66',['NROS_RMW_SEQUENCE_ID_UNKNOWN',['../rmw__entity_8h.html#a70b2d1cd2285ee4a5ca97cdbe5af5fd4',1,'rmw_entity.h']]],
+  ['nros_5frmw_5ftake_5flen_5funknown_67',['NROS_RMW_TAKE_LEN_UNKNOWN',['../rmw__entity_8h.html#a4868629c3e4e0aa0f57dde88a8960852',1,'rmw_entity.h']]],
+  ['nros_5frmw_5fvisitor_5fdefined_68',['NROS_RMW_VISITOR_DEFINED',['../rmw__vtable_8h.html#a51d01d52cea514675d48183f41d54056',1,'rmw_vtable.h']]],
+  ['nros_5ftransport_5fops_5fabi_5fversion_5fv1_69',['NROS_TRANSPORT_OPS_ABI_VERSION_V1',['../rmw__transport_8h.html#a8ca6c1c3e7dc095fe5aaaded0aa5eac7',1,'rmw_transport.h']]]
 ];
