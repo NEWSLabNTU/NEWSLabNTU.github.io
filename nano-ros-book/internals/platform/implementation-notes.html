@@ -36,7 +36,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-04897f8a.js";
+            window.path_to_searchindex_js = "../searchindex-5fe51d23.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-f20674a5.js"></script>
@@ -253,11 +253,29 @@ excludes <code>nros-rmw-xrce{,-cffi,-cffi-staticlib}</code> (header-only backend
 UDP types unconditionally; the staticlib sibling needs panic_handler resolution at compile time).
 The <code>-staticlib</code> sibling lets Corrosion import a real <code>staticlib</code> target without forcing the cffi
 rlib to emit one.</p>
-<p><strong>XRCE-DDS RMW bugs (critical):</strong> <code>uxr_buffer_request_data</code> must be flushed with
-<code>uxr_run_session_time</code> immediately after the call — unflushed request_data in the reliable output
+<p><strong>A serial-only image (<code>NROS_LINK_IP=0</code>) links no UDP symbol</strong> (issue 2579). The backend’s own
+<code>transport_nros_udp.c</code> reaches the network only through <code>nros_platform_udp_*</code>, and it used to be
+compiled on every target, so a board with no IP stack had to stub nine of those symbols that
+nothing would ever call. <code>xrce-sources.txt</code> now picks it under the <code>ip</code> condition and
+<code>transport_nros_udp_none.c</code> under <code>no_ip</code>; the stand-in refuses a <code>udp://</code> locator with
+<code>NROS_RMW_RET_UNSUPPORTED</code>, and <code>session.c</code> logs that the image was built without IP. Measured on
+<code>thumbv7m-none-eabi</code>: 9 undefined <code>nros_platform_udp_*</code> in the backend archive before, 0 after;
+the default IP build still has all 9.</p>
+<p><strong>A heap in a <code>NOLOAD</code> section is not zeroed, and <code>FreeListHeap</code> assumes it is</strong> (issue 2579).
+<code>zpico_alloc::FreeListHeap</code> keeps its bookkeeping (the <code>initialized</code> flag, the TLSF bitmaps, the
+slab bitmap) in the same <code>static</code> as the arena, and reads “all zero” as “not yet initialised”.
+cortex-m-rt zeroes <code>.bss</code> only. A board that moves the heap to CCM or another region with
+<code>#[link_section]</code> and a <code>NOLOAD</code> output section gets whatever the RAM held at reset, so the first
+allocation can believe the heap is already set up. Either place the section where startup zeroes
+it, or zero the whole static before the first allocation (in the reset path, before <code>main</code>).</p>
+<p><strong>XRCE-DDS RMW bugs (critical):</strong> <code>uxr_buffer_request_data</code> must be flushed
+(<code>xrce_session_flush</code>) immediately after the call — unflushed request_data in the reliable output
 stream causes intermittent timeouts when a later service request is buffered (pre-301 <code>call_raw</code>; fixed in all
 three <code>create_*</code> methods). Reliable streams need <code>STREAM_HISTORY &gt;= 2</code> (we use 4); history=1 fails
-to recycle the single slot. The service client (requester) needs <code>uxr_buffer_request_data</code> to
+to recycle the single slot. Never call <code>uxr_run_session_time</code> directly: it loops
+while any bytes arrive, so under steady inbound traffic it never returns
+(phase-564 W2). <code>internal.h</code>’s <code>xrce_session_flush</code> / <code>xrce_session_pump</code> are the
+backend’s only two ways to run the session, and both are bounded. The service client (requester) needs <code>uxr_buffer_request_data</code> to
 receive replies, same as subscribers and repliers.</p>
 <h2 id="probe-only-opaque-sizes"><a class="header" href="#probe-only-opaque-sizes">Probe-only opaque sizes</a></h2>
 <p><code>EXECUTOR_OPAQUE_U64S</code> etc. derive from <code>nros::sizes::EXECUTOR_SIZE</code> via the <code>nros_sizes_build</code>
