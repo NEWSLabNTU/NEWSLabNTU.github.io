@@ -36,7 +36,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-20a07521.js";
+            window.path_to_searchindex_js = "../../searchindex-3f0a70ad.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-cf15fe38.js"></script>
@@ -330,7 +330,9 @@ parent and refuses <code>set_level</code> on the child.</p>
 (or <code>set(NROS_FEATURES "rosout")</code> in a bare CMake project).</p>
 </li>
 <li>
-<p>Create the publisher and pump the queue from your spin loop:</p>
+<p>Log through the node’s logger and spin. The executor creates one
+<code>/rosout</code> publisher for each node on the spin after the node is built,
+and publishes the queued records from every spin:</p>
 </li>
 </ol>
 <div class="nros-tabs">
@@ -343,57 +345,54 @@ parent and refuses <code>set_level</code> on the child.</p>
 <div class="nros-tab-panel" data-lang="rust" role="group" aria-label="Rust">
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>use nros_rcl_interfaces::msg::Log;
-
-let rosout = executor
-    .create_node("my_node")?
-    .create_publisher_with_qos::&lt;Log&gt;(
-        nros::rosout::TOPIC,
-        nros::rosout::qos_bounded(),
-    )?;
-nros::rosout::enable();
+</span>let logger = executor.create_node("my_node")?.logger();
 loop {
+    nros_log::log_info!(logger, "tick");
     executor.spin_once(budget);
-    let _ = nros::rosout::pump(&amp;rosout);
 }
 <span class="boring">}</span></code></pre>
 </div>
 
 <div class="nros-tab-panel" data-lang="c" role="group" aria-label="C">
-<pre><code class="language-c">rcl_publisher_t rosout = rcl_get_zero_initialized_publisher();
-rclc_rosout_publisher_init(&amp;rosout, &amp;node, NULL);   /* NULL = bounded QoS */
-rclc_rosout_enable();
+<pre><code class="language-c">rclc_executor_node_init(&amp;executor, &amp;node, "my_node", NULL);
+rclc_logger_t log = rclc_node_get_logger(&amp;node);
 for (;;) {
+    RCLC_LOG_INFO(log, "tick");
     rclc_executor_spin_some(&amp;executor, 10000000);
-    rclc_rosout_pump(&amp;rosout, NULL);
 }
 </code></pre>
 </div>
 
 <div class="nros-tab-panel" data-lang="cpp" role="group" aria-label="C++">
-<pre><code class="language-cpp">rclcpp::rosout::Publisher rosout;
-RCLCPP_TRY(rosout.create(node));
-RCLCPP_TRY(rclcpp::rosout::enable());
+<pre><code class="language-cpp">auto log = node.get_logger();
 for (;;) {
+    RCLC_LOG_INFO(log, "tick");
     rclcpp::spin_once(10);
-    rosout.pump();
 }
 </code></pre>
 </div>
 
 </div>
 
+<p>A node that should not publish <code>/rosout</code> calls
+<code>executor.disable_rosout_on(node_id)</code> (Rust). In C the node must be bound
+with <code>rclc_executor_node_init</code>; a legacy <code>rclc_node_init_default</code> node is
+not in the executor’s table, so it keeps the explicit
+<code>rclc_rosout_publisher_init</code> once and <code>rclc_rosout_pump</code> from the spin
+loop. The explicit spelling in Rust (<code>nros::rosout::pump</code>) and C++
+(<code>rclcpp::rosout::Publisher</code>) still works but adds a second publisher to
+the node, and is deprecated.</p>
 <ol start="3">
 <li>Read them from ROS 2: <code>ros2 topic echo /rosout</code>, or <code>rqt_console</code>.</li>
 </ol>
 <p>Where this differs from ROS 2:</p>
 <ul>
-<li><strong>It is not automatic.</strong> The publisher is an entity, so you create it, and
-it counts in the image’s pools like any other.</li>
-<li><strong>The default QoS is bounded.</strong> <code>qos_bounded()</code> is volatile at the queue
-depth. Upstream’s profile (<code>nros::rosout::qos()</code>, keep-last 1000,
-transient-local) is expensive on a board; with the bounded one a late
-subscriber misses the boot records.</li>
+<li><strong>It is switched per image.</strong> The <code>rosout</code> capability turns it on for every
+node of the image; each node’s publisher counts in the image’s pools.</li>
+<li><strong>The QoS is volatile.</strong> The executor’s publisher is <code>qos_bounded()</code>:
+volatile at the queue depth. Upstream’s profile (<code>nros::rosout::qos()</code>,
+keep-last 1000, transient-local) is expensive on a board; with the bounded
+one a late subscriber misses the boot records.</li>
 <li><strong>Which loggers publish follows the ROS release.</strong> On Humble only a node’s
 logger reaches <code>/rosout</code>, not a child or a free <code>get_logger("x")</code>; Iron and
 Jazzy also publish a node’s children.</li>
@@ -403,9 +402,10 @@ uptime as a time of day.</li>
 An image without the feature pays nothing.</li>
 </ul>
 <p>The sink never publishes from inside a log call: it copies the record into a
-ring, and <code>pump()</code> publishes on your spin thread. Records lost to a full ring
-or logged during a publish are counted (<code>nros::rosout::dropped()</code>,
-<code>suppressed()</code>) and reported on <code>/rosout</code> itself. The buffer sizes are knobs:
+ring, and the executor publishes it on the spin thread. Records published,
+lost to a full ring, or logged during a publish are counted
+(<code>nros::rosout::published()</code>, <code>dropped()</code>, <code>suppressed()</code>), and losses are
+reported on <code>/rosout</code> itself. The buffer sizes are knobs:
 see <a href="../../reference/environment-variables.html#logging">Logging</a>.</p>
 <h2 id="observe-a-board-with-no-console"><a class="header" href="#observe-a-board-with-no-console">Observe a board with no console</a></h2>
 <p>Some boards have no console you can read, for example one whose only wired
