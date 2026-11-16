@@ -34,6 +34,7 @@ var rclcpp_8hpp =
     [ "rclcpp::detail::is_ros_args_flag", "namespacerclcpp_1_1detail.html#a633cccb2b95edae425806a59107b1412", null ],
     [ "rclcpp::on_shutdown", "namespacerclcpp.html#ab1c0fed5d3c15aeb91284cccf804819e", null ],
     [ "rclcpp::pre_shutdown", "namespacerclcpp.html#ad1704753d87a399be16d8b4c343d6a4a", null ],
+    [ "rclcpp::detail::refuse_param_declare", "namespacerclcpp_1_1detail.html#a6ab54dfc31c5358e5dec27ac485ebe32", null ],
     [ "rclcpp::detail::register_timer_capturing", "namespacerclcpp_1_1detail.html#a5f6d1fa6dc13f45937e13c56d62c44d6", null ],
     [ "rclcpp::remove_on_shutdown_callback", "namespacerclcpp.html#a8f414fbca6e66a00beb3875e90e2e693", null ],
     [ "rclcpp::remove_pre_shutdown_callback", "namespacerclcpp.html#ac33ec5f4640ebf1c04344687826a295d", null ],

@@ -26,6 +26,7 @@ var node_8hpp =
     [ "rclcpp::init_with_rmw", "namespacerclcpp.html#ae8d44dafc5fa0ce183aa9d878e1de159", null ],
     [ "rclcpp::make_node", "namespacerclcpp.html#aad18830d1a13beb77ded42e3fe37f669", null ],
     [ "rclcpp::ok", "namespacerclcpp.html#a9000262eb453939d757aa6d8fbb125fe", null ],
+    [ "rclcpp::detail::refuse_param_declare", "namespacerclcpp_1_1detail.html#a6ab54dfc31c5358e5dec27ac485ebe32", null ],
     [ "rclcpp::detail::report_callback_group_mismatch", "namespacerclcpp_1_1detail.html#ac28881842b65a4954a8abd4e4694d1a9", null ],
     [ "rclcpp::detail::report_component_failure", "namespacerclcpp_1_1detail.html#a4fc5b38b46b968edc22f642327897801", null ],
     [ "rclcpp::detail::report_declared_depth_mismatch", "namespacerclcpp_1_1detail.html#a0b2c33ee408ac07f3f65718449726fc4", null ],
@@ -38,5 +39,7 @@ var node_8hpp =
     [ "rclcpp::detail::DECLARED_DEPTH_MISMATCH", "namespacerclcpp_1_1detail.html#a95d07ab4aed9ca99226c14312807884a", null ],
     [ "rclcpp::detail::DECLARED_PARAM_MISMATCH", "namespacerclcpp_1_1detail.html#a718c6175778eea2daff8eb4ad14af9b8", null ],
     [ "rclcpp::detail::DECLARED_QOS_MISMATCH", "namespacerclcpp_1_1detail.html#afdc4c37304e5037221beaeffed5e0e28", null ],
-    [ "rclcpp::kDomainIdExplicitZero", "namespacerclcpp.html#a2ecd3fbc178aa6fa670a42ec2dd41582", null ]
+    [ "rclcpp::kDomainIdExplicitZero", "namespacerclcpp.html#a2ecd3fbc178aa6fa670a42ec2dd41582", null ],
+    [ "rclcpp::detail::PARAM_DECLARE_REFUSED_WHAT", "namespacerclcpp_1_1detail.html#ae220819b0b42ce67552e423f4e140034", null ],
+    [ "rclcpp::detail::PARAM_STORE_FULL_WHAT", "namespacerclcpp_1_1detail.html#a68bc2c47008676a798d4ef47c57caa2a", null ]
 ];

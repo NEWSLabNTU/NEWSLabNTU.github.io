@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["declared","ops","server","typed","types"]};
+window.SIDEBAR_ITEMS = {"constant":["STORE_SIZE_DERIVED","STORE_SIZE_KNOB","STORE_SIZE_REMEDY"],"mod":["declared","ops","server","typed","types"]};

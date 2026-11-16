@@ -74,6 +74,7 @@ var namespacerclcpp_1_1detail =
     [ "qos_window_from_rmw", "namespacerclcpp_1_1detail.html#a3660bf129a926f2ca59aa360aa16de7b", null ],
     [ "qos_window_ms", "namespacerclcpp_1_1detail.html#ac366d08441f129df84cead16252a6cec", null ],
     [ "qos_window_to_rmw", "namespacerclcpp_1_1detail.html#a811eedaf6ba7841038368464f744d188", null ],
+    [ "refuse_param_declare", "namespacerclcpp_1_1detail.html#a6ab54dfc31c5358e5dec27ac485ebe32", null ],
     [ "register_subscription_capturing", "namespacerclcpp_1_1detail.html#aa7892f38443f6ae80156a526b7660016", null ],
     [ "register_timer_capturing", "namespacerclcpp_1_1detail.html#a5f6d1fa6dc13f45937e13c56d62c44d6", null ],
     [ "report_callback_group_mismatch", "namespacerclcpp_1_1detail.html#ac28881842b65a4954a8abd4e4694d1a9", null ],
@@ -89,5 +90,7 @@ var namespacerclcpp_1_1detail =
     [ "DECLARED_PARAM_MISMATCH", "namespacerclcpp_1_1detail.html#a718c6175778eea2daff8eb4ad14af9b8", null ],
     [ "DECLARED_QOS_MISMATCH", "namespacerclcpp_1_1detail.html#afdc4c37304e5037221beaeffed5e0e28", null ],
     [ "MAX_STALE_DRAIN_PER_POLL", "namespacerclcpp_1_1detail.html#a74e327ddb77dcdfaa340c7ed00fa9381", null ],
+    [ "PARAM_DECLARE_REFUSED_WHAT", "namespacerclcpp_1_1detail.html#ae220819b0b42ce67552e423f4e140034", null ],
+    [ "PARAM_STORE_FULL_WHAT", "namespacerclcpp_1_1detail.html#a68bc2c47008676a798d4ef47c57caa2a", null ],
     [ "SEQUENCE_ID_UNKNOWN", "namespacerclcpp_1_1detail.html#af06e04f50af244e536f75e3017239eb1", null ]
 ];
