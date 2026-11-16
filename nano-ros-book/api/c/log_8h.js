@@ -37,6 +37,7 @@ var log_8h =
     [ "rclc_log_init", "log_8h.html#a0a812003d0c71f7a084bfa7c8755c3a0", null ],
     [ "rclc_log_set_default_level", "log_8h.html#a38ce1de062979fa8d7e17e4ab22c4e67", null ],
     [ "rclc_log_throttle_admit", "log_8h.html#ad0f97326670997cc856906eaa1a56839", null ],
+    [ "rclc_log_throttle_admit_at", "log_8h.html#a43522b303ffb404e6f9d872880a97a20", null ],
     [ "rclc_log_timestamp_available", "log_8h.html#a8fbfd886055baf21cb266f2e118e8571", null ],
     [ "rclc_logger_get_child", "log_8h.html#a06893568cfb2f03c7481eb38a76f6526", null ],
     [ "rclc_logger_get_level", "log_8h.html#a40f5a20a499adccad325b25122008bff", null ],
