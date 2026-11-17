@@ -41,5 +41,7 @@ var node_8hpp =
     [ "rclcpp::detail::DECLARED_QOS_MISMATCH", "namespacerclcpp_1_1detail.html#afdc4c37304e5037221beaeffed5e0e28", null ],
     [ "rclcpp::kDomainIdExplicitZero", "namespacerclcpp.html#a2ecd3fbc178aa6fa670a42ec2dd41582", null ],
     [ "rclcpp::detail::PARAM_DECLARE_REFUSED_WHAT", "namespacerclcpp_1_1detail.html#ae220819b0b42ce67552e423f4e140034", null ],
-    [ "rclcpp::detail::PARAM_STORE_FULL_WHAT", "namespacerclcpp_1_1detail.html#a68bc2c47008676a798d4ef47c57caa2a", null ]
+    [ "rclcpp::detail::PARAM_STORE_FULL_WHAT", "namespacerclcpp_1_1detail.html#a68bc2c47008676a798d4ef47c57caa2a", null ],
+    [ "rclcpp::detail::PARAM_VALUE_TYPE_MISMATCH", "namespacerclcpp_1_1detail.html#a6bd126659052483a1c61567de6f68013", null ],
+    [ "rclcpp::detail::PARAM_VALUE_TYPE_MISMATCH_WHAT", "namespacerclcpp_1_1detail.html#a3dfcb7edce764b440a68ba1fbc48a1c9", null ]
 ];

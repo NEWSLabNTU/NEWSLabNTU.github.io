@@ -82,6 +82,7 @@ var namespacerclcpp_1_1detail =
     [ "report_declared_depth_mismatch", "namespacerclcpp_1_1detail.html#a0b2c33ee408ac07f3f65718449726fc4", null ],
     [ "report_declared_param_mismatch", "namespacerclcpp_1_1detail.html#af5fe5501cd108a4341b17b47a200f71d", null ],
     [ "report_declared_policy_mismatch", "namespacerclcpp_1_1detail.html#a49a242d5ca340da146996e176eb230c0", null ],
+    [ "report_param_value_type_mismatch", "namespacerclcpp_1_1detail.html#a58393a04d098ffdca6c14b3e6a53655e", null ],
     [ "require_created", "namespacerclcpp_1_1detail.html#a5500268c63cb40aa008814f53a1e3f87", null ],
     [ "spin_executor_until_future_complete", "namespacerclcpp_1_1detail.html#ae0444046eeddd34a05e86c4871a32a50", null ],
     [ "sub_declval", "namespacerclcpp_1_1detail.html#a699547fdf7bdf765e4f63c562a04c73a", null ],
@@ -92,5 +93,7 @@ var namespacerclcpp_1_1detail =
     [ "MAX_STALE_DRAIN_PER_POLL", "namespacerclcpp_1_1detail.html#a74e327ddb77dcdfaa340c7ed00fa9381", null ],
     [ "PARAM_DECLARE_REFUSED_WHAT", "namespacerclcpp_1_1detail.html#ae220819b0b42ce67552e423f4e140034", null ],
     [ "PARAM_STORE_FULL_WHAT", "namespacerclcpp_1_1detail.html#a68bc2c47008676a798d4ef47c57caa2a", null ],
+    [ "PARAM_VALUE_TYPE_MISMATCH", "namespacerclcpp_1_1detail.html#a6bd126659052483a1c61567de6f68013", null ],
+    [ "PARAM_VALUE_TYPE_MISMATCH_WHAT", "namespacerclcpp_1_1detail.html#a3dfcb7edce764b440a68ba1fbc48a1c9", null ],
     [ "SEQUENCE_ID_UNKNOWN", "namespacerclcpp_1_1detail.html#af06e04f50af244e536f75e3017239eb1", null ]
 ];

@@ -38,6 +38,7 @@ var rclcpp_8hpp =
     [ "rclcpp::detail::register_timer_capturing", "namespacerclcpp_1_1detail.html#a5f6d1fa6dc13f45937e13c56d62c44d6", null ],
     [ "rclcpp::remove_on_shutdown_callback", "namespacerclcpp.html#a8f414fbca6e66a00beb3875e90e2e693", null ],
     [ "rclcpp::remove_pre_shutdown_callback", "namespacerclcpp.html#ac33ec5f4640ebf1c04344687826a295d", null ],
+    [ "rclcpp::detail::report_param_value_type_mismatch", "namespacerclcpp_1_1detail.html#a58393a04d098ffdca6c14b3e6a53655e", null ],
     [ "rclcpp::detail::require_created", "namespacerclcpp_1_1detail.html#a5500268c63cb40aa008814f53a1e3f87", null ],
     [ "rclcpp::shutdown", "namespacerclcpp.html#ab3b8947089dd83bb225a9ab71cbaecb6", null ],
     [ "rclcpp::spin", "namespacerclcpp.html#a4b07190250efea00b8c180f4b5fdb5b9", null ],
