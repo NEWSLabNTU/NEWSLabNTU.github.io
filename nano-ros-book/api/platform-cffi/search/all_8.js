@@ -1,5 +1,5 @@
 var searchData=
 [
-  ['mainpage_2emd_0',['mainpage.md',['../mainpage_8md.html',1,'']]],
-  ['model_1',['Handle model',['../platform__timer_8h.html#autotoc_md5',1,'']]]
+  ['id_0',['id',['../structnros__platform__can__frame__t.html#a41036260970a2c03445bd0c3a600b2fc',1,'nros_platform_can_frame_t']]],
+  ['implementors_1',['Rust implementors',['../index.html#autotoc_md15',1,'']]]
 ];

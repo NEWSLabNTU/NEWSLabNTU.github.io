@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['quick_20start_0',['Quick start',['../index.html#autotoc_md8',1,'']]]
+  ['optional_20capabilities_0',['Optional capabilities',['../platform__net_8h.html#autotoc_md4',1,'']]]
 ];

@@ -1199,57 +1199,100 @@
 <a href=#1199 id=1199 data-nosnippet>1199</a>    </span><span class="kw">fn </span>write(h: <span class="self">Self</span>::Handle, buf: <span class="kw-2">*const </span>u8, len: usize) -&gt; usize;
 <a href=#1200 id=1200 data-nosnippet>1200</a>}
 <a href=#1201 id=1201 data-nosnippet>1201</a>
-<a href=#1202 id=1202 data-nosnippet>1202</a><span class="doccomment">/// Smallest number of bytes ever left unused on the CALLING task's stack, or
-<a href=#1203 id=1203 data-nosnippet>1203</a>/// `0` if this port does not instrument it.
-<a href=#1204 id=1204 data-nosnippet>1204</a>///
-<a href=#1205 id=1205 data-nosnippet>1205</a>/// Lives at the crate root, NOT in [`task`], because that module is
-<a href=#1206 id=1206 data-nosnippet>1206</a>/// `#[cfg(feature = "alloc")]` -- `PlatformTask` allocates its own storage --
-<a href=#1207 id=1207 data-nosnippet>1207</a>/// while this is a bare `extern "C"` query returning a `usize`. Gating it
-<a href=#1208 id=1208 data-nosnippet>1208</a>/// behind `alloc` made it unavailable on exactly the no_std targets whose
-<a href=#1209 id=1209 data-nosnippet>1209</a>/// stacks are worth watching, and broke the executor's stack-headroom rule
-<a href=#1210 id=1210 data-nosnippet>1210</a>/// on the Zephyr build.
-<a href=#1211 id=1211 data-nosnippet>1211</a>///
-<a href=#1212 id=1212 data-nosnippet>1212</a>/// The heap has had `heap_used_bytes` since RFC-0034 D7; this is the stack's
-<a href=#1213 id=1213 data-nosnippet>1213</a>/// counterpart. HEADROOM, not usage, and for the CALLING task only -- both
-<a href=#1214 id=1214 data-nosnippet>1214</a>/// kernels answer for self with no handle, and answering for an arbitrary
-<a href=#1215 id=1215 data-nosnippet>1215</a>/// task needs a native handle this ABI does not carry.
-<a href=#1216 id=1216 data-nosnippet>1216</a>///
-<a href=#1217 id=1217 data-nosnippet>1217</a>/// `0` means "not instrumented", not "no headroom".
-<a href=#1218 id=1218 data-nosnippet>1218</a></span><span class="kw">pub fn </span>stack_unused_bytes() -&gt; usize {
-<a href=#1219 id=1219 data-nosnippet>1219</a>    <span class="kw">unsafe extern </span><span class="string">"C" </span>{
-<a href=#1220 id=1220 data-nosnippet>1220</a>        <span class="kw">fn </span>nros_platform_task_stack_unused_bytes() -&gt; usize;
-<a href=#1221 id=1221 data-nosnippet>1221</a>    }
-<a href=#1222 id=1222 data-nosnippet>1222</a>    <span class="comment">// SAFETY: a plain query with no arguments and no state; every port either
-<a href=#1223 id=1223 data-nosnippet>1223</a>    // answers or returns 0.
-<a href=#1224 id=1224 data-nosnippet>1224</a>    </span><span class="kw">unsafe </span>{ nros_platform_task_stack_unused_bytes() }
-<a href=#1225 id=1225 data-nosnippet>1225</a>}
-<a href=#1226 id=1226 data-nosnippet>1226</a>
-<a href=#1227 id=1227 data-nosnippet>1227</a><span class="doccomment">/// Give up the processor to another ready task, through the port's
-<a href=#1228 id=1228 data-nosnippet>1228</a>/// `nros_platform_yield_now`. For a thread that must wait for another to
-<a href=#1229 id=1229 data-nosnippet>1229</a>/// finish a short critical step (phase-436's wake fan-out waits out a backend
-<a href=#1230 id=1230 data-nosnippet>1230</a>/// callback this way) without spinning a single core it shares with that
-<a href=#1231 id=1231 data-nosnippet>1231</a>/// thread.
-<a href=#1232 id=1232 data-nosnippet>1232</a></span><span class="kw">pub fn </span>yield_now() {
-<a href=#1233 id=1233 data-nosnippet>1233</a>    <span class="kw">unsafe extern </span><span class="string">"C" </span>{
-<a href=#1234 id=1234 data-nosnippet>1234</a>        <span class="kw">fn </span>nros_platform_yield_now();
-<a href=#1235 id=1235 data-nosnippet>1235</a>    }
-<a href=#1236 id=1236 data-nosnippet>1236</a>    <span class="comment">// SAFETY: no arguments, no return value; every port defines it.
-<a href=#1237 id=1237 data-nosnippet>1237</a>    </span><span class="kw">unsafe </span>{ nros_platform_yield_now() }
-<a href=#1238 id=1238 data-nosnippet>1238</a>}
-<a href=#1239 id=1239 data-nosnippet>1239</a>
-<a href=#1240 id=1240 data-nosnippet>1240</a><span class="doccomment">/// [`stack_unused_bytes`], capped at `limit`: `min(unused, limit)`, reading at
-<a href=#1241 id=1241 data-nosnippet>1241</a>/// most `limit` bytes of the calling task's stack (phase-436 E5).
-<a href=#1242 id=1242 data-nosnippet>1242</a>///
-<a href=#1243 id=1243 data-nosnippet>1243</a>/// What the `stack-headroom-runtime` rule needs: whether at least `limit`
-<a href=#1244 id=1244 data-nosnippet>1244</a>/// bytes are unused. Below `limit` the answer is the exact headroom, so a
-<a href=#1245 id=1245 data-nosnippet>1245</a>/// breach is reported without a second, full scan. `0` means "not
-<a href=#1246 id=1246 data-nosnippet>1246</a>/// instrumented", as for [`stack_unused_bytes`].
-<a href=#1247 id=1247 data-nosnippet>1247</a></span><span class="kw">pub fn </span>stack_unused_bytes_upto(limit: usize) -&gt; usize {
-<a href=#1248 id=1248 data-nosnippet>1248</a>    <span class="kw">unsafe extern </span><span class="string">"C" </span>{
-<a href=#1249 id=1249 data-nosnippet>1249</a>        <span class="kw">fn </span>nros_platform_task_stack_unused_bytes_upto(limit: usize) -&gt; usize;
-<a href=#1250 id=1250 data-nosnippet>1250</a>    }
-<a href=#1251 id=1251 data-nosnippet>1251</a>    <span class="comment">// SAFETY: a plain query; `limit` is a value, and every port either
-<a href=#1252 id=1252 data-nosnippet>1252</a>    // answers or returns 0.
-<a href=#1253 id=1253 data-nosnippet>1253</a>    </span><span class="kw">unsafe </span>{ nros_platform_task_stack_unused_bytes_upto(limit) }
-<a href=#1254 id=1254 data-nosnippet>1254</a>}
+<a href=#1202 id=1202 data-nosnippet>1202</a><span class="comment">// ============================================================================
+<a href=#1203 id=1203 data-nosnippet>1203</a>// CAN frame driver (RFC-0132; the C header is the contract)
+<a href=#1204 id=1204 data-nosnippet>1204</a>// ============================================================================
+<a href=#1205 id=1205 data-nosnippet>1205</a>
+<a href=#1206 id=1206 data-nosnippet>1206</a></span><span class="doccomment">/// The implementer surface of `&lt;nros/platform_can.h&gt;`, the CAN frame driver.
+<a href=#1207 id=1207 data-nosnippet>1207</a>///
+<a href=#1208 id=1208 data-nosnippet>1208</a>/// A Rust backend implements this and turns it into the five C symbols with
+<a href=#1209 id=1209 data-nosnippet>1209</a>/// `nros_platform_cffi::nros_platform_export_can!`; a C backend defines the
+<a href=#1210 id=1210 data-nosnippet>1210</a>/// symbols directly. The header is the contract: return codes are its
+<a href=#1211 id=1211 data-nosnippet>1211</a>/// `NROS_PLATFORM_CAN_*` values, and each method mirrors one call there.
+<a href=#1212 id=1212 data-nosnippet>1212</a>///
+<a href=#1213 id=1213 data-nosnippet>1213</a>/// # Pointers
+<a href=#1214 id=1214 data-nosnippet>1214</a>///
+<a href=#1215 id=1215 data-nosnippet>1215</a>/// This crate has no dependencies, so it cannot name the header's types.
+<a href=#1216 id=1216 data-nosnippet>1216</a>/// `can` points at the caller's `nros_platform_can_t` (the backend's state
+<a href=#1217 id=1217 data-nosnippet>1217</a>/// lives inside it and must fit the header's size) and `frame` at an
+<a href=#1218 id=1218 data-nosnippet>1218</a>/// `nros_platform_can_frame_t`; the export macro passes the typed pointers
+<a href=#1219 id=1219 data-nosnippet>1219</a>/// through unchanged. Any of them may be NULL, and a backend checks.
+<a href=#1220 id=1220 data-nosnippet>1220</a>///
+<a href=#1221 id=1221 data-nosnippet>1221</a>/// # Frame validity
+<a href=#1222 id=1222 data-nosnippet>1222</a>///
+<a href=#1223 id=1223 data-nosnippet>1223</a>/// A backend refuses the frames `nros_platform_can_frame_check` (the header's
+<a href=#1224 id=1224 data-nosnippet>1224</a>/// `static inline`) refuses, with `NROS_PLATFORM_CAN_EINVAL`. A C backend calls
+<a href=#1225 id=1225 data-nosnippet>1225</a>/// it; a Rust backend calls it through a compiled shim, so the rule has one
+<a href=#1226 id=1226 data-nosnippet>1226</a>/// definition.
+<a href=#1227 id=1227 data-nosnippet>1227</a></span><span class="kw">pub trait </span>PlatformCan {
+<a href=#1228 id=1228 data-nosnippet>1228</a>    <span class="doccomment">/// `nros_platform_can_open`: open `device` (NULL: the image's device);
+<a href=#1229 id=1229 data-nosnippet>1229</a>    /// `want_fd` non-zero fails on a device without CAN FD.
+<a href=#1230 id=1230 data-nosnippet>1230</a>    </span><span class="kw">fn </span>open(can: <span class="kw-2">*mut </span>c_void, device: <span class="kw-2">*const </span>core::ffi::c_char, want_fd: u8) -&gt; i8;
+<a href=#1231 id=1231 data-nosnippet>1231</a>
+<a href=#1232 id=1232 data-nosnippet>1232</a>    <span class="doccomment">/// `nros_platform_can_send`: send one frame within `timeout_us`.
+<a href=#1233 id=1233 data-nosnippet>1233</a>    </span><span class="kw">fn </span>send(can: <span class="kw-2">*mut </span>c_void, frame: <span class="kw-2">*const </span>c_void, timeout_us: u32) -&gt; i8;
+<a href=#1234 id=1234 data-nosnippet>1234</a>
+<a href=#1235 id=1235 data-nosnippet>1235</a>    <span class="doccomment">/// `nros_platform_can_fd_active`: non-zero when the handle carries CAN FD.
+<a href=#1236 id=1236 data-nosnippet>1236</a>    </span><span class="kw">fn </span>fd_active(can: <span class="kw-2">*const </span>c_void) -&gt; u8;
+<a href=#1237 id=1237 data-nosnippet>1237</a>
+<a href=#1238 id=1238 data-nosnippet>1238</a>    <span class="doccomment">/// `nros_platform_can_recv`: receive one frame within `timeout_us`.
+<a href=#1239 id=1239 data-nosnippet>1239</a>    </span><span class="kw">fn </span>recv(can: <span class="kw-2">*mut </span>c_void, frame: <span class="kw-2">*mut </span>c_void, timeout_us: u32) -&gt; i8;
+<a href=#1240 id=1240 data-nosnippet>1240</a>
+<a href=#1241 id=1241 data-nosnippet>1241</a>    <span class="doccomment">/// `nros_platform_can_close`: idempotent.
+<a href=#1242 id=1242 data-nosnippet>1242</a>    </span><span class="kw">fn </span>close(can: <span class="kw-2">*mut </span>c_void);
+<a href=#1243 id=1243 data-nosnippet>1243</a>}
+<a href=#1244 id=1244 data-nosnippet>1244</a>
+<a href=#1245 id=1245 data-nosnippet>1245</a><span class="doccomment">/// Smallest number of bytes ever left unused on the CALLING task's stack, or
+<a href=#1246 id=1246 data-nosnippet>1246</a>/// `0` if this port does not instrument it.
+<a href=#1247 id=1247 data-nosnippet>1247</a>///
+<a href=#1248 id=1248 data-nosnippet>1248</a>/// Lives at the crate root, NOT in [`task`], because that module is
+<a href=#1249 id=1249 data-nosnippet>1249</a>/// `#[cfg(feature = "alloc")]` -- `PlatformTask` allocates its own storage --
+<a href=#1250 id=1250 data-nosnippet>1250</a>/// while this is a bare `extern "C"` query returning a `usize`. Gating it
+<a href=#1251 id=1251 data-nosnippet>1251</a>/// behind `alloc` made it unavailable on exactly the no_std targets whose
+<a href=#1252 id=1252 data-nosnippet>1252</a>/// stacks are worth watching, and broke the executor's stack-headroom rule
+<a href=#1253 id=1253 data-nosnippet>1253</a>/// on the Zephyr build.
+<a href=#1254 id=1254 data-nosnippet>1254</a>///
+<a href=#1255 id=1255 data-nosnippet>1255</a>/// The heap has had `heap_used_bytes` since RFC-0034 D7; this is the stack's
+<a href=#1256 id=1256 data-nosnippet>1256</a>/// counterpart. HEADROOM, not usage, and for the CALLING task only -- both
+<a href=#1257 id=1257 data-nosnippet>1257</a>/// kernels answer for self with no handle, and answering for an arbitrary
+<a href=#1258 id=1258 data-nosnippet>1258</a>/// task needs a native handle this ABI does not carry.
+<a href=#1259 id=1259 data-nosnippet>1259</a>///
+<a href=#1260 id=1260 data-nosnippet>1260</a>/// `0` means "not instrumented", not "no headroom".
+<a href=#1261 id=1261 data-nosnippet>1261</a></span><span class="kw">pub fn </span>stack_unused_bytes() -&gt; usize {
+<a href=#1262 id=1262 data-nosnippet>1262</a>    <span class="kw">unsafe extern </span><span class="string">"C" </span>{
+<a href=#1263 id=1263 data-nosnippet>1263</a>        <span class="kw">fn </span>nros_platform_task_stack_unused_bytes() -&gt; usize;
+<a href=#1264 id=1264 data-nosnippet>1264</a>    }
+<a href=#1265 id=1265 data-nosnippet>1265</a>    <span class="comment">// SAFETY: a plain query with no arguments and no state; every port either
+<a href=#1266 id=1266 data-nosnippet>1266</a>    // answers or returns 0.
+<a href=#1267 id=1267 data-nosnippet>1267</a>    </span><span class="kw">unsafe </span>{ nros_platform_task_stack_unused_bytes() }
+<a href=#1268 id=1268 data-nosnippet>1268</a>}
+<a href=#1269 id=1269 data-nosnippet>1269</a>
+<a href=#1270 id=1270 data-nosnippet>1270</a><span class="doccomment">/// Give up the processor to another ready task, through the port's
+<a href=#1271 id=1271 data-nosnippet>1271</a>/// `nros_platform_yield_now`. For a thread that must wait for another to
+<a href=#1272 id=1272 data-nosnippet>1272</a>/// finish a short critical step (phase-436's wake fan-out waits out a backend
+<a href=#1273 id=1273 data-nosnippet>1273</a>/// callback this way) without spinning a single core it shares with that
+<a href=#1274 id=1274 data-nosnippet>1274</a>/// thread.
+<a href=#1275 id=1275 data-nosnippet>1275</a></span><span class="kw">pub fn </span>yield_now() {
+<a href=#1276 id=1276 data-nosnippet>1276</a>    <span class="kw">unsafe extern </span><span class="string">"C" </span>{
+<a href=#1277 id=1277 data-nosnippet>1277</a>        <span class="kw">fn </span>nros_platform_yield_now();
+<a href=#1278 id=1278 data-nosnippet>1278</a>    }
+<a href=#1279 id=1279 data-nosnippet>1279</a>    <span class="comment">// SAFETY: no arguments, no return value; every port defines it.
+<a href=#1280 id=1280 data-nosnippet>1280</a>    </span><span class="kw">unsafe </span>{ nros_platform_yield_now() }
+<a href=#1281 id=1281 data-nosnippet>1281</a>}
+<a href=#1282 id=1282 data-nosnippet>1282</a>
+<a href=#1283 id=1283 data-nosnippet>1283</a><span class="doccomment">/// [`stack_unused_bytes`], capped at `limit`: `min(unused, limit)`, reading at
+<a href=#1284 id=1284 data-nosnippet>1284</a>/// most `limit` bytes of the calling task's stack (phase-436 E5).
+<a href=#1285 id=1285 data-nosnippet>1285</a>///
+<a href=#1286 id=1286 data-nosnippet>1286</a>/// What the `stack-headroom-runtime` rule needs: whether at least `limit`
+<a href=#1287 id=1287 data-nosnippet>1287</a>/// bytes are unused. Below `limit` the answer is the exact headroom, so a
+<a href=#1288 id=1288 data-nosnippet>1288</a>/// breach is reported without a second, full scan. `0` means "not
+<a href=#1289 id=1289 data-nosnippet>1289</a>/// instrumented", as for [`stack_unused_bytes`].
+<a href=#1290 id=1290 data-nosnippet>1290</a></span><span class="kw">pub fn </span>stack_unused_bytes_upto(limit: usize) -&gt; usize {
+<a href=#1291 id=1291 data-nosnippet>1291</a>    <span class="kw">unsafe extern </span><span class="string">"C" </span>{
+<a href=#1292 id=1292 data-nosnippet>1292</a>        <span class="kw">fn </span>nros_platform_task_stack_unused_bytes_upto(limit: usize) -&gt; usize;
+<a href=#1293 id=1293 data-nosnippet>1293</a>    }
+<a href=#1294 id=1294 data-nosnippet>1294</a>    <span class="comment">// SAFETY: a plain query; `limit` is a value, and every port either
+<a href=#1295 id=1295 data-nosnippet>1295</a>    // answers or returns 0.
+<a href=#1296 id=1296 data-nosnippet>1296</a>    </span><span class="kw">unsafe </span>{ nros_platform_task_stack_unused_bytes_upto(limit) }
+<a href=#1297 id=1297 data-nosnippet>1297</a>}
 </code></pre></div></section></main></body></html>

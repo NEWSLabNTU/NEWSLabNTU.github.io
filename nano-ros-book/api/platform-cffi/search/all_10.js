@@ -1,4 +1,12 @@
 var searchData=
 [
-  ['value_20conventions_0',['value conventions',['../platform_8h.html#autotoc_md0',1,'Return-value conventions'],['../platform__timer_8h.html#autotoc_md6',1,'Return-value conventions']]]
+  ['see_20also_0',['See also',['../index.html#autotoc_md17',1,'']]],
+  ['semantics_1',['Timeout semantics',['../platform__net_8h.html#autotoc_md3',1,'']]],
+  ['sockets_20endpoints_2',['Sockets + endpoints',['../platform__net_8h.html#autotoc_md2',1,'']]],
+  ['stack_5fbytes_3',['stack_bytes',['../structnros__platform__task__attr__t.html#a2cc6a7113a0581389ba6bf7571582665',1,'nros_platform_task_attr_t']]],
+  ['stack_5fmem_4',['stack_mem',['../structnros__platform__task__attr__t.html#a82eec17510f0d8d3ad27ec8595ac757e',1,'nros_platform_task_attr_t']]],
+  ['start_5',['Quick start',['../index.html#autotoc_md12',1,'']]],
+  ['storage_6',['Handle storage',['../platform__can_8h.html#autotoc_md10',1,'']]],
+  ['strategy_7',['Stub strategy',['../index.html#autotoc_md14',1,'']]],
+  ['stub_20strategy_8',['Stub strategy',['../index.html#autotoc_md14',1,'']]]
 ];

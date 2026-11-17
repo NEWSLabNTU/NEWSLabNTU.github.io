@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['implementors_0',['Rust implementors',['../index.html#autotoc_md11',1,'']]]
+  ['endpoints_0',['Sockets + endpoints',['../platform__net_8h.html#autotoc_md2',1,'']]]
 ];

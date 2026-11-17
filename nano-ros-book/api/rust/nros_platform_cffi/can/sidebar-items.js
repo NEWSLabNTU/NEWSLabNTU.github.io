@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["closed_storage","frame"],"struct":["Can","CanError"],"type":["Frame"]};

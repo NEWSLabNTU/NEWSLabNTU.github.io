@@ -1,4 +1,5 @@
 var searchData=
 [
-  ['len_0',['len',['../platform_8h.html#a7360b55975153b822efc5217b7734e6a',1,'platform.h']]]
+  ['handle_20model_0',['Handle model',['../platform__timer_8h.html#autotoc_md5',1,'']]],
+  ['handle_20storage_1',['Handle storage',['../platform__can_8h.html#autotoc_md10',1,'']]]
 ];

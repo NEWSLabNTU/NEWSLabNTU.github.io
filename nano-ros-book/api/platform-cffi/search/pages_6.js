@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['nros_20platform_20cffi_0',['nros platform-cffi',['../index.html',1,'']]]
+  ['implementors_0',['Rust implementors',['../index.html#autotoc_md15',1,'']]]
 ];

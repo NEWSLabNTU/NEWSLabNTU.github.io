@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['optional_20capabilities_0',['Optional capabilities',['../platform__net_8h.html#autotoc_md4',1,'']]]
+  ['model_0',['Handle model',['../platform__timer_8h.html#autotoc_md5',1,'']]]
 ];

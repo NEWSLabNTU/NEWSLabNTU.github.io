@@ -25,12 +25,12 @@
 var NAVTREE =
 [
   [ "nros platform-cffi", "index.html", [
-    [ "Quick start", "index.html#autotoc_md8", null ],
-    [ "API reference", "index.html#autotoc_md9", null ],
-    [ "Stub strategy", "index.html#autotoc_md10", null ],
-    [ "Rust implementors", "index.html#autotoc_md11", null ],
-    [ "Pitfalls", "index.html#autotoc_md12", null ],
-    [ "See also", "index.html#autotoc_md13", null ],
+    [ "Quick start", "index.html#autotoc_md12", null ],
+    [ "API reference", "index.html#autotoc_md13", null ],
+    [ "Stub strategy", "index.html#autotoc_md14", null ],
+    [ "Rust implementors", "index.html#autotoc_md15", null ],
+    [ "Pitfalls", "index.html#autotoc_md16", null ],
+    [ "See also", "index.html#autotoc_md17", null ],
     [ "Data Structures", "annotated.html", [
       [ "Data Structures", "annotated.html", "annotated_dup" ],
       [ "Data Structure Index", "classes.html", null ],
