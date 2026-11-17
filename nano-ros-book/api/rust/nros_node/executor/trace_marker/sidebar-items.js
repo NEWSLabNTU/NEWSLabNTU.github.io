@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["APP_MARKER_FIRST","APP_MARKER_LAST"],"fn":["emit_app_marker","is_app_marker"],"struct":["AppMarkerIdOutOfRange"]};

@@ -1,5 +1,8 @@
 var NAVTREEINDEX8 =
 {
+"structrclcpp__action_1_1SendGoalOptions.html#ad379033d6ba21eca90d3615293286284":[13,0,1,4,6],
+"structrclcpp__action_1_1SendGoalOptions.html#ad379033d6ba21eca90d3615293286284":[14,0,1,4,6],
+"structrclcpp__action_1_1SendGoalOptions.html#ada16285592f53e81b52be4b1aaf70f34":[13,0,1,4,5],
 "structrclcpp__action_1_1SendGoalOptions.html#ada16285592f53e81b52be4b1aaf70f34":[14,0,1,4,5],
 "structrclcpp__action_1_1SendGoalOptions.html#afb495f4c159c172986813241ec9197b2":[13,0,1,4,1],
 "structrclcpp__action_1_1SendGoalOptions.html#afb495f4c159c172986813241ec9197b2":[14,0,1,4,1],

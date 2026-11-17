@@ -50,5 +50,8 @@ var rclcpp_8hpp =
     [ "rclcpp::spin_once", "namespacerclcpp.html#a75bcac9fbdc5302df4a810b903dbf730", null ],
     [ "rclcpp::spin_some", "namespacerclcpp.html#a526da19970501b4ad08e8a892c4d6ab7", null ],
     [ "rclcpp::spin_some", "namespacerclcpp.html#a7c14b78ce37e964b97832b74a4f4a9f5", null ],
-    [ "rclcpp::spin_until_future_complete", "namespacerclcpp.html#a8b43eca8eea937421e61fae5b2bddaae", null ]
+    [ "rclcpp::spin_until_future_complete", "namespacerclcpp.html#a8b43eca8eea937421e61fae5b2bddaae", null ],
+    [ "rclcpp::trace_marker", "namespacerclcpp.html#aa61a34e01b7ca2efc5766e636cc720a3", null ],
+    [ "rclcpp::kTraceAppMarkerFirst", "namespacerclcpp.html#a3a4801b4dea723641f43f2986c0f7c77", null ],
+    [ "rclcpp::kTraceAppMarkerLast", "namespacerclcpp.html#ac31e1791ea5d817b7833f743d87cf2a7", null ]
 ];

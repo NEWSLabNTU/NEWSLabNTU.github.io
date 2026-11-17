@@ -1,5 +1,8 @@
 var NAVTREEINDEX5 =
 {
+"troubleshooting.html#autotoc_md434":[9,2],
+"troubleshooting.html#autotoc_md435":[9,3],
+"troubleshooting.html#autotoc_md436":[9,3,0],
 "troubleshooting.html#autotoc_md437":[9,3,1],
 "troubleshooting.html#autotoc_md438":[9,4],
 "types_8h.html":[10,12,2],

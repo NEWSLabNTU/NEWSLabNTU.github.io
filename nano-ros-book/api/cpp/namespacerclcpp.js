@@ -153,7 +153,10 @@ var namespacerclcpp =
     [ "spin_some", "namespacerclcpp.html#a526da19970501b4ad08e8a892c4d6ab7", null ],
     [ "spin_some", "namespacerclcpp.html#a7c14b78ce37e964b97832b74a4f4a9f5", null ],
     [ "spin_until_future_complete", "namespacerclcpp.html#a8b43eca8eea937421e61fae5b2bddaae", null ],
+    [ "trace_marker", "namespacerclcpp.html#aa61a34e01b7ca2efc5766e636cc720a3", null ],
     [ "kDomainIdExplicitZero", "namespacerclcpp.html#a2ecd3fbc178aa6fa670a42ec2dd41582", null ],
+    [ "kTraceAppMarkerFirst", "namespacerclcpp.html#a3a4801b4dea723641f43f2986c0f7c77", null ],
+    [ "kTraceAppMarkerLast", "namespacerclcpp.html#ac31e1791ea5d817b7833f743d87cf2a7", null ],
     [ "PUBLISHER_TOPIC_NAME_MAX", "namespacerclcpp.html#a5530b287b5e081ae6af0097a1cde7a4d", null ],
     [ "SUBSCRIPTION_TOPIC_NAME_MAX", "namespacerclcpp.html#ad4691da12b59536df304c2947a0ba2dd", null ]
 ];

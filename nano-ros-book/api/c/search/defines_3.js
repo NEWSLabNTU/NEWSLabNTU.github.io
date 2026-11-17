@@ -77,9 +77,11 @@ var searchData=
   ['rclc_5fservice_5ftyped_5fok_74',['RCLC_SERVICE_TYPED_OK',['../nros__generated_8h.html#af8be57311d2b4ca22cd721dfebf318b7',1,'nros_generated.h']]],
   ['rclc_5fshutdown_5fcallback_5fhandle_5finvalid_75',['RCLC_SHUTDOWN_CALLBACK_HANDLE_INVALID',['../nros__generated_8h.html#a7158134d9262fb91bf17c76537368a21',1,'nros_generated.h']]],
   ['rclc_5fsoftcheck_76',['RCLC_SOFTCHECK',['../check_8h.html#aa9a25d32674b6660ee910dceb013a4e9',1,'check.h']]],
-  ['rcutils_5ferror_5fformatting_5fcharacters_77',['RCUTILS_ERROR_FORMATTING_CHARACTERS',['../nros__generated_8h.html#a37375d654c7a5f435b5f69062c853b10',1,'nros_generated.h']]],
-  ['rcutils_5ferror_5fmessage_5fmax_5flength_78',['RCUTILS_ERROR_MESSAGE_MAX_LENGTH',['../nros__generated_8h.html#ad86107c4e199766a5cd5dbe9ca7d3123',1,'nros_generated.h']]],
-  ['rcutils_5ferror_5fstate_5ffile_5fmax_5flength_79',['RCUTILS_ERROR_STATE_FILE_MAX_LENGTH',['../nros__generated_8h.html#a7c5d724ea46e4ba4a31325eefc9beca6',1,'nros_generated.h']]],
-  ['rcutils_5ferror_5fstate_5fline_5fnumber_5fstr_5fmax_5flength_80',['RCUTILS_ERROR_STATE_LINE_NUMBER_STR_MAX_LENGTH',['../nros__generated_8h.html#aafb97ba3d802ef69bf20bfadbb156b41',1,'nros_generated.h']]],
-  ['rcutils_5ferror_5fstate_5fmessage_5fmax_5flength_81',['RCUTILS_ERROR_STATE_MESSAGE_MAX_LENGTH',['../nros__generated_8h.html#a1c216345095d597ff27682b5c87ae334',1,'nros_generated.h']]]
+  ['rclc_5ftrace_5fapp_5fmarker_5ffirst_77',['RCLC_TRACE_APP_MARKER_FIRST',['../nros__generated_8h.html#aa0ec54f04823ea1e6bcdd8874dfd9dc7',1,'nros_generated.h']]],
+  ['rclc_5ftrace_5fapp_5fmarker_5flast_78',['RCLC_TRACE_APP_MARKER_LAST',['../nros__generated_8h.html#a58b0808a1608a8225a7afb4434e7ecc6',1,'nros_generated.h']]],
+  ['rcutils_5ferror_5fformatting_5fcharacters_79',['RCUTILS_ERROR_FORMATTING_CHARACTERS',['../nros__generated_8h.html#a37375d654c7a5f435b5f69062c853b10',1,'nros_generated.h']]],
+  ['rcutils_5ferror_5fmessage_5fmax_5flength_80',['RCUTILS_ERROR_MESSAGE_MAX_LENGTH',['../nros__generated_8h.html#ad86107c4e199766a5cd5dbe9ca7d3123',1,'nros_generated.h']]],
+  ['rcutils_5ferror_5fstate_5ffile_5fmax_5flength_81',['RCUTILS_ERROR_STATE_FILE_MAX_LENGTH',['../nros__generated_8h.html#a7c5d724ea46e4ba4a31325eefc9beca6',1,'nros_generated.h']]],
+  ['rcutils_5ferror_5fstate_5fline_5fnumber_5fstr_5fmax_5flength_82',['RCUTILS_ERROR_STATE_LINE_NUMBER_STR_MAX_LENGTH',['../nros__generated_8h.html#aafb97ba3d802ef69bf20bfadbb156b41',1,'nros_generated.h']]],
+  ['rcutils_5ferror_5fstate_5fmessage_5fmax_5flength_83',['RCUTILS_ERROR_STATE_MESSAGE_MAX_LENGTH',['../nros__generated_8h.html#a1c216345095d597ff27682b5c87ae334',1,'nros_generated.h']]]
 ];
