@@ -47,9 +47,10 @@ var searchData=
   ['rclc_5fsubscription_5fcallback_5ft_44',['rclc_subscription_callback_t',['../nros__generated_8h.html#a97d2ea3f0a98e3b541d0869ab061f498',1,'nros_generated.h']]],
   ['rclc_5fsubscription_5fcallback_5fwith_5fcontext_5ft_45',['rclc_subscription_callback_with_context_t',['../nros__generated_8h.html#a6abfe6cb7dc6079719f7ef235ff390fb',1,'nros_generated.h']]],
   ['rclc_5fsubscription_5finfo_5fcallback_5ft_46',['rclc_subscription_info_callback_t',['../nros__generated_8h.html#aff7658e749d3d86595cef2865819eb3a',1,'nros_generated.h']]],
-  ['rclc_5fsubscription_5fraw_5fcallback_5ft_47',['rclc_subscription_raw_callback_t',['../nros__generated_8h.html#a7111d7085f6a3072c58a89856ac70223',1,'nros_generated.h']]],
-  ['rclc_5fsubscription_5fvalidated_5fcallback_5ft_48',['rclc_subscription_validated_callback_t',['../nros__generated_8h.html#aa50d303073af8216f796cd41db41818a',1,'nros_generated.h']]],
-  ['rclc_5ftimer_5fcallback_5fwith_5finfo_5ft_49',['rclc_timer_callback_with_info_t',['../nros__generated_8h.html#a2b4cdba2dc558822b7bc055d6e822705',1,'nros_generated.h']]],
-  ['rmw_5fpublisher_5fallocation_5ft_50',['rmw_publisher_allocation_t',['../nros__generated_8h.html#a488f87820b4e17ba21b499975d8e05c5',1,'nros_generated.h']]],
-  ['rmw_5fsubscription_5fallocation_5ft_51',['rmw_subscription_allocation_t',['../nros__generated_8h.html#ad2acd5b45a83798ebbd37a1b9bbc10fb',1,'nros_generated.h']]]
+  ['rclc_5fsubscription_5fmessage_5finfo_5fcallback_5ft_47',['rclc_subscription_message_info_callback_t',['../nros__generated_8h.html#a4e92a2e1bf3da2f107831063b3b2ea7e',1,'nros_generated.h']]],
+  ['rclc_5fsubscription_5fraw_5fcallback_5ft_48',['rclc_subscription_raw_callback_t',['../nros__generated_8h.html#a7111d7085f6a3072c58a89856ac70223',1,'nros_generated.h']]],
+  ['rclc_5fsubscription_5fvalidated_5fcallback_5ft_49',['rclc_subscription_validated_callback_t',['../nros__generated_8h.html#aa50d303073af8216f796cd41db41818a',1,'nros_generated.h']]],
+  ['rclc_5ftimer_5fcallback_5fwith_5finfo_5ft_50',['rclc_timer_callback_with_info_t',['../nros__generated_8h.html#a2b4cdba2dc558822b7bc055d6e822705',1,'nros_generated.h']]],
+  ['rmw_5fpublisher_5fallocation_5ft_51',['rmw_publisher_allocation_t',['../nros__generated_8h.html#a488f87820b4e17ba21b499975d8e05c5',1,'nros_generated.h']]],
+  ['rmw_5fsubscription_5fallocation_5ft_52',['rmw_subscription_allocation_t',['../nros__generated_8h.html#ad2acd5b45a83798ebbd37a1b9bbc10fb',1,'nros_generated.h']]]
 ];
