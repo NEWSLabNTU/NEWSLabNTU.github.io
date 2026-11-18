@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["LevelError"],"struct":["LevelCore"]};
+window.SIDEBAR_ITEMS = {"enum":["LevelError"],"struct":["BandWaiter","LevelCore","RunToCompletionLevels"],"type":["BandWaitFn","WorkerWakeFn"]};
