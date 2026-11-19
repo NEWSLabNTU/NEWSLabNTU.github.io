@@ -25,50 +25,50 @@
 var NAVTREE =
 [
   [ "nros C API", "index.html", [
-    [ "Quick Start", "index.html#autotoc_md413", null ],
-    [ "API Modules", "index.html#autotoc_md414", null ],
-    [ "Header Organisation", "index.html#autotoc_md415", null ],
-    [ "Reference", "index.html#autotoc_md416", null ],
-    [ "Guides", "index.html#autotoc_md417", null ],
+    [ "Quick Start", "index.html#autotoc_md417", null ],
+    [ "API Modules", "index.html#autotoc_md418", null ],
+    [ "Header Organisation", "index.html#autotoc_md419", null ],
+    [ "Reference", "index.html#autotoc_md420", null ],
+    [ "Guides", "index.html#autotoc_md421", null ],
     [ "Error Codes", "error_codes.html", [
-      [ "Return Code Table", "error_codes.html#autotoc_md442", null ],
-      [ "zenoh-pico Underlying Errors", "error_codes.html#autotoc_md443", null ],
-      [ "Pattern: Handling Errors", "error_codes.html#autotoc_md444", null ],
-      [ "See Also", "error_codes.html#autotoc_md445", null ]
+      [ "Return Code Table", "error_codes.html#autotoc_md446", null ],
+      [ "zenoh-pico Underlying Errors", "error_codes.html#autotoc_md447", null ],
+      [ "Pattern: Handling Errors", "error_codes.html#autotoc_md448", null ],
+      [ "See Also", "error_codes.html#autotoc_md449", null ]
     ] ],
     [ "Getting Started", "getting_started.html", [
-      [ "Prerequisites", "getting_started.html#autotoc_md418", null ],
-      [ "1. Create a CMake Project", "getting_started.html#autotoc_md419", null ],
-      [ "2. Code Generation", "getting_started.html#autotoc_md420", null ],
-      [ "3. RMW Backend Selection", "getting_started.html#autotoc_md421", null ],
-      [ "4. Write a Publisher", "getting_started.html#autotoc_md422", null ],
-      [ "5. Build and Run", "getting_started.html#autotoc_md423", null ],
-      [ "System Install", "getting_started.html#autotoc_md424", null ],
-      [ "Zephyr Integration", "getting_started.html#autotoc_md425", null ]
+      [ "Prerequisites", "getting_started.html#autotoc_md422", null ],
+      [ "1. Create a CMake Project", "getting_started.html#autotoc_md423", null ],
+      [ "2. Code Generation", "getting_started.html#autotoc_md424", null ],
+      [ "3. RMW Backend Selection", "getting_started.html#autotoc_md425", null ],
+      [ "4. Write a Publisher", "getting_started.html#autotoc_md426", null ],
+      [ "5. Build and Run", "getting_started.html#autotoc_md427", null ],
+      [ "System Install", "getting_started.html#autotoc_md428", null ],
+      [ "Zephyr Integration", "getting_started.html#autotoc_md429", null ]
     ] ],
     [ "Configuration", "configuration.html", [
-      [ "Runtime Environment Variables", "configuration.html#autotoc_md426", null ],
-      [ "C API Buffer Tuning (NROS_*)", "configuration.html#autotoc_md427", null ],
-      [ "Transport Buffer Tuning", "configuration.html#autotoc_md428", [
-        [ "Zenoh Backend (ZPICO_*)", "configuration.html#autotoc_md429", null ],
-        [ "XRCE-DDS Backend (XRCE_*)", "configuration.html#autotoc_md430", null ]
+      [ "Runtime Environment Variables", "configuration.html#autotoc_md430", null ],
+      [ "C API Buffer Tuning (NROS_*)", "configuration.html#autotoc_md431", null ],
+      [ "Transport Buffer Tuning", "configuration.html#autotoc_md432", [
+        [ "Zenoh Backend (ZPICO_*)", "configuration.html#autotoc_md433", null ],
+        [ "XRCE-DDS Backend (XRCE_*)", "configuration.html#autotoc_md434", null ]
       ] ],
-      [ "Example", "configuration.html#autotoc_md431", null ]
+      [ "Example", "configuration.html#autotoc_md435", null ]
     ] ],
     [ "ROS 2 Interoperability", "ros2_interop.html", [
-      [ "Quick Start (3 Terminals)", "ros2_interop.html#autotoc_md432", null ],
-      [ "Requirements", "ros2_interop.html#autotoc_md433", null ],
-      [ "Common Issues", "ros2_interop.html#autotoc_md434", null ]
+      [ "Quick Start (3 Terminals)", "ros2_interop.html#autotoc_md436", null ],
+      [ "Requirements", "ros2_interop.html#autotoc_md437", null ],
+      [ "Common Issues", "ros2_interop.html#autotoc_md438", null ]
     ] ],
     [ "Troubleshooting", "troubleshooting.html", [
-      [ "Message Too Large / Truncated", "troubleshooting.html#autotoc_md435", null ],
-      [ "zenoh Version Mismatch", "troubleshooting.html#autotoc_md436", null ],
-      [ "Build Issues", "troubleshooting.html#autotoc_md437", null ],
-      [ "FFI Callback Crashes", "troubleshooting.html#autotoc_md438", [
-        [ "Stable Pointer Requirement", "troubleshooting.html#autotoc_md439", null ],
-        [ "Callback ABI", "troubleshooting.html#autotoc_md440", null ]
+      [ "Message Too Large / Truncated", "troubleshooting.html#autotoc_md439", null ],
+      [ "zenoh Version Mismatch", "troubleshooting.html#autotoc_md440", null ],
+      [ "Build Issues", "troubleshooting.html#autotoc_md441", null ],
+      [ "FFI Callback Crashes", "troubleshooting.html#autotoc_md442", [
+        [ "Stable Pointer Requirement", "troubleshooting.html#autotoc_md443", null ],
+        [ "Callback ABI", "troubleshooting.html#autotoc_md444", null ]
       ] ],
-      [ "zenoh-pico Error Codes", "troubleshooting.html#autotoc_md441", null ]
+      [ "zenoh-pico Error Codes", "troubleshooting.html#autotoc_md445", null ]
     ] ],
     [ "Topics", "topics.html", "topics" ],
     [ "Data Structures", "annotated.html", [
@@ -98,10 +98,10 @@ var NAVTREEINDEX =
 [
 "action_8h.html",
 "nros__generated_8h.html#a1dcce1400788e595f1807808218fbba2a96112c280d2bd817e941270626e13b42",
-"nros__generated_8h.html#a743d3c7658c4bc34cd9c4b826683ee19",
-"nros__generated_8h.html#adf0280e520e68aa382f227b60b4bae9fa231fd734198dbb66d48e8af6d9d441b8",
-"structrcl__publisher__t.html",
-"troubleshooting.html#autotoc_md435"
+"nros__generated_8h.html#a730e4c9be8298e0d8856e6c9e04ac813",
+"nros__generated_8h.html#adf0280e520e68aa382f227b60b4bae9f",
+"structrcl__publisher__options__t.html",
+"timer_8h.html"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronization';
