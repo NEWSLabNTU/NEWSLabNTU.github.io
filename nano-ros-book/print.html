@@ -37,10 +37,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-8ce7c81d.js";
+            window.path_to_searchindex_js = "searchindex-459eba51.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-aa0318bd.js"></script>
+        <script src="toc-082bf45d.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -13088,6 +13088,290 @@ for a project that used nano-ros from a checkout.</li>
 .nros-level-badge .nros-level-type { color: var(--links); font-weight: 600; }
 </style>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="bring-your-own-c-library"><a class="header" href="#bring-your-own-c-library">Bring your own C++ library</a></h1>
+<div class="nros-level-badge" data-type="how-to" data-level="3"><span class="nros-level-type">How-to</span> · <span class="nros-level-name">Level 3: Production and tuning</span></div>
+
+<p><strong>Needs first:</strong> <a href="#mix-languages">Mix languages</a>, <a href="#freertos-on-mps2-an385">FreeRTOS on mps2-an385</a></p>
+<p>Use this page when a C++ node package needs a general-purpose library that
+nano-ros does not provide: Eigen, a JSON parser, a filter library. The
+example links Eigen into a C++ talker for the <code>mps2-an385-freertos</code> board.</p>
+<p>nano-ros ships no copies of general-purpose C++ libraries, patched or not.
+You bring your own copy and patch it for your board yourself. The package’s
+<code>CMakeLists.txt</code> finds and links it as it would without nano-ros; nano-ros
+neither provides it nor blocks it.</p>
+<p>There are two ways to bring the copy:</p>
+<ul>
+<li><strong>As a package in your workspace</strong>, beside your node packages. The copy
+lives in your repository with your patches applied, and every board builds
+from it. This page’s steps take this route.</li>
+<li><strong>From a prefix you own</strong>, where the library’s own CMake install put it.
+<a href="#use-a-copy-installed-elsewhere">Use a copy installed elsewhere</a> covers
+it.</li>
+</ul>
+<h2 id="before-you-start-20"><a class="header" href="#before-you-start-20">Before you start</a></h2>
+<ul>
+<li>Your copy of the library’s source, with your patches applied. This page
+uses Eigen 3.4 at <code>$HOME/src/eigen</code>. Eigen is header-only, so the copy is
+its <code>Eigen/</code> directory.</li>
+<li>A C++ workspace for the board, as the
+<a href="#get-started-on-mps2-an385-in-qemu-freertos">FreeRTOS starter</a> makes one.</li>
+</ul>
+<p>This page uses a workspace named <code>eigen_ws</code>, whose node package is
+<code>eigen_node</code>:</p>
+<pre><code class="language-bash probe=110 track=installed variant=own-library">nros setup mps2-an385-freertos --rmw zenoh
+source /opt/ros/humble/setup.bash
+nros new eigen_ws --board mps2-an385-freertos --template talker --lang cpp
+cd eigen_ws
+</code></pre>
+<h2 id="the-boards-toolchain-decides-what-builds"><a class="header" href="#the-boards-toolchain-decides-what-builds">The board’s toolchain decides what builds</a></h2>
+<p><code>nros build</code> compiles every package with the board’s cross toolchain, not
+the host’s compiler, so a library must build for the board’s CPU and C
+library. Two things follow.</p>
+<p><strong>CMake can find the host’s copy.</strong> The board toolchain files let
+<code>find_package</code> search host paths, so a host with <code>libeigen3-dev</code> installed
+satisfies a plain <code>find_package(Eigen3)</code> with <code>/usr/share/eigen3</code>: a copy you
+did not patch, found without a word. The steps below name your copy and
+turn the host’s locations off.</p>
+<p><strong>FreeRTOS compiles C++ freestanding.</strong> The FreeRTOS boards build C++ with
+<code>-ffreestanding</code>. The nano-ros C++ API needs no standard library, but Eigen
+does, and libstdc++ refuses <code>&lt;cmath&gt;</code> or <code>&lt;vector&gt;</code> there with <em>This header is
+not available in freestanding mode</em>. <code>nano_ros_hosted_cxx()</code> makes the C++ of
+the package that calls it hosted, and leaves every other package as it was.
+The call does nothing on POSIX, Zephyr and NuttX, whose C++ is already hosted.
+ThreadX on RISC-V refuses it: that board’s C++ library is a freestanding shim,
+with no hosted library to switch to.</p>
+<h2 id="steps-18"><a class="header" href="#steps-18">Steps</a></h2>
+<p>The steps add a package for the library and change three files of the node
+package:</p>
+<pre><code class="language-tree">eigen_ws/
+└── src/
+    ├── eigen/                       (new)
+    │   ├── package.xml
+    │   ├── CMakeLists.txt
+    │   ├── cmake/
+    │   │   └── Eigen3Config.cmake
+    │   └── include/
+    │       └── eigen3/
+    │           └── Eigen/
+    └── eigen_node/
+        ├── package.xml              (changed)
+        ├── CMakeLists.txt           (changed)
+        └── src/
+            └── Talker.cpp           (changed)
+</code></pre>
+<h3 id="add-the-library-as-a-package"><a class="header" href="#add-the-library-as-a-package">Add the library as a package</a></h3>
+<p>Copy your Eigen into the new package:</p>
+<pre><code class="language-bash probe=120 track=installed variant=own-library">mkdir -p src/eigen/include/eigen3 src/eigen/cmake
+cp -r $HOME/src/eigen/Eigen src/eigen/include/eigen3/
+</code></pre>
+<p>Give it a <code>package.xml</code>. Its name is what a node package depends on:</p>
+<div class="nros-file-caption" data-mode="file"><code>src/eigen/package.xml</code></div>
+
+<pre><code class="language-xml probe=121 track=installed variant=own-library file=src/eigen/package.xml">&lt;?xml version="1.0"?&gt;
+&lt;package format="3"&gt;
+  &lt;name&gt;eigen&lt;/name&gt;
+  &lt;version&gt;3.4.0&lt;/version&gt;
+  &lt;description&gt;Eigen 3.4, with this project's patches.&lt;/description&gt;
+  &lt;maintainer email="you@example.com"&gt;you&lt;/maintainer&gt;
+  &lt;license&gt;MPL-2.0&lt;/license&gt;
+  &lt;buildtool_depend&gt;ament_cmake&lt;/buildtool_depend&gt;
+  &lt;export&gt;
+    &lt;build_type&gt;ament_cmake&lt;/build_type&gt;
+  &lt;/export&gt;
+&lt;/package&gt;
+</code></pre>
+<p>A config file defines Eigen’s own target, <code>Eigen3::Eigen</code>, over the copied
+headers:</p>
+<div class="nros-file-caption" data-mode="file"><code>src/eigen/cmake/Eigen3Config.cmake</code></div>
+
+<pre><code class="language-cmake probe=122 track=installed variant=own-library file=src/eigen/cmake/Eigen3Config.cmake">get_filename_component(_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+if(NOT TARGET Eigen3::Eigen)
+    add_library(Eigen3::Eigen INTERFACE IMPORTED GLOBAL)
+    set_target_properties(Eigen3::Eigen PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${_root}/include/eigen3")
+endif()
+set(Eigen3_FOUND TRUE)
+set(EIGEN3_INCLUDE_DIR "${_root}/include/eigen3")
+</code></pre>
+<p>The package’s <code>CMakeLists.txt</code> loads it and records where it is, so a
+node package’s <code>find_package(Eigen3)</code> finds this copy:</p>
+<div class="nros-file-caption" data-mode="file"><code>src/eigen/CMakeLists.txt</code></div>
+
+<pre><code class="language-cmake probe=123 track=installed variant=own-library file=src/eigen/CMakeLists.txt">cmake_minimum_required(VERSION 3.22)
+project(eigen LANGUAGES CXX)
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Eigen3Config.cmake")
+set(Eigen3_DIR "${CMAKE_CURRENT_SOURCE_DIR}/cmake" CACHE PATH "this workspace's Eigen" FORCE)
+
+if(COMMAND ament_package)
+    ament_package()
+endif()
+</code></pre>
+<h3 id="depend-on-it-from-the-node-package"><a class="header" href="#depend-on-it-from-the-node-package">Depend on it from the node package</a></h3>
+<p>Add <code>&lt;depend&gt;eigen&lt;/depend&gt;</code> to <code>src/eigen_node/package.xml</code>. It builds the
+library’s package before the node’s:</p>
+<div class="nros-file-caption" data-mode="file"><code>src/eigen_node/package.xml</code></div>
+
+<pre><code class="language-xml probe=130 track=installed variant=own-library file=src/eigen_node/package.xml">&lt;?xml version="1.0"?&gt;
+&lt;package format="3"&gt;
+  &lt;name&gt;eigen_node&lt;/name&gt;
+  &lt;version&gt;0.1.0&lt;/version&gt;
+  &lt;description&gt;eigen_node — nano-ros C++ Node pkg.&lt;/description&gt;
+  &lt;maintainer email="you@example.com"&gt;you&lt;/maintainer&gt;
+  &lt;license&gt;Apache-2.0&lt;/license&gt;
+  &lt;depend&gt;std_msgs&lt;/depend&gt;
+  &lt;depend&gt;eigen&lt;/depend&gt;
+  &lt;export&gt;
+    &lt;build_type&gt;nros_cmake&lt;/build_type&gt;
+  &lt;/export&gt;
+&lt;/package&gt;
+</code></pre>
+<p>In <code>src/eigen_node/CMakeLists.txt</code>, call <code>nano_ros_hosted_cxx()</code>, then find
+and link Eigen. <code>NO_DEFAULT_PATH</code> keeps the host’s copy out: CMake takes the
+<code>Eigen3_DIR</code> the library’s package recorded, and looks nowhere else.</p>
+<div class="nros-file-caption" data-mode="file"><code>src/eigen_node/CMakeLists.txt</code></div>
+
+<pre><code class="language-cmake probe=131 track=installed variant=own-library file=src/eigen_node/CMakeLists.txt">cmake_minimum_required(VERSION 3.22)
+project(eigen_node VERSION 0.1.0 LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(nano_ros REQUIRED)
+find_package(std_msgs REQUIRED)
+
+# Eigen needs the hosted C++ standard library. This makes the C++ of this
+# package hosted on a board whose toolchain is freestanding.
+nano_ros_hosted_cxx()
+
+# The build's source probe configures this package without its workspace
+# dependencies, so it loads the library's package itself.
+if(NOT TARGET Eigen3::Eigen)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../eigen" eigen)
+endif()
+
+find_package(Eigen3 REQUIRED NO_MODULE NO_DEFAULT_PATH)
+message(STATUS "Eigen from ${Eigen3_DIR}")
+
+nano_ros_add_node(eigen_node CLASS eigen_node::Talker
+    SOURCES src/Talker.cpp)
+
+target_link_libraries(eigen_node_eigen_node_component
+    PUBLIC std_msgs__nano_ros_cpp
+    PRIVATE Eigen3::Eigen)
+</code></pre>
+<p>The <code>add_subdirectory</code> fallback is there for the source probe, which
+<code>nros build</code> runs before the build to read each package’s metadata. Today it
+configures a node package alone, so a header or target from a sibling
+package is missing there unless the package loads it.</p>
+<h3 id="use-the-library"><a class="header" href="#use-the-library">Use the library</a></h3>
+<p>This talker turns <code>(count, 0)</code> a quarter turn with a fixed-size matrix
+before it publishes. Replace <code>src/eigen_node/src/Talker.cpp</code> with:</p>
+<div class="nros-file-caption" data-mode="file"><code>src/eigen_node/src/Talker.cpp</code></div>
+
+<pre><code class="language-cpp probe=132 track=installed variant=own-library file=src/eigen_node/src/Talker.cpp">#include "eigen_node/Talker.hpp"
+
+#include &lt;cstdio&gt;
+
+#include &lt;Eigen/Dense&gt;
+
+namespace eigen_node {
+
+void Talker::on_tick() {
+    ++count_;
+    // A quarter turn: (count, 0) becomes (0, count).
+    const Eigen::Matrix2f turn{{0.0f, -1.0f}, {1.0f, 0.0f}};
+    const Eigen::Vector2f v = turn * Eigen::Vector2f(float(count_), 0.0f);
+    char payload[64];
+    std::snprintf(payload, sizeof(payload), "Hello World: %d (%.0f, %.0f)", count_,
+                  double(v.x()), double(v.y()));
+    std_msgs::msg::String msg;
+    msg.data = payload;
+    if (pub_.publish(msg).ok()) {
+        std::printf("Publishing: '%s'\n", msg.data.c_str());
+    }
+}
+
+::rclcpp::Result Talker::configure(::rclcpp::Node&amp; node) {
+    ::setvbuf(stdout, nullptr, _IONBF, 0);
+    ::rclcpp::Result r = node.create_publisher(pub_, "/chatter");
+    if (!r.ok()) return r;
+    return node.create_wall_timer&lt;Talker, &amp;Talker::on_tick&gt;(timer_, 1000, this);
+}
+
+} // namespace eigen_node
+</code></pre>
+<h3 id="build-and-run"><a class="header" href="#build-and-run">Build and run</a></h3>
+<pre><code class="language-bash probe=140 track=installed variant=own-library">nros build
+</code></pre>
+<p>The configure output names the copy it found, inside your workspace:</p>
+<pre><code class="language-text">-- Eigen from /home/you/eigen_ws/src/eigen/cmake
+</code></pre>
+<p>Boot the image in QEMU. Each line carries the turned vector:</p>
+<pre><code class="language-bash probe=150 probe-run=120 track=installed variant=own-library">source /opt/ros/humble/setup.bash
+nros run eigen_node
+</code></pre>
+<pre><code class="language-text probe-expect=150">Publishing: 'Hello World: 1 (0, 1)'
+Publishing: 'Hello World: 2 (0, 2)'
+</code></pre>
+<h2 id="use-a-copy-installed-elsewhere"><a class="header" href="#use-a-copy-installed-elsewhere">Use a copy installed elsewhere</a></h2>
+<p>A library you build and install with its own CMake, into a prefix such as
+<code>$HOME/opt/eigen</code>, needs no package of its own. Drop the <code>add_subdirectory</code>
+fallback and the <code>&lt;depend&gt;eigen&lt;/depend&gt;</code>, and name the prefix in the
+bringup’s <code>system.toml</code>:</p>
+<pre><code class="language-toml">[image_defaults.build]
+cmake_args = ["-DEigen3_DIR=/home/you/opt/eigen/share/eigen3/cmake"]
+</code></pre>
+<p><code>[image_defaults.build] cmake_args</code> reaches every image’s configure and the
+source probe, and changing it runs the probe again. A path that differs per
+image, such as a cross image and a host image built against different
+copies, goes in that image’s <code>[image.&lt;id&gt;.build] cmake_args</code>; the probe still
+reads only the <code>[image_defaults.build]</code> one.</p>
+<h2 id="what-hosted-c-costs"><a class="header" href="#what-hosted-c-costs">What hosted C++ costs</a></h2>
+<blockquote>
+<p><strong>Warning:</strong> hosted C++ can bring libstdc++’s heap and exception machinery
+into the image. A <code>std::vector</code>, a dynamic-size Eigen matrix or a
+<code>std::string</code> allocates through <code>operator new</code>, from the package’s own
+code rather than through the platform’s allocator. An image with a package
+that calls <code>nano_ros_hosted_cxx()</code> cannot claim to be free of allocation:
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/scripts/check-no-alloc-image.py">the project’s allocation check</a>
+reports <code>operator new</code> in its <code>cxx-operator-new</code> family. Fixed-size Eigen
+types, as in the talker above, keep their storage inline.</p>
+</blockquote>
+<p>The FreeRTOS toolchain still compiles with <code>-fno-exceptions</code> and <code>-fno-rtti</code>,
+so a library that throws must be built with its no-exceptions option.</p>
+<h2 id="if-it-doesnt-work-36"><a class="header" href="#if-it-doesnt-work-36">If it doesn’t work</a></h2>
+<ul>
+<li><em>This header is not available in freestanding mode</em>: the package does not
+call <code>nano_ros_hosted_cxx()</code>, or calls it in a different directory from the
+target that includes the header.</li>
+<li><em>probe FAILED for eigen_node::eigen_node: … Could not find a package
+configuration file provided by “Eigen3”</em>: the node package lacks the
+<code>add_subdirectory</code> fallback, so the source probe never loaded the library’s
+package. For a copy installed elsewhere, <code>[image_defaults.build] cmake_args</code> lacks its <code>-DEigen3_DIR</code>, or names a directory without
+<code>Eigen3Config.cmake</code>.</li>
+<li>The configure line names <code>/usr/share/eigen3</code>: the <code>find_package</code> call lacks
+<code>NO_DEFAULT_PATH</code>, and CMake found the host’s copy.</li>
+<li>A compile error inside the library: the library does not support this
+board’s CPU or C library as it is, and needs a patch to your copy. Eigen 3.4,
+for one, does not compile its vectorized <code>psincos</code> on an <code>arm-none-eabi</code> CPU
+with NEON, where newlib’s <code>int32_t</code> is <code>long</code>: its scratch buffer is <code>int</code>
+where Eigen’s integer packets expect <code>int32_t</code>.</li>
+</ul>
+<h2 id="reference"><a class="header" href="#reference">Reference</a></h2>
+<ul>
+<li><a href="#third-party-code">Third-party code</a>: what an image
+compiles in besides your libraries.</li>
+<li><a href="#two-surfaces-freestanding-and-nros_cpp_std">Two surfaces: freestanding, and <code>NROS_CPP_STD</code></a>:
+the nano-ros C++ API with and without the standard library.</li>
+</ul>
+<style>
+.nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;
+  border: 1px solid var(--table-border-color); border-radius: 999px;
+  background: var(--table-alternate-bg); color: var(--fg); font-size: 0.85em; }
+.nros-level-badge .nros-level-type { color: var(--links); font-weight: 600; }
+</style>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="linux-host"><a class="header" href="#linux-host">Linux host</a></h1>
 <div class="nros-level-badge" data-type="how-to" data-level="2"><span class="nros-level-type">How-to</span> · <span class="nros-level-name">Level 2: Building real applications</span></div>
 
@@ -13186,7 +13470,7 @@ machine, set <code>ROS_DOMAIN_ID</code> and, for zenoh, <code>NROS_LOCATOR</code
 under the service manager you already use. For a zenoh image, run the router
 on that machine or name a reachable one in <code>NROS_LOCATOR</code>. The checklist in
 <a href="#deploy-to-production">Deploy to production</a> applies unchanged.</p>
-<h2 id="if-it-doesnt-work-36"><a class="header" href="#if-it-doesnt-work-36">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-37"><a class="header" href="#if-it-doesnt-work-37">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>nros run</code> stops at once and names the router:</strong> the image uses zenoh
 and <code>rmw_zenohd</code> is not on the path. Source ROS 2 and install
@@ -13196,7 +13480,7 @@ you already run.</li>
 <code>ROS_DOMAIN_ID</code> differs from the image’s <code>rmw</code> and <code>domain_id</code>.</li>
 <li><strong>Everything else:</strong> <a href="#troubleshoot">Troubleshoot</a>.</li>
 </ul>
-<h2 id="reference"><a class="header" href="#reference">Reference</a></h2>
+<h2 id="reference-1"><a class="header" href="#reference-1">Reference</a></h2>
 <ul>
 <li><a href="#linux">The <code>linux</code> board’s support evidence</a>:
 its status, where it runs and its breadth.</li>
@@ -13372,7 +13656,7 @@ take the application over with <code>nros materialize zephyr</code>. That writes
 the directory to return to the generated one. An application that owns its
 <code>west build</code> and has no bringup at all is
 <a href="#a-zephyr-app-you-build-with-west">A Zephyr app you build with west</a>.</p>
-<h2 id="if-it-doesnt-work-37"><a class="header" href="#if-it-doesnt-work-37">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-38"><a class="header" href="#if-it-doesnt-work-38">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>&lt;err&gt; … executor open failed: Transport(ConnectionFailed)</code>:</strong> the
 image found no router. Both sides default to <code>tcp/127.0.0.1:7447</code>; a
@@ -13384,7 +13668,7 @@ the board’s NSOS fragment handles it, so a conf file of your own should
 not set it.</li>
 <li><strong>Everything else:</strong> <a href="#troubleshoot">Troubleshoot</a>.</li>
 </ul>
-<h2 id="reference-1"><a class="header" href="#reference-1">Reference</a></h2>
+<h2 id="reference-2"><a class="header" href="#reference-2">Reference</a></h2>
 <ul>
 <li><a href="#zephyr-native-sim">The <code>native_sim</code> board’s support evidence</a>.</li>
 <li>The module’s Kconfig, every <code>CONFIG_NROS*</code> symbol:
@@ -13507,7 +13791,7 @@ cargo or CMake on it. Print the exact commands without building:</p>
 <p>To write the generated entry without building, for an IDE or a CI cache
 step, run <code>nros configure</code>. Never edit what either command writes under
 <code>build/</code>: the next build regenerates it.</p>
-<h2 id="if-it-doesnt-work-38"><a class="header" href="#if-it-doesnt-work-38">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-39"><a class="header" href="#if-it-doesnt-work-39">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>nros run</code> stops at once and names the router:</strong> <code>rmw_zenohd</code> is not on
 the path, or another router holds the port. Source ROS 2, or stop the
@@ -13516,7 +13800,7 @@ other router.</li>
 80 seconds before the first publish.</li>
 <li><strong>Everything else:</strong> <a href="#troubleshoot">Troubleshoot</a>.</li>
 </ul>
-<h2 id="reference-2"><a class="header" href="#reference-2">Reference</a></h2>
+<h2 id="reference-3"><a class="header" href="#reference-3">Reference</a></h2>
 <ul>
 <li><a href="#threadx-linux">The <code>threadx-linux</code> board’s support evidence</a>.</li>
 <li>Copy-out talkers:
@@ -13619,7 +13903,7 @@ file. Print the exact commands without building:</p>
 <p><code>nros configure</code> writes the generated entry without building, for an IDE or
 a CI cache step. For a CMake tree that is not a nano-ros workspace, see
 <a href="#build-inside-an-existing-cmake-or-vendor-tree">Build inside an existing CMake or vendor tree</a>.</p>
-<h2 id="if-it-doesnt-work-39"><a class="header" href="#if-it-doesnt-work-39">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-40"><a class="header" href="#if-it-doesnt-work-40">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>nros run</code> says the router exited:</strong> another zenoh router already holds
 port 7447. Stop it; <code>nros run</code> starts one for a zenoh image on this board.</li>
@@ -13628,7 +13912,7 @@ port 7447. Stop it; <code>nros run</code> starts one for a zenoh image on this b
 same domain. A firewall that drops multicast also stops DDS discovery.</li>
 <li><strong>Everything else:</strong> <a href="#troubleshoot">Troubleshoot</a>.</li>
 </ul>
-<h2 id="reference-3"><a class="header" href="#reference-3">Reference</a></h2>
+<h2 id="reference-4"><a class="header" href="#reference-4">Reference</a></h2>
 <ul>
 <li><a href="#freertos-posix-1">The <code>freertos-posix</code> board’s support evidence</a>.</li>
 <li>The board crate:
@@ -13770,7 +14054,7 @@ every build: never edit them, and never add a <code>.cargo/config.toml</code> of
 own to carry board facts. Your own toolchain preferences go where cargo
 already looks, a parent directory or <code>$CARGO_HOME</code>. See
 <a href="#when-nros-build-drives-the-build">When <code>nros build</code> drives the build</a>.</p>
-<h2 id="if-it-doesnt-work-40"><a class="header" href="#if-it-doesnt-work-40">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-41"><a class="header" href="#if-it-doesnt-work-41">If it doesn’t work</a></h2>
 <ul>
 <li><strong>No <code>Publishing:</code> line over the network:</strong> another router holds the
 <code>locator</code>’s port, or a QEMU line of your own dropped the NIC.</li>
@@ -13778,7 +14062,7 @@ already looks, a parent directory or <code>$CARGO_HOME</code>. See
 nothing preempts it.</li>
 <li><strong>Everything else:</strong> <a href="#troubleshoot">Troubleshoot</a>.</li>
 </ul>
-<h2 id="reference-4"><a class="header" href="#reference-4">Reference</a></h2>
+<h2 id="reference-5"><a class="header" href="#reference-5">Reference</a></h2>
 <ul>
 <li><a href="#mps2-an385">The <code>mps2-an385-baremetal</code> board’s support evidence</a>.</li>
 <li>Copy-out talker:
@@ -13888,7 +14172,7 @@ cargo or CMake commands without building:</p>
 a CI cache step. Never edit what either command writes under <code>build/</code>. For a
 CMake tree that is not a nano-ros workspace, see
 <a href="#add-nano-ros-to-a-cmake-tree">Build inside an existing CMake or vendor tree</a>.</p>
-<h2 id="if-it-doesnt-work-41"><a class="header" href="#if-it-doesnt-work-41">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-42"><a class="header" href="#if-it-doesnt-work-42">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>Failed to open session</code>:</strong> no router answered on the host’s <code>0.0.0.0</code>
 at the <code>locator</code>’s port. Start it first, or set <code>connect_forever</code>.</li>
@@ -13896,7 +14180,7 @@ at the <code>locator</code>’s port. Start it first, or set <code>connect_forev
 <code>127.0.0.1</code>, which the guest cannot reach.</li>
 <li><strong>Everything else:</strong> <a href="#troubleshoot">Troubleshoot</a>.</li>
 </ul>
-<h2 id="reference-5"><a class="header" href="#reference-5">Reference</a></h2>
+<h2 id="reference-6"><a class="header" href="#reference-6">Reference</a></h2>
 <ul>
 <li><a href="#mps2-an385-freertos">The <code>mps2-an385-freertos</code> board’s support evidence</a>.</li>
 <li>Copy-out talkers, one per language:
@@ -14128,7 +14412,7 @@ in every Zephyr image. On an image with no IP stack (<code>CONFIG_NET_SOCKETS</c
 for example a serial-only zenoh image) it returns 0 at once, so the call needs
 no guard. <code>CONFIG_NROS_INIT_DELAY_MS</code> is the module’s start-up delay; your
 <code>main()</code> is its only reader.</p>
-<h2 id="if-it-doesnt-work-42"><a class="header" href="#if-it-doesnt-work-42">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-43"><a class="header" href="#if-it-doesnt-work-43">If it doesn’t work</a></h2>
 <ol>
 <li>Confirm the router listens on the host’s <code>0.0.0.0</code> at the image’s port.
 A router on <code>127.0.0.1</code> is unreachable from the guest.</li>
@@ -14137,7 +14421,7 @@ A router on <code>127.0.0.1</code> is unreachable from the guest.</li>
 <li>No <code>Publishing:</code> line within 30 seconds of boot: check the console for
 the network coming up, then <a href="#troubleshoot">Troubleshoot</a>.</li>
 </ol>
-<h2 id="reference-6"><a class="header" href="#reference-6">Reference</a></h2>
+<h2 id="reference-7"><a class="header" href="#reference-7">Reference</a></h2>
 <ul>
 <li><a href="#mps2-an385-zephyr">The <code>mps2-an385-zephyr</code> board’s support evidence</a>.</li>
 <li>The Zephyr module, its manifest and its Kconfig:
@@ -14298,7 +14582,7 @@ kernel, without building:</p>
 </code></pre>
 <p>The same QEMU line boots a kernel you built with <code>make</code>. <code>nros configure</code>
 writes the generated entry without building.</p>
-<h2 id="if-it-doesnt-work-43"><a class="header" href="#if-it-doesnt-work-43">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-44"><a class="header" href="#if-it-doesnt-work-44">If it doesn’t work</a></h2>
 <p>If no <code>Publishing:</code> line appears:</p>
 <ol>
 <li>Confirm the app ran: <code>ps</code> at the NSH prompt shows its task.</li>
@@ -14309,7 +14593,7 @@ image’s <code>locator</code> names.</li>
 </ol>
 <p>For DDS on NuttX, raise the network buffer options in the kernel
 configuration. Everything else: <a href="#troubleshoot">Troubleshoot</a>.</p>
-<h2 id="reference-7"><a class="header" href="#reference-7">Reference</a></h2>
+<h2 id="reference-8"><a class="header" href="#reference-8">Reference</a></h2>
 <ul>
 <li>The boards’ support pages:
 <a href="#nuttx-arm"><code>qemu-armv7a-nuttx</code></a>,
@@ -14433,7 +14717,7 @@ raw priority number, so <code>sched_tasks[0]</code> (the numerically-largest, i.
 lowest-priority sched task) boots first and then adopts its declared
 priority. See <a href="#pick-a-scheduling-model">Scheduling Models</a>
 for the mechanics.</p>
-<h2 id="if-it-doesnt-work-44"><a class="header" href="#if-it-doesnt-work-44">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-45"><a class="header" href="#if-it-doesnt-work-45">If it doesn’t work</a></h2>
 <ul>
 <li><strong>The image boots and never publishes:</strong> no router on the host’s
 <code>0.0.0.0</code> at the <code>locator</code>’s port. A router on <code>127.0.0.1</code> is unreachable
@@ -14442,7 +14726,7 @@ from the guest.</li>
 above.</li>
 <li><strong>Everything else:</strong> <a href="#troubleshoot">Troubleshoot</a>.</li>
 </ul>
-<h2 id="reference-8"><a class="header" href="#reference-8">Reference</a></h2>
+<h2 id="reference-9"><a class="header" href="#reference-9">Reference</a></h2>
 <ul>
 <li><a href="#threadx-qemu-riscv64">The <code>rv-virt-threadx</code> board’s support evidence</a>.</li>
 <li>Copy-out talker:
@@ -14540,7 +14824,7 @@ needs Zephyr’s IP stack back on and a tighter RAM budget than the serial
 image, and its boot report is not yet measured, so neither the starter nor
 this page documents one. Use the serial link. WiFi is not available on this
 board.</p>
-<h2 id="if-it-doesnt-work-45"><a class="header" href="#if-it-doesnt-work-45">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-46"><a class="header" href="#if-it-doesnt-work-46">If it doesn’t work</a></h2>
 <ul>
 <li><strong>The twin boots and the router never hears the board:</strong> the image’s
 <code>locator</code> names another UART. It must be USART3,
@@ -14551,7 +14835,7 @@ budget. Lower it, or remove the image’s override.</li>
 header pins, not the USB cable.</li>
 <li><strong>Everything else:</strong> <a href="#troubleshoot">Troubleshoot</a>.</li>
 </ul>
-<h2 id="reference-9"><a class="header" href="#reference-9">Reference</a></h2>
+<h2 id="reference-10"><a class="header" href="#reference-10">Reference</a></h2>
 <ul>
 <li><a href="#nucleo-f767zi-zephyr">The board’s support evidence</a>:
 its status, twin and breadth.</li>
@@ -14580,7 +14864,7 @@ same application for a real board. The application keeps its own
 <code>CMakeLists.txt</code> and <code>prj.conf</code>; nano-ros joins it as one more Zephyr module.
 The steps run on the <code>native_sim</code> board; its status is on
 <a href="#zephyr-native-sim">its support evidence</a>.</p>
-<h2 id="before-you-start-20"><a class="header" href="#before-you-start-20">Before you start</a></h2>
+<h2 id="before-you-start-21"><a class="header" href="#before-you-start-21">Before you start</a></h2>
 <p>Choose this road when the Zephyr application already exists, owns its build,
 and has its own drivers, devicetree and <code>prj.conf</code>, and you want <code>west build</code>
 and <code>west flash</code> to stay the commands you type. It has no bringup and no
@@ -15154,7 +15438,7 @@ its twin. The tracks that replay this page boot <code>build-board/zephyr/zephyr.
 in the board’s Renode twin instead, with USART3 on a host serial port. For the
 board’s ethernet, keep <code>CONFIG_NETWORKING=y</code> with its ethernet driver and an
 address, and set <code>CONFIG_NROS_ZENOH_LOCATOR</code> to the router’s TCP address.</p>
-<h2 id="if-it-doesnt-work-46"><a class="header" href="#if-it-doesnt-work-46">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-47"><a class="header" href="#if-it-doesnt-work-47">If it doesn’t work</a></h2>
 <ul>
 <li>
 <p><strong><code>Could not find a package configuration file provided by "nano_ros"</code>:</strong>
@@ -15277,7 +15561,7 @@ the library layer yourself: install a transport, register the backend, open an
 executor over memory you own, and spin it from your own loop.</p>
 <p>The page follows a serial-only board talking XRCE-DDS to a micro-ROS Agent over
 a UART. The same steps hold for USB-CDC and for other byte streams.</p>
-<h2 id="before-you-start-21"><a class="header" href="#before-you-start-21">Before you start</a></h2>
+<h2 id="before-you-start-22"><a class="header" href="#before-you-start-22">Before you start</a></h2>
 <p>You need:</p>
 <ul>
 <li>a board crate or application that already boots, with a panic handler;</li>
@@ -15419,7 +15703,7 @@ since they belong to the old session.</p>
 which proves nothing), or <code>SessionLost</code>. A loop that calls <code>spin_once</code> does
 not need it. A publish that the Agent stopped acknowledging returns
 <code>WouldBlock</code>.</p>
-<h2 id="if-it-doesnt-work-47"><a class="header" href="#if-it-doesnt-work-47">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-48"><a class="header" href="#if-it-doesnt-work-48">If it doesn’t work</a></h2>
 <ul>
 <li><strong>The link fails on <code>nros_platform_udp_*</code>.</strong> The build did not see
 <code>NROS_LINK_IP=0</code>. Set it in the environment of the <code>cargo build</code> that links
@@ -15486,14 +15770,14 @@ as a serial port carrying zenoh to a router on your host.</li>
 launches an image on the host or in an emulator, and refuses a hardware
 image, naming the flashing step instead. <code>nros flash</code> programs a board, and
 <code>nros monitor</code> attaches to its console.</p>
-<h2 id="before-you-start-22"><a class="header" href="#before-you-start-22">Before you start</a></h2>
+<h2 id="before-you-start-23"><a class="header" href="#before-you-start-23">Before you start</a></h2>
 <ul>
 <li>A workspace whose image runs in the board’s twin, as its starter leaves it.</li>
 <li>The board, on a USB cable. A board whose console is on its pins rather
 than on the cable, as the Nucleo-F767ZI’s and the Pico W’s are, needs a
 USB-to-UART adapter to read the console.</li>
 </ul>
-<h2 id="steps-18"><a class="header" href="#steps-18">Steps</a></h2>
+<h2 id="steps-19"><a class="header" href="#steps-19">Steps</a></h2>
 <h3 id="record-the-board"><a class="header" href="#record-the-board">Record the board</a></h3>
 <p>With the board attached, <code>nros bench scan</code> matches each
 attached USB device to a board by its USB id and records it in
@@ -15577,7 +15861,7 @@ printed with the board vendor’s own tool:</p>
 </div>
 <p>The board needs a link nano-ros can use: a serial port, or a network
 interface its board package brings up.</p>
-<h2 id="if-it-doesnt-work-48"><a class="header" href="#if-it-doesnt-work-48">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-49"><a class="header" href="#if-it-doesnt-work-49">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>nros run</code> refuses and names a flashing step:</strong> the image’s board is
 hardware. Use <code>nros flash</code>.</li>
@@ -15867,7 +16151,7 @@ not a callback group.</p>
 <p>The scheduling theory behind the choice (fixed-priority preemption,
 rate-monotonic assignment, EDF, priority inversion) belongs to
 <a href="#the-execution-model">The execution model</a>.</p>
-<h2 id="before-you-start-23"><a class="header" href="#before-you-start-23">Before you start</a></h2>
+<h2 id="before-you-start-24"><a class="header" href="#before-you-start-24">Before you start</a></h2>
 <ul>
 <li>A workspace whose image runs on an RTOS or on Linux.</li>
 <li>The capabilities your platform delivers, from the generated
@@ -15875,7 +16159,7 @@ rate-monotonic assignment, EDF, priority inversion) belongs to
 Zephyr, the sporadic server on NuttX, preemption threshold on ThreadX, core
 affinity on most.</li>
 </ul>
-<h2 id="steps-19"><a class="header" href="#steps-19">Steps</a></h2>
+<h2 id="steps-20"><a class="header" href="#steps-20">Steps</a></h2>
 <ol>
 <li>
 <p>Name a callback group for each urgency, in the node’s code.</p>
@@ -16027,7 +16311,7 @@ locator = "tcp/10.0.2.2:7891"
 </code></pre>
 <pre><code class="language-bash">nros run demo_bringup:linux
 </code></pre>
-<h2 id="if-it-doesnt-work-49"><a class="header" href="#if-it-doesnt-work-49">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-50"><a class="header" href="#if-it-doesnt-work-50">If it doesn’t work</a></h2>
 <ul>
 <li><strong>The build refuses a priority.</strong> It lands on the board’s reserved
 transport band, or outranks it. Pick one from the application pool the
@@ -16084,12 +16368,12 @@ make it unbounded:</p>
 </tbody>
 </table>
 </div>
-<h2 id="before-you-start-24"><a class="header" href="#before-you-start-24">Before you start</a></h2>
+<h2 id="before-you-start-25"><a class="header" href="#before-you-start-25">Before you start</a></h2>
 <ul>
 <li>A Rust node package that builds with <code>nros build</code>.</li>
 <li><code>rustup</code> with a nightly toolchain, for the stack analysis.</li>
 </ul>
-<h2 id="steps-20"><a class="header" href="#steps-20">Steps</a></h2>
+<h2 id="steps-21"><a class="header" href="#steps-21">Steps</a></h2>
 <ol>
 <li>
 <p>Run Clippy with the loop and recursion lints as errors, from the node
@@ -16234,7 +16518,7 @@ depend on the target: serialization, state machines, protocol code.</p>
     -W clippy::large_stack_arrays -W clippy::large_types_passed_by_value \
     -W clippy::cognitive_complexity
 </code></pre>
-<h2 id="if-it-doesnt-work-50"><a class="header" href="#if-it-doesnt-work-50">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-51"><a class="header" href="#if-it-doesnt-work-51">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>cargo-call-stack</code> reports nothing useful.</strong> The build was not fat-LTO,
 or the package links <code>std</code>. Analyze the <code>no_std</code> firmware crate.</li>
@@ -16273,7 +16557,7 @@ clock, and mark your application’s phases on the same clock. The executor
 emits one <code>(marker_id, arg)</code> event per callback start, end and registration
 through a trace sink: a function you install, or one the platform installs
 for you. Your application emits its own events through the same sink.</p>
-<h2 id="before-you-start-25"><a class="header" href="#before-you-start-25">Before you start</a></h2>
+<h2 id="before-you-start-26"><a class="header" href="#before-you-start-26">Before you start</a></h2>
 <ul>
 <li>An image built with callback tracing: the <code>trace-callbacks</code> feature of
 <code>nros-c</code>, <code>nros-cpp</code> or <code>nros</code>. Without it every call below is a
@@ -16281,7 +16565,7 @@ no-op, and the marker call still checks its id.</li>
 <li>A sink. Zephyr installs one when CTF tracing is on (see the table below).
 Elsewhere, install your own before the executor registers anything.</li>
 </ul>
-<h2 id="steps-21"><a class="header" href="#steps-21">Steps</a></h2>
+<h2 id="steps-22"><a class="header" href="#steps-22">Steps</a></h2>
 <ol>
 <li>
 <p>Install a sink, if the platform does not. The signature is two <code>uint32_t</code>
@@ -16351,7 +16635,7 @@ logs an error and emits nothing. The id is never moved onto another one.</p>
 </tbody>
 </table>
 </div>
-<h2 id="if-it-doesnt-work-51"><a class="header" href="#if-it-doesnt-work-51">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-52"><a class="header" href="#if-it-doesnt-work-52">If it doesn’t work</a></h2>
 <ul>
 <li><strong>No events at all.</strong> The image was built without <code>trace-callbacks</code>, or no
 sink is installed. <code>rclc_trace_marker</code> returns <code>RCL_RET_OK</code> in both cases.</li>
@@ -16382,14 +16666,14 @@ runs on, verify it from ROS 2, and check it is ready to ship.</p>
 <p>The order is the same on every target: build the image, put it where it
 runs, then verify ROS 2 communication. On a host or an emulator <code>nros run</code>
 does the last two; on hardware <code>nros flash --monitor</code> does.</p>
-<h2 id="before-you-start-26"><a class="header" href="#before-you-start-26">Before you start</a></h2>
+<h2 id="before-you-start-27"><a class="header" href="#before-you-start-27">Before you start</a></h2>
 <ul>
 <li>A workspace whose images build, and the boards provisioned
 (<code>nros setup</code> at the workspace root).</li>
 <li>For a zenoh image, ROS 2’s router; see
 <a href="#ros-2-and-the-zenoh-router">ROS 2 and the zenoh router</a>.</li>
 </ul>
-<h2 id="steps-22"><a class="header" href="#steps-22">Steps</a></h2>
+<h2 id="steps-23"><a class="header" href="#steps-23">Steps</a></h2>
 <ol>
 <li>
 <p>Build every image the workspace declares:</p>
@@ -16532,7 +16816,7 @@ bench file, the board’s descriptor, and the runner’s defaults.
 <code>--dry-run --why</code> prints the plan without running it, as in step 2. Each
 platform page under <a href="#linux-host">Platforms</a> reads its
 board’s plan.</p>
-<h2 id="if-it-doesnt-work-52"><a class="header" href="#if-it-doesnt-work-52">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-53"><a class="header" href="#if-it-doesnt-work-53">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>nros run</code> refuses and names a flashing step.</strong> The image’s board is
 hardware. Use <code>nros flash --monitor</code>.</li>
@@ -16575,7 +16859,7 @@ of <code>rclcpp::Logger</code> and <code>rcutils_logging</code>. Every record go
 platform: stderr on Linux, Zephyr’s log subsystem, NuttX’s <code>syslog</code>, a UART on
 FreeRTOS and ThreadX. The table is in
 <a href="#logging-nros-log">Platform differences</a>.</p>
-<h2 id="before-you-start-27"><a class="header" href="#before-you-start-27">Before you start</a></h2>
+<h2 id="before-you-start-28"><a class="header" href="#before-you-start-28">Before you start</a></h2>
 <ul>
 <li>A node package in a workspace that runs, for example the talker of
 <a href="#run-a-talker-on-an-emulated-board">Run a talker</a>.</li>
@@ -16858,7 +17142,7 @@ max_level = "info"
 </code></pre>
 <p>The logging demos, one node package per language, are in
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/features"><code>examples/workspaces/features</code></a>.</p>
-<h2 id="if-it-doesnt-work-53"><a class="header" href="#if-it-doesnt-work-53">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-54"><a class="header" href="#if-it-doesnt-work-54">If it doesn’t work</a></h2>
 <ul>
 <li><strong>A <code>debug!</code> record never appears.</strong> The compile-time ceiling is above it,
 or the logger’s level is. Lower <code>max_level</code>, then the logger’s level.</li>
@@ -16978,12 +17262,12 @@ them. As in rclcpp, the method name carries the choice:</p>
 notice that real time passed; a paused simulator must not pause it. Older
 nano-ros code used <code>create_timer</code> for the wall timer. It no longer means that,
 and there is no alias.</p>
-<h2 id="before-you-start-28"><a class="header" href="#before-you-start-28">Before you start</a></h2>
+<h2 id="before-you-start-29"><a class="header" href="#before-you-start-29">Before you start</a></h2>
 <ul>
 <li>A node package whose timers should follow the simulation.</li>
 <li>A <code>/clock</code> source: a simulator, or <code>ros2 bag play --clock</code>.</li>
 </ul>
-<h2 id="steps-23"><a class="header" href="#steps-23">Steps</a></h2>
+<h2 id="steps-24"><a class="header" href="#steps-24">Steps</a></h2>
 <ol>
 <li>
 <p>Declare the <code>sim_time</code> capability in the image’s <code>system.toml</code>. It is one
@@ -17109,7 +17393,7 @@ spin loop.</li>
 <li><strong>Timers only.</strong> Message delivery, QoS deadlines and transport leases stay
 on the monotonic clock, so a link stays up while the simulation is paused.</li>
 </ul>
-<h2 id="if-it-doesnt-work-54"><a class="header" href="#if-it-doesnt-work-54">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-55"><a class="header" href="#if-it-doesnt-work-55">If it doesn’t work</a></h2>
 <ul>
 <li>
 <p><strong>ROS-time timers never fire.</strong> A never-connected <code>/clock</code> looks exactly
@@ -17228,14 +17512,14 @@ following does not cover. Find the symptom, then apply its fix.</p>
 <li>Several backends in one binary:
 <a href="#if-it-doesnt-work-23">Bridge between backends</a>.</li>
 </ul>
-<h2 id="before-you-start-29"><a class="header" href="#before-you-start-29">Before you start</a></h2>
+<h2 id="before-you-start-30"><a class="header" href="#before-you-start-30">Before you start</a></h2>
 <p>Run the doctor in the workspace. It checks the SDK paths, toolchains and
 environment, and names what is missing:</p>
 <pre><code class="language-bash">nros doctor
 </code></pre>
 <p>Outside a workspace it checks the install instead, and reports store entries
 you can remove, with the command to remove them.</p>
-<h2 id="steps-24"><a class="header" href="#steps-24">Steps</a></h2>
+<h2 id="steps-25"><a class="header" href="#steps-25">Steps</a></h2>
 <ol>
 <li>Run <code>nros doctor</code> and fix what it names.</li>
 <li>Run the failing step again with <code>--dry-run</code> where it has one
@@ -17351,7 +17635,7 @@ arguments.</p>
 nros build &lt;image&gt; --dry-run
 nros run &lt;bringup&gt;:&lt;image&gt; --dry-run --why
 </code></pre>
-<h2 id="if-it-doesnt-work-55"><a class="header" href="#if-it-doesnt-work-55">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-56"><a class="header" href="#if-it-doesnt-work-56">If it doesn’t work</a></h2>
 <ul>
 <li>Look the error up in the
 <a href="#troubleshooting--first-10-minutes">troubleshooting index</a>, which
@@ -17383,7 +17667,7 @@ root carries the CMake side: the <code>ament_*</code> verbs, <code>Find&lt;pkg&g
 for the most-cited ROS 2 packages, and <code>diagnostic_updater</code>. So a port is
 mostly build glue. What the source still needs is what the compiler names:
 nano-ros has no exceptions, and a few handles observe rather than own.</p>
-<h2 id="before-you-start-30"><a class="header" href="#before-you-start-30">Before you start</a></h2>
+<h2 id="before-you-start-31"><a class="header" href="#before-you-start-31">Before you start</a></h2>
 <ul>
 <li>nano-ros installed, the host provisioned with <code>nros setup linux</code>, and ROS 2
 sourced for the first configure.</li>
@@ -17392,7 +17676,7 @@ For a project with its own message packages, source the project’s install
 too (<code>source &lt;project&gt;/install/setup.bash</code>); nano-ros generates its own
 bindings from those <code>.msg</code> files.</li>
 </ul>
-<h2 id="steps-25"><a class="header" href="#steps-25">Steps</a></h2>
+<h2 id="steps-26"><a class="header" href="#steps-26">Steps</a></h2>
 <ol>
 <li>
 <p>Keep the package’s <code>CMakeLists.txt</code> as it is. It needs no nano-ros line:</p>
@@ -17575,7 +17859,7 @@ type hash: <code>create_generic_publisher(topic, type, type_hash, qos)</code>).
 Parameters are not persisted across boots.</p>
 </li>
 </ul>
-<h2 id="if-it-doesnt-work-56"><a class="header" href="#if-it-doesnt-work-56">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-57"><a class="header" href="#if-it-doesnt-work-57">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>find_package(&lt;pkg&gt;)</code> is refused, naming an installed file.</strong> nano-ros
 does not ship that upstream library (<code>bondcpp</code>, <code>tf2_ros</code>). Remove the
@@ -17642,13 +17926,13 @@ libraries and no runtime plugin loading:</p>
 </div>
 <p>The full account of the differences is in
 <a href="#how-nano-ros-differs-from-ros-2-and-micro-ros">How nano-ros differs from ROS 2</a>.</p>
-<h2 id="before-you-start-31"><a class="header" href="#before-you-start-31">Before you start</a></h2>
+<h2 id="before-you-start-32"><a class="header" href="#before-you-start-32">Before you start</a></h2>
 <ul>
 <li>A ROS 2 Humble workspace that builds with <code>colcon build</code>.</li>
 <li>ROS 2 Humble installed. nano-ros generates its message bindings from it,
 and its zenoh router is ROS 2’s <code>rmw_zenohd</code>.</li>
 </ul>
-<h2 id="steps-26"><a class="header" href="#steps-26">Steps</a></h2>
+<h2 id="steps-27"><a class="header" href="#steps-27">Steps</a></h2>
 <ol>
 <li>
 <p>Install the CLI and provision the host, in place of the distro install
@@ -17753,7 +18037,7 @@ nros run my_robot_bringup:linux
 </code></pre>
 <p>Cyclone DDS needs no router, so this interoperates with <code>rmw_cyclonedds_cpp</code>
 nodes directly.</p>
-<h2 id="if-it-doesnt-work-57"><a class="header" href="#if-it-doesnt-work-57">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-58"><a class="header" href="#if-it-doesnt-work-58">If it doesn’t work</a></h2>
 <ul>
 <li><strong>Changing <code>RMW_IMPLEMENTATION</code> changes nothing.</strong> The backend is compiled
 in. Edit <code>[system] rmw</code> and build again.</li>
@@ -25385,7 +25669,7 @@ a machine (<code>nros setup</code>, prebuilt-vs-source rules)</li>
 <li><a href="#build-inside-an-existing-cmake-or-vendor-tree">Build inside an existing CMake or vendor tree</a>
 — pinning and upgrading these from a company tree</li>
 </ul>
-<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data ff199cf79b2badae) — do not edit; edit the registry and regenerate. -->
+<div style="break-before: page; page-break-before: always;"></div><!-- GENERATED by scripts/gen-board-support.py from packages/boards/board-support.toml (registry data adb960c271d2e7a6) — do not edit; edit the registry and regenerate. -->
 <h1 id="board-support-levels"><a class="header" href="#board-support-levels">Board Support Levels</a></h1>
 <p>What nano-ros can show for each board it knows about. Each level is derived from evidence, never typed: <strong>where</strong> the board’s image runs (on a host, in an emulator, on hardware, or nowhere yet), <strong>how often</strong> that run happens (every merge, daily, weekly, or by hand on a date) and <strong>which board’s test matrix</strong> stands for its breadth.</p>
 <div class="table-wrapper">
@@ -25510,7 +25794,7 @@ a machine (<code>nros setup</code>, prebuilt-vs-source rules)</li>
 <tr><td>Cadence</td><td>daily</td></tr>
 <tr><td>Breadth</td><td>witness — Runtime: Pubsub, Port, PortSmoke, PortMonitor, PortWorkspace, Service, Action, Logging, EntryPubsub, RealtimeSchedTasks in Rust, C, C++, Mixed over zenoh, cyclonedds</td></tr>
 <tr><td>Book</td><td>Run: <a href="#run-it-in-qemu-1">mps2 an385 freertos</a></td></tr>
-<tr><td>Book probe tracks</td><td><code>first-project</code>, <code>tutorial-2</code>, <code>tutorial-3</code>, <code>tutorial-4</code>, <code>tutorial-5</code>, <code>tutorial-6</code>, <code>tutorial-7</code>, <code>tutorial-8</code>, <code>tutorial-9</code>, <code>tutorial-10</code>, <code>tutorial-c</code> (weekly), <code>tutorial-cpp</code> (weekly), <code>lab-qos</code> (weekly), <code>lab-qos-c</code> (weekly), <code>lab-qos-cpp</code> (weekly), <code>lab-tiers</code> (weekly), <code>lab-tiers-c</code> (weekly), <code>lab-tiers-cpp</code> (weekly), <code>freertos</code> (weekly), <code>freertos-c</code> (weekly), <code>freertos-cpp</code> (weekly), <code>platform-freertos</code></td></tr>
+<tr><td>Book probe tracks</td><td><code>first-project</code>, <code>tutorial-2</code>, <code>tutorial-3</code>, <code>tutorial-4</code>, <code>tutorial-5</code>, <code>tutorial-6</code>, <code>tutorial-7</code>, <code>tutorial-8</code>, <code>tutorial-9</code>, <code>tutorial-10</code>, <code>tutorial-c</code> (weekly), <code>tutorial-cpp</code> (weekly), <code>lab-qos</code> (weekly), <code>lab-qos-c</code> (weekly), <code>lab-qos-cpp</code> (weekly), <code>lab-tiers</code> (weekly), <code>lab-tiers-c</code> (weekly), <code>lab-tiers-cpp</code> (weekly), <code>freertos</code> (weekly), <code>freertos-c</code> (weekly), <code>freertos-cpp</code> (weekly), <code>platform-freertos</code>, <code>own-library</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -26652,7 +26936,7 @@ came from a newer nano-ros, run that release’s <code>nros explain</code>.</p>
 supports. By the end of this page, <code>nros board info</code> resolves your board from
 your own tree, and an image built for it runs. If nano-ros has no platform for
 your RTOS yet, <a href="#add-a-platform">add the platform</a> first.</p>
-<h2 id="before-you-start-32"><a class="header" href="#before-you-start-32">Before you start</a></h2>
+<h2 id="before-you-start-33"><a class="header" href="#before-you-start-33">Before you start</a></h2>
 <ul>
 <li>
 <p>nano-ros is <a href="#install">installed</a>, and you have built and run an
@@ -26679,7 +26963,7 @@ image on one of its own boards.</p>
 </div>
 </li>
 </ul>
-<h2 id="steps-27"><a class="header" href="#steps-27">Steps</a></h2>
+<h2 id="steps-28"><a class="header" href="#steps-28">Steps</a></h2>
 <ol>
 <li>
 <p>Scaffold the board package outside nano-ros:</p>
@@ -26878,7 +27162,7 @@ is derived from those facts and never typed. A board gets a page in this book
 only when it has an emulator twin or a probe track that replays its chapter;
 <a href="#board-support-levels">Board support levels</a> explains each
 word.</p>
-<h2 id="if-it-doesnt-work-58"><a class="header" href="#if-it-doesnt-work-58">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-59"><a class="header" href="#if-it-doesnt-work-59">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>has no sibling package.xml announcing a board</code>.</strong> The descriptor has no
 announcement beside it. Write the <code>package.xml</code> the error prints, naming the
@@ -26933,7 +27217,7 @@ platform, and an image runs on it.</p>
 <p>Today a platform is registered inside nano-ros itself, so the last part of
 this task is a contribution to nano-ros, not a package you keep on your own.
 Step 5 says what that contribution touches.</p>
-<h2 id="before-you-start-33"><a class="header" href="#before-you-start-33">Before you start</a></h2>
+<h2 id="before-you-start-34"><a class="header" href="#before-you-start-34">Before you start</a></h2>
 <ul>
 <li>Check that you need a platform. If your RTOS is one nano-ros supports
 (FreeRTOS, Zephyr, NuttX, ThreadX, bare metal, POSIX), you need a board
@@ -26950,7 +27234,7 @@ functions.</li>
 <a href="#platform-and-rmw-apis">Platform API and C ABI</a> reference links
 their rendered documentation.</li>
 </ul>
-<h2 id="steps-28"><a class="header" href="#steps-28">Steps</a></h2>
+<h2 id="steps-29"><a class="header" href="#steps-29">Steps</a></h2>
 <ol>
 <li>
 <p>Scaffold the platform package:</p>
@@ -27087,7 +27371,7 @@ is the reference C port. The FreeRTOS port,
 shows tasks, recursive mutexes and condition variables on an RTOS, and
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/platform/nros-platform-mps2-an385"><code>nros-platform-mps2-an385</code></a>
 is a Rust port for bare metal.</p>
-<h2 id="if-it-doesnt-work-59"><a class="header" href="#if-it-doesnt-work-59">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-60"><a class="header" href="#if-it-doesnt-work-60">If it doesn’t work</a></h2>
 <ul>
 <li><strong>Timeouts never fire, or fire all at once.</strong> The clock advances only when
 something polls it. Read a free-running hardware timer.</li>
@@ -27145,7 +27429,7 @@ RMW session runs over your link.</p>
 <p>This is nano-ros’s counterpart of micro-ROS’s
 <code>rmw_uros_set_custom_transport</code>. When a link nano-ros builds in (Ethernet,
 serial, WiFi) fits, use that instead: a built-in link is smaller.</p>
-<h2 id="before-you-start-34"><a class="header" href="#before-you-start-34">Before you start</a></h2>
+<h2 id="before-you-start-35"><a class="header" href="#before-you-start-35">Before you start</a></h2>
 <ul>
 <li>You have an image that builds and runs on its board, and the RMW is
 zenoh-pico or XRCE-DDS. Cyclone DDS binds the platform’s socket stack and
@@ -27153,7 +27437,7 @@ does not use this hook.</li>
 <li>You have a driver for your link with an open, a close, a blocking write and
 a read that takes a timeout.</li>
 </ul>
-<h2 id="steps-29"><a class="header" href="#steps-29">Steps</a></h2>
+<h2 id="steps-30"><a class="header" href="#steps-30">Steps</a></h2>
 <h3 id="1-write-the-four-callbacks"><a class="header" href="#1-write-the-four-callbacks">1. Write the four callbacks</a></h3>
 <p>Each callback takes the <code>user_data</code> pointer you register, so per-link state
 travels through it:</p>
@@ -27319,7 +27603,7 @@ unless all four callbacks ran, is
 On a board, the Rust workspace’s
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/rust/src/pubsub_bringup/system.toml"><code>baremetal_talker_xrce_serial</code> image</a>
 runs XRCE-DDS over the mps2-an385 UART through <code>locator = "custom://uart"</code>.</p>
-<h2 id="if-it-doesnt-work-60"><a class="header" href="#if-it-doesnt-work-60">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-61"><a class="header" href="#if-it-doesnt-work-61">If it doesn’t work</a></h2>
 <ul>
 <li><strong>The session never opens, and <code>open</code> never ran.</strong> The transport was
 registered after the session opened, or zenoh-pico’s custom link is not in
@@ -27438,7 +27722,7 @@ so nothing in nano-ros changes. By the end of this page an image selects
 your backend by name and publishes through it.</p>
 <p>If the protocol is zenoh or XRCE-DDS and only the wire is new,
 <a href="#add-a-transport">add a transport</a> instead: four functions, not a backend.</p>
-<h2 id="before-you-start-35"><a class="header" href="#before-you-start-35">Before you start</a></h2>
+<h2 id="before-you-start-36"><a class="header" href="#before-you-start-36">Before you start</a></h2>
 <ul>
 <li>You know how nano-ros’s RMW layer differs from ROS 2’s: the caller owns
 the I/O buffers, one call drives I/O instead of wait sets, and the backend
@@ -27452,7 +27736,7 @@ calls the backend through that one C table.</li>
 <a href="#install">installed</a>, and ROS 2 Humble (on Jazzy, replace
 <code>humble</code> in each command).</li>
 </ul>
-<h2 id="steps-30"><a class="header" href="#steps-30">Steps</a></h2>
+<h2 id="steps-31"><a class="header" href="#steps-31">Steps</a></h2>
 <ol>
 <li>
 <p>Implement the session and its four entity kinds. In Rust, these are the
@@ -27762,7 +28046,7 @@ returns the session.</p>
 a small Rust backend registered through <code>RustBackendAdapter</code>, and
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/rmw/uorb/nros-rmw-uorb"><code>nros-rmw-uorb</code></a>,
 a C++ backend with its <code>package.xml</code> and <code>nros-rmw.toml</code>.</p>
-<h2 id="if-it-doesnt-work-61"><a class="header" href="#if-it-doesnt-work-61">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-62"><a class="header" href="#if-it-doesnt-work-62">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>no package provides rmw </code>myproto``</strong>, from <code>nros build</code>. No
 <code>package.xml</code> announces that name. Check the spelling on both sides against
@@ -27812,7 +28096,7 @@ generator your team runs on every workspace. Both are ordinary packages in
 your workspace, built for the host by <code>nros build</code>, with no change to
 nano-ros. By the end of this page, <code>nros run</code> drives your runner, or
 <code>nros &lt;verb&gt;</code> runs your command.</p>
-<h2 id="before-you-start-36"><a class="header" href="#before-you-start-36">Before you start</a></h2>
+<h2 id="before-you-start-37"><a class="header" href="#before-you-start-37">Before you start</a></h2>
 <ul>
 <li>You have a workspace with a <code>src/</code> directory that <code>nros build</code> builds.</li>
 <li>The Rust scaffolds build with the host’s Rust toolchain. A C++ package
@@ -27920,7 +28204,7 @@ bindings from a PX4 message tree (<a href="#px4-autopilot-external-module">PX4</
 router configuration a bringup’s router runs
 (<a href="#configure-zenoh">Configure zenoh</a>).</li>
 </ul>
-<h2 id="if-it-doesnt-work-62"><a class="header" href="#if-it-doesnt-work-62">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-63"><a class="header" href="#if-it-doesnt-work-63">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>nros my_cmd</code> reports that the command is not built.</strong> The package is
 announced but its binary is missing. Run
@@ -27961,7 +28245,7 @@ board. Each section below is one such change: what was removed, what replaces
 it, and the edit that moves your project over. A single renamed variable,
 board or command needs no page: nano-ros refuses the old name and the
 refusal names what to write instead.</p>
-<h2 id="before-you-start-37"><a class="header" href="#before-you-start-37">Before you start</a></h2>
+<h2 id="before-you-start-38"><a class="header" href="#before-you-start-38">Before you start</a></h2>
 <ul>
 <li>Install the current release (<a href="#install">Install</a>), and keep the
 old project’s build directory out of the way: a cache an older release wrote
@@ -28078,7 +28362,7 @@ GitHub. Newest first:</p>
 <li><a href="#060-nros11">0.6.0-nros11</a></li>
 <li><a href="#060-nros10">0.6.0-nros10</a></li>
 </ul>
-<h2 id="if-it-doesnt-work-63"><a class="header" href="#if-it-doesnt-work-63">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-64"><a class="header" href="#if-it-doesnt-work-64">If it doesn’t work</a></h2>
 <ul>
 <li><strong>The configure stops on a <code>NANO_ROS_*</code> variable.</strong> The variable is retired,
 or an older release wrote it into the build directory’s cache. The error
