@@ -13,6 +13,7 @@ var subscription_8hpp =
     [ "rclcpp::detail::subscription_callback_adapter&lt; M, F, SUB_SHAPE_NONE &gt;", "structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__NONE_01_4.html", "structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__NONE_01_4" ],
     [ "rclcpp::detail::subscription_callback_adapter&lt; M, F, SUB_SHAPE_REF &gt;", "structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__REF_01_4.html", "structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__REF_01_4" ],
     [ "rclcpp::detail::subscription_callback_shape&lt; M, F &gt;", "structrclcpp_1_1detail_1_1subscription__callback__shape.html", null ],
+    [ "rclcpp::detail::subscription_info_adapter&lt; M, F, SUB_SHAPE_REF &gt;", "structrclcpp_1_1detail_1_1subscription__info__adapter_3_01M_00_01F_00_01SUB__SHAPE__REF_01_4.html", "structrclcpp_1_1detail_1_1subscription__info__adapter_3_01M_00_01F_00_01SUB__SHAPE__REF_01_4" ],
     [ "rclcpp::detail::subscription_info_callback_shape&lt; M, F &gt;", "structrclcpp_1_1detail_1_1subscription__info__callback__shape.html", null ],
     [ "rclcpp::IntegrityStatus", "namespacerclcpp.html#a604056dc62cf281cd2f980e203cd63d3", null ],
     [ "nros_cpp_subscription_message_callback_t", "subscription_8hpp.html#aca09411656ccf70618994c7fdef9de7c", null ],
@@ -29,6 +30,7 @@ var subscription_8hpp =
     [ "nros_cpp_subscription_register_capturing", "subscription_8hpp.html#a5c916aceb0abbb704f2afda44ca7264e", null ],
     [ "nros_cpp_subscription_register_with_info", "subscription_8hpp.html#a94a5e786faa0d725d52bfe1e947e0a3b", null ],
     [ "rclcpp::detail::register_subscription_capturing", "namespacerclcpp_1_1detail.html#aa7892f38443f6ae80156a526b7660016", null ],
+    [ "rclcpp::detail::register_subscription_capturing_message_info", "namespacerclcpp_1_1detail.html#a9cc913e4b986fe045a02270eea632d39", null ],
     [ "rclcpp::detail::sub_declval", "namespacerclcpp_1_1detail.html#a699547fdf7bdf765e4f63c562a04c73a", null ],
     [ "rclcpp::SUBSCRIPTION_TOPIC_NAME_MAX", "namespacerclcpp.html#ad4691da12b59536df304c2947a0ba2dd", null ]
 ];

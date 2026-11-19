@@ -97,6 +97,8 @@ var hierarchy =
     [ "rclcpp::detail::subscription_callback_adapter&lt; M, F, Shape &gt;", "structrclcpp_1_1detail_1_1subscription__callback__adapter.html", null ],
     [ "rclcpp::detail::subscription_callback_adapter&lt; M, F, SUB_SHAPE_NONE &gt;", "structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__NONE_01_4.html", null ],
     [ "rclcpp::detail::subscription_callback_adapter&lt; M, F, SUB_SHAPE_REF &gt;", "structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__REF_01_4.html", null ],
+    [ "rclcpp::detail::subscription_info_adapter&lt; M, F, Shape &gt;", "structrclcpp_1_1detail_1_1subscription__info__adapter.html", null ],
+    [ "rclcpp::detail::subscription_info_adapter&lt; M, F, SUB_SHAPE_REF &gt;", "structrclcpp_1_1detail_1_1subscription__info__adapter_3_01M_00_01F_00_01SUB__SHAPE__REF_01_4.html", null ],
     [ "rclcpp::SubscriptionHandle&lt; M &gt;", "classrclcpp_1_1SubscriptionHandle.html", null ],
     [ "Timer", "classTimer.html", null ],
     [ "rclcpp::detail::timer_capture_capacity&lt; F &gt;", "structrclcpp_1_1detail_1_1timer__capture__capacity.html", null ],

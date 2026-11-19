@@ -29,7 +29,9 @@ var searchData=
   ['subscription_5fcallback_5fadapter_3c_20m_2c_20f_2c_20sub_5fshape_5fnone_20_3e_26',['subscription_callback_adapter&lt; M, F, SUB_SHAPE_NONE &gt;',['../structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__NONE_01_4.html',1,'rclcpp::detail']]],
   ['subscription_5fcallback_5fadapter_3c_20m_2c_20f_2c_20sub_5fshape_5fref_20_3e_27',['subscription_callback_adapter&lt; M, F, SUB_SHAPE_REF &gt;',['../structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__REF_01_4.html',1,'rclcpp::detail']]],
   ['subscription_5fcallback_5fshape_28',['subscription_callback_shape',['../structrclcpp_1_1detail_1_1subscription__callback__shape.html',1,'rclcpp::detail']]],
-  ['subscription_5finfo_5fcallback_5fshape_29',['subscription_info_callback_shape',['../structrclcpp_1_1detail_1_1subscription__info__callback__shape.html',1,'rclcpp::detail']]],
-  ['subscriptionhandle_30',['SubscriptionHandle',['../classrclcpp_1_1SubscriptionHandle.html',1,'rclcpp']]],
-  ['systemdefaultsqos_31',['SystemDefaultsQoS',['../classrclcpp_1_1SystemDefaultsQoS.html',1,'rclcpp']]]
+  ['subscription_5finfo_5fadapter_29',['subscription_info_adapter',['../structrclcpp_1_1detail_1_1subscription__info__adapter.html',1,'rclcpp::detail']]],
+  ['subscription_5finfo_5fadapter_3c_20m_2c_20f_2c_20sub_5fshape_5fref_20_3e_30',['subscription_info_adapter&lt; M, F, SUB_SHAPE_REF &gt;',['../structrclcpp_1_1detail_1_1subscription__info__adapter_3_01M_00_01F_00_01SUB__SHAPE__REF_01_4.html',1,'rclcpp::detail']]],
+  ['subscription_5finfo_5fcallback_5fshape_31',['subscription_info_callback_shape',['../structrclcpp_1_1detail_1_1subscription__info__callback__shape.html',1,'rclcpp::detail']]],
+  ['subscriptionhandle_32',['SubscriptionHandle',['../classrclcpp_1_1SubscriptionHandle.html',1,'rclcpp']]],
+  ['systemdefaultsqos_33',['SystemDefaultsQoS',['../classrclcpp_1_1SystemDefaultsQoS.html',1,'rclcpp']]]
 ];

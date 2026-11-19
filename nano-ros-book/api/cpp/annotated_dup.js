@@ -27,6 +27,8 @@ var annotated_dup =
         [ "subscription_callback_adapter&lt; M, F, SUB_SHAPE_NONE &gt;", "structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__NONE_01_4.html", "structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__NONE_01_4" ],
         [ "subscription_callback_adapter&lt; M, F, SUB_SHAPE_REF &gt;", "structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__REF_01_4.html", "structrclcpp_1_1detail_1_1subscription__callback__adapter_3_01M_00_01F_00_01SUB__SHAPE__REF_01_4" ],
         [ "subscription_callback_shape", "structrclcpp_1_1detail_1_1subscription__callback__shape.html", null ],
+        [ "subscription_info_adapter", "structrclcpp_1_1detail_1_1subscription__info__adapter.html", null ],
+        [ "subscription_info_adapter&lt; M, F, SUB_SHAPE_REF &gt;", "structrclcpp_1_1detail_1_1subscription__info__adapter_3_01M_00_01F_00_01SUB__SHAPE__REF_01_4.html", "structrclcpp_1_1detail_1_1subscription__info__adapter_3_01M_00_01F_00_01SUB__SHAPE__REF_01_4" ],
         [ "subscription_info_callback_shape", "structrclcpp_1_1detail_1_1subscription__info__callback__shape.html", null ],
         [ "timer_capture_capacity", "structrclcpp_1_1detail_1_1timer__capture__capacity.html", "structrclcpp_1_1detail_1_1timer__capture__capacity" ],
         [ "timer_capture_capacity&lt; InplaceFn&lt; Sig, Cap &gt; &gt;", "structrclcpp_1_1detail_1_1timer__capture__capacity_3_01InplaceFn_3_01Sig_00_01Cap_01_4_01_4.html", "structrclcpp_1_1detail_1_1timer__capture__capacity_3_01InplaceFn_3_01Sig_00_01Cap_01_4_01_4" ],
