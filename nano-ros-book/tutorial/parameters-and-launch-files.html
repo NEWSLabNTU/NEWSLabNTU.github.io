@@ -36,7 +36,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-393952a3.js";
+            window.path_to_searchindex_js = "../searchindex-bf4c924d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-082bf45d.js"></script>
@@ -442,13 +442,8 @@ static rcl_ret_t talker_configure(rcl_node_t* node, rclc_executor_t* executor,
 RCLC_C_COMPONENT(talker_t, talker_configure)
 </code></pre>
 <p>The C node reads parameters through rclc’s parameter server, which needs the
-image’s parameter services:</p>
-<div class="nros-file-caption" data-mode="edit">In <code>src/sensor_node_bringup/system.toml</code>, change the marked lines</div>
-
-<pre><code class="language-diff probe=725 track=installed variant=qemu edit=src/sensor_node_bringup/system.toml"> ros_edition = "humble"
- domain_id = 0
-+features = ["param_services"]
-</code></pre>
+image’s parameter services. Every image serves them unless it opts out, so
+there is nothing to declare.</p>
 </div>
 
 <div class="nros-tab-panel" data-lang="cpp" role="group" aria-label="C++">
@@ -486,14 +481,8 @@ void Talker::on_tick() {
 
 } // namespace sensor_node
 </code></pre>
-<p><code>node.get_parameter</code> reads from the image’s parameter store, which a
-<code>params</code> feature adds:</p>
-<div class="nros-file-caption" data-mode="edit">In <code>src/sensor_node_bringup/system.toml</code>, change the marked lines</div>
-
-<pre><code class="language-diff probe=725 track=installed variant=qemu edit=src/sensor_node_bringup/system.toml"> ros_edition = "humble"
- domain_id = 0
-+features = ["params"]
-</code></pre>
+<p><code>node.get_parameter</code> reads from the image’s parameter store, which comes
+with the parameter services every image has unless it opts out.</p>
 </div>
 
 </div>
@@ -612,24 +601,26 @@ image is built.</p>
 <p>Precedence is ROS 2’s: the <code>/**</code> block, then the node’s own block (keyed
 <code>sensor_node</code>, <code>/ns/sensor_node</code> or <code>/**/sensor_node</code>), then an inline
 <code>&lt;param name= value=&gt;</code>. A <code>from=</code> naming a missing file is a build error.</p>
-<p>What the image does with parameters at run time is a capability you declare
-in <code>[system] features</code>:</p>
+<p>What the image does with parameters at run time is decided in <code>system.toml</code>.
+Every image gets the parameter services, as a ROS 2 node does, unless it opts
+out with <code>node_interfaces = "none"</code>:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Declared</th><th>Parameter store (<code>get_parameter</code>, launch values)</th><th><code>ros2 param</code> services</th></tr>
+<tr><th><code>system.toml</code> states</th><th>Parameter store (<code>get_parameter</code>, launch values)</th><th><code>ros2 param</code> services</th></tr>
 </thead>
 <tbody>
-<tr><td>nothing</td><td>Rust’s <code>ctx.param</code> reads the baked value</td><td>none</td></tr>
-<tr><td><code>params</code></td><td>yes</td><td>none</td></tr>
-<tr><td><code>param_services</code></td><td>yes</td><td>six per node: <code>get</code>, <code>set</code>, <code>list</code>, <code>describe</code>, and two more</td></tr>
+<tr><td>nothing (the default)</td><td>yes</td><td>six per node: <code>get</code>, <code>set</code>, <code>list</code>, <code>describe</code>, and two more</td></tr>
+<tr><td><code>node_interfaces = "none"</code> and <code>features = ["params"]</code></td><td>yes</td><td>none</td></tr>
+<tr><td><code>node_interfaces = "none"</code></td><td>Rust’s <code>ctx.param</code> reads the baked value</td><td>none</td></tr>
 </tbody>
 </table>
 </div>
-<p><code>params</code> suits a small board whose nodes only read their configuration: each
-of the six services costs memory per node. What it gives up is
-<code>ros2 param get</code>, <code>set</code>, <code>list</code>, <code>describe</code> and <code>dump</code>, and the
-<code>use_sim_time</code> switch.</p>
+<p>The store alone suits a small board whose nodes only read their
+configuration: each of the six services costs memory per node. What it gives
+up is <code>ros2 param get</code>, <code>set</code>, <code>list</code>, <code>describe</code> and <code>dump</code>, and the
+<code>use_sim_time</code> switch. <code>node_interfaces = "none"</code> also turns off each node’s
+<code>/rosout</code> publisher.</p>
 <h2 id="read-once-or-read-live"><a class="header" href="#read-once-or-read-live">Read once, or read live</a></h2>
 <p>The talker reads <code>period_ms</code> once, in <code>register</code> or <code>configure</code>, and builds
 its timer from it. That is the right shape for a value that sizes or shapes
@@ -637,8 +628,8 @@ the node: a period, a buffer length, a frame name. It is also why the launch
 file is the place to set it: the value is decided when the image is built,
 and every boot of the image starts with it.</p>
 <p>A value the node should follow while it runs is read in the callback
-instead, from the parameter store, on every call. With <code>param_services</code>
-declared, <code>ros2 param set /sensor_node &lt;name&gt; &lt;value&gt;</code> from a ROS 2 shell
+instead, from the parameter store, on every call. With the parameter
+services on (the default), <code>ros2 param set /sensor_node &lt;name&gt; &lt;value&gt;</code> from a ROS 2 shell
 changes that live value on the board. It changes nothing a node read once:
 setting <code>period_ms</code> that way would leave the timer at the period it was built
 with. A value set at run time is also volatile. The next boot starts from the
@@ -650,8 +641,10 @@ reach it. Check that the <code>&lt;param&gt;</code> is inside the talker’s own
 that its <code>name</code> is exactly the one the code reads.</li>
 <li><strong>The listener stops hearing readings:</strong> only one of the two nodes is
 remapped. Remap both, or neither.</li>
-<li><strong>A C build stops with <code>#error "&lt;rclc_parameter/rclc_parameter.h&gt; needs the param_services capability"</code>:</strong> the bringup’s <code>[system]</code> has no
-<code>features = ["param_services"]</code>. Add it, as the C step above does.</li>
+<li><strong>A C build stops with <code>#error "&lt;rclc_parameter/rclc_parameter.h&gt; needs the param_services capability"</code>:</strong> the bringup opts out with
+<code>node_interfaces = "none"</code>, which removes the parameter services even where
+<code>features</code> declares them. Remove it from the image whose node reads
+parameters.</li>
 <li><strong>The build names a package that does not exist:</strong> a <code>&lt;node&gt;</code>’s <code>pkg</code>
 names no package in the workspace. <code>nros check --workspace .</code> lists every
 such mistake before a build.</li>

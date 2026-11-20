@@ -37,7 +37,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-393952a3.js";
+            window.path_to_searchindex_js = "searchindex-bf4c924d.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-082bf45d.js"></script>
@@ -6454,13 +6454,8 @@ static rcl_ret_t talker_configure(rcl_node_t* node, rclc_executor_t* executor,
 RCLC_C_COMPONENT(talker_t, talker_configure)
 </code></pre>
 <p>The C node reads parameters through rclc’s parameter server, which needs the
-image’s parameter services:</p>
-<div class="nros-file-caption" data-mode="edit">In <code>src/sensor_node_bringup/system.toml</code>, change the marked lines</div>
-
-<pre><code class="language-diff probe=725 track=installed variant=qemu edit=src/sensor_node_bringup/system.toml"> ros_edition = "humble"
- domain_id = 0
-+features = ["param_services"]
-</code></pre>
+image’s parameter services. Every image serves them unless it opts out, so
+there is nothing to declare.</p>
 </div>
 
 <div class="nros-tab-panel" data-lang="cpp" role="group" aria-label="C++">
@@ -6498,14 +6493,8 @@ void Talker::on_tick() {
 
 } // namespace sensor_node
 </code></pre>
-<p><code>node.get_parameter</code> reads from the image’s parameter store, which a
-<code>params</code> feature adds:</p>
-<div class="nros-file-caption" data-mode="edit">In <code>src/sensor_node_bringup/system.toml</code>, change the marked lines</div>
-
-<pre><code class="language-diff probe=725 track=installed variant=qemu edit=src/sensor_node_bringup/system.toml"> ros_edition = "humble"
- domain_id = 0
-+features = ["params"]
-</code></pre>
+<p><code>node.get_parameter</code> reads from the image’s parameter store, which comes
+with the parameter services every image has unless it opts out.</p>
 </div>
 
 </div>
@@ -6624,24 +6613,26 @@ image is built.</p>
 <p>Precedence is ROS 2’s: the <code>/**</code> block, then the node’s own block (keyed
 <code>sensor_node</code>, <code>/ns/sensor_node</code> or <code>/**/sensor_node</code>), then an inline
 <code>&lt;param name= value=&gt;</code>. A <code>from=</code> naming a missing file is a build error.</p>
-<p>What the image does with parameters at run time is a capability you declare
-in <code>[system] features</code>:</p>
+<p>What the image does with parameters at run time is decided in <code>system.toml</code>.
+Every image gets the parameter services, as a ROS 2 node does, unless it opts
+out with <code>node_interfaces = "none"</code>:</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Declared</th><th>Parameter store (<code>get_parameter</code>, launch values)</th><th><code>ros2 param</code> services</th></tr>
+<tr><th><code>system.toml</code> states</th><th>Parameter store (<code>get_parameter</code>, launch values)</th><th><code>ros2 param</code> services</th></tr>
 </thead>
 <tbody>
-<tr><td>nothing</td><td>Rust’s <code>ctx.param</code> reads the baked value</td><td>none</td></tr>
-<tr><td><code>params</code></td><td>yes</td><td>none</td></tr>
-<tr><td><code>param_services</code></td><td>yes</td><td>six per node: <code>get</code>, <code>set</code>, <code>list</code>, <code>describe</code>, and two more</td></tr>
+<tr><td>nothing (the default)</td><td>yes</td><td>six per node: <code>get</code>, <code>set</code>, <code>list</code>, <code>describe</code>, and two more</td></tr>
+<tr><td><code>node_interfaces = "none"</code> and <code>features = ["params"]</code></td><td>yes</td><td>none</td></tr>
+<tr><td><code>node_interfaces = "none"</code></td><td>Rust’s <code>ctx.param</code> reads the baked value</td><td>none</td></tr>
 </tbody>
 </table>
 </div>
-<p><code>params</code> suits a small board whose nodes only read their configuration: each
-of the six services costs memory per node. What it gives up is
-<code>ros2 param get</code>, <code>set</code>, <code>list</code>, <code>describe</code> and <code>dump</code>, and the
-<code>use_sim_time</code> switch.</p>
+<p>The store alone suits a small board whose nodes only read their
+configuration: each of the six services costs memory per node. What it gives
+up is <code>ros2 param get</code>, <code>set</code>, <code>list</code>, <code>describe</code> and <code>dump</code>, and the
+<code>use_sim_time</code> switch. <code>node_interfaces = "none"</code> also turns off each node’s
+<code>/rosout</code> publisher.</p>
 <h2 id="read-once-or-read-live"><a class="header" href="#read-once-or-read-live">Read once, or read live</a></h2>
 <p>The talker reads <code>period_ms</code> once, in <code>register</code> or <code>configure</code>, and builds
 its timer from it. That is the right shape for a value that sizes or shapes
@@ -6649,8 +6640,8 @@ the node: a period, a buffer length, a frame name. It is also why the launch
 file is the place to set it: the value is decided when the image is built,
 and every boot of the image starts with it.</p>
 <p>A value the node should follow while it runs is read in the callback
-instead, from the parameter store, on every call. With <code>param_services</code>
-declared, <code>ros2 param set /sensor_node &lt;name&gt; &lt;value&gt;</code> from a ROS 2 shell
+instead, from the parameter store, on every call. With the parameter
+services on (the default), <code>ros2 param set /sensor_node &lt;name&gt; &lt;value&gt;</code> from a ROS 2 shell
 changes that live value on the board. It changes nothing a node read once:
 setting <code>period_ms</code> that way would leave the timer at the period it was built
 with. A value set at run time is also volatile. The next boot starts from the
@@ -6662,8 +6653,10 @@ reach it. Check that the <code>&lt;param&gt;</code> is inside the talker’s own
 that its <code>name</code> is exactly the one the code reads.</li>
 <li><strong>The listener stops hearing readings:</strong> only one of the two nodes is
 remapped. Remap both, or neither.</li>
-<li><strong>A C build stops with <code>#error "&lt;rclc_parameter/rclc_parameter.h&gt; needs the param_services capability"</code>:</strong> the bringup’s <code>[system]</code> has no
-<code>features = ["param_services"]</code>. Add it, as the C step above does.</li>
+<li><strong>A C build stops with <code>#error "&lt;rclc_parameter/rclc_parameter.h&gt; needs the param_services capability"</code>:</strong> the bringup opts out with
+<code>node_interfaces = "none"</code>, which removes the parameter services even where
+<code>features</code> declares them. Remove it from the image whose node reads
+parameters.</li>
 <li><strong>The build names a package that does not exist:</strong> a <code>&lt;node&gt;</code>’s <code>pkg</code>
 names no package in the workspace. <code>nros check --workspace .</code> lists every
 such mistake before a build.</li>
@@ -16996,8 +16989,9 @@ parent and refuses <code>set_level</code> on the child.</p>
 <h2 id="publish-records-on-rosout"><a class="header" href="#publish-records-on-rosout">Publish records on <code>/rosout</code></a></h2>
 <ol>
 <li>
-<p>Declare the capability, <code>[system] features = ["rosout"]</code> in <code>system.toml</code>
-(or <code>set(NROS_FEATURES "rosout")</code> in a bare CMake project).</p>
+<p>Nothing to declare: every image carries the <code>rosout</code> capability unless
+its <code>system.toml</code> states <code>node_interfaces = "none"</code> (a bare CMake project
+that sets <code>NROS_FEATURES</code> itself lists <code>rosout</code> in it).</p>
 </li>
 <li>
 <p>Log through the node’s logger and spin. The executor creates one
@@ -17057,8 +17051,9 @@ the node, and is deprecated.</p>
 </ol>
 <p>Where this differs from ROS 2:</p>
 <ul>
-<li><strong>It is switched per image.</strong> The <code>rosout</code> capability turns it on for every
-node of the image; each node’s publisher counts in the image’s pools.</li>
+<li><strong>It is switched per image.</strong> It is on for every node of the image unless
+the image opts out with <code>node_interfaces = "none"</code>; each node’s publisher
+counts in the image’s pools.</li>
 <li><strong>The QoS is volatile.</strong> The executor’s publisher is <code>qos_bounded()</code>:
 volatile at the queue depth. Upstream’s profile (<code>nros::rosout::qos()</code>,
 keep-last 1000, transient-local) is expensive on a board; with the bounded
@@ -17146,8 +17141,9 @@ max_level = "info"
 <ul>
 <li><strong>A <code>debug!</code> record never appears.</strong> The compile-time ceiling is above it,
 or the logger’s level is. Lower <code>max_level</code>, then the logger’s level.</li>
-<li><strong>Nothing reaches <code>/rosout</code>.</strong> The <code>rosout</code> feature is not declared, the
-queue is never pumped, or the record came from a child or free logger on
+<li><strong>Nothing reaches <code>/rosout</code>.</strong> The image states <code>node_interfaces = "none"</code>
+(or a bare CMake project’s <code>NROS_FEATURES</code> omits <code>rosout</code>), the queue is
+never pumped, or the record came from a child or free logger on
 Humble.</li>
 <li><strong>A throttled call does not compile.</strong> <code>throttle</code> needs the platform clock;
 a clockless image refuses it.</li>
@@ -18651,7 +18647,8 @@ knobs down is the remedy. The <a href="#static-pool-inventory">Static pool inven
 lists every knob and what it sizes.</p>
 <h2 id="the-node-interfaces-an-image-carries"><a class="header" href="#the-node-interfaces-an-image-carries">The node interfaces an image carries</a></h2>
 <p>A ROS 2 node serves six parameter services, publishes <code>/rosout</code> and declares
-<code>use_sim_time</code> without being asked. In nano-ros those are capability axes,
+<code>use_sim_time</code> without being asked, and so does a nano-ros node: every image
+gets them unless it opts out. In nano-ros those are capability axes,
 <code>param_services</code>, <code>rosout</code> and <code>sim_time</code>, and each costs pool slots: six
 queryables per node and a <code>/parameter_events</code> publisher for the first, one
 publisher per node for the second (the executor creates each node’s <code>/rosout</code>
@@ -18660,20 +18657,21 @@ writer), and for the third the <code>/clock</code> subscription that setting
 an executor arena entry with its receive buffer and a liveliness token. That
 subscription is reserved whenever <code>sim_time</code> is built in, not only when the
 parameter starts true, because <code>ros2 param set</code> can turn it on at any time.
-Today an image gets them only when its <code>system.toml</code> declares them in
-<code>features</code>. The <code>node_interfaces</code> key changes that per image:</p>
-<pre><code class="language-toml">[system]
-node_interfaces = "stock"   # add param_services, rosout and sim_time to every image
-
-[image.pico]
+The <code>node_interfaces</code> key decides them per image:</p>
+<pre><code class="language-toml">[image.pico]
 board = "rpi-pico-w-zephyr"
 node_interfaces = "none"    # this image keeps none of them, even if declared above
 </code></pre>
-<p><code>"stock"</code> adds all three axes, <code>"none"</code> removes all three, and the most specific table
-wins: <code>[image.&lt;id&gt;]</code>, then <code>[image_defaults]</code>, then <code>[system]</code>. The pools,
-the sizing descriptor’s <code>infra_families</code> and the C/C++ and Zephyr capability
-settings all follow the result, so turning the interfaces off is how a
-memory-tight image gives their slots back.</p>
+<p><code>"stock"</code> (the default) adds all three axes to whatever the image declares
+in <code>features</code>, and <code>"none"</code> removes all three. It can be stated in
+<code>[system]</code>, <code>[image_defaults]</code> or <code>[image.&lt;id&gt;]</code>, and the most specific table
+wins. The pools, the sizing descriptor’s <code>infra_families</code> and the C/C++ and
+Zephyr capability settings all follow the result, so turning the interfaces
+off is how a memory-tight image gives their slots back. A board whose budget
+holds one service server, such as the Pico W, needs it: with the interfaces
+on, its build stops and names the knob it would have to raise. Two
+differences from stock ROS 2 remain: <code>/rosout</code> is VOLATILE (rcl’s is
+TRANSIENT_LOCAL), and a node does not subscribe to <code>/parameter_events</code>.</p>
 <h2 id="the-three-service-inboxes-zenoh"><a class="header" href="#the-three-service-inboxes-zenoh">The three service inboxes (zenoh)</a></h2>
 <p>The zenoh backend shows how a pool is split so that each part is sized for its
 own traffic. Every service server is a zenoh queryable, and each queryable
@@ -21218,7 +21216,7 @@ Precedence, highest first: a command-line or build flag, <code>[image.&lt;id&gt;
 <tr><td><code>variant</code></td><td>Framework build variant (Zephyr <code>prj_&lt;buildtype&gt;.conf</code>)</td></tr>
 <tr><td><code>features</code></td><td>Capability axes for this image, added to <code>[system]</code>’s</td></tr>
 <tr><td><code>build</code></td><td><code>[image.&lt;id&gt;.build] cmake_args = ["-DFOO=ON", …]</code>: arguments for every CMake configure of this image, one argument per entry, after <code>[image_defaults.build]</code>’s and before <code>nros build --cmake-args=</code>. The same rules as <code>--cmake-args=</code> apply: <code>-D</code>, <code>-U</code>, <code>-W*</code>, <code>--log-level</code>, <code>--log-context</code> and <code>--debug-find</code> only, and a name <code>nros build</code> passes itself or a <code>-DCONFIG_*</code> is refused, saying where it goes instead. There is no <code>cargo_args</code>: put features in the package’s manifest. <a href="#build-arguments">Build arguments</a> lists every rule</td></tr>
-<tr><td><code>node_interfaces</code></td><td><code>"stock"</code> adds the node interfaces an rclcpp node has by default (the six parameter services, the <code>/rosout</code> publisher and the <code>use_sim_time</code> parameter with its <code>/clock</code> time source, i.e. the <code>param_services</code>, <code>rosout</code> and <code>sim_time</code> features) to this image; <code>"none"</code> removes them, even where <code>[system]</code> declared them. Also accepted in <code>[system]</code> and <code>[image_defaults]</code>; the most specific statement wins. Absent everywhere: the image gets exactly the <code>features</code> it declares</td></tr>
+<tr><td><code>node_interfaces</code></td><td><code>"stock"</code> adds the node interfaces an rclcpp node has by default (the six parameter services, the <code>/rosout</code> publisher and the <code>use_sim_time</code> parameter with its <code>/clock</code> time source, i.e. the <code>param_services</code>, <code>rosout</code> and <code>sim_time</code> features) to this image; <code>"none"</code> removes them, even where <code>[system]</code> declared them. Also accepted in <code>[system]</code> and <code>[image_defaults]</code>; the most specific statement wins. Absent everywhere: <code>"stock"</code>, so every image serves the six parameter services, publishes <code>/rosout</code> and declares <code>use_sim_time</code> unless it states <code>"none"</code>. A memory-tight image (one service server, as on the Pico W) states <code>"none"</code></td></tr>
 <tr><td><code>node_features</code></td><td>Cargo features of the image’s Rust node packages: <code>"&lt;feat&gt;"</code> in every node declaring it, <code>"&lt;pkg&gt;/&lt;feat&gt;"</code> in that node only. Refused on a C/C++ entry and for a feature no node declares</td></tr>
 <tr><td><code>serdes</code>, <code>ros_edition</code></td><td>Serialization provider and ROS edition. Absent: the <code>[system]</code> value</td></tr>
 <tr><td><code>env</code></td><td><code>{ NAME = "value" }</code> for an application’s own build variable. A registry knob here is an error naming its <code>knobs</code> spelling</td></tr>
@@ -22398,7 +22396,7 @@ for a ported package. The porting steps are in
 <tr><td><code>descriptor.floating_point_range.resize(1)</code></td><td>a bounded sequence resizes within its bound</td><td>Past the bound it is refused and returns <code>false</code>, where rosidl throws.</td></tr>
 <tr><td><code>rclcpp::spin(node-&gt;get_node_base_interface())</code></td><td>spins the node</td><td></td></tr>
 <tr><td><code>get_node_base_interface()-&gt;get_context()-&gt;add_pre_shutdown_callback(f)</code></td><td><code>rclcpp::Context</code> views the executor’s shutdown hooks; <code>f</code> runs on <code>rclcpp::shutdown()</code></td><td>The hooks share the executor’s table (<code>NROS_EXECUTOR_MAX_SHUTDOWN_CBS</code>, default 2). A full table returns an invalid handle.</td></tr>
-<tr><td>a package that depends on <code>rclcpp_lifecycle</code></td><td>its runtime carries <code>lifecycle</code> (with <code>param_services</code> on a host), and <code>ros2 lifecycle get /&lt;node&gt;</code> finds it</td><td>On a board the cmake road gives it <code>lifecycle</code> alone. A Zephyr application states it in <code>system.toml</code>: <code>[system] features = ["lifecycle"]</code>.</td></tr>
+<tr><td>a package that depends on <code>rclcpp_lifecycle</code></td><td>its runtime carries <code>lifecycle</code> (with the stock <code>param_services</code> and <code>rosout</code>), and <code>ros2 lifecycle get /&lt;node&gt;</code> finds it</td><td>The same on a board. A Zephyr application states it in <code>system.toml</code>: <code>[system] features = ["lifecycle"]</code>.</td></tr>
 <tr><td><code>std::static_pointer_cast&lt;Derived&gt;(shared_from_this())</code> (Nav2’s <code>nav2_util::LifecycleNode</code>)</td><td><strong>does not compile</strong></td><td>The handle owns nothing, so there is no <code>std::shared_ptr</code> to cast. Drop the override; <code>rclcpp_lifecycle::LifecycleNode::shared_from_this()</code> returns its own type.</td></tr>
 <tr><td><code>pub_-&gt;get_subscription_count()</code></td><td>takes the executor and an out-parameter</td><td>See <code>Publisher::get_subscription_count</code>. Nav2 calls it only in its tests.</td></tr>
 <tr><td><code>declare_parameter(name, rclcpp::ParameterValue(...)[, descriptor])</code>, <code>get_parameter(name)</code> as an <code>rclcpp::Parameter</code>, <code>set_parameter(rclcpp::Parameter(...))</code></td><td>the same store the typed <code>declare_parameter&lt;T&gt;</code> uses; the descriptor may be an <code>rcl_interfaces::msg::ParameterDescriptor</code></td><td>Hosted builds. A byte or string array can be built but not declared. A wrong-type <code>as_double()</code> answers <code>0.0</code>, not an exception.</td></tr>
@@ -22408,7 +22406,7 @@ for a ported package. The porting steps are in
 <tr><td><code>rclcpp::Client&lt;S&gt;::SharedPtr client_ = create_client&lt;S&gt;(name);</code> + <code>client_-&gt;async_send_request(req, callback)</code> with a <code>void(Client&lt;S&gt;::SharedFuture)</code> callback</td><td>the handle holds the poll client; the callback runs from the executor when the reply arrives, with a <code>SharedFuture</code> whose <code>get()</code> returns it</td><td>Hosted builds with <code>std::promise</code>. The client registers one 1 ms timer for its callbacks, cancelled while none is waiting. A removed request’s callback never runs. <code>wait_for_service(1s)</code> inside a callback waits without spinning, so on a polled backend it runs out its budget. On an RTOS toolchain (no <code>std::promise</code>) store the client as <code>rclcpp::Owned&lt;rclcpp::PollClient&lt;S&gt;&gt;</code>, keep the <code>FutureAndRequestId</code> that <code>async_send_request(req)</code> returns, and read it on a later callback with <code>future.is_ready()</code> and <code>get()</code>.</td></tr>
 <tr><td><code>diagnostic_updater::Updater updater_{this};</code></td><td>publishes <code>/diagnostics</code> on its own timer, every <code>period</code> (<code>setPeriod</code>), as upstream’s does</td><td><code>update()</code> still works and is no longer required.</td></tr>
 <tr><td><code>DiagnosticTask</code>, <code>FrequencyStatus</code>, <code>TimeStampStatus</code>, <code>Heartbeat</code>, <code>HeaderlessTopicDiagnostic</code>, <code>TopicDiagnostic</code></td><td>upstream’s classes, levels and messages; <code>updater.add(task)</code></td><td>A clock argument is a <code>const rclcpp::Clock*</code>, so <code>node-&gt;get_clock()</code> still passes. The tasks take no lock, so a node that calls <code>tick()</code> from its own thread must keep that call from overlapping an update. <code>DiagnosedPublisher</code> is absent, because a nano-ros publisher handle can be moved but not copied. Keep the publisher and a <code>TopicDiagnostic</code>, and call <code>tick(stamp)</code> next to each <code>publish</code>.</td></tr>
-<tr><td>the six parameter services (<code>ros2 param get/set/list</code>)</td><td>on for an ament package built on a host: every node serves them, as upstream’s does</td><td>Comes from the package’s <code>package.xml</code> naming <code>ament_cmake</code>; set <code>NROS_FEATURES</code> to declare the capabilities yourself. Values come from <code>--ros-args --params-file &lt;yaml&gt;</code> or <code>-p</code>. On a board they are off unless declared (<code>param_services</code> in <code>NROS_FEATURES</code>, or <code>[system] features</code> on Zephyr): they cost six queryables and their RAM.</td></tr>
+<tr><td>the six parameter services (<code>ros2 param get/set/list</code>) and <code>/rosout</code></td><td>on by default, on every board: every node serves them, as upstream’s does</td><td>They cost six queryables per node and their RAM. A memory-tight image opts out: <code>node_interfaces = "none"</code> in its <code>system.toml</code>, or an empty <code>NROS_FEATURES</code> for an ament package (any <code>NROS_FEATURES</code> you set is taken as written). Values come from <code>--ros-args --params-file &lt;yaml&gt;</code> or <code>-p</code>. <code>/rosout</code> is VOLATILE, where rcl’s is TRANSIENT_LOCAL, and a node does not subscribe to <code>/parameter_events</code>.</td></tr>
 </tbody>
 </table>
 </div>
@@ -22690,7 +22688,8 @@ written for a <code>double</code> parameter) stops the boot at the declaration, 
 upstream’s <code>declare_parameter&lt;T&gt;</code> throws: the node’s <code>ok()</code> turns false, and
 the log line names the node, the parameter and the value to write.</p>
 <p>Each event names the node’s fully qualified name in <code>node</code>; the events are
-published on the next spin. The image needs the <code>param_services</code> capability.
+published on the next spin. The image needs the <code>param_services</code> capability,
+which every image has unless it states <code>node_interfaces = "none"</code>.
 One publisher per executor serves every node. It is on for every served node
 unless the node was built with
 <code>rclcpp::NodeOptions().start_parameter_event_publisher(false)</code>, which opts
@@ -25312,7 +25311,7 @@ this column is blank, and nothing here is free unless it says so.</p>
 <tr><td><code>NROS_ACTION_INBOX_BYTES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:166</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::service::ACTION_INBOX</code>: slot bytes of each action-family inbox ring; the element is an <code>InboxStorage</code> struct (ring header + slots), so only the compiler knows the product</td></tr>
 <tr><td><code>NROS_ACTION_INBOX_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:172</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::service::ACTION_INBOX</code>: ring depth of each action-family inbox; same <code>InboxStorage</code> element</td></tr>
 <tr><td><code>NROS_BOOT_REPORT</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:398</code></td><td><code>packages/core/nros-node</code></td><td><strong>pool</strong> <code>nros_node::boot_report::NROS_BOOT_REPORT</code>: a switch, not a count: on (the native_sim default, and wherever CONFIG_NROS_BOOT_REPORT=y) it links the one boot-record static, measured per image by <code>mem-report</code>; off, it links nothing</td></tr>
-<tr><td><code>NROS_CAPABILITY_PARAM_SERVICES</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:306</code></td><td><code>packages/core/nros-params</code></td><td><strong>executor</strong>: a switch: the bringup declares <code>param_services</code> (Zephyr Kconfig); like <code>NROS_PARAM_STORE</code> it makes the executor’s storage carve the parameter store; whether the six services’ sets and request/reply pair are carved too is the <code>param-services</code> cargo feature</td></tr>
+<tr><td><code>NROS_CAPABILITY_PARAM_SERVICES</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:331</code></td><td><code>packages/core/nros-params</code></td><td><strong>executor</strong>: a switch: the bringup declares <code>param_services</code> (Zephyr Kconfig); like <code>NROS_PARAM_STORE</code> it makes the executor’s storage carve the parameter store; whether the six services’ sets and request/reply pair are carved too is the <code>param-services</code> cargo feature</td></tr>
 <tr><td><code>NROS_EXECUTOR_ACTION_CLIENTS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-zephyr-build/knobs.toml:165</code></td><td><code>packages/tooling/nros-zephyr-build</code></td><td><strong>executor</strong>: action-client entries the executor arena is sized for</td></tr>
 <tr><td><code>NROS_EXECUTOR_ARENA_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:1233</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: the executor arena itself; the backing is <code>EXECUTOR_BACKING</code> (Rust) or the entry’s <code>__nros_executor_storage</code> / sched_task table (C/C++)</td></tr>
 <tr><td><code>NROS_EXECUTOR_BACKING_U64S</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-zephyr-build/knobs.toml:235</code></td><td><code>packages/tooling/nros-zephyr-build</code></td><td><strong>executor</strong>: STATES the boot executor’s backing size in words; <code>EXECUTOR_BACKING</code> is exactly 8x this</td></tr>
@@ -25335,21 +25334,21 @@ this column is blank, and nothing here is free unless it says so.</p>
 <tr><td><code>NROS_LOG_ROSOUT_RECORDS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-log/build.rs:115</code></td><td><code>packages/core/nros-log</code></td><td><strong>pool</strong> <code>nros_log::rosout::SLOTS</code>: the <code>/rosout</code> queue, linked only with <code>nros-node/rosout</code>: each slot holds a message of <code>NROS_LOG_BUFFER_SIZE</code> bytes plus a logger name</td></tr>
 <tr><td><code>NROS_MAX_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-zephyr-build/knobs.toml:705</code></td><td><code>packages/tooling/nros-zephyr-build</code></td><td><strong>element</strong>: bounds an array parameter value; paid by every <code>ParameterValue</code>, i.e. every slot</td></tr>
 <tr><td><code>NROS_MAX_BYTE_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-zephyr-build/knobs.toml:727</code></td><td><code>packages/tooling/nros-zephyr-build</code></td><td><strong>element</strong>: bounds a byte-array parameter value; paid by every <code>ParameterValue</code>, i.e. every slot</td></tr>
-<tr><td><code>NROS_MAX_PARAMETERS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:52</code></td><td><code>packages/core/nros-params</code></td><td><strong>executor</strong>: slots of the parameter store. CARVED into the executor’s storage when the build implies a store (<code>NROS_PARAM_STORE</code> / <code>NROS_CAPABILITY_PARAM_SERVICES</code> / a contract <code>params:</code>), so <code>mem-report</code>’s <code>[executor storage]</code> prices it; otherwise boxed on the heap once per executor that declares</td></tr>
-<tr><td><code>NROS_MAX_PARAM_CONSTRAINTS_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:151</code></td><td><code>packages/core/nros-params</code></td><td><strong>element</strong>: bounds a parameter descriptor’s constraints text inside every <code>ParameterStorage</code> slot</td></tr>
-<tr><td><code>NROS_MAX_PARAM_DESCRIPTION_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:125</code></td><td><code>packages/core/nros-params</code></td><td><strong>element</strong>: bounds a parameter descriptor’s description inside every <code>ParameterStorage</code> slot</td></tr>
-<tr><td><code>NROS_MAX_PARAM_NAME_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:60</code></td><td><code>packages/core/nros-params</code></td><td><strong>element</strong>: bounds a parameter NAME inside every parameter-store slot (executor storage or heap, see <code>NROS_MAX_PARAMETERS</code>)</td></tr>
+<tr><td><code>NROS_MAX_PARAMETERS</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:59</code></td><td><code>packages/core/nros-params</code></td><td><strong>executor</strong>: slots of the parameter store. CARVED into the executor’s storage when the build implies a store (<code>NROS_PARAM_STORE</code> / <code>NROS_CAPABILITY_PARAM_SERVICES</code> / a contract <code>params:</code>), so <code>mem-report</code>’s <code>[executor storage]</code> prices it; otherwise boxed on the heap once per executor that declares</td></tr>
+<tr><td><code>NROS_MAX_PARAM_CONSTRAINTS_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:158</code></td><td><code>packages/core/nros-params</code></td><td><strong>element</strong>: bounds a parameter descriptor’s constraints text inside every <code>ParameterStorage</code> slot</td></tr>
+<tr><td><code>NROS_MAX_PARAM_DESCRIPTION_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:132</code></td><td><code>packages/core/nros-params</code></td><td><strong>element</strong>: bounds a parameter descriptor’s description inside every <code>ParameterStorage</code> slot</td></tr>
+<tr><td><code>NROS_MAX_PARAM_NAME_LEN</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:67</code></td><td><code>packages/core/nros-params</code></td><td><strong>element</strong>: bounds a parameter NAME inside every parameter-store slot (executor storage or heap, see <code>NROS_MAX_PARAMETERS</code>)</td></tr>
 <tr><td><code>NROS_MAX_STRING_ARRAY_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-zephyr-build/knobs.toml:844</code></td><td><code>packages/tooling/nros-zephyr-build</code></td><td><strong>element</strong>: bounds a string-array parameter value (elements; each a MAX_STRING_VALUE_LEN string); paid by every <code>ParameterValue</code>, i.e. every slot</td></tr>
 <tr><td><code>NROS_MAX_STRING_VALUE_LEN</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-zephyr-build/knobs.toml:869</code></td><td><code>packages/tooling/nros-zephyr-build</code></td><td><strong>element</strong>: bounds a string parameter VALUE — <code>ParameterValue</code> is sized by its largest variant, so this is paid by every slot</td></tr>
 <tr><td><code>NROS_MONITOR_ARM_GRACE_MS</code></td><td style="text-align: right">0</td><td><code>packages/core/nros-node</code></td><td><strong>not-a-size</strong>: a time: arm the contract monitors this long after the first spin</td></tr>
 <tr><td><code>NROS_MONITOR_ARM_ON_CALL</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:721</code></td><td><code>packages/core/nros-node</code></td><td><strong>not-a-size</strong>: a switch: whether contract monitors wait for the application’s arm call</td></tr>
 <tr><td><code>NROS_MULTIGOAL_GOALS</code></td><td style="text-align: right">computed — see <code>packages/testing/nros-tests/bins/action-client-multigoal/src/action-client-multigoal/src/main.rs:132</code></td><td><code>packages/testing/nros-tests/bins/action-client-multigoal/src/action-client-multigoal</code></td><td><strong>test-only</strong>: <code>action-client-multigoal</code> test binary</td></tr>
 <tr><td><code>NROS_MULTIGOAL_SOAK_MS</code></td><td style="text-align: right">0</td><td><code>packages/testing/nros-tests/bins/action-client-multigoal/src/action-client-multigoal</code></td><td><strong>test-only</strong>: <code>action-client-multigoal</code> test binary</td></tr>
-<tr><td><code>NROS_PARAM_EVENTS_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:167</code></td><td><code>packages/core/nros-params</code></td><td><strong>not-a-size</strong>: a QoS history depth handed to the RMW when the <code>/parameter_events</code> publisher is created; what it costs is the backend’s (a reliable DDS writer’s history), not a nano-ros pool</td></tr>
+<tr><td><code>NROS_PARAM_EVENTS_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:174</code></td><td><code>packages/core/nros-params</code></td><td><strong>not-a-size</strong>: a QoS history depth handed to the RMW when the <code>/parameter_events</code> publisher is created; what it costs is the backend’s (a reliable DDS writer’s history), not a nano-ros pool</td></tr>
 <tr><td><code>NROS_PARAM_SERVICE_BUFFER_SIZE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:544</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: request/reply buffers of the builtin parameter and lifecycle services, held in the executor’s value</td></tr>
 <tr><td><code>NROS_PARAM_SERVICE_INBOX_BYTES</code></td><td style="text-align: right">0</td><td><code>packages/rmw/xrce</code></td><td><strong>pool</strong> <code>nros_node::parameter_services::PARAM_INBOX</code>: slot bytes of the parameter-service inbox ring (<code>CallerInboxStorage</code> element)</td></tr>
 <tr><td><code>NROS_PARAM_SERVICE_INBOX_DEPTH</code></td><td style="text-align: right">1</td><td><code>packages/core/nros-node</code></td><td><strong>pool</strong> <code>nros_node::parameter_services::PARAM_INBOX</code>: ring depth of the parameter-service inbox (<code>CallerInboxStorage</code> element)</td></tr>
-<tr><td><code>NROS_PARAM_STORE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:307</code></td><td><code>packages/core/nros-params</code></td><td><strong>executor</strong>: a switch: the image builds a parameter store, so the executor’s storage carves <code>NROS_MAX_PARAMETERS</code> slots of it; off, the store costs the backing nothing</td></tr>
+<tr><td><code>NROS_PARAM_STORE</code></td><td style="text-align: right">computed — see <code>packages/core/nros-params/build.rs:332</code></td><td><code>packages/core/nros-params</code></td><td><strong>executor</strong>: a switch: the image builds a parameter store, so the executor’s storage carves <code>NROS_MAX_PARAMETERS</code> slots of it; off, the store costs the backing nothing</td></tr>
 <tr><td><code>NROS_PUBSUB_QOS_DEPTH</code></td><td style="text-align: right">computed — see <code>packages/core/nros-node/build.rs:988</code></td><td><code>packages/core/nros-node</code></td><td><strong>executor</strong>: the per-subscription receive queue depth the arena budgets for; derived from the declared QoS where an image states one</td></tr>
 <tr><td><code>NROS_RMW_MAX_BACKENDS</code></td><td style="text-align: right">8</td><td><code>packages/rmw/cffi</code></td><td><strong>pool</strong> <code>nros_rmw_cffi::REGISTRY</code>: backend slots in the RMW registry; the element is a <code>BackendSlot</code> struct</td></tr>
 <tr><td><code>NROS_RMW_MAX_NODES</code></td><td style="text-align: right">4</td><td><code>packages/rmw/cffi</code></td><td><strong>pool</strong> <code>nros_rmw_cffi::NODE_TABLE</code>: node slots in the RMW node table; the element is a <code>NodeSlot</code> struct</td></tr>
@@ -25396,15 +25395,15 @@ this column is blank, and nothing here is free unless it says so.</p>
 <tr><td><code>NROS_ZENOH_FRAG_MAX_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-zephyr-build/knobs.toml:1679</code></td><td><code>packages/tooling/nros-zephyr-build</code></td><td><strong>heap</strong>: zenoh-pico’s defragmentation buffer, <code>_z_wbuf_make(Z_FRAG_MAX_SIZE)</code> on first fragment — heap, no symbol</td></tr>
 <tr><td><code>NROS_ZENOH_GET_POLL_INTERVAL_MS</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-zephyr-build/knobs.toml:1697</code></td><td><code>packages/tooling/nros-zephyr-build</code></td><td><strong>not-a-size</strong>: milliseconds</td></tr>
 <tr><td><code>NROS_ZENOH_GET_REPLY_BUF_SIZE</code></td><td style="text-align: right">computed — see <code>packages/tooling/nros-zephyr-build/knobs.toml:1715</code></td><td><code>packages/tooling/nros-zephyr-build</code></td><td><strong>stack</strong>: the blocking <code>z_get</code> reply context is stack-allocated per call (<code>zpico.c</code>), so it costs stack in the caller, never static RAM</td></tr>
-<tr><td><code>NROS_ZENOH_GRAPH_CACHE_SIZE</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1544</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>: the graph cache’s byte buffer, embedded in each <code>struct zpico_session</code> beside its mutex and subscriber handle</td></tr>
-<tr><td><code>NROS_ZENOH_GRAPH_DISCOVERY</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1559</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>not-a-size</strong>: switches the graph cache on; its bytes are <code>ZPICO_GRAPH_CACHE_SIZE</code></td></tr>
+<tr><td><code>NROS_ZENOH_GRAPH_CACHE_SIZE</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1547</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>: the graph cache’s byte buffer, embedded in each <code>struct zpico_session</code> beside its mutex and subscriber handle</td></tr>
+<tr><td><code>NROS_ZENOH_GRAPH_DISCOVERY</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1562</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>not-a-size</strong>: switches the graph cache on; its bytes are <code>ZPICO_GRAPH_CACHE_SIZE</code></td></tr>
 <tr><td><code>NROS_ZENOH_MAX_LARGE_SUBSCRIBERS</code></td><td style="text-align: right">2</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td>prices <code>LARGE_PAYLOADS</code> (131,072 B at defaults)</td></tr>
-<tr><td><code>NROS_ZENOH_MAX_LIVELINESS</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1354</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>: liveliness-token entries inside each <code>struct zpico_session</code></td></tr>
+<tr><td><code>NROS_ZENOH_MAX_LIVELINESS</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1357</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>: liveliness-token entries inside each <code>struct zpico_session</code></td></tr>
 <tr><td><code>NROS_ZENOH_MAX_PENDING_GETS</code></td><td style="text-align: right">4</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>: pending-get slots inside each <code>struct zpico_session</code></td></tr>
-<tr><td><code>NROS_ZENOH_MAX_PUBLISHERS</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1341</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>: publisher entries inside each <code>struct zpico_session</code>; default derived per image from the entity inventory</td></tr>
-<tr><td><code>NROS_ZENOH_MAX_QUERYABLES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1325</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>, <code>nros_rmw_zenoh::shim::service::SERVICE_BUFFERS</code>, <code>nros_rmw_zenoh::shim::service::USER_SERVICE_INBOX</code>: queryable entries inside each <code>struct zpico_session</code> and the per-queryable shim pools; default derived per image (a service server, a TRANSIENT_LOCAL publisher and the builtin param/lifecycle services each take one)</td></tr>
+<tr><td><code>NROS_ZENOH_MAX_PUBLISHERS</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1344</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>: publisher entries inside each <code>struct zpico_session</code>; default derived per image from the entity inventory</td></tr>
+<tr><td><code>NROS_ZENOH_MAX_QUERYABLES</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1328</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>, <code>nros_rmw_zenoh::shim::service::SERVICE_BUFFERS</code>, <code>nros_rmw_zenoh::shim::service::USER_SERVICE_INBOX</code>: queryable entries inside each <code>struct zpico_session</code> and the per-queryable shim pools; default derived per image (a service server, a TRANSIENT_LOCAL publisher and the builtin param/lifecycle services each take one)</td></tr>
 <tr><td><code>NROS_ZENOH_MAX_SESSIONS</code></td><td style="text-align: right">1</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>pool</strong> <code>g_sessions</code>, <code>nros_rmw_zenoh::shim::service::SERVICE_BUFFERS</code>, <code>nros_rmw_zenoh::shim::service::USER_SERVICE_INBOX</code>: session count: the outer dimension of the zpico session table and of every per-session shim pool; the session element is the <code>struct zpico_session</code> C struct</td></tr>
-<tr><td><code>NROS_ZENOH_MAX_SUBSCRIBERS</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1345</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td>sizes <code>SMALL_PAYLOADS</code> — not priceable at defaults (knob <code>NROS_ZENOH_MAX_SUBSCRIBERS</code> has a computed default); <strong>pool</strong> <code>g_sessions</code>, <code>nros_rmw_zenoh::shim::subscriber::SUBSCRIBER_BUFFERS</code>: subscriber entries inside each <code>struct zpico_session</code> and the shim’s <code>SubscriberBuffer</code> table (also priced through <code>SMALL_PAYLOADS</code>); default derived per image</td></tr>
+<tr><td><code>NROS_ZENOH_MAX_SUBSCRIBERS</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-zpico-build/src/runner.rs:1348</code></td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td>sizes <code>SMALL_PAYLOADS</code> — not priceable at defaults (knob <code>NROS_ZENOH_MAX_SUBSCRIBERS</code> has a computed default); <strong>pool</strong> <code>g_sessions</code>, <code>nros_rmw_zenoh::shim::subscriber::SUBSCRIBER_BUFFERS</code>: subscriber entries inside each <code>struct zpico_session</code> and the shim’s <code>SubscriberBuffer</code> table (also priced through <code>SMALL_PAYLOADS</code>); default derived per image</td></tr>
 <tr><td><code>NROS_ZENOH_MAX_TL_PUBLISHERS</code></td><td style="text-align: right">computed — see <code>packages/rmw/zenoh/nros-rmw-zenoh/build.rs:956</code></td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>pool</strong> <code>nros_rmw_zenoh::shim::publisher::transient_local::TL_SLOTS</code>: retention slots for TRANSIENT_LOCAL publishers; the element is a <code>RetainSlot</code> struct and the count is derived per image</td></tr>
 <tr><td><code>NROS_ZENOH_PUBLISHER_TX_BUFFER_SIZE</code></td><td style="text-align: right">1024</td><td><code>packages/rmw/zenoh/nros-rmw-zenoh</code></td><td><strong>element</strong>: each publisher’s zero-copy lend arena (<code>ZENOH_TX_BUF</code>), inside the publisher entry wherever that is stored</td></tr>
 <tr><td><code>NROS_ZENOH_READ_PRIORITY</code></td><td style="text-align: right">16</td><td><code>packages/rmw/zenoh/nros-zpico-build</code></td><td><strong>not-a-size</strong>: a task priority</td></tr>
