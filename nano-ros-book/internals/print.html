@@ -37,10 +37,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-4837797c.js";
+            window.path_to_searchindex_js = "searchindex-f6ef890a.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-f20674a5.js"></script>
+        <script src="toc-57725ad4.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -11664,6 +11664,249 @@ runner scripts — live in the <a href="../../book/src/guide/platforms">Platform
 — coverage matrix + intentionally-empty cells</li>
 <li><a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/templates/multi-package-workspace"><code>examples/templates/multi-package-workspace/</code></a>
 — Pattern A copy-out template</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="the-example-trees-layout"><a class="header" href="#the-example-trees-layout">The example tree’s layout</a></h1>
+<!-- Moved from examples/README.md, which keeps only what a user copies from. -->
+<p>This page is the contributor half of <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/README.md"><code>examples/README.md</code></a>:
+why the tree has the shape it has, the layout classes, and how the test
+harness covers what the README’s matrix lists. Read it before adding,
+moving or deleting an example; <a href="#creating-examples">Creating Examples</a> is
+the how-to.</p>
+<h2 id="tree-history"><a class="header" href="#tree-history">Tree history</a></h2>
+<p><strong><code>stm32f4/</code> left this tree in phase-337 W7.a.</strong> Its board crates carried
+<strong>zero</strong> Runtime cells — no CI lane could boot them (the hardware is not in
+the rack and QEMU models no STM32 MAC), so an in-tree example set read as a
+support promise nobody verified. The same board, reached through RFC-0064’s
+customization ladder, is
+<a href="../../book/src/extending/add-a-board.html"><code>book/src/extending/add-a-board.md</code></a>.
+Cortex-M stays witnessed here by <code>mps2-an385-baremetal</code> and
+<code>mps2-an385-freertos</code>, both of which a lane actually boots.</p>
+<p><strong>There is no per-RMW directory level for the standard example set.</strong> The path
+is <code>&lt;platform&gt;/&lt;language&gt;/&lt;example&gt;</code>, never
+<code>&lt;platform&gt;/&lt;language&gt;/&lt;rmw&gt;/&lt;example&gt;</code>. One example serves every backend, and
+the RMW is selected at build/test time by the mechanisms the README’s copy-out section describes. Phase 168 collapsed the old <code>rust/{zenoh,xrce,dds}/</code> trees for this
+reason; a build recipe that reaches for <code>&lt;lang&gt;/&lt;rmw&gt;/&lt;role&gt;</code> is reaching for
+something that no longer exists (issue 0314 — a stale <code>cpp/xrce</code> reference sat
+in <code>just zephyr build-xrce</code> for months, and the abandoned directories lingered
+on disk as untracked <code>generated/</code> output that read like real examples).</p>
+<p><strong>No <code>&lt;rmw&gt;/</code> path remains.</strong> The last one was
+<code>zephyr/{rust,cpp}/cyclonedds/talker-aemv8r</code>, a <em>board</em> variant (aemv8r) that
+happened to sit under a backend name; it left with the FVP code nothing ran
+(issue 0537, phase-350 W3), and that board’s coverage is now an <code>[image.fvp]</code>
+row in <code>workspaces/realtime-cpp/</code>. Verify with
+<code>git ls-files ':(glob)examples/*/*/{zenoh,xrce,cyclonedds,uorb}/*'</code> — it returns
+nothing.</p>
+<p>px4 had two, and neither named an RMW at all. <code>px4/rust/xrce/</code> is now
+<code>px4/rust/companion/</code> — the axis is <strong>where the code runs</strong> (beside PX4, not in
+firmware); the RMW is pinned by <code>uxrce_dds_client</code> and was never a choice. And
+<code>px4/cpp/uorb/</code> held only <code>nros-register-check</code>, which is a link/registration
+gate rather than an example, so it moved to
+<code>packages/testing/nros-px4-register-check/</code> and the path level went with it.</p>
+<p>If you are adding a <code>talker</code>/<code>listener</code>/<code>service-*</code>/<code>action-*</code> example, it goes
+at <code>&lt;platform&gt;/&lt;language&gt;/&lt;role&gt;</code>. No exceptions.</p>
+<h2 id="layout-classes"><a class="header" href="#layout-classes">Layout classes</a></h2>
+<p>An example’s layout is decided by <strong>two</strong> questions, and only the second has
+ever been written down. That is why the first keeps getting re-derived from
+whichever tree shows it most vividly, and re-attributed to that tree’s platform.
+(Survey and work items:
+<a href="../../docs/roadmap/archived/phase-470-example-layout-unification.html">phase-470</a> (done); its gaps:
+<a href="../../docs/roadmap/archived/phase-477-example-gaps-and-unreported-lanes.html">phase-477</a> (done, 2026-10-13).)</p>
+<h3 id="question-1--who-owns-the-link"><a class="header" href="#question-1--who-owns-the-link">Question 1 — who owns the link?</a></h3>
+<p>For <strong>C and C++</strong> the answer is cmake on every tree, the bare-metal one
+included. <strong>The link belongs to whoever owns the STARTUP</strong>, and on
+<code>mps2-an385-baremetal</code> the startup is Rust (<code>cortex-m-rt</code>’s reset vector, the
+CMSDK Timer0 clock, the LAN9118/smoltcp bring-up), so the board exports a C
+start, <code>nros_board_mps2_an385_start</code>, that runs that bring-up and then the
+image’s entry. The generated entry’s <code>main</code> calls it, the Rust half arrives as
+a Corrosion staticlib, and CMake owns the final link exactly as on an RTOS
+board (RFC-0130, phase-553 W4). The <code>mps2-an385-baremetal/{c,cpp}/talker</code>
+witnesses are one-package workspaces whose package is an ordinary component
+(phase-553 W5), and the other bare-metal C/C++ roles are <code>baremetal_&lt;role&gt;</code>
+images of <code>workspaces/{c,cpp}</code> (issue 2555); every such row says
+<code>builder = "cmake"</code>. No C or C++ example is a cargo package; recount it the same
+mechanical way:</p>
+<pre><code class="language-sh">git ls-files 'examples/*/c/*/Cargo.toml' 'examples/*/cpp/*/Cargo.toml' \
+  | xargs -r -n1 dirname
+</code></pre>
+<p>One hit (git’s <code>*</code> crosses <code>/</code>): <code>px4/cpp/bridge/ffi</code>, which is not an example
+image at all — px4 is a foreign build integration (issue 1516) and that crate is
+the FFI half <strong>PX4’s own</strong> build links.</p>
+<p>For <strong>Rust it varies by platform</strong>, and that variation is the whole of
+what gets called “the Zephyr layout”:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th></th><th>Rust leaf files</th><th>trees</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>cargo owns the link</strong></td><td><code>Cargo.toml</code> + <code>src/main.rs</code> (plus <code>src/lib.rs</code> where the node logic is shared)</td><td><code>linux</code>, <code>mps2-an385-baremetal</code>, <code>mps2-an385-freertos</code>, <code>qemu-armv7a-nuttx</code>, <code>threadx-linux</code></td></tr>
+<tr><td><strong>cmake owns the link</strong></td><td><code>CMakeLists.txt</code> + <code>src/lib.rs</code> + <code>src/app_main.rs</code>; cargo emits a <strong>staticlib</strong>, and cmake links it into an image whose startup is C</td><td><code>zephyr/rust/*</code>, <code>rv-virt-threadx/rust/*</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>The predicate is mechanical, so recount rather than trusting the lists above —
+a Rust leaf holding a <code>CMakeLists.txt</code> is in the second row:</p>
+<pre><code class="language-sh">git ls-files ':(glob)examples/*/rust/*/CMakeLists.txt' | xargs -n1 dirname
+</code></pre>
+<p><strong><code>rv-virt-threadx/rust/*</code> is why this is written down.</strong> It carries the shape
+everyone calls Zephyr’s, for an unrelated cause — ThreadX RISC-V64 uses the C
+startup path and Cyclone needs cmake-time C descriptors, so the link goes
+through <code>nros_threadx_rv64_rust_app</code> — and it has <strong>no <code>prj.conf</code> at all</strong>. Both
+its RMWs build that way (<code>builder = "cmake"</code> on its zenoh <em>and</em> its cyclonedds
+<code>fixtures.toml</code> rows since phase-369 W2, which retired the cargo row and
+<code>src/main.rs</code> with it). Meanwhile <code>threadx-linux/rust/*</code> sits in the <em>other</em>
+row: same platform family, opposite answer, correctly so. <strong>Zephyr is this row
+plus <code>prj.conf</code> + <code>prj-&lt;rmw&gt;.conf</code></strong> — the conf files are what make it Zephyr,
+not the staticlib.</p>
+<p>Do not read one family’s boot glue into the other’s, either: the exported symbol
+differs. <code>nros::zephyr_component_main!</code> exports <code>rust_main()</code>, the
+zephyr-lang-rust convention that <code>rust_cargo_application()</code> consumes; the
+ThreadX RV64 board’s <code>app_main!</code> exports <code>app_main()</code>.</p>
+<h3 id="question-2--is-it-a-leaf-or-a-workspace"><a class="header" href="#question-2--is-it-a-leaf-or-a-workspace">Question 2 — is it a leaf or a workspace?</a></h3>
+<p>A <strong>leaf</strong> is <code>&lt;platform&gt;/&lt;language&gt;/&lt;example&gt;/</code> — one standalone copy-out
+package (<a href="../../docs/design/0026-example-directory-layout.html">RFC-0026</a>), its
+deployment in its own <code>system.toml</code> — except class 3a below, which owns its own
+<code>main</code> and has none.</p>
+<p>A <strong>workspace</strong> is a directory of packages with no root build file: <code>src/&lt;pkg&gt;/</code>
+plus a bringup that declares the <code>[image.*]</code> rows, and the entry package for
+each image is <strong>generated</strong>
+(<a href="../../docs/design/0098-generated-leaf-build-config.html">RFC-0098</a> D9, as amended
+by phase-445 W5).</p>
+<h3 id="the-classes"><a class="header" href="#the-classes">The classes</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>class</th><th>shape</th><th>how to recognise it</th><th>members</th></tr>
+</thead>
+<tbody>
+<tr><td><strong>1</strong></td><td>workspace, generated entry</td><td><code>.colcon_workspace</code> + <code>src/*_bringup/system.toml</code>; no <code>*_entry</code> package claims the image</td><td>every workspace under <code>workspaces/</code>, for every non-Zephyr <code>[image.*]</code> row</td></tr>
+<tr><td><strong>1z</strong></td><td>workspace, Zephyr image</td><td>the image row builds through <code>west</code>; its application is GENERATED (phase-470 W5) unless a hand-written <code>src/*_entry</code> package still claims it</td><td>every Zephyr <code>[image.*]</code> row. None in-tree is hand-written since phase-477 W1 — <a href="../../docs/issues/archived/1288-zephyr-rust-workspace-entries-not-generated.html">issue 1288</a>; count them with the command below, not from this table</td></tr>
+<tr><td><strong>1b</strong></td><td>workspace with <strong>no bringup</strong></td><td><code>.colcon_workspace</code>, no <code>*_bringup</code> — builds every package in dependency order, colcon’s default</td><td><code>templates/local-msg-package</code> (a <code>system.toml</code> beside a <em>package</em>) and <code>templates/workspace-shadowing</code> (none at all)</td></tr>
+<tr><td><strong>3</strong></td><td>leaf, cargo owns the link, node-class</td><td>leaf has <code>Cargo.toml</code>, no <code>CMakeLists.txt</code>, and a <code>system.toml</code></td><td>most Rust leaves (question 1, first row)</td></tr>
+<tr><td><strong>3a</strong></td><td>leaf, cargo owns the link, <strong>application-shaped</strong></td><td><code>[package.metadata.nros.application]</code> in <code>Cargo.toml</code>; the leaf owns <code>main</code> and its executor; <strong>no <code>system.toml</code></strong>, never built through <code>nros build</code></td><td>14 <code>linux/rust/*</code> leaves — the RTIC, custom-transport, serial, lifecycle and logging demos. They show what the node-class shape cannot express (the imperative executor API, a user-supplied transport, an RTIC app), so they are a class, not a backlog</td></tr>
+<tr><td><strong>4</strong></td><td>leaf, cmake owns the link</td><td>leaf has <code>CMakeLists.txt</code> (<code>+ prj*.conf</code> on Zephyr)</td><td>every C and C++ leaf; plus <code>zephyr/rust/*</code> and <code>rv-virt-threadx/rust/*</code></td></tr>
+<tr><td><strong>X</strong></td><td>foreign-build integration</td><td>no <code>system.toml</code> and nothing for <code>nros build</code> to generate; a <em>foreign</em> build consumes the tree</td><td><code>examples/px4/</code> — see below</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>1 and 1z are properties of an IMAGE, not of a directory.</strong> The same workspace
+is usually both: <code>workspaces/rust/</code> declares 17 <code>[image.*]</code> rows, 15 of them
+class 1 and two — <code>zephyr</code>, <code>zephyr_robot1</code> — class 1z. So “which class is this
+workspace?” has no answer; “which class is this image?” does.</p>
+<p>Count the Zephyr half with:</p>
+<pre><code class="language-sh">git ls-files ':(glob)examples/workspaces/*/src/*entry*/CMakeLists.txt'   # the 1z packages
+grep -rn 'entry *=' examples/workspaces/*/src/*_bringup/system.toml      # the rows that name one
+</code></pre>
+<h3 id="two-classes-that-deliberately-do-not-exist"><a class="header" href="#two-classes-that-deliberately-do-not-exist">Two classes that deliberately do NOT exist</a></h3>
+<p>A name makes a shape look intentional, so these two are recorded as <em>absent</em>
+rather than left unnamed for the next survey to invent:</p>
+<ul>
+<li><strong>“class 2”, hand-written entries.</strong> Not a class — it is class 1z before
+issue 1288. The generator reaches west for Rust and C/C++ since phase-470 W5,
+and phase-477 W1 migrated the last three hand-written entry packages (two
+bringups sharing one generated directory, a board-package preamble, a
+precedence rule with no test) — recorded in issue 1288, now resolved.
+A shape that exists because something is unfinished must not get a number
+that makes it look like a design.</li>
+<li><strong>“class 3r”, Rust-only leaf families.</strong> Not a class either. It looks like a
+missing platform port on <code>mps2-an385-baremetal</code>, and
+it is not: the bare-metal heap has existed since RFC-0034 D6 landed, and the
+C/C++ cmake seam (<code>cmake/platform/nano-ros-baremetal.cmake</code>,
+<code>cmake/board/nano-ros-board-mps2-an385-baremetal.cmake</code>) is complete — with
+<strong>zero live consumers</strong>. The C road was built and never driven, so this is
+feature wiring, and it dissolves into classes 3 and 4. (The
+<a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/README.md#intentionally-empty-cells">intentionally empty cells</a> row for
+<code>mps2-an385-baremetal</code> C/C++ used to state the old cause;
+<a href="../../docs/issues/archived/1512-c-api-does-not-reach-bare-metal.html">issue 1512</a> measured
+all of this, and the family now has six C and six C++ leaves, rooted in cargo;
+all their pairs (pubsub, service, action) run end to end under QEMU — not in that cmake seam, which still has no
+consumer and is recorded as not pursued.)</li>
+</ul>
+<h3 id="examplespx4--class-x-a-foreign-build-integration"><a class="header" href="#examplespx4--class-x-a-foreign-build-integration"><code>examples/px4/</code> — class X, a foreign-build integration</a></h3>
+<p>PX4 matches neither canonical shape, and it is <strong>not</strong> an outlier awaiting
+migration. Unifying it would produce a firmware tree PX4’s build cannot find.
+Three departures, each with a cause:</p>
+<ol>
+<li><strong><code>src/modules/&lt;name&gt;/{CMakeLists.txt,Kconfig}</code> is PX4’s layout, not ours.</strong>
+PX4 consumes <code>examples/px4/cpp/firmware/</code> and <code>examples/px4/cpp/bridge/</code> via
+<code>EXTERNAL_MODULES_LOCATION</code> (<code>just px4 build-sitl-example</code>,
+<code>just px4 build-bridge-example</code>), which mandates that directory shape and the
+<code>Kconfig</code> beside the module. They are copy-<strong>into</strong>-PX4 sources, not nano-ros
+applications: no <code>system.toml</code>, and nothing for <code>nros build</code> to generate.</li>
+<li><strong>The sub-directory axis is the TRANSPORT CASE, not the language.</strong> PX4 is
+integrated on its two native messaging surfaces — in-firmware uORB modules
+(C++) and an XRCE-DDS companion (Rust) — so <code>cpp/</code> and <code>rust/</code> name <em>which
+surface</em>, and the language follows from that rather than the other way round.
+A reader expecting the usual language level will go looking for a <code>cpp/</code>
+companion and a <code>rust/</code> firmware module; <strong>neither can exist.</strong></li>
+<li><strong>No RMW axis at all.</strong> In-firmware is uORB-only (the Rust uORB backend was
+retired in phase-115.K.4); the companion speaks XRCE-DDS to
+<code>uxrce_dds_client</code>. The <code>&lt;rmw&gt;</code> coordinate every other example carries is not
+a free choice here.</li>
+</ol>
+<p><code>rust/companion/{offboard-companion,px4-probe,px4-stub}/</code> are the three that
+<em>could</em> move — ordinary host cargo bins with a <code>package.xml</code> and no
+<code>system.toml</code>, so <code>px4/rust/&lt;example&gt;</code> would be well-formed. <strong>Recorded as a
+decision so it stops being a recurring question: they stay.</strong> The move would
+delete the one directory level that records the transport case, to buy
+uniformity with leaves that do not share PX4’s constraints.</p>
+<p>Detail and prerequisites: <a href="../../examples/px4/README.html"><code>examples/px4/README.md</code></a>. The measurement
+behind this section is
+<a href="../../docs/issues/archived/1516-px4-is-a-foreign-build-integration.html">issue 1516</a>.</p>
+<h2 id="how-the-matrix-is-tested"><a class="header" href="#how-the-matrix-is-tested">How the matrix is tested</a></h2>
+<p>Interop (nano ↔ real ROS 2) and bridge cells are <strong>not</strong> in <code>matrix::CELLS</code> and
+have <strong>no <code>fixtures.toml</code> row</strong> — their nano side comes off the native-example /
+zephyr-west-leaves lane and their peer is an ephemeral ROS 2 node / XRCE Agent /
+router. They live in <code>packages/testing/nros-tests/src/interop.rs</code>
+(<code>interop::CELLS</code>) with their peer + direction + build channel + test, gated by
+<code>matrix_fixture_coverage.rs</code> G1–G4 so a cell cannot silently disagree with the
+fixture its test runs. <code>ros_editions_e2e</code> (docker per-edition) is the edition
+axis below, not one of these cells.</p>
+<p>Edition (<code>ros-{humble,iron,jazzy}</code>; RFC-0056) is <strong>orthogonal</strong> to the table
+above — every cell is edition-parametric via the <code>ros-&lt;edition&gt;</code> cargo feature
+and regenerated per edition, so it is a PER-RUN global (<code>NROS_ROS_EDITION</code>,
+default <code>jazzy</code>), not a per-cell column. <code>just ros_editions ci &lt;distro&gt;</code> runs the
+whole set against one edition.</p>
+<p>The zenoh ROS 2 interop lanes need <code>rmw_zenoh_cpp</code> in the edition’s install,
+and the harness PROBES for it rather than assuming (<code>nros-tests::ros_env</code>): a
+host or image without it reports the cell unmet. Humble ships it as
+<code>ros-humble-rmw-zenoh-cpp</code> (checked 2026-11-07), as does Jazzy. This section
+used to say humble and iron ship none, and the probes followed the claim to
+Jazzy (issue 2259). cyclonedds/xrce interop is edition-agnostic.</p>
+<h3 id="gap-themes"><a class="header" href="#gap-themes">Gap themes</a></h3>
+<p>Gap themes — see <code>docs/roadmap/archived/phase-118-example-matrix-coverage.md</code>
+for the plan that fills these:</p>
+<ul>
+<li><strong>CycloneDDS matrix-fill</strong> — Phase 175 replaced the old
+<code>nros-rmw-cyclonedds-staticlib</code> idea with CMake/Corrosion fixture
+paths: native Rust talker/listener link and exchange user data, and
+FreeRTOS plus ThreadX RISC-V64 Cyclone fixture build/link coverage is
+wired. FreeRTOS Rust Cyclone also boots and exchanges user data.
+ThreadX RISC-V64 runtime still needs participant-init diagnosis
+(Phase 177.22). dust-DDS retired in Phase 169 — there is no <code>dds</code>
+column anymore.</li>
+<li><strong>XRCE absent on every embedded platform except Zephyr</strong> — Phase 115.K.2 header-only backend needs a Rust adapter for bare-metal targets.</li>
+</ul>
+<h3 id="before-filling-an-intentionally-empty-cell"><a class="header" href="#before-filling-an-intentionally-empty-cell">Before filling an intentionally empty cell</a></h3>
+<p>These cells are <em>deliberately blank</em> in the matrix above and will not be
+filled without a separate scoping phase. New contributors should not
+spin up examples here without first lifting the underlying constraint.</p>
+<p>If you believe one of these cells should be filled, please open an issue
+referencing the gating phase before adding directories — the lint in
+Phase 118.I blocks untriaged retired RMW roots.</p>
+<p>The README’s <a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/examples/README.md#coverage-matrix">coverage matrix</a>
+lists the empty cells and why each is empty. Their history: the uORB cell
+follows phase-115.K.4 (the Rust uORB backend deleted) and phase-277 W7 (the
+README-only placeholder retired); bare-metal Cyclone is the Phase 171.C gate
+decision; the NuttX Cyclone cell lost FreeRTOS to Phase 175’s lwIP wiring;
+ThreadX RISC-V64 Cyclone service/action was de-scoped in Phase 275 W4 and
+waits on Phase 177.22; <code>zephyr/rust/service-client-async</code> was dropped by
+Phase 212.M-F.5 and its tokio sibling by RFC-0113.</p>
+<h2 id="further-history"><a class="header" href="#further-history">Further history</a></h2>
+<ul>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/archived/phase-118-example-matrix-coverage.md"><code>docs/roadmap/archived/phase-118-example-matrix-coverage.md</code></a> — coverage-gap fill plan</li>
+<li><a href="https://github.com/NEWSLabNTU/nano-ros/blob/main/docs/roadmap/archived/phase-131-examples-tree-revision.md"><code>docs/roadmap/archived/phase-131-examples-tree-revision.md</code></a> — the tree’s restructuring history</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="formal-verification"><a class="header" href="#formal-verification">Formal Verification</a></h1>
