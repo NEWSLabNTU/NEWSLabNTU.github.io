@@ -1,8 +1,9 @@
 var searchData=
 [
-  ['nros_5frmw_5fcffi_5flookup_0',['nros_rmw_cffi_lookup',['../rmw__vtable_8h.html#a5ee864b8f29879d864bfb68e73f55455',1,'rmw_vtable.h']]],
-  ['nros_5frmw_5fcffi_5fregister_5fnamed_1',['nros_rmw_cffi_register_named',['../rmw__vtable_8h.html#ab5a07e351cb336cea0503138c4868102',1,'rmw_vtable.h']]],
-  ['nros_5frmw_5fcffi_5fregistered_5fnames_2',['nros_rmw_cffi_registered_names',['../rmw__vtable_8h.html#a19b424abdaf20201ea60f0020a465317',1,'rmw_vtable.h']]],
-  ['nros_5frmw_5fcffi_5fset_5fcustom_5ftransport_3',['nros_rmw_cffi_set_custom_transport',['../rmw__transport_8h.html#ab879e76225c0a65c439ee66fdd2b509a',1,'rmw_transport.h']]],
-  ['nros_5frmw_5fqos_5fincompatibility_5fmask_4',['nros_rmw_qos_incompatibility_mask',['../rmw__entity_8h.html#ab8e3eaf8a76d250ec7502f55f6771ae9',1,'rmw_entity.h']]]
+  ['nros_5frmw_5fassert_5fenum_5fint_5fwidth_0',['NROS_RMW_ASSERT_ENUM_INT_WIDTH',['../rmw__entity_8h.html#ad4480267d4cbe5a865b514ab4b4121f4',1,'NROS_RMW_ASSERT_ENUM_INT_WIDTH(rmw_feature_t):&#160;rmw_entity.h'],['../rmw__entity_8h.html#afeb59ef83656a430df7af65c383a180b',1,'NROS_RMW_ASSERT_ENUM_INT_WIDTH(rmw_liveliness_kind_t):&#160;rmw_entity.h'],['../rmw__entity_8h.html#a716d641740ccef3f830b738055fc7563',1,'NROS_RMW_ASSERT_ENUM_INT_WIDTH(rmw_qos_compatibility_type_t):&#160;rmw_entity.h'],['../rmw__entity_8h.html#a1b723a125808f8226949d01f3fc0b8f5',1,'NROS_RMW_ASSERT_ENUM_INT_WIDTH(nros_rmw_qos_clash_t):&#160;rmw_entity.h'],['../rmw__entity_8h.html#a11eeed11e9225d2a7eaf1c61c1f00340',1,'NROS_RMW_ASSERT_ENUM_INT_WIDTH(rmw_log_severity_t):&#160;rmw_entity.h'],['../rmw__entity_8h.html#a10ccedf80f7e880ee67d76a41e1bc21b',1,'NROS_RMW_ASSERT_ENUM_INT_WIDTH(rmw_endpoint_type_t):&#160;rmw_entity.h'],['../rmw__entity_8h.html#ab7b33cc8c411b60481e377aef7a54f61',1,'NROS_RMW_ASSERT_ENUM_INT_WIDTH(rmw_transport_protocol_t):&#160;rmw_entity.h'],['../rmw__entity_8h.html#aa68ffcebe203314a697d65aa3678a7a0',1,'NROS_RMW_ASSERT_ENUM_INT_WIDTH(rmw_internet_protocol_t):&#160;rmw_entity.h'],['../rmw__event_8h.html#a77333dd54cfef249f35cd50df6e2df28',1,'NROS_RMW_ASSERT_ENUM_INT_WIDTH(rmw_event_type_t):&#160;rmw_event.h']]],
+  ['nros_5frmw_5fcffi_5flookup_1',['nros_rmw_cffi_lookup',['../rmw__vtable_8h.html#a5ee864b8f29879d864bfb68e73f55455',1,'rmw_vtable.h']]],
+  ['nros_5frmw_5fcffi_5fregister_5fnamed_2',['nros_rmw_cffi_register_named',['../rmw__vtable_8h.html#ab5a07e351cb336cea0503138c4868102',1,'rmw_vtable.h']]],
+  ['nros_5frmw_5fcffi_5fregistered_5fnames_3',['nros_rmw_cffi_registered_names',['../rmw__vtable_8h.html#a19b424abdaf20201ea60f0020a465317',1,'rmw_vtable.h']]],
+  ['nros_5frmw_5fcffi_5fset_5fcustom_5ftransport_4',['nros_rmw_cffi_set_custom_transport',['../rmw__transport_8h.html#ab879e76225c0a65c439ee66fdd2b509a',1,'rmw_transport.h']]],
+  ['nros_5frmw_5fqos_5fincompatibility_5fmask_5',['nros_rmw_qos_incompatibility_mask',['../rmw__entity_8h.html#ab8e3eaf8a76d250ec7502f55f6771ae9',1,'rmw_entity.h']]]
 ];

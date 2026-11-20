@@ -16,6 +16,8 @@ var rmw__event_8h =
       [ "NROS_RMW_EVENT_PUBLICATION_MATCHED", "rmw__event_8h.html#a8a03b6e76e7e3d65ea90edfaadc130e0aca1fc90219f8b2a131909c2c43330896", null ],
       [ "NROS_RMW_EVENT_SUBSCRIPTION_MATCHED", "rmw__event_8h.html#a8a03b6e76e7e3d65ea90edfaadc130e0a056523085560361e8daa7f121486fe5e", null ],
       [ "NROS_RMW_EVENT_PUBLISHER_INCOMPATIBLE_TYPE", "rmw__event_8h.html#a8a03b6e76e7e3d65ea90edfaadc130e0adc93695934b9b53913e00133fbc41411", null ],
-      [ "NROS_RMW_EVENT_SUBSCRIPTION_INCOMPATIBLE_TYPE", "rmw__event_8h.html#a8a03b6e76e7e3d65ea90edfaadc130e0a6826184a5a8dc8cebfd1355302599385", null ]
-    ] ]
+      [ "NROS_RMW_EVENT_SUBSCRIPTION_INCOMPATIBLE_TYPE", "rmw__event_8h.html#a8a03b6e76e7e3d65ea90edfaadc130e0a6826184a5a8dc8cebfd1355302599385", null ],
+      [ "NROS_RMW_EVENT_FORCE_INT_WIDTH_", "rmw__event_8h.html#a8a03b6e76e7e3d65ea90edfaadc130e0a8b91392254b12215eeaf9c106a4871b0", null ]
+    ] ],
+    [ "NROS_RMW_ASSERT_ENUM_INT_WIDTH", "rmw__event_8h.html#a77333dd54cfef249f35cd50df6e2df28", null ]
 ];

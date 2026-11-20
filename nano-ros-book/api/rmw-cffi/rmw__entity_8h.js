@@ -79,22 +79,26 @@ var rmw__entity_8h =
       [ "NROS_RMW_QOS_CLASH_DURABILITY", "rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4a6ca8785ff9404f878f9f681ad66674fb", null ],
       [ "NROS_RMW_QOS_CLASH_DEADLINE", "rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4a553cc71495f7eac394fdb44ea499b4c1", null ],
       [ "NROS_RMW_QOS_CLASH_LIVELINESS_KIND", "rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4a5e56bbb4ec4497b0a8754dc5c05743ce", null ],
-      [ "NROS_RMW_QOS_CLASH_LIVELINESS_LEASE", "rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4abeff660e294f4b9075a345bbfc1530e1", null ]
+      [ "NROS_RMW_QOS_CLASH_LIVELINESS_LEASE", "rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4abeff660e294f4b9075a345bbfc1530e1", null ],
+      [ "NROS_RMW_QOS_CLASH_FORCE_INT_WIDTH_", "rmw__entity_8h.html#a24aa737f78e1359c1bf7fd12c4420ed4af22c94e96f7e4c1ebe9e13ef27f7eb3a", null ]
     ] ],
     [ "rmw_endpoint_type_t", "rmw__entity_8h.html#a47255c6f9232687e819fa8a9846b47b6", [
       [ "RMW_ENDPOINT_INVALID", "rmw__entity_8h.html#a47255c6f9232687e819fa8a9846b47b6ae70fa67ab8ff0630062daa03c75853c3", null ],
       [ "RMW_ENDPOINT_PUBLISHER", "rmw__entity_8h.html#a47255c6f9232687e819fa8a9846b47b6af8594d995452206536577accea3aa3ef", null ],
-      [ "RMW_ENDPOINT_SUBSCRIPTION", "rmw__entity_8h.html#a47255c6f9232687e819fa8a9846b47b6a193ed2307fef83b46a65fd8faa308a49", null ]
+      [ "RMW_ENDPOINT_SUBSCRIPTION", "rmw__entity_8h.html#a47255c6f9232687e819fa8a9846b47b6a193ed2307fef83b46a65fd8faa308a49", null ],
+      [ "RMW_ENDPOINT_FORCE_INT_WIDTH_", "rmw__entity_8h.html#a47255c6f9232687e819fa8a9846b47b6a7cfca69d5f18527b22d94eb98bcac289", null ]
     ] ],
     [ "rmw_feature_t", "rmw__entity_8h.html#a8b4589f865edafc62a79c379efd6a021", [
       [ "RMW_FEATURE_MESSAGE_INFO_PUBLICATION_SEQUENCE_NUMBER", "rmw__entity_8h.html#a8b4589f865edafc62a79c379efd6a021a2be8260e510e0b0f2f35f3ac13a821c5", null ],
-      [ "RMW_FEATURE_MESSAGE_INFO_RECEPTION_SEQUENCE_NUMBER", "rmw__entity_8h.html#a8b4589f865edafc62a79c379efd6a021a034f71b70519a9b0e900afe4e5596cd2", null ]
+      [ "RMW_FEATURE_MESSAGE_INFO_RECEPTION_SEQUENCE_NUMBER", "rmw__entity_8h.html#a8b4589f865edafc62a79c379efd6a021a034f71b70519a9b0e900afe4e5596cd2", null ],
+      [ "RMW_FEATURE_FORCE_INT_WIDTH_", "rmw__entity_8h.html#a8b4589f865edafc62a79c379efd6a021a6a1b2346e882d41c350dfa7558200365", null ]
     ] ],
     [ "rmw_internet_protocol_t", "rmw__entity_8h.html#acc6373532e2c082ecdb04565f5f0c1e9", [
       [ "RMW_INTERNET_PROTOCOL_UNKNOWN", "rmw__entity_8h.html#acc6373532e2c082ecdb04565f5f0c1e9a42a0e8104af2987bbe6ecc334fdab230", null ],
       [ "RMW_INTERNET_PROTOCOL_IPV4", "rmw__entity_8h.html#acc6373532e2c082ecdb04565f5f0c1e9ab60c528543132bd61a52b0e7a6aeb386", null ],
       [ "RMW_INTERNET_PROTOCOL_IPV6", "rmw__entity_8h.html#acc6373532e2c082ecdb04565f5f0c1e9a6e5c9a439201d35d54b947a848deebc4", null ],
-      [ "RMW_INTERNET_PROTOCOL_COUNT", "rmw__entity_8h.html#acc6373532e2c082ecdb04565f5f0c1e9a0fb02fd9fdb2a55913a59ace00e040d9", null ]
+      [ "RMW_INTERNET_PROTOCOL_COUNT", "rmw__entity_8h.html#acc6373532e2c082ecdb04565f5f0c1e9a0fb02fd9fdb2a55913a59ace00e040d9", null ],
+      [ "RMW_INTERNET_PROTOCOL_FORCE_INT_WIDTH_", "rmw__entity_8h.html#acc6373532e2c082ecdb04565f5f0c1e9abf79c24eff60809cc9f3142ffc272551", null ]
     ] ],
     [ "rmw_liveliness_kind_t", "rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68e", [
       [ "NROS_RMW_LIVELINESS_SYSTEM_DEFAULT", "rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68eaabf8090ca7ad1b384b86564dca590904", null ],
@@ -102,7 +106,8 @@ var rmw__entity_8h =
       [ "NROS_RMW_LIVELINESS_MANUAL_BY_NODE", "rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68eab035e06a98030ca2d675ffa4d3f700f0", null ],
       [ "NROS_RMW_LIVELINESS_MANUAL_BY_TOPIC", "rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68ea3365cbd04c091b13b93b0603e3b315a9", null ],
       [ "NROS_RMW_LIVELINESS_UNKNOWN", "rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68ea9a59966a26c2100b6b59c29ae21e1929", null ],
-      [ "NROS_RMW_LIVELINESS_BEST_AVAILABLE", "rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68ea17b93e7ef39e3fa367531c133ec8ba94", null ]
+      [ "NROS_RMW_LIVELINESS_BEST_AVAILABLE", "rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68ea17b93e7ef39e3fa367531c133ec8ba94", null ],
+      [ "NROS_RMW_LIVELINESS_FORCE_INT_WIDTH_", "rmw__entity_8h.html#a3ff7b3730ae405ed64cc352fe38db68ea2a0c55f092b1ec4061d656af205ed830", null ]
     ] ],
     [ "rmw_log_severity_t", "rmw__entity_8h.html#a607a331d0f863b03e03c892ab45a03a0", [
       [ "RMW_LOG_SEVERITY_UNSET", "rmw__entity_8h.html#a607a331d0f863b03e03c892ab45a03a0ac07d1767dd33eaff59913d8fbd2a65df", null ],
@@ -110,19 +115,30 @@ var rmw__entity_8h =
       [ "RMW_LOG_SEVERITY_INFO", "rmw__entity_8h.html#a607a331d0f863b03e03c892ab45a03a0a2d4d0465aa1395b92f795398982be78b", null ],
       [ "RMW_LOG_SEVERITY_WARN", "rmw__entity_8h.html#a607a331d0f863b03e03c892ab45a03a0a0dc9f13d99147f6372e1d56607aa27d6", null ],
       [ "RMW_LOG_SEVERITY_ERROR", "rmw__entity_8h.html#a607a331d0f863b03e03c892ab45a03a0a21e8a4946d08bef20fb01aff0bbea862", null ],
-      [ "RMW_LOG_SEVERITY_FATAL", "rmw__entity_8h.html#a607a331d0f863b03e03c892ab45a03a0a7296959da1e734c518f3564eb62f9dea", null ]
+      [ "RMW_LOG_SEVERITY_FATAL", "rmw__entity_8h.html#a607a331d0f863b03e03c892ab45a03a0a7296959da1e734c518f3564eb62f9dea", null ],
+      [ "RMW_LOG_SEVERITY_FORCE_INT_WIDTH_", "rmw__entity_8h.html#a607a331d0f863b03e03c892ab45a03a0afd87c4cd088f13a7a6848a16f63d3dd0", null ]
     ] ],
     [ "rmw_qos_compatibility_type_t", "rmw__entity_8h.html#ad249b07aa22ec87b43c2dfd8e71a782e", [
       [ "RMW_QOS_COMPATIBILITY_OK", "rmw__entity_8h.html#ad249b07aa22ec87b43c2dfd8e71a782eafbbd2e0aaf1759e223916f4400fe9f43", null ],
       [ "RMW_QOS_COMPATIBILITY_WARNING", "rmw__entity_8h.html#ad249b07aa22ec87b43c2dfd8e71a782ea9c93b91fe2608fb50f25ad61b34701eb", null ],
-      [ "RMW_QOS_COMPATIBILITY_ERROR", "rmw__entity_8h.html#ad249b07aa22ec87b43c2dfd8e71a782ea156eedb67a16b301ca1a2b338447fd36", null ]
+      [ "RMW_QOS_COMPATIBILITY_ERROR", "rmw__entity_8h.html#ad249b07aa22ec87b43c2dfd8e71a782ea156eedb67a16b301ca1a2b338447fd36", null ],
+      [ "RMW_QOS_COMPATIBILITY_FORCE_INT_WIDTH_", "rmw__entity_8h.html#ad249b07aa22ec87b43c2dfd8e71a782ea777a9552817b30ff54fe0f4ec152abbb", null ]
     ] ],
     [ "rmw_transport_protocol_t", "rmw__entity_8h.html#a44f4cc060736adb6a7345a1a920ef33d", [
       [ "RMW_TRANSPORT_PROTOCOL_UNKNOWN", "rmw__entity_8h.html#a44f4cc060736adb6a7345a1a920ef33da10941848316df45d73677fa76e619e66", null ],
       [ "RMW_TRANSPORT_PROTOCOL_UDP", "rmw__entity_8h.html#a44f4cc060736adb6a7345a1a920ef33dacb0abd95292f35db7f8801621afc788d", null ],
       [ "RMW_TRANSPORT_PROTOCOL_TCP", "rmw__entity_8h.html#a44f4cc060736adb6a7345a1a920ef33da5251a7e5aa4cb5240f76b154ed5fd0c9", null ],
-      [ "RMW_TRANSPORT_PROTOCOL_COUNT", "rmw__entity_8h.html#a44f4cc060736adb6a7345a1a920ef33da282b185d864a2908d9d3455d34263547", null ]
+      [ "RMW_TRANSPORT_PROTOCOL_COUNT", "rmw__entity_8h.html#a44f4cc060736adb6a7345a1a920ef33da282b185d864a2908d9d3455d34263547", null ],
+      [ "RMW_TRANSPORT_PROTOCOL_FORCE_INT_WIDTH_", "rmw__entity_8h.html#a44f4cc060736adb6a7345a1a920ef33dad6a8bb7725903e668ef4475025b4d924", null ]
     ] ],
+    [ "NROS_RMW_ASSERT_ENUM_INT_WIDTH", "rmw__entity_8h.html#a1b723a125808f8226949d01f3fc0b8f5", null ],
+    [ "NROS_RMW_ASSERT_ENUM_INT_WIDTH", "rmw__entity_8h.html#a10ccedf80f7e880ee67d76a41e1bc21b", null ],
+    [ "NROS_RMW_ASSERT_ENUM_INT_WIDTH", "rmw__entity_8h.html#ad4480267d4cbe5a865b514ab4b4121f4", null ],
+    [ "NROS_RMW_ASSERT_ENUM_INT_WIDTH", "rmw__entity_8h.html#aa68ffcebe203314a697d65aa3678a7a0", null ],
+    [ "NROS_RMW_ASSERT_ENUM_INT_WIDTH", "rmw__entity_8h.html#afeb59ef83656a430df7af65c383a180b", null ],
+    [ "NROS_RMW_ASSERT_ENUM_INT_WIDTH", "rmw__entity_8h.html#a11eeed11e9225d2a7eaf1c61c1f00340", null ],
+    [ "NROS_RMW_ASSERT_ENUM_INT_WIDTH", "rmw__entity_8h.html#a716d641740ccef3f830b738055fc7563", null ],
+    [ "NROS_RMW_ASSERT_ENUM_INT_WIDTH", "rmw__entity_8h.html#ab7b33cc8c411b60481e377aef7a54f61", null ],
     [ "nros_rmw_qos_incompatibility_mask", "rmw__entity_8h.html#ab8e3eaf8a76d250ec7502f55f6771ae9", null ],
     [ "rmw_compare_gids_equal", "rmw__entity_8h.html#a280fd9c0cf4fc49fbe6786b64b835194", null ],
     [ "rmw_qos_profile_check_compatible", "rmw__entity_8h.html#ac120cf27f24a02ede0d459b84bc3ff0d", null ]

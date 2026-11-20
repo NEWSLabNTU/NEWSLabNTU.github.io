@@ -1,5 +1,6 @@
 var rmw__ret_8h =
 [
+    [ "NROS_RMW_ASSERT_ENUM_INT_WIDTH", "rmw__ret_8h.html#a76e5ff341ffec58597c36f0461a510c8", null ],
     [ "NROS_RMW_RET_AMBIGUOUS_BACKEND", "rmw__ret_8h.html#a75ebe0dbbbb9c6923a8210c96a886e64", null ],
     [ "NROS_RMW_RET_BAD_ALLOC", "rmw__ret_8h.html#ab6002afe499666dc8af5b1f3b7b46bd1", null ],
     [ "NROS_RMW_RET_BUFFER_TOO_SMALL", "rmw__ret_8h.html#a2a51d17da7aa139dc8db23d33f6827eb", null ],
