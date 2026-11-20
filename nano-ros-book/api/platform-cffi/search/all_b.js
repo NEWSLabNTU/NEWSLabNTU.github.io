@@ -166,7 +166,14 @@ var searchData=
   ['nros_5fplatform_5fwake_5fstorage_5falign_163',['nros_platform_wake_storage_align',['../platform_8h.html#a87903fd45b23ccd676040ea6825c630e',1,'platform.h']]],
   ['nros_5fplatform_5fwake_5fstorage_5fsize_164',['nros_platform_wake_storage_size',['../platform_8h.html#ab90560dd0d2c4088d41748ed36a94970',1,'platform.h']]],
   ['nros_5fplatform_5fwake_5fwait_5fms_165',['nros_platform_wake_wait_ms',['../platform_8h.html#ac6d7956bb04d876fb51c9c9511dca8c0',1,'platform.h']]],
-  ['nros_5fplatform_5fyield_5fnow_166',['nros_platform_yield_now',['../platform_8h.html#a9a818c6eade6a79076933be731b2e68a',1,'platform.h']]],
-  ['nros_5fplatform_5fzephyr_5fwait_5fnetwork_167',['nros_platform_zephyr_wait_network',['../platform__zephyr_8h.html#a6a5041cb471b914bd415fed09c893533',1,'platform_zephyr.h']]],
-  ['nros_5fruntime_5flocator_5foverride_168',['nros_runtime_locator_override',['../platform_8h.html#a44b6964dd0f28916307e48c210441e30',1,'platform.h']]]
+  ['nros_5fplatform_5fwall_5fclock_5fstate_166',['nros_platform_wall_clock_state',['../platform_8h.html#af2457e8754dd33de124fdf9916b32e3f',1,'platform.h']]],
+  ['nros_5fplatform_5fyield_5fnow_167',['nros_platform_yield_now',['../platform_8h.html#a9a818c6eade6a79076933be731b2e68a',1,'platform.h']]],
+  ['nros_5fplatform_5fzephyr_5fwait_5fnetwork_168',['nros_platform_zephyr_wait_network',['../platform__zephyr_8h.html#a6a5041cb471b914bd415fed09c893533',1,'platform_zephyr.h']]],
+  ['nros_5fruntime_5flocator_5foverride_169',['nros_runtime_locator_override',['../platform_8h.html#a44b6964dd0f28916307e48c210441e30',1,'platform.h']]],
+  ['nros_5fwall_5fclock_5fsource_5fboard_170',['NROS_WALL_CLOCK_SOURCE_BOARD',['../platform_8h.html#a0fe4f2600db43e2749d6a5357ea3c3c8',1,'platform.h']]],
+  ['nros_5fwall_5fclock_5fsource_5fplatform_171',['NROS_WALL_CLOCK_SOURCE_PLATFORM',['../platform_8h.html#af694bcc429d2a9cf7d2cf9ce8b788611',1,'platform.h']]],
+  ['nros_5fwall_5fclock_5fsource_5fsntp_172',['NROS_WALL_CLOCK_SOURCE_SNTP',['../platform_8h.html#a33adb9271fa599bc16429c6ffaf740a9',1,'platform.h']]],
+  ['nros_5fwall_5fclock_5fsource_5fzenoh_5fhlc_173',['NROS_WALL_CLOCK_SOURCE_ZENOH_HLC',['../platform_8h.html#a5be79216b2918cdc38521accd18a534e',1,'platform.h']]],
+  ['nros_5fwall_5fclock_5fstate_5ft_174',['nros_wall_clock_state_t',['../structnros__wall__clock__state__t.html',1,'']]],
+  ['nros_5fwall_5fclock_5fstate_5ft_5fdefined_175',['NROS_WALL_CLOCK_STATE_T_DEFINED',['../platform_8h.html#a4ad2e0f4044a9da6ff66f6c401b99b90',1,'platform.h']]]
 ];

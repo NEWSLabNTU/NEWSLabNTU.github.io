@@ -1,6 +1,7 @@
 var platform_8h =
 [
     [ "nros_platform_task_attr_t", "structnros__platform__task__attr__t.html", "structnros__platform__task__attr__t" ],
+    [ "nros_wall_clock_state_t", "structnros__wall__clock__state__t.html", "structnros__wall__clock__state__t" ],
     [ "NROS_PLATFORM_CONDVAR_STORAGE_SIZE", "platform_8h.html#a4a41d1af62f21629af4484302decb5ab", null ],
     [ "NROS_PLATFORM_HAS_ATOMICS", "platform_8h.html#a7923b1f6dfeda17afffae3c6ca5c9df7", null ],
     [ "NROS_PLATFORM_HAS_MALLOC", "platform_8h.html#a5392fe5de28c84d3a9f80698a664e58e", null ],
@@ -25,6 +26,11 @@ var platform_8h =
     [ "NROS_PLATFORM_STORAGE_ALIGN", "platform_8h.html#add2ddc2601bae613eeebefb21d549a11", null ],
     [ "NROS_PLATFORM_TASK_DETACHED", "platform_8h.html#abd5cef134c3c210584b45fe0588a75ba", null ],
     [ "NROS_PLATFORM_TASK_STORAGE_SIZE", "platform_8h.html#a35019bfbd853d86523a7c0f1d5dac889", null ],
+    [ "NROS_WALL_CLOCK_SOURCE_BOARD", "platform_8h.html#a0fe4f2600db43e2749d6a5357ea3c3c8", null ],
+    [ "NROS_WALL_CLOCK_SOURCE_PLATFORM", "platform_8h.html#af694bcc429d2a9cf7d2cf9ce8b788611", null ],
+    [ "NROS_WALL_CLOCK_SOURCE_SNTP", "platform_8h.html#a33adb9271fa599bc16429c6ffaf740a9", null ],
+    [ "NROS_WALL_CLOCK_SOURCE_ZENOH_HLC", "platform_8h.html#a5be79216b2918cdc38521accd18a534e", null ],
+    [ "NROS_WALL_CLOCK_STATE_T_DEFINED", "platform_8h.html#a4ad2e0f4044a9da6ff66f6c401b99b90", null ],
     [ "nros_platform_log_flush_fn_t", "platform_8h.html#a276dec5fb6b84d44743ed4e5d823857c", null ],
     [ "nros_platform_log_writer_fn_t", "platform_8h.html#ac4af8ceb0c8e08923234b521e392c987", null ],
     [ "nros_platform_ret_t", "platform_8h.html#a00b6d617143e958fe81775ed9c4d7b19", null ],
@@ -98,6 +104,7 @@ var platform_8h =
     [ "nros_platform_wake_storage_align", "platform_8h.html#a87903fd45b23ccd676040ea6825c630e", null ],
     [ "nros_platform_wake_storage_size", "platform_8h.html#ab90560dd0d2c4088d41748ed36a94970", null ],
     [ "nros_platform_wake_wait_ms", "platform_8h.html#ac6d7956bb04d876fb51c9c9511dca8c0", null ],
+    [ "nros_platform_wall_clock_state", "platform_8h.html#af2457e8754dd33de124fdf9916b32e3f", null ],
     [ "nros_platform_yield_now", "platform_8h.html#a9a818c6eade6a79076933be731b2e68a", null ],
     [ "nros_runtime_locator_override", "platform_8h.html#a44b6964dd0f28916307e48c210441e30", null ],
     [ "len", "platform_8h.html#a7360b55975153b822efc5217b7734e6a", null ]

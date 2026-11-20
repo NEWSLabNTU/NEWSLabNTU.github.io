@@ -744,6 +744,7 @@ var nros__generated_8h =
     [ "rclc_trace_set_take", "nros__generated_8h.html#aff559650e5ae59020e3169a0f7eb0cdf", null ],
     [ "rclc_trace_set_timer_every", "nros__generated_8h.html#aa38805359fcb1d14c94e44074370cf28", null ],
     [ "rclc_wake_state_get_zero_initialized", "nros__generated_8h.html#a913a6e992b0a5ed2ac2f070140685c62", null ],
+    [ "rclc_wall_clock_state", "nros__generated_8h.html#a3734a1a6d52953e950ed55078e3235f3", null ],
     [ "NROS_TRANSPORT_OPS_ABI_VERSION_V1", "nros__generated_8h.html#aa7f09391ca2c4ff12975decb7aa09d25", null ],
     [ "RCLC_QOS_DEFAULT", "nros__generated_8h.html#aa2db1f62adc96a303d6f514db5dbffe2", null ],
     [ "RCLC_QOS_SENSOR_DATA", "nros__generated_8h.html#ab57b9d700c0a9610434f7bfc5dcbf791", null ],

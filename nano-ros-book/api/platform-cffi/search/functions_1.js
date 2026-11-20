@@ -111,7 +111,8 @@ var searchData=
   ['nros_5fplatform_5fwake_5fstorage_5falign_108',['nros_platform_wake_storage_align',['../platform_8h.html#a87903fd45b23ccd676040ea6825c630e',1,'platform.h']]],
   ['nros_5fplatform_5fwake_5fstorage_5fsize_109',['nros_platform_wake_storage_size',['../platform_8h.html#ab90560dd0d2c4088d41748ed36a94970',1,'platform.h']]],
   ['nros_5fplatform_5fwake_5fwait_5fms_110',['nros_platform_wake_wait_ms',['../platform_8h.html#ac6d7956bb04d876fb51c9c9511dca8c0',1,'platform.h']]],
-  ['nros_5fplatform_5fyield_5fnow_111',['nros_platform_yield_now',['../platform_8h.html#a9a818c6eade6a79076933be731b2e68a',1,'platform.h']]],
-  ['nros_5fplatform_5fzephyr_5fwait_5fnetwork_112',['nros_platform_zephyr_wait_network',['../platform__zephyr_8h.html#a6a5041cb471b914bd415fed09c893533',1,'platform_zephyr.h']]],
-  ['nros_5fruntime_5flocator_5foverride_113',['nros_runtime_locator_override',['../platform_8h.html#a44b6964dd0f28916307e48c210441e30',1,'platform.h']]]
+  ['nros_5fplatform_5fwall_5fclock_5fstate_111',['nros_platform_wall_clock_state',['../platform_8h.html#af2457e8754dd33de124fdf9916b32e3f',1,'platform.h']]],
+  ['nros_5fplatform_5fyield_5fnow_112',['nros_platform_yield_now',['../platform_8h.html#a9a818c6eade6a79076933be731b2e68a',1,'platform.h']]],
+  ['nros_5fplatform_5fzephyr_5fwait_5fnetwork_113',['nros_platform_zephyr_wait_network',['../platform__zephyr_8h.html#a6a5041cb471b914bd415fed09c893533',1,'platform_zephyr.h']]],
+  ['nros_5fruntime_5flocator_5foverride_114',['nros_runtime_locator_override',['../platform_8h.html#a44b6964dd0f28916307e48c210441e30',1,'platform.h']]]
 ];

@@ -44,5 +44,10 @@ var searchData=
   ['nros_5fplatform_5fret_5funsupported_41',['NROS_PLATFORM_RET_UNSUPPORTED',['../platform_8h.html#af06689f47a5a82c14099a1f0c95b7af0',1,'platform.h']]],
   ['nros_5fplatform_5fstorage_5falign_42',['NROS_PLATFORM_STORAGE_ALIGN',['../platform_8h.html#add2ddc2601bae613eeebefb21d549a11',1,'platform.h']]],
   ['nros_5fplatform_5ftask_5fdetached_43',['NROS_PLATFORM_TASK_DETACHED',['../platform_8h.html#abd5cef134c3c210584b45fe0588a75ba',1,'platform.h']]],
-  ['nros_5fplatform_5ftask_5fstorage_5fsize_44',['NROS_PLATFORM_TASK_STORAGE_SIZE',['../platform_8h.html#a35019bfbd853d86523a7c0f1d5dac889',1,'platform.h']]]
+  ['nros_5fplatform_5ftask_5fstorage_5fsize_44',['NROS_PLATFORM_TASK_STORAGE_SIZE',['../platform_8h.html#a35019bfbd853d86523a7c0f1d5dac889',1,'platform.h']]],
+  ['nros_5fwall_5fclock_5fsource_5fboard_45',['NROS_WALL_CLOCK_SOURCE_BOARD',['../platform_8h.html#a0fe4f2600db43e2749d6a5357ea3c3c8',1,'platform.h']]],
+  ['nros_5fwall_5fclock_5fsource_5fplatform_46',['NROS_WALL_CLOCK_SOURCE_PLATFORM',['../platform_8h.html#af694bcc429d2a9cf7d2cf9ce8b788611',1,'platform.h']]],
+  ['nros_5fwall_5fclock_5fsource_5fsntp_47',['NROS_WALL_CLOCK_SOURCE_SNTP',['../platform_8h.html#a33adb9271fa599bc16429c6ffaf740a9',1,'platform.h']]],
+  ['nros_5fwall_5fclock_5fsource_5fzenoh_5fhlc_48',['NROS_WALL_CLOCK_SOURCE_ZENOH_HLC',['../platform_8h.html#a5be79216b2918cdc38521accd18a534e',1,'platform.h']]],
+  ['nros_5fwall_5fclock_5fstate_5ft_5fdefined_49',['NROS_WALL_CLOCK_STATE_T_DEFINED',['../platform_8h.html#a4ad2e0f4044a9da6ff66f6c401b99b90',1,'platform.h']]]
 ];

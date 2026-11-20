@@ -476,5 +476,6 @@ var searchData=
   ['rclc_5ftrace_5fmarker_473',['rclc_trace_marker',['../nros__generated_8h.html#ac655f43bfadd0f5b710cd59e6f9f08f8',1,'nros_generated.h']]],
   ['rclc_5ftrace_5fset_5ftake_474',['rclc_trace_set_take',['../nros__generated_8h.html#aff559650e5ae59020e3169a0f7eb0cdf',1,'nros_generated.h']]],
   ['rclc_5ftrace_5fset_5ftimer_5fevery_475',['rclc_trace_set_timer_every',['../nros__generated_8h.html#aa38805359fcb1d14c94e44074370cf28',1,'nros_generated.h']]],
-  ['rclc_5fwake_5fstate_5fget_5fzero_5finitialized_476',['rclc_wake_state_get_zero_initialized',['../nros__generated_8h.html#a913a6e992b0a5ed2ac2f070140685c62',1,'nros_generated.h']]]
+  ['rclc_5fwake_5fstate_5fget_5fzero_5finitialized_476',['rclc_wake_state_get_zero_initialized',['../nros__generated_8h.html#a913a6e992b0a5ed2ac2f070140685c62',1,'nros_generated.h']]],
+  ['rclc_5fwall_5fclock_5fstate_477',['rclc_wall_clock_state',['../nros__generated_8h.html#a3734a1a6d52953e950ed55078e3235f3',1,'nros_generated.h']]]
 ];

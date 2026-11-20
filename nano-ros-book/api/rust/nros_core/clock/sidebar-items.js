@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["ClockType"],"struct":["Clock"]};
+window.SIDEBAR_ITEMS = {"enum":["ClockType","WallClockSource"],"fn":["wall_clock_state"],"struct":["Clock","WallClockState"]};
