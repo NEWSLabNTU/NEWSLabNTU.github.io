@@ -1,5 +1,6 @@
 var platform__net_8h =
 [
+    [ "NROS_PLATFORM_NET_SOCKET_EOF", "platform__net_8h.html#a457d448434c6e85f8793b1d33ef38f04", null ],
     [ "NROS_PLATFORM_NET_SOCKET_ERROR", "platform__net_8h.html#ad37124c9f464ca95e3c9e5b8048c9f89", null ],
     [ "nros_platform_network_poll", "platform__net_8h.html#a3ac8b53ea5f0ae45af7517c6c33f4917", null ],
     [ "nros_platform_socket_accept", "platform__net_8h.html#a0cc36253434c6715c74ea6edb9a9ad0d", null ],
