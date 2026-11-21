@@ -36,7 +36,7 @@
             const path_to_root = "../../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../../searchindex-f198e84a.js";
+            window.path_to_searchindex_js = "../../searchindex-a7febed0.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../../toc-0bace767.js"></script>
@@ -208,19 +208,19 @@ every other platform builds with both off.</li>
 </code></pre>
 <pre><code class="language-text">knob                     value      set by
 ----                     -----      ------
-zenoh.tx.batch           true       platform
-zenoh.tx.split_lock      true       platform
-zenoh.tx.flush_ms        50         platform
+zenoh.tx_batch           true       platform
+zenoh.tx_split_lock      true       platform
+zenoh.tx_batch_flush_ms  50         platform
 </code></pre>
 </li>
 <li>
 <p>Turn on transmit batching for an image that publishes many small or
 medium messages and can wait one flush period. Publishes then collect in
 the transport’s write buffer and leave as one socket send per flush:</p>
-<pre><code class="language-toml">[image.posix.knobs.zenoh.tx]
-batch = true
+<pre><code class="language-toml">[image.posix.knobs.zenoh]
+tx_batch = true
 </code></pre>
-<p>A flush thread sends the batch every <code>flush_ms</code>; ThreadX has no
+<p>A flush thread sends the batch every <code>tx_batch_flush_ms</code>; ThreadX has no
 background tasks, so there the executor’s spin sends it. Service requests
 and replies never wait in the batch. Do not batch a timer-paced image
 that publishes less than once per flush period: there is nothing to
@@ -230,10 +230,10 @@ combine, and the flushes make it slower.</p>
 <p>Add split locking if a tight-loop or bursty publisher is still limited by
 the transport. The flush then sends one batch while publishers fill the
 next, and a full batch no longer blocks the publishing thread. It needs
-<code>batch</code>:</p>
-<pre><code class="language-toml">[image.posix.knobs.zenoh.tx]
-batch = true
-split_lock = true
+<code>tx_batch</code>:</p>
+<pre><code class="language-toml">[image.posix.knobs.zenoh]
+tx_batch = true
+tx_split_lock = true
 </code></pre>
 <p>On Zephyr <code>native_sim</code>, 64-byte messages from a tight loop went from about
 9 a second untuned to about 136 with batching and about 181 with both.
@@ -242,11 +242,11 @@ absolute numbers move with the host.</p>
 </li>
 <li>
 <p>Bound the latency batching adds. A non-express sample waits up to
-<code>flush_ms</code>; lower it toward 10 to 20 ms when your budget needs fresher
+<code>tx_batch_flush_ms</code>; lower it toward 10 to 20 ms when your budget needs fresher
 samples, at the cost of more, smaller sends:</p>
-<pre><code class="language-toml">[image.posix.knobs.zenoh.tx]
-batch = true
-flush_ms = 20
+<pre><code class="language-toml">[image.posix.knobs.zenoh]
+tx_batch = true
+tx_batch_flush_ms = 20
 </code></pre>
 </li>
 <li>
@@ -291,17 +291,17 @@ socket window on its own.</p>
 <p>The wire buffers decide the largest message an image can send and receive.
 They depend on your network and your largest message, so the build does not
 derive them. Set them per image:</p>
-<pre><code class="language-toml">[image.posix.knobs.zenoh.wire]
-frag_max_size = 1400
-batch_unicast_size = 1024
-get_reply_buf_size = 1024
+<pre><code class="language-toml">[image.posix.knobs.zenoh]
+frag_max_bytes = 1400
+batch_unicast_bytes = 1024
+get_reply_buffer_bytes = 1024
 </code></pre>
 <p>or for one build, in its environment, where an exported value wins:</p>
-<pre><code class="language-bash">NROS_ZENOH_FRAG_MAX_SIZE=1400 NROS_ZENOH_BATCH_UNICAST_SIZE=1024 nros build
+<pre><code class="language-bash">NROS_ZENOH_FRAG_MAX_BYTES=1400 NROS_ZENOH_BATCH_UNICAST_BYTES=1024 nros build
 </code></pre>
 <p>or in the board descriptor’s <code>[knobs]</code>, when the budget belongs to the
-hardware. <code>frag_max_size</code> is the largest message the image can receive; a
-larger one is dropped. <code>batch_unicast_size</code> is the largest it sends without
+hardware. <code>frag_max_bytes</code> is the largest message the image can receive; a
+larger one is dropped. <code>batch_unicast_bytes</code> is the largest it sends without
 fragmenting. On a network with a 1500-byte MTU, or Zephyr’s default of about
 1400, keep the batch sizes below the MTU. A serial image gets a 1500-byte
 unicast batch by default.</p>
@@ -323,10 +323,10 @@ name = "host_node"
 [image.posix]
 board = "linux"
 
-[image.posix.knobs.zenoh.tx]
-batch = true
-split_lock = true
-flush_ms = 20
+[image.posix.knobs.zenoh]
+tx_batch = true
+tx_split_lock = true
+tx_batch_flush_ms = 20
 </code></pre>
 <p>with the command publisher built <code>tx_express(true)</code> as in step 5. Build it
 with <code>nros build posix</code>.</p>
@@ -337,9 +337,9 @@ with <code>nros build posix</code>.</p>
 <tr><th>What you see</th><th>What to change</th></tr>
 </thead>
 <tbody>
-<tr><td>Large messages never arrive</td><td>raise <code>frag_max_size</code>: the message exceeds the reassembly limit</td></tr>
+<tr><td>Large messages never arrive</td><td>raise <code>frag_max_bytes</code>: the message exceeds the reassembly limit</td></tr>
 <tr><td>A subscription receives truncated data, or a large-type subscription fails to create</td><td>the receive slot is too small; see <a href="../contracts/size-an-image-from-its-contract.html#which-knobs-the-build-derives">Size an image from its contract</a></td></tr>
-<tr><td>Service calls with large replies time out</td><td>raise <code>get_reply_buf_size</code></td></tr>
+<tr><td>Service calls with large replies time out</td><td>raise <code>get_reply_buffer_bytes</code></td></tr>
 <tr><td>Several concurrent service calls fail</td><td>raise <code>NROS_ZENOH_MAX_PENDING_GETS</code></td></tr>
 <tr><td>An entity create fails at run time</td><td>a pool is full; the <a href="../../reference/static-pool-inventory.html">Static pool inventory</a> names the knob that sizes it</td></tr>
 <tr><td>A benchmark listener counts far fewer messages than were sent</td><td>its receive ring is too shallow for a batch arriving at once; build the listener with <code>NROS_ZENOH_SUBSCRIBER_RING_DEPTH=1024</code></td></tr>

@@ -36,7 +36,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-9a81fe2c.js";
+            window.path_to_searchindex_js = "../searchindex-c1db9f5b.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-57725ad4.js"></script>
@@ -345,14 +345,14 @@ srand(seed);
 <p><strong>Problem</strong>: Service server or action server crashes with <code>lwIP ASSERT: Invalid mbox</code> during network init or shortly after <code>z_open()</code>. Simpler examples (pub/sub) work fine.</p>
 <p><strong>Cause</strong>: The application task’s frame is dominated by zenoh-pico’s internal stack buffers (transport TX/RX, peer structures) and by the Rust frames of the executor-open chain — <code>Executor::open_in</code> builds an <code>Executor</code> in its own frame and returns it by value. The total exceeds a small task stack.</p>
 <blockquote>
-<p><strong>Corrected 2026-09-06 (phase-392 W6).</strong> This paragraph used to say the cause was <code>Executor</code>’s inline <code>arena: [MaybeUninit&lt;u8&gt;; ARENA_SIZE]</code>, and that service/action examples pin <code>NROS_EXECUTOR_ARENA_SIZE</code> to 4096/8192. <strong>Neither is true and neither has been since phase-271 (issue 0110).</strong> The arena is a slice borrowed from caller-supplied backing, which on FreeRTOS is a named <code>.bss</code> static; no example in the tree sets <code>NROS_EXECUTOR_ARENA_SIZE</code>. Raising the arena knob will not change this symptom.</p>
+<p><strong>Corrected 2026-09-06 (phase-392 W6).</strong> This paragraph used to say the cause was <code>Executor</code>’s inline <code>arena: [MaybeUninit&lt;u8&gt;; ARENA_SIZE]</code>, and that service/action examples pin <code>NROS_EXECUTOR_ARENA_BYTES</code> to 4096/8192. <strong>Neither is true and neither has been since phase-271 (issue 0110).</strong> The arena is a slice borrowed from caller-supplied backing, which on FreeRTOS is a named <code>.bss</code> static; no example in the tree sets <code>NROS_EXECUTOR_ARENA_BYTES</code>. Raising the arena knob will not change this symptom.</p>
 </blockquote>
 <p>When the stack overflows, it corrupts adjacent memory including lwIP’s global <code>tcpip_mbox</code> variable (declared in <code>tcpip.c</code>). Any subsequent call to <code>tcpip_input()</code>, <code>tcpip_callback()</code>, or <code>sys_mbox_trypost()</code> triggers the “Invalid mbox” assertion, which enters an infinite <code>for(;;){}</code> loop.</p>
 <p><strong>Diagnosis</strong>: If pub/sub examples work but service/action examples crash with “Invalid mbox”, the extra depth is in the registration pass, not in the arena — a service or action entry registers more entities and each registration adds frames.</p>
 <p><strong>Fix</strong>: Raise the application task’s stack — but <strong>read the number off the image first, do not guess it</strong>. Every FreeRTOS Rust image prints, at the end of its register pass (the deepest point bring-up reaches):</p>
-<pre><code>nros: app task stack peak 36160 of 131072 bytes (94912 free) — raise with NROS_FREERTOS_APP_STACK_KB / `[node.rt] app_stack_bytes`
+<pre><code>nros: app task stack peak 36160 of 131072 bytes (94912 free) — raise with NROS_MEMORY_APP_STACK_BYTES / `[node.rt] app_stack_bytes`
 </code></pre>
-<p>The knob is <code>app_stack_bytes</code> (<code>nros_board_common::freertos_config</code>), default <strong>131072</strong> (128 KiB); override it at build time with <code>NROS_FREERTOS_APP_STACK_KB=&lt;kib&gt;</code>, or per sched task with <code>[node.rt] app_stack_bytes</code>.</p>
+<p>The knob is <code>app_stack_bytes</code> (<code>nros_board_common::freertos_config</code>), default <strong>131072</strong> (128 KiB); override it at build time with <code>NROS_MEMORY_APP_STACK_BYTES=&lt;bytes&gt;</code>, or per sched task with <code>[node.rt] app_stack_bytes</code>.</p>
 <blockquote>
 <p><strong>Corrected 2026-09-07 (issue 1146).</strong> This step used to read <em>“set <code>APP_TASK_STACK</code> to 16384 words (64 KB)”</em>, then (phase-392 W6) <em>“the default is 393216”</em>. <code>APP_TASK_STACK</code> was <strong>deleted in phase-76</strong>; the 384 KiB that replaced it was never derived from anything. It is 128 KiB now, from <code>uxTaskGetStackHighWaterMark</code> on 8 in-tree images whose worst peak is 36 152 bytes — the table is on <code>freertos_config::app_stack_bytes</code>. The C/C++ carrier’s mirror in <code>cmake/templates/freertos_app_config.c.in</code> is still 524288, and that file says why (its C++ half cannot be built — issue 1187).</p>
 </blockquote>
