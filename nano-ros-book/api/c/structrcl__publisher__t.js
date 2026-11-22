@@ -1,5 +1,6 @@
 var structrcl__publisher__t =
 [
+    [ "_gate", "structrcl__publisher__t.html#acf57aaa8f6341a5c63637e01a1b0b50e", null ],
     [ "_opaque", "structrcl__publisher__t.html#ac9f4f74658b7d9e09a243eb59099256e", null ],
     [ "node", "structrcl__publisher__t.html#a8d5cb2c1fb2df89c1fef32d8e24ae5cf", null ],
     [ "options", "structrcl__publisher__t.html#af8922492b7a544599778010464493b57", null ],

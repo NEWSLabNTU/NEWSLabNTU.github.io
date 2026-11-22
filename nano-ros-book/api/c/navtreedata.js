@@ -101,7 +101,7 @@ var NAVTREEINDEX =
 "nros__generated_8h.html#a71e7acfc34252b3353d8ba3cab613fa0",
 "nros__generated_8h.html#addf8601f660c803f06bebe6ab2247552",
 "structrcl__node__t.html#add296d236592e08190f4ce2caf66831f",
-"subscription_8h.html"
+"structrclc__wake__state__t.html#aac6eb585b5a884bc3d851844827258a6"
 ];
 
 var SYNCONMSG = 'click to disable panel synchronization';
