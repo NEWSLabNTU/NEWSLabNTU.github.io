@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["LaunchTextError"]};
+window.SIDEBAR_ITEMS = {"enum":["LaunchTextError","LaunchTextType"],"fn":["launch_text_type"]};
