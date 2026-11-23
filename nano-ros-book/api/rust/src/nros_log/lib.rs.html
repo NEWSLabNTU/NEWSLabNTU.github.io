@@ -1314,138 +1314,216 @@
 <a href=#1314 id=1314 data-nosnippet>1314</a>
 <a href=#1315 id=1315 data-nosnippet>1315</a></span><span class="kw">static </span>DISPATCH_GUARD: AtomicBool = AtomicBool::new(<span class="bool-val">false</span>);
 <a href=#1316 id=1316 data-nosnippet>1316</a>
-<a href=#1317 id=1317 data-nosnippet>1317</a><span class="kw">fn </span>dispatch_guard_try_acquire() -&gt; bool {
-<a href=#1318 id=1318 data-nosnippet>1318</a>    DISPATCH_GUARD
-<a href=#1319 id=1319 data-nosnippet>1319</a>        .compare_exchange(<span class="bool-val">false</span>, <span class="bool-val">true</span>, Ordering::SeqCst, Ordering::SeqCst)
-<a href=#1320 id=1320 data-nosnippet>1320</a>        .is_ok()
-<a href=#1321 id=1321 data-nosnippet>1321</a>}
-<a href=#1322 id=1322 data-nosnippet>1322</a>
-<a href=#1323 id=1323 data-nosnippet>1323</a><span class="kw">fn </span>dispatch_guard_release() {
-<a href=#1324 id=1324 data-nosnippet>1324</a>    DISPATCH_GUARD.store(<span class="bool-val">false</span>, Ordering::SeqCst);
-<a href=#1325 id=1325 data-nosnippet>1325</a>}
-<a href=#1326 id=1326 data-nosnippet>1326</a>
-<a href=#1327 id=1327 data-nosnippet>1327</a><span class="comment">// -----------------------------------------------------------------------------
-<a href=#1328 id=1328 data-nosnippet>1328</a>// Tests (host-only).
-<a href=#1329 id=1329 data-nosnippet>1329</a>// -----------------------------------------------------------------------------
-<a href=#1330 id=1330 data-nosnippet>1330</a>
-<a href=#1331 id=1331 data-nosnippet>1331</a></span><span class="attr">#[cfg(test)]
-<a href=#1332 id=1332 data-nosnippet>1332</a></span><span class="kw">mod </span>tests {
-<a href=#1333 id=1333 data-nosnippet>1333</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#1317 id=1317 data-nosnippet>1317</a><span class="doccomment">/// Who holds [`DISPATCH_GUARD`], as the address of a stack slot in the frame
+<a href=#1318 id=1318 data-nosnippet>1318</a>/// that claimed it; `0` while it is free (issue 2738).
+<a href=#1319 id=1319 data-nosnippet>1319</a>///
+<a href=#1320 id=1320 data-nosnippet>1320</a>/// A record that meets a held guard is handed to the HOLDER to deliver, so a
+<a href=#1321 id=1321 data-nosnippet>1321</a>/// holder that never runs again (a thread that faulted inside a sink and was
+<a href=#1322 id=1322 data-nosnippet>1322</a>/// aborted) strands every later record from every thread, silently. Nothing
+<a href=#1323 id=1323 data-nosnippet>1323</a>/// here can see that happen, but a fault handler can: it knows the dying
+<a href=#1324 id=1324 data-nosnippet>1324</a>/// thread and that thread's stack bounds, and a stack ADDRESS is an identity
+<a href=#1325 id=1325 data-nosnippet>1325</a>/// every `no_std` target has for free, where a thread id is not. It is never
+<a href=#1326 id=1326 data-nosnippet>1326</a>/// dereferenced. An interrupt that claims the guard leaves an address on the
+<a href=#1327 id=1327 data-nosnippet>1327</a>/// interrupt stack, which no thread's stack contains, so it is never taken for
+<a href=#1328 id=1328 data-nosnippet>1328</a>/// a dying thread's.
+<a href=#1329 id=1329 data-nosnippet>1329</a>///
+<a href=#1330 id=1330 data-nosnippet>1330</a>/// Set after the claim and cleared before the release, so it is `0` for the
+<a href=#1331 id=1331 data-nosnippet>1331</a>/// two stores' width of an otherwise-held guard. A fault cannot land between
+<a href=#1332 id=1332 data-nosnippet>1332</a>/// them in the claiming thread on the way to a sink.
+<a href=#1333 id=1333 data-nosnippet>1333</a></span><span class="kw">static </span>DISPATCH_HOLDER: AtomicUsize = AtomicUsize::new(<span class="number">0</span>);
 <a href=#1334 id=1334 data-nosnippet>1334</a>
-<a href=#1335 id=1335 data-nosnippet>1335</a>    <span class="attr">#[test]
-<a href=#1336 id=1336 data-nosnippet>1336</a>    </span><span class="kw">fn </span>severity_round_trips_through_u8() {
-<a href=#1337 id=1337 data-nosnippet>1337</a>        <span class="kw">for </span>s <span class="kw">in </span>[
-<a href=#1338 id=1338 data-nosnippet>1338</a>            Severity::Trace,
-<a href=#1339 id=1339 data-nosnippet>1339</a>            Severity::Debug,
-<a href=#1340 id=1340 data-nosnippet>1340</a>            Severity::Info,
-<a href=#1341 id=1341 data-nosnippet>1341</a>            Severity::Warn,
-<a href=#1342 id=1342 data-nosnippet>1342</a>            Severity::Error,
-<a href=#1343 id=1343 data-nosnippet>1343</a>            Severity::Fatal,
-<a href=#1344 id=1344 data-nosnippet>1344</a>        ] {
-<a href=#1345 id=1345 data-nosnippet>1345</a>            <span class="macro">assert_eq!</span>(severity_from_u8(s.as_u8()), <span class="prelude-val">Some</span>(s));
-<a href=#1346 id=1346 data-nosnippet>1346</a>        }
-<a href=#1347 id=1347 data-nosnippet>1347</a>        <span class="macro">assert_eq!</span>(severity_from_u8(<span class="number">99</span>), <span class="prelude-val">None</span>);
-<a href=#1348 id=1348 data-nosnippet>1348</a>    }
-<a href=#1349 id=1349 data-nosnippet>1349</a>
-<a href=#1350 id=1350 data-nosnippet>1350</a>    <span class="attr">#[test]
-<a href=#1351 id=1351 data-nosnippet>1351</a>    </span><span class="kw">fn </span>logger_runtime_threshold_filters_below() {
-<a href=#1352 id=1352 data-nosnippet>1352</a>        <span class="kw">let </span>logger = Logger::with_level(<span class="string">"test_thresh"</span>, Severity::Warn);
-<a href=#1353 id=1353 data-nosnippet>1353</a>        <span class="macro">assert!</span>(!logger.is_enabled(Severity::Info));
-<a href=#1354 id=1354 data-nosnippet>1354</a>        <span class="macro">assert!</span>(logger.is_enabled(Severity::Warn));
-<a href=#1355 id=1355 data-nosnippet>1355</a>        <span class="macro">assert!</span>(logger.is_enabled(Severity::Error));
-<a href=#1356 id=1356 data-nosnippet>1356</a>        logger.set_level(Severity::Debug);
-<a href=#1357 id=1357 data-nosnippet>1357</a>        <span class="macro">assert!</span>(logger.is_enabled(Severity::Info));
-<a href=#1358 id=1358 data-nosnippet>1358</a>    }
-<a href=#1359 id=1359 data-nosnippet>1359</a>
-<a href=#1360 id=1360 data-nosnippet>1360</a>    <span class="doccomment">/// phase-467, ledger rows `c:log_severity_t` + `rust:Logger::set_default_level`.
-<a href=#1361 id=1361 data-nosnippet>1361</a>    ///
-<a href=#1362 id=1362 data-nosnippet>1362</a>    /// ONE test rather than five, deliberately: the process default is
-<a href=#1363 id=1363 data-nosnippet>1363</a>    /// process-wide state and `cargo test` runs this crate's tests as threads
-<a href=#1364 id=1364 data-nosnippet>1364</a>    /// in one process, so a second test that moved it would race this one and
-<a href=#1365 id=1365 data-nosnippet>1365</a>    /// the flake would read as a logic bug. It restores the default before it
-<a href=#1366 id=1366 data-nosnippet>1366</a>    /// returns for the same reason.
-<a href=#1367 id=1367 data-nosnippet>1367</a>    </span><span class="attr">#[test]
-<a href=#1368 id=1368 data-nosnippet>1368</a>    </span><span class="kw">fn </span>a_logger_with_no_level_of_its_own_follows_the_process_default() {
-<a href=#1369 id=1369 data-nosnippet>1369</a>        <span class="macro">assert_eq!</span>(Logger::default_level(), Severity::Info, <span class="string">"starting default"</span>);
-<a href=#1370 id=1370 data-nosnippet>1370</a>
-<a href=#1371 id=1371 data-nosnippet>1371</a>        <span class="kw">let </span>unset = Logger::new(<span class="string">"test_unset_follows_default"</span>);
-<a href=#1372 id=1372 data-nosnippet>1372</a>        <span class="kw">let </span>stated = Logger::with_level(<span class="string">"test_stated_keeps_its_own"</span>, Severity::Warn);
-<a href=#1373 id=1373 data-nosnippet>1373</a>
-<a href=#1374 id=1374 data-nosnippet>1374</a>        <span class="comment">// Unset logger, untouched default: Info, exactly as before phase-467.
-<a href=#1375 id=1375 data-nosnippet>1375</a>        </span><span class="macro">assert_eq!</span>(unset.level(), Severity::Info);
-<a href=#1376 id=1376 data-nosnippet>1376</a>        <span class="macro">assert!</span>(!unset.is_enabled(Severity::Debug));
-<a href=#1377 id=1377 data-nosnippet>1377</a>        <span class="macro">assert!</span>(unset.is_enabled(Severity::Info));
-<a href=#1378 id=1378 data-nosnippet>1378</a>
-<a href=#1379 id=1379 data-nosnippet>1379</a>        <span class="comment">// Moving the default moves it RETROACTIVELY — the logger already
-<a href=#1380 id=1380 data-nosnippet>1380</a>        // existed. This is what a re-export of `DEFAULT_LOGGER.set_level`
-<a href=#1381 id=1381 data-nosnippet>1381</a>        // could not do.
-<a href=#1382 id=1382 data-nosnippet>1382</a>        </span>Logger::set_default_level(Severity::Debug);
-<a href=#1383 id=1383 data-nosnippet>1383</a>        <span class="macro">assert_eq!</span>(Logger::default_level(), Severity::Debug);
-<a href=#1384 id=1384 data-nosnippet>1384</a>        <span class="macro">assert_eq!</span>(unset.level(), Severity::Debug);
-<a href=#1385 id=1385 data-nosnippet>1385</a>        <span class="macro">assert!</span>(unset.is_enabled(Severity::Debug));
-<a href=#1386 id=1386 data-nosnippet>1386</a>        <span class="macro">assert!</span>(!unset.is_enabled(Severity::Trace));
-<a href=#1387 id=1387 data-nosnippet>1387</a>
-<a href=#1388 id=1388 data-nosnippet>1388</a>        <span class="comment">// ...and does NOT override a logger that states its own level. If it
-<a href=#1389 id=1389 data-nosnippet>1389</a>        // did, `with_level(.., Info)` and `new(..)` would be the same thing,
-<a href=#1390 id=1390 data-nosnippet>1390</a>        // which is the distinction the sentinel exists to keep.
-<a href=#1391 id=1391 data-nosnippet>1391</a>        </span><span class="macro">assert_eq!</span>(stated.level(), Severity::Warn);
-<a href=#1392 id=1392 data-nosnippet>1392</a>        <span class="macro">assert!</span>(!stated.is_enabled(Severity::Info));
-<a href=#1393 id=1393 data-nosnippet>1393</a>
-<a href=#1394 id=1394 data-nosnippet>1394</a>        <span class="comment">// Stating a level on the unset logger detaches it.
-<a href=#1395 id=1395 data-nosnippet>1395</a>        </span>unset.set_level(Severity::Error);
-<a href=#1396 id=1396 data-nosnippet>1396</a>        Logger::set_default_level(Severity::Trace);
-<a href=#1397 id=1397 data-nosnippet>1397</a>        <span class="macro">assert_eq!</span>(unset.level(), Severity::Error);
-<a href=#1398 id=1398 data-nosnippet>1398</a>        <span class="macro">assert!</span>(!unset.is_enabled(Severity::Warn));
-<a href=#1399 id=1399 data-nosnippet>1399</a>
-<a href=#1400 id=1400 data-nosnippet>1400</a>        <span class="comment">// ...and unsetting it re-attaches it, to the CURRENT default.
-<a href=#1401 id=1401 data-nosnippet>1401</a>        </span>unset.unset_level();
-<a href=#1402 id=1402 data-nosnippet>1402</a>        <span class="macro">assert_eq!</span>(unset.level(), Severity::Trace);
-<a href=#1403 id=1403 data-nosnippet>1403</a>        <span class="macro">assert!</span>(unset.is_enabled(Severity::Trace));
+<a href=#1335 id=1335 data-nosnippet>1335</a><span class="kw">fn </span>dispatch_guard_try_acquire() -&gt; bool {
+<a href=#1336 id=1336 data-nosnippet>1336</a>    <span class="kw">if </span>DISPATCH_GUARD
+<a href=#1337 id=1337 data-nosnippet>1337</a>        .compare_exchange(<span class="bool-val">false</span>, <span class="bool-val">true</span>, Ordering::SeqCst, Ordering::SeqCst)
+<a href=#1338 id=1338 data-nosnippet>1338</a>        .is_err()
+<a href=#1339 id=1339 data-nosnippet>1339</a>    {
+<a href=#1340 id=1340 data-nosnippet>1340</a>        <span class="kw">return </span><span class="bool-val">false</span>;
+<a href=#1341 id=1341 data-nosnippet>1341</a>    }
+<a href=#1342 id=1342 data-nosnippet>1342</a>    <span class="kw">let </span>here = <span class="number">0u8</span>;
+<a href=#1343 id=1343 data-nosnippet>1343</a>    DISPATCH_HOLDER.store(<span class="macro">core::ptr::addr_of!</span>(here) <span class="kw">as </span>usize, Ordering::SeqCst);
+<a href=#1344 id=1344 data-nosnippet>1344</a>    <span class="bool-val">true
+<a href=#1345 id=1345 data-nosnippet>1345</a></span>}
+<a href=#1346 id=1346 data-nosnippet>1346</a>
+<a href=#1347 id=1347 data-nosnippet>1347</a><span class="kw">fn </span>dispatch_guard_release() {
+<a href=#1348 id=1348 data-nosnippet>1348</a>    DISPATCH_HOLDER.store(<span class="number">0</span>, Ordering::SeqCst);
+<a href=#1349 id=1349 data-nosnippet>1349</a>    DISPATCH_GUARD.store(<span class="bool-val">false</span>, Ordering::SeqCst);
+<a href=#1350 id=1350 data-nosnippet>1350</a>}
+<a href=#1351 id=1351 data-nosnippet>1351</a>
+<a href=#1352 id=1352 data-nosnippet>1352</a><span class="comment">// Issue 2738.
+<a href=#1353 id=1353 data-nosnippet>1353</a></span><span class="doccomment">/// The address of a stack slot in the frame that holds the dispatch guard, or
+<a href=#1354 id=1354 data-nosnippet>1354</a>/// `0` when no delivery is in progress.
+<a href=#1355 id=1355 data-nosnippet>1355</a>///
+<a href=#1356 id=1356 data-nosnippet>1356</a>/// For a fault handler: if this lies inside the dying thread's stack, that
+<a href=#1357 id=1357 data-nosnippet>1357</a>/// thread holds the dispatcher, and [`release_dead_dispatch_holder`] is how to
+<a href=#1358 id=1358 data-nosnippet>1358</a>/// stop it stranding every later record. Lock-free, safe from any context.
+<a href=#1359 id=1359 data-nosnippet>1359</a></span><span class="attr">#[must_use]
+<a href=#1360 id=1360 data-nosnippet>1360</a></span><span class="kw">pub fn </span>dispatch_holder_frame() -&gt; usize {
+<a href=#1361 id=1361 data-nosnippet>1361</a>    DISPATCH_HOLDER.load(Ordering::SeqCst)
+<a href=#1362 id=1362 data-nosnippet>1362</a>}
+<a href=#1363 id=1363 data-nosnippet>1363</a>
+<a href=#1364 id=1364 data-nosnippet>1364</a><span class="doccomment">/// Release the dispatch guard on behalf of a holder that will never run again,
+<a href=#1365 id=1365 data-nosnippet>1365</a>/// and only while `frame` (from [`dispatch_holder_frame`]) still holds it.
+<a href=#1366 id=1366 data-nosnippet>1366</a>/// Returns whether it did.
+<a href=#1367 id=1367 data-nosnippet>1367</a>///
+<a href=#1368 id=1368 data-nosnippet>1368</a>/// Call it ONLY for a holder that is dead or about to be aborted, from the
+<a href=#1369 id=1369 data-nosnippet>1369</a>/// handler that knows it: the guard exists to keep two callers out of the
+<a href=#1370 id=1370 data-nosnippet>1370</a>/// sinks at once, and releasing a live holder's breaks exactly that. A dead
+<a href=#1371 id=1371 data-nosnippet>1371</a>/// holder can no longer be in a sink, so the next record claims the guard,
+<a href=#1372 id=1372 data-nosnippet>1372</a>/// is delivered, and delivers what was held meanwhile.
+<a href=#1373 id=1373 data-nosnippet>1373</a>///
+<a href=#1374 id=1374 data-nosnippet>1374</a>/// What the holder was doing is lost with it: the record it was delivering,
+<a href=#1375 id=1375 data-nosnippet>1375</a>/// and, if it died while draining, the one held slot it had taken (held
+<a href=#1376 id=1376 data-nosnippet>1376</a>/// records then occupy one slot fewer until reboot). A sink it died inside
+<a href=#1377 id=1377 data-nosnippet>1377</a>/// sees its next call without the end of that one, so a sink that takes a
+<a href=#1378 id=1378 data-nosnippet>1378</a>/// lock a dead thread can own may block where it would otherwise have been
+<a href=#1379 id=1379 data-nosnippet>1379</a>/// skipped. The alternative, keeping the guard, loses EVERY later record.
+<a href=#1380 id=1380 data-nosnippet>1380</a></span><span class="kw">pub fn </span>release_dead_dispatch_holder(frame: usize) -&gt; bool {
+<a href=#1381 id=1381 data-nosnippet>1381</a>    <span class="kw">if </span>frame == <span class="number">0
+<a href=#1382 id=1382 data-nosnippet>1382</a>        </span>|| DISPATCH_HOLDER
+<a href=#1383 id=1383 data-nosnippet>1383</a>            .compare_exchange(frame, <span class="number">0</span>, Ordering::SeqCst, Ordering::SeqCst)
+<a href=#1384 id=1384 data-nosnippet>1384</a>            .is_err()
+<a href=#1385 id=1385 data-nosnippet>1385</a>    {
+<a href=#1386 id=1386 data-nosnippet>1386</a>        <span class="kw">return </span><span class="bool-val">false</span>;
+<a href=#1387 id=1387 data-nosnippet>1387</a>    }
+<a href=#1388 id=1388 data-nosnippet>1388</a>    DISPATCH_GUARD.store(<span class="bool-val">false</span>, Ordering::SeqCst);
+<a href=#1389 id=1389 data-nosnippet>1389</a>    <span class="bool-val">true
+<a href=#1390 id=1390 data-nosnippet>1390</a></span>}
+<a href=#1391 id=1391 data-nosnippet>1391</a>
+<a href=#1392 id=1392 data-nosnippet>1392</a><span class="doccomment">/// C spelling of [`dispatch_holder_frame`], for a platform's fault handler
+<a href=#1393 id=1393 data-nosnippet>1393</a>/// (the Zephyr port's `nros_zephyr_log_dead_holder_check`).
+<a href=#1394 id=1394 data-nosnippet>1394</a></span><span class="attr">#[<span class="kw">unsafe</span>(no_mangle)]
+<a href=#1395 id=1395 data-nosnippet>1395</a></span><span class="kw">pub extern </span><span class="string">"C" </span><span class="kw">fn </span>nros_log_dispatch_holder_frame() -&gt; usize {
+<a href=#1396 id=1396 data-nosnippet>1396</a>    dispatch_holder_frame()
+<a href=#1397 id=1397 data-nosnippet>1397</a>}
+<a href=#1398 id=1398 data-nosnippet>1398</a>
+<a href=#1399 id=1399 data-nosnippet>1399</a><span class="doccomment">/// C spelling of [`release_dead_dispatch_holder`].
+<a href=#1400 id=1400 data-nosnippet>1400</a></span><span class="attr">#[<span class="kw">unsafe</span>(no_mangle)]
+<a href=#1401 id=1401 data-nosnippet>1401</a></span><span class="kw">pub extern </span><span class="string">"C" </span><span class="kw">fn </span>nros_log_release_dead_dispatch_holder(frame: usize) -&gt; bool {
+<a href=#1402 id=1402 data-nosnippet>1402</a>    release_dead_dispatch_holder(frame)
+<a href=#1403 id=1403 data-nosnippet>1403</a>}
 <a href=#1404 id=1404 data-nosnippet>1404</a>
-<a href=#1405 id=1405 data-nosnippet>1405</a>        <span class="comment">// The sentinel is outside `Severity`, in the direction that can only
-<a href=#1406 id=1406 data-nosnippet>1406</a>        // ever SUPPRESS a record: `severity_from_u8` refuses it, and it is
-<a href=#1407 id=1407 data-nosnippet>1407</a>        // above `Fatal`, not below `Trace` where rcutils's own `UNSET` sits.
-<a href=#1408 id=1408 data-nosnippet>1408</a>        </span><span class="macro">assert_eq!</span>(severity_from_u8(LEVEL_UNSET), <span class="prelude-val">None</span>);
-<a href=#1409 id=1409 data-nosnippet>1409</a>        <span class="macro">assert!</span>(LEVEL_UNSET &gt; Severity::Fatal.as_u8());
-<a href=#1410 id=1410 data-nosnippet>1410</a>
-<a href=#1411 id=1411 data-nosnippet>1411</a>        Logger::set_default_level(Severity::Info);
-<a href=#1412 id=1412 data-nosnippet>1412</a>    }
-<a href=#1413 id=1413 data-nosnippet>1413</a>
-<a href=#1414 id=1414 data-nosnippet>1414</a>    <span class="attr">#[test]
-<a href=#1415 id=1415 data-nosnippet>1415</a>    </span><span class="kw">fn </span>unregistered_get_logger_returns_default() {
-<a href=#1416 id=1416 data-nosnippet>1416</a>        <span class="kw">let </span>l = get_logger(<span class="string">"definitely-not-registered-99"</span>);
-<a href=#1417 id=1417 data-nosnippet>1417</a>        <span class="macro">assert_eq!</span>(l.name(), DEFAULT_LOGGER.name());
-<a href=#1418 id=1418 data-nosnippet>1418</a>    }
-<a href=#1419 id=1419 data-nosnippet>1419</a>
-<a href=#1420 id=1420 data-nosnippet>1420</a>    <span class="attr">#[test]
-<a href=#1421 id=1421 data-nosnippet>1421</a>    </span><span class="kw">fn </span>registered_logger_round_trips_through_intern_table() {
-<a href=#1422 id=1422 data-nosnippet>1422</a>        <span class="kw">static </span>LOGGER: Logger = Logger::new(<span class="string">"test_intern_round_trip"</span>);
-<a href=#1423 id=1423 data-nosnippet>1423</a>        <span class="kw">let </span>published = register_logger(<span class="kw-2">&amp;</span>LOGGER);
-<a href=#1424 id=1424 data-nosnippet>1424</a>        <span class="macro">assert_eq!</span>(published.name(), LOGGER.name());
-<a href=#1425 id=1425 data-nosnippet>1425</a>        <span class="kw">let </span>looked_up = get_logger(<span class="string">"test_intern_round_trip"</span>);
-<a href=#1426 id=1426 data-nosnippet>1426</a>        <span class="macro">assert!</span>(core::ptr::eq(published, looked_up));
-<a href=#1427 id=1427 data-nosnippet>1427</a>    }
-<a href=#1428 id=1428 data-nosnippet>1428</a>
-<a href=#1429 id=1429 data-nosnippet>1429</a>    <span class="attr">#[test]
-<a href=#1430 id=1430 data-nosnippet>1430</a>    </span><span class="kw">fn </span>compile_time_ceiling_matches_the_resolved_knob() {
-<a href=#1431 id=1431 data-nosnippet>1431</a>        <span class="comment">// `config::MAX_LEVEL` is `NROS_LOG_MAX_LEVEL` as `build.rs` resolved
-<a href=#1432 id=1432 data-nosnippet>1432</a>        // it (builtin 0 = trace; 6 = off).
-<a href=#1433 id=1433 data-nosnippet>1433</a>        </span><span class="kw">let </span>ceiling = severity_from_u8(config::MAX_LEVEL);
-<a href=#1434 id=1434 data-nosnippet>1434</a>        <span class="kw">for </span>severity <span class="kw">in </span>[
-<a href=#1435 id=1435 data-nosnippet>1435</a>            Severity::Trace,
-<a href=#1436 id=1436 data-nosnippet>1436</a>            Severity::Debug,
-<a href=#1437 id=1437 data-nosnippet>1437</a>            Severity::Info,
-<a href=#1438 id=1438 data-nosnippet>1438</a>            Severity::Warn,
-<a href=#1439 id=1439 data-nosnippet>1439</a>            Severity::Error,
-<a href=#1440 id=1440 data-nosnippet>1440</a>            Severity::Fatal,
-<a href=#1441 id=1441 data-nosnippet>1441</a>        ] {
-<a href=#1442 id=1442 data-nosnippet>1442</a>            <span class="kw">let </span>enabled = ceiling.is_some_and(|c| severity &gt;= c);
-<a href=#1443 id=1443 data-nosnippet>1443</a>            <span class="macro">assert_eq!</span>(severity_enabled_at_compile_time(severity), enabled);
-<a href=#1444 id=1444 data-nosnippet>1444</a>            <span class="comment">// The ceiling bounds the runtime level: below it, no logger level
-<a href=#1445 id=1445 data-nosnippet>1445</a>            // can switch a severity back on.
-<a href=#1446 id=1446 data-nosnippet>1446</a>            </span><span class="kw">static </span>PROBE: Logger = Logger::with_level(<span class="string">"ceiling_probe"</span>, Severity::Trace);
-<a href=#1447 id=1447 data-nosnippet>1447</a>            <span class="macro">assert_eq!</span>(PROBE.is_enabled(severity), enabled);
-<a href=#1448 id=1448 data-nosnippet>1448</a>        }
-<a href=#1449 id=1449 data-nosnippet>1449</a>    }
-<a href=#1450 id=1450 data-nosnippet>1450</a>}
+<a href=#1405 id=1405 data-nosnippet>1405</a><span class="comment">// -----------------------------------------------------------------------------
+<a href=#1406 id=1406 data-nosnippet>1406</a>// Tests (host-only).
+<a href=#1407 id=1407 data-nosnippet>1407</a>// -----------------------------------------------------------------------------
+<a href=#1408 id=1408 data-nosnippet>1408</a>
+<a href=#1409 id=1409 data-nosnippet>1409</a></span><span class="attr">#[cfg(test)]
+<a href=#1410 id=1410 data-nosnippet>1410</a></span><span class="kw">mod </span>tests {
+<a href=#1411 id=1411 data-nosnippet>1411</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#1412 id=1412 data-nosnippet>1412</a>
+<a href=#1413 id=1413 data-nosnippet>1413</a>    <span class="attr">#[test]
+<a href=#1414 id=1414 data-nosnippet>1414</a>    </span><span class="kw">fn </span>severity_round_trips_through_u8() {
+<a href=#1415 id=1415 data-nosnippet>1415</a>        <span class="kw">for </span>s <span class="kw">in </span>[
+<a href=#1416 id=1416 data-nosnippet>1416</a>            Severity::Trace,
+<a href=#1417 id=1417 data-nosnippet>1417</a>            Severity::Debug,
+<a href=#1418 id=1418 data-nosnippet>1418</a>            Severity::Info,
+<a href=#1419 id=1419 data-nosnippet>1419</a>            Severity::Warn,
+<a href=#1420 id=1420 data-nosnippet>1420</a>            Severity::Error,
+<a href=#1421 id=1421 data-nosnippet>1421</a>            Severity::Fatal,
+<a href=#1422 id=1422 data-nosnippet>1422</a>        ] {
+<a href=#1423 id=1423 data-nosnippet>1423</a>            <span class="macro">assert_eq!</span>(severity_from_u8(s.as_u8()), <span class="prelude-val">Some</span>(s));
+<a href=#1424 id=1424 data-nosnippet>1424</a>        }
+<a href=#1425 id=1425 data-nosnippet>1425</a>        <span class="macro">assert_eq!</span>(severity_from_u8(<span class="number">99</span>), <span class="prelude-val">None</span>);
+<a href=#1426 id=1426 data-nosnippet>1426</a>    }
+<a href=#1427 id=1427 data-nosnippet>1427</a>
+<a href=#1428 id=1428 data-nosnippet>1428</a>    <span class="attr">#[test]
+<a href=#1429 id=1429 data-nosnippet>1429</a>    </span><span class="kw">fn </span>logger_runtime_threshold_filters_below() {
+<a href=#1430 id=1430 data-nosnippet>1430</a>        <span class="kw">let </span>logger = Logger::with_level(<span class="string">"test_thresh"</span>, Severity::Warn);
+<a href=#1431 id=1431 data-nosnippet>1431</a>        <span class="macro">assert!</span>(!logger.is_enabled(Severity::Info));
+<a href=#1432 id=1432 data-nosnippet>1432</a>        <span class="macro">assert!</span>(logger.is_enabled(Severity::Warn));
+<a href=#1433 id=1433 data-nosnippet>1433</a>        <span class="macro">assert!</span>(logger.is_enabled(Severity::Error));
+<a href=#1434 id=1434 data-nosnippet>1434</a>        logger.set_level(Severity::Debug);
+<a href=#1435 id=1435 data-nosnippet>1435</a>        <span class="macro">assert!</span>(logger.is_enabled(Severity::Info));
+<a href=#1436 id=1436 data-nosnippet>1436</a>    }
+<a href=#1437 id=1437 data-nosnippet>1437</a>
+<a href=#1438 id=1438 data-nosnippet>1438</a>    <span class="doccomment">/// phase-467, ledger rows `c:log_severity_t` + `rust:Logger::set_default_level`.
+<a href=#1439 id=1439 data-nosnippet>1439</a>    ///
+<a href=#1440 id=1440 data-nosnippet>1440</a>    /// ONE test rather than five, deliberately: the process default is
+<a href=#1441 id=1441 data-nosnippet>1441</a>    /// process-wide state and `cargo test` runs this crate's tests as threads
+<a href=#1442 id=1442 data-nosnippet>1442</a>    /// in one process, so a second test that moved it would race this one and
+<a href=#1443 id=1443 data-nosnippet>1443</a>    /// the flake would read as a logic bug. It restores the default before it
+<a href=#1444 id=1444 data-nosnippet>1444</a>    /// returns for the same reason.
+<a href=#1445 id=1445 data-nosnippet>1445</a>    </span><span class="attr">#[test]
+<a href=#1446 id=1446 data-nosnippet>1446</a>    </span><span class="kw">fn </span>a_logger_with_no_level_of_its_own_follows_the_process_default() {
+<a href=#1447 id=1447 data-nosnippet>1447</a>        <span class="macro">assert_eq!</span>(Logger::default_level(), Severity::Info, <span class="string">"starting default"</span>);
+<a href=#1448 id=1448 data-nosnippet>1448</a>
+<a href=#1449 id=1449 data-nosnippet>1449</a>        <span class="kw">let </span>unset = Logger::new(<span class="string">"test_unset_follows_default"</span>);
+<a href=#1450 id=1450 data-nosnippet>1450</a>        <span class="kw">let </span>stated = Logger::with_level(<span class="string">"test_stated_keeps_its_own"</span>, Severity::Warn);
+<a href=#1451 id=1451 data-nosnippet>1451</a>
+<a href=#1452 id=1452 data-nosnippet>1452</a>        <span class="comment">// Unset logger, untouched default: Info, exactly as before phase-467.
+<a href=#1453 id=1453 data-nosnippet>1453</a>        </span><span class="macro">assert_eq!</span>(unset.level(), Severity::Info);
+<a href=#1454 id=1454 data-nosnippet>1454</a>        <span class="macro">assert!</span>(!unset.is_enabled(Severity::Debug));
+<a href=#1455 id=1455 data-nosnippet>1455</a>        <span class="macro">assert!</span>(unset.is_enabled(Severity::Info));
+<a href=#1456 id=1456 data-nosnippet>1456</a>
+<a href=#1457 id=1457 data-nosnippet>1457</a>        <span class="comment">// Moving the default moves it RETROACTIVELY — the logger already
+<a href=#1458 id=1458 data-nosnippet>1458</a>        // existed. This is what a re-export of `DEFAULT_LOGGER.set_level`
+<a href=#1459 id=1459 data-nosnippet>1459</a>        // could not do.
+<a href=#1460 id=1460 data-nosnippet>1460</a>        </span>Logger::set_default_level(Severity::Debug);
+<a href=#1461 id=1461 data-nosnippet>1461</a>        <span class="macro">assert_eq!</span>(Logger::default_level(), Severity::Debug);
+<a href=#1462 id=1462 data-nosnippet>1462</a>        <span class="macro">assert_eq!</span>(unset.level(), Severity::Debug);
+<a href=#1463 id=1463 data-nosnippet>1463</a>        <span class="macro">assert!</span>(unset.is_enabled(Severity::Debug));
+<a href=#1464 id=1464 data-nosnippet>1464</a>        <span class="macro">assert!</span>(!unset.is_enabled(Severity::Trace));
+<a href=#1465 id=1465 data-nosnippet>1465</a>
+<a href=#1466 id=1466 data-nosnippet>1466</a>        <span class="comment">// ...and does NOT override a logger that states its own level. If it
+<a href=#1467 id=1467 data-nosnippet>1467</a>        // did, `with_level(.., Info)` and `new(..)` would be the same thing,
+<a href=#1468 id=1468 data-nosnippet>1468</a>        // which is the distinction the sentinel exists to keep.
+<a href=#1469 id=1469 data-nosnippet>1469</a>        </span><span class="macro">assert_eq!</span>(stated.level(), Severity::Warn);
+<a href=#1470 id=1470 data-nosnippet>1470</a>        <span class="macro">assert!</span>(!stated.is_enabled(Severity::Info));
+<a href=#1471 id=1471 data-nosnippet>1471</a>
+<a href=#1472 id=1472 data-nosnippet>1472</a>        <span class="comment">// Stating a level on the unset logger detaches it.
+<a href=#1473 id=1473 data-nosnippet>1473</a>        </span>unset.set_level(Severity::Error);
+<a href=#1474 id=1474 data-nosnippet>1474</a>        Logger::set_default_level(Severity::Trace);
+<a href=#1475 id=1475 data-nosnippet>1475</a>        <span class="macro">assert_eq!</span>(unset.level(), Severity::Error);
+<a href=#1476 id=1476 data-nosnippet>1476</a>        <span class="macro">assert!</span>(!unset.is_enabled(Severity::Warn));
+<a href=#1477 id=1477 data-nosnippet>1477</a>
+<a href=#1478 id=1478 data-nosnippet>1478</a>        <span class="comment">// ...and unsetting it re-attaches it, to the CURRENT default.
+<a href=#1479 id=1479 data-nosnippet>1479</a>        </span>unset.unset_level();
+<a href=#1480 id=1480 data-nosnippet>1480</a>        <span class="macro">assert_eq!</span>(unset.level(), Severity::Trace);
+<a href=#1481 id=1481 data-nosnippet>1481</a>        <span class="macro">assert!</span>(unset.is_enabled(Severity::Trace));
+<a href=#1482 id=1482 data-nosnippet>1482</a>
+<a href=#1483 id=1483 data-nosnippet>1483</a>        <span class="comment">// The sentinel is outside `Severity`, in the direction that can only
+<a href=#1484 id=1484 data-nosnippet>1484</a>        // ever SUPPRESS a record: `severity_from_u8` refuses it, and it is
+<a href=#1485 id=1485 data-nosnippet>1485</a>        // above `Fatal`, not below `Trace` where rcutils's own `UNSET` sits.
+<a href=#1486 id=1486 data-nosnippet>1486</a>        </span><span class="macro">assert_eq!</span>(severity_from_u8(LEVEL_UNSET), <span class="prelude-val">None</span>);
+<a href=#1487 id=1487 data-nosnippet>1487</a>        <span class="macro">assert!</span>(LEVEL_UNSET &gt; Severity::Fatal.as_u8());
+<a href=#1488 id=1488 data-nosnippet>1488</a>
+<a href=#1489 id=1489 data-nosnippet>1489</a>        Logger::set_default_level(Severity::Info);
+<a href=#1490 id=1490 data-nosnippet>1490</a>    }
+<a href=#1491 id=1491 data-nosnippet>1491</a>
+<a href=#1492 id=1492 data-nosnippet>1492</a>    <span class="attr">#[test]
+<a href=#1493 id=1493 data-nosnippet>1493</a>    </span><span class="kw">fn </span>unregistered_get_logger_returns_default() {
+<a href=#1494 id=1494 data-nosnippet>1494</a>        <span class="kw">let </span>l = get_logger(<span class="string">"definitely-not-registered-99"</span>);
+<a href=#1495 id=1495 data-nosnippet>1495</a>        <span class="macro">assert_eq!</span>(l.name(), DEFAULT_LOGGER.name());
+<a href=#1496 id=1496 data-nosnippet>1496</a>    }
+<a href=#1497 id=1497 data-nosnippet>1497</a>
+<a href=#1498 id=1498 data-nosnippet>1498</a>    <span class="attr">#[test]
+<a href=#1499 id=1499 data-nosnippet>1499</a>    </span><span class="kw">fn </span>registered_logger_round_trips_through_intern_table() {
+<a href=#1500 id=1500 data-nosnippet>1500</a>        <span class="kw">static </span>LOGGER: Logger = Logger::new(<span class="string">"test_intern_round_trip"</span>);
+<a href=#1501 id=1501 data-nosnippet>1501</a>        <span class="kw">let </span>published = register_logger(<span class="kw-2">&amp;</span>LOGGER);
+<a href=#1502 id=1502 data-nosnippet>1502</a>        <span class="macro">assert_eq!</span>(published.name(), LOGGER.name());
+<a href=#1503 id=1503 data-nosnippet>1503</a>        <span class="kw">let </span>looked_up = get_logger(<span class="string">"test_intern_round_trip"</span>);
+<a href=#1504 id=1504 data-nosnippet>1504</a>        <span class="macro">assert!</span>(core::ptr::eq(published, looked_up));
+<a href=#1505 id=1505 data-nosnippet>1505</a>    }
+<a href=#1506 id=1506 data-nosnippet>1506</a>
+<a href=#1507 id=1507 data-nosnippet>1507</a>    <span class="attr">#[test]
+<a href=#1508 id=1508 data-nosnippet>1508</a>    </span><span class="kw">fn </span>compile_time_ceiling_matches_the_resolved_knob() {
+<a href=#1509 id=1509 data-nosnippet>1509</a>        <span class="comment">// `config::MAX_LEVEL` is `NROS_LOG_MAX_LEVEL` as `build.rs` resolved
+<a href=#1510 id=1510 data-nosnippet>1510</a>        // it (builtin 0 = trace; 6 = off).
+<a href=#1511 id=1511 data-nosnippet>1511</a>        </span><span class="kw">let </span>ceiling = severity_from_u8(config::MAX_LEVEL);
+<a href=#1512 id=1512 data-nosnippet>1512</a>        <span class="kw">for </span>severity <span class="kw">in </span>[
+<a href=#1513 id=1513 data-nosnippet>1513</a>            Severity::Trace,
+<a href=#1514 id=1514 data-nosnippet>1514</a>            Severity::Debug,
+<a href=#1515 id=1515 data-nosnippet>1515</a>            Severity::Info,
+<a href=#1516 id=1516 data-nosnippet>1516</a>            Severity::Warn,
+<a href=#1517 id=1517 data-nosnippet>1517</a>            Severity::Error,
+<a href=#1518 id=1518 data-nosnippet>1518</a>            Severity::Fatal,
+<a href=#1519 id=1519 data-nosnippet>1519</a>        ] {
+<a href=#1520 id=1520 data-nosnippet>1520</a>            <span class="kw">let </span>enabled = ceiling.is_some_and(|c| severity &gt;= c);
+<a href=#1521 id=1521 data-nosnippet>1521</a>            <span class="macro">assert_eq!</span>(severity_enabled_at_compile_time(severity), enabled);
+<a href=#1522 id=1522 data-nosnippet>1522</a>            <span class="comment">// The ceiling bounds the runtime level: below it, no logger level
+<a href=#1523 id=1523 data-nosnippet>1523</a>            // can switch a severity back on.
+<a href=#1524 id=1524 data-nosnippet>1524</a>            </span><span class="kw">static </span>PROBE: Logger = Logger::with_level(<span class="string">"ceiling_probe"</span>, Severity::Trace);
+<a href=#1525 id=1525 data-nosnippet>1525</a>            <span class="macro">assert_eq!</span>(PROBE.is_enabled(severity), enabled);
+<a href=#1526 id=1526 data-nosnippet>1526</a>        }
+<a href=#1527 id=1527 data-nosnippet>1527</a>    }
+<a href=#1528 id=1528 data-nosnippet>1528</a>}
 </code></pre></div></section></main></body></html>
