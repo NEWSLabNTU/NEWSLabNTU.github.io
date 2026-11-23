@@ -37,7 +37,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-ea40fc76.js";
+            window.path_to_searchindex_js = "searchindex-e64f2980.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-2a172ab5.js"></script>
@@ -15328,7 +15328,8 @@ nros::zephyr_component_main!(crate::Talker);
 <h2 id="configure"><a class="header" href="#configure">Configure</a></h2>
 <p>nano-ros reads its settings from Kconfig, so they go in <code>prj.conf</code> beside
 Zephyr’s own; <code>west build -t menuconfig</code> shows them under
-<strong>nros ROS 2 client library</strong>:</p>
+<strong>nros ROS 2 client library</strong>
+(<a href="#where-os_config-files-are-found"><code>os_config</code> lookup</a>):</p>
 <div class="nros-file-caption" data-mode="file"><code>apps/my_app/prj.conf</code></div>
 
 <pre><code class="language-text probe=44 track=installed variant=west-app west-app-cpp west-app-rust west-app-flash file=apps/my_app/prj.conf"># Zephyr: console and networking
@@ -21917,7 +21918,7 @@ Precedence, highest first: a command-line or build flag, <code>[image.&lt;id&gt;
 <tr><td><code>args</code></td><td>Launch arguments bound at resolve time, such as <code>{ host = "robot1" }</code></td></tr>
 <tr><td><code>rmw</code></td><td>Backend for this image. Absent: <code>[system] rmw</code></td></tr>
 <tr><td><code>domain_id</code>, <code>locator</code></td><td>Override <code>[system]</code>’s. <code>locator</code> is what the image dials. On a <code>linux</code> image, <code>$ROS_DOMAIN_ID</code> / <code>$NROS_LOCATOR</code> override them at run time, and the image warns at boot naming both values when they differ</td></tr>
-<tr><td><code>os_config</code></td><td>Layer-1 files, in order: a board network file (<code>.toml</code>), Zephyr <code>prj-*.conf</code> or <code>.overlay</code> fragments. <code>conf</code> is read as its alias</td></tr>
+<tr><td><code>os_config</code></td><td>Layer-1 files, in order: a board network file (<code>.toml</code>), Zephyr <code>prj-*.conf</code> or <code>.overlay</code> fragments. <code>conf</code> is read as its alias. Paths are relative; see “Where <code>os_config</code> files are found”</td></tr>
 <tr><td><code>rmw_config</code></td><td>The middleware’s own file for this image, or <code>{ &lt;domain&gt; = "&lt;file&gt;" }</code> per <code>[[domain]]</code></td></tr>
 <tr><td><code>panic</code></td><td>Panic policy: <code>platform</code>, <code>halt</code> or <code>own</code></td></tr>
 <tr><td><code>before_boot</code></td><td><code>"&lt;pkg&gt;::&lt;fn&gt;"</code> the generated entry calls before the board boots. Rust only</td></tr>
@@ -22009,6 +22010,23 @@ shares one fragment between its five bringups this way. The rules:</p>
 and colcon. Editing a fragment rebuilds what it reaches, as editing the
 <code>system.toml</code> does. <code>nros new --workspace --from</code> refuses to move a <code>system.toml</code>
 that names fragments, because their paths are relative to it.</p>
+<h2 id="where-os_config-files-are-found"><a class="header" href="#where-os_config-files-are-found">Where <code>os_config</code> files are found</a></h2>
+<p>The two kinds of file in <code>os_config</code> are looked up from different places:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>File</th><th>Looked for in, first hit wins</th></tr>
+</thead>
+<tbody>
+<tr><td>Board network file (<code>.toml</code>)</td><td>The directory of <code>system.toml</code></td></tr>
+<tr><td>Zephyr fragment (<code>.conf</code>, <code>.overlay</code>, <code>.dts</code>)</td><td><code>&lt;bringup&gt;/boards/&lt;board&gt;/</code>, then the west application’s directory, then the directory of <code>system.toml</code></td></tr>
+</tbody>
+</table>
+</div>
+<p>A generated application holds no files of yours, so a fragment is found beside
+<code>system.toml</code>. When <code>entry</code> names a west application of your own, a fragment
+with the same name in that application’s directory is used in place of the
+bringup’s. That is how a board or an application overrides a shared fragment.</p>
 <h2 id="board-network-file"><a class="header" href="#board-network-file">Board network file</a></h2>
 <p>Named by <code>os_config</code>, beside <code>system.toml</code>. One table per interface, and any
 network other than the built-in <code>qemu</code>:</p>
@@ -24438,11 +24456,23 @@ Options:
       --exec &lt;NAME&gt;
           The program to run, when the image's entry builds several, as in `ros2 run &lt;pkg&gt; &lt;exe&gt;`. Omitted: the one the bringup's launch file names for the entry package, or the entry's only program
 
+      --zephyr-workspace &lt;DIR&gt;
+          The Zephyr workspace the implicit `nros build` of a stale image uses, as `nros build --zephyr-workspace` takes it (and resolves it: the flag, then `$NROS_ZEPHYR_WORKSPACE`, then the project's and the store's)
+
       --expect &lt;TEXT&gt;
           Stop with exit 0 as soon as a console line contains TEXT; exit 1 if the target ends, or `--timeout` passes, first. Given more than once, every TEXT must appear, each on some line and in any order, and the run stops on the line that completes the set
 
       --expect-regex &lt;REGEX&gt;
           As `--expect`, with a regular expression over one console line. It may be repeated, and mixed with `--expect`: every pattern must match
+
+      --forbid &lt;TEXT&gt;
+          Fail with exit 1 as soon as a console line contains TEXT, before or after the expectation is met (a crash after the success line). Repeatable: any one of them fails the run
+
+      --forbid-regex &lt;REGEX&gt;
+          As `--forbid`, with a regular expression over one console line. Repeatable, and mixed with `--forbid`
+
+      --settle &lt;SECONDS&gt;
+          Once the expectation is met, keep watching for SECONDS before stopping with exit 0: a `--forbid` line or a failing exit inside the window still fails the run, and `console.log` holds the rest of the output. `--timeout` bounds the time to the match only, so the run can take up to `--timeout` + `--settle`
 
       --timeout &lt;SECONDS&gt;
           Stop the target after SECONDS
@@ -24516,10 +24546,22 @@ Options:
           After flashing, watch the board's console on the same port
 
       --expect &lt;TEXT&gt;
-          With `--monitor`: stop with exit 0 once a console line contains TEXT. Repeat it to require several lines, in any order
+          Stop with exit 0 as soon as a console line contains TEXT; exit 1 if the target ends, or `--timeout` passes, first. Given more than once, every TEXT must appear, each on some line and in any order, and the run stops on the line that completes the set
 
       --expect-regex &lt;REGEX&gt;
-          As `--expect`, with a regular expression over one console line; may be repeated and mixed with `--expect`
+          As `--expect`, with a regular expression over one console line. It may be repeated, and mixed with `--expect`: every pattern must match
+
+      --forbid &lt;TEXT&gt;
+          Fail with exit 1 as soon as a console line contains TEXT, before or after the expectation is met (a crash after the success line). Repeatable: any one of them fails the run
+
+      --forbid-regex &lt;REGEX&gt;
+          As `--forbid`, with a regular expression over one console line. Repeatable, and mixed with `--forbid`
+
+      --settle &lt;SECONDS&gt;
+          Once the expectation is met, keep watching for SECONDS before stopping with exit 0: a `--forbid` line or a failing exit inside the window still fails the run, and `console.log` holds the rest of the output. `--timeout` bounds the time to the match only, so the run can take up to `--timeout` + `--settle`
+
+      --zephyr-workspace &lt;DIR&gt;
+          The Zephyr workspace the implicit `nros build` of a stale image uses, as `nros build --zephyr-workspace` takes it
 
       --timeout &lt;SECONDS&gt;
           Stop after SECONDS: the console with `--monitor`, and any wait a prepare step makes
@@ -24566,10 +24608,19 @@ Options:
           The serial baud rate (else the board's)
 
       --expect &lt;TEXT&gt;
-          Stop with exit 0 once a console line contains TEXT; exit 1 if `--timeout` passes first. Repeat it to require several lines, in any order
+          Stop with exit 0 as soon as a console line contains TEXT; exit 1 if the target ends, or `--timeout` passes, first. Given more than once, every TEXT must appear, each on some line and in any order, and the run stops on the line that completes the set
 
       --expect-regex &lt;REGEX&gt;
-          As `--expect`, with a regular expression over one console line; may be repeated and mixed with `--expect`
+          As `--expect`, with a regular expression over one console line. It may be repeated, and mixed with `--expect`: every pattern must match
+
+      --forbid &lt;TEXT&gt;
+          Fail with exit 1 as soon as a console line contains TEXT, before or after the expectation is met (a crash after the success line). Repeatable: any one of them fails the run
+
+      --forbid-regex &lt;REGEX&gt;
+          As `--forbid`, with a regular expression over one console line. Repeatable, and mixed with `--forbid`
+
+      --settle &lt;SECONDS&gt;
+          Once the expectation is met, keep watching for SECONDS before stopping with exit 0: a `--forbid` line or a failing exit inside the window still fails the run, and `console.log` holds the rest of the output. `--timeout` bounds the time to the match only, so the run can take up to `--timeout` + `--settle`
 
       --timeout &lt;SECONDS&gt;
           Stop after SECONDS
