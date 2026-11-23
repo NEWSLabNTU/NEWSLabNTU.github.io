@@ -37,10 +37,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-cade4545.js";
+            window.path_to_searchindex_js = "searchindex-ea40fc76.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-0bace767.js"></script>
+        <script src="toc-2a172ab5.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -17591,6 +17591,295 @@ the upstream design.</li>
 .nros-level-badge .nros-level-type { color: var(--links); font-weight: 600; }
 </style>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="set-the-wall-clock-from-the-board"><a class="header" href="#set-the-wall-clock-from-the-board">Set the wall clock from the board</a></h1>
+<div class="nros-level-badge" data-type="how-to" data-level="3"><span class="nros-level-type">How-to</span> · <span class="nros-level-name">Level 3: Production and tuning</span></div>
+
+<p><strong>Needs first:</strong> <a href="#configure-an-image">Configure an image</a></p>
+<p>Take the wall clock from the board when it already knows the time, from an
+RTC, a GNSS receiver or its own SNTP task, and messages should be stamped
+with it.</p>
+<p>An image has one wall clock. <code>Clock::system()</code>, <code>rclcpp::Clock::now()</code> and
+the executor all read it, and <code>[knobs.clock] source</code> says where it comes
+from. With <code>source = "board"</code>, nano-ros asks a function your board or
+application defines, <code>nros_board_wall_clock_ns</code>, until it answers.</p>
+<h2 id="before-you-start-30"><a class="header" href="#before-you-start-30">Before you start</a></h2>
+<ul>
+<li>An image on Linux (POSIX) or FreeRTOS, bare metal or <code>freertos-posix</code>.
+Zephyr, ThreadX and NuttX images refuse <code>board</code> when they build.</li>
+<li>Somewhere the board keeps the time: an RTC, a GNSS fix, or a task of
+its own that syncs it.</li>
+</ul>
+<h2 id="steps-25"><a class="header" href="#steps-25">Steps</a></h2>
+<h3 id="select-the-board"><a class="header" href="#select-the-board">Select the board</a></h3>
+<p>Select the board as the image’s wall-clock source in <code>system.toml</code>:</p>
+<pre><code class="language-toml">[image.robot.knobs.clock]
+source = "board"
+</code></pre>
+<p>To fall back to the platform’s own clock when the board never answers,
+list both, in order:</p>
+<pre><code class="language-toml">[image.robot.knobs.clock]
+source = "board,platform"
+</code></pre>
+<h3 id="define-the-hook"><a class="header" href="#define-the-hook">Define the hook</a></h3>
+<p>Define the hook in a package the image launches. It returns <code>true</code> and
+writes nanoseconds since the Unix epoch once the board’s clock is set,
+and <code>false</code> until then. nano-ros asks it every 10 ms, so it must return
+at once: read a value your RTC driver or sync task keeps, and never wait
+on the hardware or the network here.</p>
+<div class="nros-tabs">
+<div class="nros-tabs-bar" role="radiogroup" aria-label="Language">
+<label class="nros-tab"><input type="radio" name="nros-tabs-b8f1a70c-1" value="rust" checked=""><span>Rust</span></label>
+<label class="nros-tab"><input type="radio" name="nros-tabs-b8f1a70c-1" value="c"><span>C</span></label>
+<label class="nros-tab"><input type="radio" name="nros-tabs-b8f1a70c-1" value="cpp"><span>C++</span></label>
+</div>
+
+<div class="nros-tab-panel" data-lang="rust" role="group" aria-label="Rust">
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// src/robot_board/src/lib.rs
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nros_board_wall_clock_ns(out_ns: *mut u64) -&gt; bool {
+    // `board_time_ns` is yours: the time your RTC or sync task holds,
+    // or None until it is set.
+    let Some(now) = board_time_ns() else { return false };
+    if out_ns.is_null() {
+        return false;
+    }
+    // SAFETY: non-null, and nano-ros passes a pointer valid for a u64.
+    unsafe { out_ns.write(now) };
+    true
+}
+<span class="boring">}</span></code></pre>
+<p>nano-ros calls the hook from C, after your crate on the link line, so
+the linker can leave out a Rust function nothing in Rust reaches. Name
+it once in the component’s <code>register</code> to keep it in:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>core::hint::black_box(
+    nros_board_wall_clock_ns as unsafe extern "C" fn(*mut u64) -&gt; bool,
+);
+<span class="boring">}</span></code></pre>
+</div>
+
+<div class="nros-tab-panel" data-lang="c" role="group" aria-label="C">
+<pre><code class="language-c">/* src/robot_board/src/board_clock.c */
+#include &lt;stdbool.h&gt;
+#include &lt;stdint.h&gt;
+
+bool nros_board_wall_clock_ns(uint64_t *out_ns) {
+    uint64_t now;
+    /* board_time_ns is yours: false until your RTC or sync task has a time. */
+    if (out_ns == NULL || !board_time_ns(&amp;now)) {
+        return false;
+    }
+    *out_ns = now;
+    return true;
+}
+</code></pre>
+</div>
+
+<div class="nros-tab-panel" data-lang="cpp" role="group" aria-label="C++">
+<pre><code class="language-cpp">// src/robot_board/src/BoardClock.cpp
+#include &lt;cstdint&gt;
+
+extern "C" bool nros_board_wall_clock_ns(std::uint64_t* out_ns) {
+    std::uint64_t now = 0;
+    // board_time_ns is yours: false until your RTC or sync task has a time.
+    if (out_ns == nullptr || !board_time_ns(&amp;now)) {
+        return false;
+    }
+    *out_ns = now;
+    return true;
+}
+</code></pre>
+</div>
+
+</div>
+
+<p>Put it in an object file of the image, or in an archive linked after
+nano-ros. A board that ships it in a static archive under CMake adds that
+archive to the image’s <code>LINK_DEPENDS</code>.</p>
+<h3 id="build-and-run-1"><a class="header" href="#build-and-run-1">Build and run</a></h3>
+<p>Build and run the image. On its first wall-clock read it prints where the
+clock came from:</p>
+<pre><code class="language-text">nros: wall clock from board
+</code></pre>
+<h3 id="check-the-clock-is-set"><a class="header" href="#check-the-clock-is-set">Check the clock is set</a></h3>
+<p>Before publishing data whose stamp matters, check that the clock is set.
+<code>wall_clock_state()</code> says whether it is synced and which source answered:</p>
+<div class="nros-tabs">
+<div class="nros-tabs-bar" role="radiogroup" aria-label="Language">
+<label class="nros-tab"><input type="radio" name="nros-tabs-b8f1a70c-2" value="rust" checked=""><span>Rust</span></label>
+<label class="nros-tab"><input type="radio" name="nros-tabs-b8f1a70c-2" value="c"><span>C</span></label>
+<label class="nros-tab"><input type="radio" name="nros-tabs-b8f1a70c-2" value="cpp"><span>C++</span></label>
+</div>
+
+<div class="nros-tab-panel" data-lang="rust" role="group" aria-label="Rust">
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>if let Some(st) = nros::wall_clock_state() {
+    if st.synced {
+        // publish stamped data
+    }
+}
+<span class="boring">}</span></code></pre>
+</div>
+
+<div class="nros-tab-panel" data-lang="c" role="group" aria-label="C">
+<pre><code class="language-c">nros_wall_clock_state_t st = rclc_wall_clock_state();
+if (st.synced) {
+    /* publish stamped data */
+}
+</code></pre>
+</div>
+
+<div class="nros-tab-panel" data-lang="cpp" role="group" aria-label="C++">
+<pre><code class="language-cpp">const nros_wall_clock_state_t st = ::rclcpp::Clock::wall_clock_state();
+if (st.synced) {
+    // publish stamped data
+}
+</code></pre>
+</div>
+
+</div>
+
+<h2 id="when-the-board-never-answers"><a class="header" href="#when-the-board-never-answers">When the board never answers</a></h2>
+<p>The source is resolved on the image’s first wall-clock read, and that read
+waits for it. The hook is asked every 10 ms for up to
+<code>clock.fallback_settle_ms</code> (10 s by default). The first <code>true</code> sets the
+clock; after that the hook is never called again.</p>
+<p>If the window runs out, the next source in the list is tried. If none
+answers, <code>clock.epoch_failure</code> decides:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th><code>epoch_failure</code></th><th>The image prints</th><th>Then</th></tr>
+</thead>
+<tbody>
+<tr><td><code>unstamped</code> (default)</td><td><code>nros: no wall-clock source answered (board, platform); stamps are unset (header.stamp reads 0)</code></td><td>runs on</td></tr>
+<tr><td><code>halt</code></td><td><code>nros: no wall-clock source answered (board, platform); halting, as clock.epoch_failure = halt asks</code></td><td>stops</td></tr>
+</tbody>
+</table>
+</div>
+<p>The list in parentheses is the sources the image tried, in order.</p>
+<pre><code class="language-toml">[image.robot.knobs.clock]
+source = "board,platform"
+fallback_settle_ms = 30000   # a GNSS fix can take longer than 10 s
+epoch_failure = "halt"       # peers here refuse an unstamped sample
+</code></pre>
+<h2 id="which-stamps-follow-it"><a class="header" href="#which-stamps-follow-it">Which stamps follow it</a></h2>
+<p>Choosing a source changes the clock nano-ros reads. A sample’s source
+timestamp is stamped by the RMW backend, and only zenoh asks nano-ros:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>RMW</th><th>A sample’s source timestamp</th></tr>
+</thead>
+<tbody>
+<tr><td>zenoh</td><td>the image’s wall clock, from the board</td></tr>
+<tr><td>Cyclone DDS</td><td>the host’s <code>CLOCK_REALTIME</code>, whatever the image selected</td></tr>
+<tr><td>XRCE-DDS</td><td>0: the client delivers no source timestamp</td></tr>
+</tbody>
+</table>
+</div>
+<p>A <code>header.stamp</code> your code writes from <code>Clock::system()</code> or
+<code>rclcpp::Clock::now()</code> follows the board on every RMW.</p>
+<h2 id="if-it-doesnt-work-56"><a class="header" href="#if-it-doesnt-work-56">If it doesn’t work</a></h2>
+<ul>
+<li><strong>The link fails on <code>nros_board_wall_clock_ns</code>.</strong> nano-ros has no default
+hook: an image that selects <code>board</code> must define it. Define it in a package
+the image launches, or, if it is in an archive, link that archive after
+nano-ros.</li>
+<li><strong>The clock reads 0 on FreeRTOS.</strong> A read before the scheduler starts has
+no clock yet. Read the time from a task.</li>
+<li><strong>A C or C++ image refuses <code>board</code> at configure.</strong> For now, an image whose
+components build their own executables cannot select it. Use a Rust image,
+or components that build no executable.</li>
+<li><strong>The image refuses <code>board</code> at build.</strong> It is a Zephyr, ThreadX or NuttX
+image; only POSIX and FreeRTOS ports take a board clock for now.</li>
+</ul>
+<h2 id="see-also-26"><a class="header" href="#see-also-26">See also</a></h2>
+<ul>
+<li><a href="#use-simulated-time">Use simulated time</a>: timers that follow <code>/clock</code>
+instead of the wall.</li>
+<li><a href="#configuration-surface">Configuration surface</a>: every
+<code>clock.*</code> knob.</li>
+<li><a href="#platform-and-rmw-apis">Platform API</a>: the wall-clock calls a
+port provides.</li>
+</ul>
+<style>
+/* One group is one card: a frame around the tab strip and the panel, so the
+   tabs read as the panel's own labels. The selected tab takes the page colour
+   and an accent line, and opens into the panel; a code block inside sits flush
+   against the frame instead of drawing a second border. Colours derive from
+   mdBook's --fg/--bg/--links, so every theme applies. */
+.nros-tabs { --nros-tabs-edge: color-mix(in srgb, var(--fg) 25%, var(--bg));
+  margin: 1em 0; border: 1px solid var(--nros-tabs-edge); border-radius: 6px; overflow: hidden; }
+.nros-tabs-bar { display: flex; flex-wrap: wrap;
+  background: color-mix(in srgb, var(--fg) 7%, var(--bg));
+  border-bottom: 1px solid var(--nros-tabs-edge); }
+.nros-tab { position: relative; padding: 0.4em 1.1em; margin-bottom: -1px; cursor: pointer;
+  border-right: 1px solid transparent; border-top: 2px solid transparent; color: var(--fg); }
+.nros-tab:hover { background: color-mix(in srgb, var(--fg) 12%, var(--bg)); }
+.nros-tab:has(input:checked) { background: var(--bg); color: var(--links); font-weight: 600;
+  border-top-color: var(--links); border-right-color: var(--nros-tabs-edge);
+  border-bottom: 1px solid var(--bg); }
+.nros-tab:first-child:has(input:checked) { border-left: none; }
+.nros-tab:not(:first-child):has(input:checked) { border-left: 1px solid var(--nros-tabs-edge); }
+.nros-tab:has(input:focus-visible) { outline: 2px solid var(--links); outline-offset: -2px; }
+.nros-tab input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.nros-tab-panel > * { margin-left: 1rem; margin-right: 1rem; }
+.nros-tab-panel > :first-child { margin-top: 0.8em; }
+.nros-tab-panel > :last-child { margin-bottom: 0.8em; }
+.nros-tab-panel > pre { margin-left: 0; margin-right: 0; }
+.nros-tab-panel > pre:first-child { margin-top: 0; }
+.nros-tab-panel > pre:last-child { margin-bottom: 0; }
+.nros-tab-panel > pre > code { border: none; border-radius: 0; }
+.nros-tab-panel > pre:not(:first-child) > code { border-top: 1px solid var(--nros-tabs-edge); }
+.nros-tab-panel > pre:not(:last-child) > code { border-bottom: 1px solid var(--nros-tabs-edge); }
+.nros-tabs:has(> .nros-tabs-bar input[value="rust"]:not(:checked)) > .nros-tab-panel[data-lang="rust"] { display: none; }
+.nros-tabs:has(> .nros-tabs-bar input[value="c"]:not(:checked)) > .nros-tab-panel[data-lang="c"] { display: none; }
+.nros-tabs:has(> .nros-tabs-bar input[value="cpp"]:not(:checked)) > .nros-tab-panel[data-lang="cpp"] { display: none; }
+@media print {
+  .nros-tabs { border: none; }
+  .nros-tabs-bar { display: none; }
+  .nros-tab-panel { display: block !important; }
+  .nros-tab-panel::before { content: attr(aria-label); font-weight: 600; }
+}
+</style>
+<script>
+(function () {
+  if (window.nrosLangTabs) return;
+  window.nrosLangTabs = true;
+  var KEY = "nros-book-lang";
+  function radios() { return document.querySelectorAll(".nros-tabs-bar input[type=radio]"); }
+  function pick(lang) {
+    radios().forEach(function (r) { if (r.value === lang) r.checked = true; });
+  }
+  function restore() {
+    var saved = null;
+    try { saved = window.localStorage.getItem(KEY); } catch (e) {}
+    if (saved) pick(saved);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", restore);
+  else restore();
+  document.addEventListener("change", function (ev) {
+    var r = ev.target;
+    if (!r.matches || !r.matches(".nros-tabs-bar input[type=radio]")) return;
+    var before = r.getBoundingClientRect().top;
+    pick(r.value);
+    window.scrollBy(0, r.getBoundingClientRect().top - before);
+    try { window.localStorage.setItem(KEY, r.value); } catch (e) {}
+  });
+})();
+</script>
+<style>
+.nros-level-badge { display: inline-block; margin: 0 0 1em; padding: 0.15em 0.7em;
+  border: 1px solid var(--table-border-color); border-radius: 999px;
+  background: var(--table-alternate-bg); color: var(--fg); font-size: 0.85em; }
+.nros-level-badge .nros-level-type { color: var(--links); font-weight: 600; }
+</style>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="run-managed-nodes"><a class="header" href="#run-managed-nodes">Run managed nodes</a></h1>
 <div class="nros-level-badge" data-type="how-to" data-level="3"><span class="nros-level-type">How-to</span> · <span class="nros-level-name">Level 3: Production and tuning</span></div>
 
@@ -17625,13 +17914,13 @@ plain <code>rclcpp::Node</code> does.</li>
 the three stays plain, whether or not the bringup has a launch file.</p>
 <p>A node marked in the launch file needs no code of its own for this: its
 machine runs default transition callbacks, which all succeed.</p>
-<h2 id="before-you-start-30"><a class="header" href="#before-you-start-30">Before you start</a></h2>
+<h2 id="before-you-start-31"><a class="header" href="#before-you-start-31">Before you start</a></h2>
 <ul>
 <li>A workspace with a launch file, as at the end of
 <a href="#parameters-and-launch-files">Parameters and launch files</a>.</li>
 <li>ROS 2 sourced on the host, for the <code>ros2 lifecycle</code> verbs.</li>
 </ul>
-<h2 id="steps-25"><a class="header" href="#steps-25">Steps</a></h2>
+<h2 id="steps-26"><a class="header" href="#steps-26">Steps</a></h2>
 <pre><code class="language-tree">sensor_ws/
 └── src/
     └── sensor_node_bringup/
@@ -17761,7 +18050,7 @@ returns sends only while the node is <code>active</code>, as in rclcpp.</li>
 <li><strong>There is no per-node <code>autostart</code>.</strong> Every managed node in an image boots
 to the image’s one value (above).</li>
 </ul>
-<h2 id="see-also-26"><a class="header" href="#see-also-26">See also</a></h2>
+<h2 id="see-also-27"><a class="header" href="#see-also-27">See also</a></h2>
 <ul>
 <li><a href="#systemtoml-keys"><code>system.toml</code> reference</a></li>
 <li><a href="#contract-format-reference">Contract format</a>: the <code>lifecycle</code> fact</li>
@@ -17855,14 +18144,14 @@ following does not cover. Find the symptom, then apply its fix.</p>
 <li>Several backends in one binary:
 <a href="#if-it-doesnt-work-23">Bridge between backends</a>.</li>
 </ul>
-<h2 id="before-you-start-31"><a class="header" href="#before-you-start-31">Before you start</a></h2>
+<h2 id="before-you-start-32"><a class="header" href="#before-you-start-32">Before you start</a></h2>
 <p>Run the doctor in the workspace. It checks the SDK paths, toolchains and
 environment, and names what is missing:</p>
 <pre><code class="language-bash">nros doctor
 </code></pre>
 <p>Outside a workspace it checks the install instead, and reports store entries
 you can remove, with the command to remove them.</p>
-<h2 id="steps-26"><a class="header" href="#steps-26">Steps</a></h2>
+<h2 id="steps-27"><a class="header" href="#steps-27">Steps</a></h2>
 <ol>
 <li>Run <code>nros doctor</code> and fix what it names.</li>
 <li>Run the failing step again with <code>--dry-run</code> where it has one
@@ -17978,14 +18267,14 @@ arguments.</p>
 nros build &lt;image&gt; --dry-run
 nros run &lt;bringup&gt;:&lt;image&gt; --dry-run --why
 </code></pre>
-<h2 id="if-it-doesnt-work-56"><a class="header" href="#if-it-doesnt-work-56">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-57"><a class="header" href="#if-it-doesnt-work-57">If it doesn’t work</a></h2>
 <ul>
 <li>Look the error up in the
 <a href="#troubleshooting--first-10-minutes">troubleshooting index</a>, which
 also lists the zenoh-pico error codes.</li>
 <li>File an issue with the doctor’s output and the dry-run plan.</li>
 </ul>
-<h2 id="see-also-27"><a class="header" href="#see-also-27">See also</a></h2>
+<h2 id="see-also-28"><a class="header" href="#see-also-28">See also</a></h2>
 <ul>
 <li><a href="#log-and-observe-a-board">Log and observe a board</a>: what to read when a board
 has no console.</li>
@@ -18010,7 +18299,7 @@ root carries the CMake side: the <code>ament_*</code> verbs, <code>Find&lt;pkg&g
 for the most-cited ROS 2 packages, and <code>diagnostic_updater</code>. So a port is
 mostly build glue. What the source still needs is what the compiler names:
 nano-ros has no exceptions, and a few handles observe rather than own.</p>
-<h2 id="before-you-start-32"><a class="header" href="#before-you-start-32">Before you start</a></h2>
+<h2 id="before-you-start-33"><a class="header" href="#before-you-start-33">Before you start</a></h2>
 <ul>
 <li>nano-ros installed, the host provisioned with <code>nros setup linux</code>, and ROS 2
 sourced for the first configure.</li>
@@ -18019,7 +18308,7 @@ For a project with its own message packages, source the project’s install
 too (<code>source &lt;project&gt;/install/setup.bash</code>); nano-ros generates its own
 bindings from those <code>.msg</code> files.</li>
 </ul>
-<h2 id="steps-27"><a class="header" href="#steps-27">Steps</a></h2>
+<h2 id="steps-28"><a class="header" href="#steps-28">Steps</a></h2>
 <ol>
 <li>
 <p>Keep the package’s <code>CMakeLists.txt</code> as it is. It needs no nano-ros line:</p>
@@ -18230,7 +18519,7 @@ type hash: <code>create_generic_publisher(topic, type, type_hash, qos)</code>).
 Parameters are not persisted across boots.</p>
 </li>
 </ul>
-<h2 id="if-it-doesnt-work-57"><a class="header" href="#if-it-doesnt-work-57">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-58"><a class="header" href="#if-it-doesnt-work-58">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>find_package(&lt;pkg&gt;)</code> is refused, naming an installed file.</strong> nano-ros
 does not ship that upstream library (<code>bondcpp</code>, <code>tf2_ros</code>). Remove the
@@ -18245,7 +18534,7 @@ construction.</li>
 configures in one CMake run, so it is the workspace root. Use
 <code>${PROJECT_SOURCE_DIR}</code>.</li>
 </ul>
-<h2 id="see-also-28"><a class="header" href="#see-also-28">See also</a></h2>
+<h2 id="see-also-29"><a class="header" href="#see-also-29">See also</a></h2>
 <ul>
 <li><a href="#rclcpp-compatibility">rclcpp compatibility</a>:
 every upstream spelling and what it maps to, and the measured ports.</li>
@@ -18297,13 +18586,13 @@ libraries and no runtime plugin loading:</p>
 </div>
 <p>The full account of the differences is in
 <a href="#how-nano-ros-differs-from-ros-2-and-micro-ros">How nano-ros differs from ROS 2</a>.</p>
-<h2 id="before-you-start-33"><a class="header" href="#before-you-start-33">Before you start</a></h2>
+<h2 id="before-you-start-34"><a class="header" href="#before-you-start-34">Before you start</a></h2>
 <ul>
 <li>A ROS 2 Humble workspace that builds with <code>colcon build</code>.</li>
 <li>ROS 2 Humble installed. nano-ros generates its message bindings from it,
 and its zenoh router is ROS 2’s <code>rmw_zenohd</code>.</li>
 </ul>
-<h2 id="steps-28"><a class="header" href="#steps-28">Steps</a></h2>
+<h2 id="steps-29"><a class="header" href="#steps-29">Steps</a></h2>
 <ol>
 <li>
 <p>Install the CLI and provision the host, in place of the distro install
@@ -18408,7 +18697,7 @@ nros run my_robot_bringup:linux
 </code></pre>
 <p>Cyclone DDS needs no router, so this interoperates with <code>rmw_cyclonedds_cpp</code>
 nodes directly.</p>
-<h2 id="if-it-doesnt-work-58"><a class="header" href="#if-it-doesnt-work-58">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-59"><a class="header" href="#if-it-doesnt-work-59">If it doesn’t work</a></h2>
 <ul>
 <li><strong>Changing <code>RMW_IMPLEMENTATION</code> changes nothing.</strong> The backend is compiled
 in. Edit <code>[system] rmw</code> and build again.</li>
@@ -18423,7 +18712,7 @@ install provides. Remove it or add the package.</li>
 <code>nros toolchain gc --older-than 90d</code> proposes what to remove; it removes
 nothing without <code>--delete</code>, and never an entry a pin names.</li>
 </ul>
-<h2 id="see-also-29"><a class="header" href="#see-also-29">See also</a></h2>
+<h2 id="see-also-30"><a class="header" href="#see-also-30">See also</a></h2>
 <ul>
 <li><a href="#port-a-c-node">Port a C++ node</a>.</li>
 <li><a href="#how-nano-ros-differs-from-ros-2-and-micro-ros">How nano-ros differs from ROS 2 and micro-ROS</a>.</li>
@@ -22506,7 +22795,7 @@ image on another platform states it, with the reason it does nothing there.
 The image’s <code>[image.&lt;id&gt;.knobs.&lt;group&gt;]</code> table, which
 <a href="#configure-an-image">Configure an image</a> describes: it is
 the one spelling every board reads.</p>
-<h2 id="see-also-30"><a class="header" href="#see-also-30">See also</a></h2>
+<h2 id="see-also-31"><a class="header" href="#see-also-31">See also</a></h2>
 <ul>
 <li><a href="#build-profiles">Build profiles</a>: what each profile
 means, and the default per board.</li>
@@ -22754,7 +23043,7 @@ rclcpp’s documentation is at the same name: <code>rclcpp/node.hpp</code>,
 page documents the freestanding surface first; members that exist only on a
 hosted build say <code>NROS_CPP_STD</code>. The pages under <code>rclcpp/detail/</code> are
 internal and may change without notice.</p>
-<h2 id="see-also-31"><a class="header" href="#see-also-31">See also</a></h2>
+<h2 id="see-also-32"><a class="header" href="#see-also-32">See also</a></h2>
 <ul>
 <li><a href="#rclcpp-compatibility">rclcpp compatibility</a>: what a ported rclcpp node
 gets, by the upstream spelling it uses, and the measured ROS 2 examples.</li>
@@ -26241,7 +26530,7 @@ libc required; bare-metal Cortex-A is not in the coverage matrix.</li>
 template is the canonical entry path — see
 <a href="#px4-autopilot-external-module">PX4 Autopilot</a>.</li>
 </ul>
-<h2 id="see-also-32"><a class="header" href="#see-also-32">See also</a></h2>
+<h2 id="see-also-33"><a class="header" href="#see-also-33">See also</a></h2>
 <ul>
 <li><a href="#board-support-levels">Board Support Levels</a> — what each status word
 means.</li>
@@ -27489,7 +27778,7 @@ data: 'Hello World: 3'
 <p>If you see all three of these — talker logging, ROS 2 echo
 output, and matching counter values — interop is verified
 end-to-end.</p>
-<h2 id="see-also-33"><a class="header" href="#see-also-33">See also</a></h2>
+<h2 id="see-also-34"><a class="header" href="#see-also-34">See also</a></h2>
 <ul>
 <li><a href="#install">Install + first build</a> — full setup walkthrough</li>
 <li><a href="#add-a-second-node">Add a second node</a> — the canonical Rust starter</li>
@@ -27700,7 +27989,7 @@ by hand.</p>
 supports. By the end of this page, <code>nros board info</code> resolves your board from
 your own tree, and an image built for it runs. If nano-ros has no platform for
 your RTOS yet, <a href="#add-a-platform">add the platform</a> first.</p>
-<h2 id="before-you-start-34"><a class="header" href="#before-you-start-34">Before you start</a></h2>
+<h2 id="before-you-start-35"><a class="header" href="#before-you-start-35">Before you start</a></h2>
 <ul>
 <li>
 <p>nano-ros is <a href="#install">installed</a>, and you have built and run an
@@ -27727,7 +28016,7 @@ image on one of its own boards.</p>
 </div>
 </li>
 </ul>
-<h2 id="steps-29"><a class="header" href="#steps-29">Steps</a></h2>
+<h2 id="steps-30"><a class="header" href="#steps-30">Steps</a></h2>
 <ol>
 <li>
 <p>Scaffold the board package outside nano-ros:</p>
@@ -27926,7 +28215,7 @@ is derived from those facts and never typed. A board gets a page in this book
 only when it has an emulator twin or a probe track that replays its chapter;
 <a href="#board-support-levels">Board support levels</a> explains each
 word.</p>
-<h2 id="if-it-doesnt-work-59"><a class="header" href="#if-it-doesnt-work-59">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-60"><a class="header" href="#if-it-doesnt-work-60">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>has no sibling package.xml announcing a board</code>.</strong> The descriptor has no
 announcement beside it. Write the <code>package.xml</code> the error prints, naming the
@@ -27941,7 +28230,7 @@ call, so move it above.</li>
 outside a nano-ros source tree without <code>--workspace</code>. Pass
 <code>--workspace "$(nros locate nano-ros)"</code>.</li>
 </ul>
-<h2 id="see-also-34"><a class="header" href="#see-also-34">See also</a></h2>
+<h2 id="see-also-35"><a class="header" href="#see-also-35">See also</a></h2>
 <ul>
 <li><a href="#add-a-platform">Add a platform</a>, for an RTOS nano-ros has no platform
 for.</li>
@@ -27981,7 +28270,7 @@ platform, and an image runs on it.</p>
 <p>Today a platform is registered inside nano-ros itself, so the last part of
 this task is a contribution to nano-ros, not a package you keep on your own.
 Step 5 says what that contribution touches.</p>
-<h2 id="before-you-start-35"><a class="header" href="#before-you-start-35">Before you start</a></h2>
+<h2 id="before-you-start-36"><a class="header" href="#before-you-start-36">Before you start</a></h2>
 <ul>
 <li>Check that you need a platform. If your RTOS is one nano-ros supports
 (FreeRTOS, Zephyr, NuttX, ThreadX, bare metal, POSIX), you need a board
@@ -27998,7 +28287,7 @@ functions.</li>
 <a href="#platform-and-rmw-apis">Platform API and C ABI</a> reference links
 their rendered documentation.</li>
 </ul>
-<h2 id="steps-30"><a class="header" href="#steps-30">Steps</a></h2>
+<h2 id="steps-31"><a class="header" href="#steps-31">Steps</a></h2>
 <ol>
 <li>
 <p>Scaffold the platform package:</p>
@@ -28135,7 +28424,7 @@ is the reference C port. The FreeRTOS port,
 shows tasks, recursive mutexes and condition variables on an RTOS, and
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/platform/nros-platform-mps2-an385"><code>nros-platform-mps2-an385</code></a>
 is a Rust port for bare metal.</p>
-<h2 id="if-it-doesnt-work-60"><a class="header" href="#if-it-doesnt-work-60">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-61"><a class="header" href="#if-it-doesnt-work-61">If it doesn’t work</a></h2>
 <ul>
 <li><strong>Timeouts never fire, or fire all at once.</strong> The clock advances only when
 something polls it. Read a free-running hardware timer.</li>
@@ -28155,7 +28444,7 @@ sleeps.</li>
 </ul>
 <p>Internals keeps the longer list of lessons from the in-tree ports:
 <a href="internals/platform/porting-pitfalls.html">Platform porting pitfalls</a>.</p>
-<h2 id="see-also-35"><a class="header" href="#see-also-35">See also</a></h2>
+<h2 id="see-also-36"><a class="header" href="#see-also-36">See also</a></h2>
 <ul>
 <li><a href="#platform-and-rmw-apis">Platform API and C ABI</a>: the headers, the
 capability groups and the ports to copy.</li>
@@ -28193,7 +28482,7 @@ RMW session runs over your link.</p>
 <p>This is nano-ros’s counterpart of micro-ROS’s
 <code>rmw_uros_set_custom_transport</code>. When a link nano-ros builds in (Ethernet,
 serial, WiFi) fits, use that instead: a built-in link is smaller.</p>
-<h2 id="before-you-start-36"><a class="header" href="#before-you-start-36">Before you start</a></h2>
+<h2 id="before-you-start-37"><a class="header" href="#before-you-start-37">Before you start</a></h2>
 <ul>
 <li>You have an image that builds and runs on its board, and the RMW is
 zenoh-pico or XRCE-DDS. Cyclone DDS binds the platform’s socket stack and
@@ -28201,7 +28490,7 @@ does not use this hook.</li>
 <li>You have a driver for your link with an open, a close, a blocking write and
 a read that takes a timeout.</li>
 </ul>
-<h2 id="steps-31"><a class="header" href="#steps-31">Steps</a></h2>
+<h2 id="steps-32"><a class="header" href="#steps-32">Steps</a></h2>
 <h3 id="1-write-the-four-callbacks"><a class="header" href="#1-write-the-four-callbacks">1. Write the four callbacks</a></h3>
 <p>Each callback takes the <code>user_data</code> pointer you register, so per-link state
 travels through it:</p>
@@ -28367,7 +28656,7 @@ unless all four callbacks ran, is
 On a board, the Rust workspace’s
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/examples/workspaces/rust/src/pubsub_bringup/system.toml"><code>baremetal_talker_xrce_serial</code> image</a>
 runs XRCE-DDS over the mps2-an385 UART through <code>locator = "custom://uart"</code>.</p>
-<h2 id="if-it-doesnt-work-61"><a class="header" href="#if-it-doesnt-work-61">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-62"><a class="header" href="#if-it-doesnt-work-62">If it doesn’t work</a></h2>
 <ul>
 <li><strong>The session never opens, and <code>open</code> never ran.</strong> The transport was
 registered after the session opened, or zenoh-pico’s custom link is not in
@@ -28387,7 +28676,7 @@ zenoh-pico reads in its own task while your application writes. A transport
 that holds one lock across a blocking <code>read</code> starves <code>write</code>. Keep the two
 directions independent, as a full-duplex UART or a TCP stream is.</li>
 </ul>
-<h2 id="see-also-36"><a class="header" href="#see-also-36">See also</a></h2>
+<h2 id="see-also-37"><a class="header" href="#see-also-37">See also</a></h2>
 <ul>
 <li><a href="api/rust/nros_rmw/index.html"><code>nros_rmw::custom_transport</code></a>, the
 callbacks’ contract, in the Rust API reference.</li>
@@ -28486,7 +28775,7 @@ so nothing in nano-ros changes. By the end of this page an image selects
 your backend by name and publishes through it.</p>
 <p>If the protocol is zenoh or XRCE-DDS and only the wire is new,
 <a href="#add-a-transport">add a transport</a> instead: four functions, not a backend.</p>
-<h2 id="before-you-start-37"><a class="header" href="#before-you-start-37">Before you start</a></h2>
+<h2 id="before-you-start-38"><a class="header" href="#before-you-start-38">Before you start</a></h2>
 <ul>
 <li>You know how nano-ros’s RMW layer differs from ROS 2’s: the caller owns
 the I/O buffers, one call drives I/O instead of wait sets, and the backend
@@ -28500,7 +28789,7 @@ calls the backend through that one C table.</li>
 <a href="#install">installed</a>, and ROS 2 Humble (on Jazzy, replace
 <code>humble</code> in each command).</li>
 </ul>
-<h2 id="steps-32"><a class="header" href="#steps-32">Steps</a></h2>
+<h2 id="steps-33"><a class="header" href="#steps-33">Steps</a></h2>
 <ol>
 <li>
 <p>Implement the session and its four entity kinds. In Rust, these are the
@@ -28810,7 +29099,7 @@ returns the session.</p>
 a small Rust backend registered through <code>RustBackendAdapter</code>, and
 <a href="https://github.com/NEWSLabNTU/nano-ros/tree/main/packages/rmw/uorb/nros-rmw-uorb"><code>nros-rmw-uorb</code></a>,
 a C++ backend with its <code>package.xml</code> and <code>nros-rmw.toml</code>.</p>
-<h2 id="if-it-doesnt-work-62"><a class="header" href="#if-it-doesnt-work-62">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-63"><a class="header" href="#if-it-doesnt-work-63">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>no package provides rmw </code>myproto``</strong>, from <code>nros build</code>. No
 <code>package.xml</code> announces that name. Check the spelling on both sides against
@@ -28830,7 +29119,7 @@ executor never reaches <code>drive_io</code>.</li>
 <li><strong><code>ros2 topic list</code> does not show your endpoints.</strong> The backend emits no
 discovery traffic; see “What ROS 2 tools expect”.</li>
 </ul>
-<h2 id="see-also-37"><a class="header" href="#see-also-37">See also</a></h2>
+<h2 id="see-also-38"><a class="header" href="#see-also-38">See also</a></h2>
 <ul>
 <li><a href="#the-rmw-api">RMW API</a>: the C table and the backends in the tree.</li>
 <li><a href="internals/rmw/rmw-vs-upstream.html">Internals → RMW API vs upstream</a>:
@@ -28860,7 +29149,7 @@ generator your team runs on every workspace. Both are ordinary packages in
 your workspace, built for the host by <code>nros build</code>, with no change to
 nano-ros. By the end of this page, <code>nros run</code> drives your runner, or
 <code>nros &lt;verb&gt;</code> runs your command.</p>
-<h2 id="before-you-start-38"><a class="header" href="#before-you-start-38">Before you start</a></h2>
+<h2 id="before-you-start-39"><a class="header" href="#before-you-start-39">Before you start</a></h2>
 <ul>
 <li>You have a workspace with a <code>src/</code> directory that <code>nros build</code> builds.</li>
 <li>The Rust scaffolds build with the host’s Rust toolchain. A C++ package
@@ -28968,7 +29257,7 @@ bindings from a PX4 message tree (<a href="#px4-autopilot-external-module">PX4</
 router configuration a bringup’s router runs
 (<a href="#configure-zenoh">Configure zenoh</a>).</li>
 </ul>
-<h2 id="if-it-doesnt-work-63"><a class="header" href="#if-it-doesnt-work-63">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-64"><a class="header" href="#if-it-doesnt-work-64">If it doesn’t work</a></h2>
 <ul>
 <li><strong><code>nros my_cmd</code> reports that the command is not built.</strong> The package is
 announced but its binary is missing. Run
@@ -28980,7 +29269,7 @@ runner’s <code>nros-runner.toml</code> does not list the verb (<code>run</code
 <li><strong>The runner fails on a missing artifact.</strong> The plan carries only what
 <code>needs</code> lists. Add the artifact (<code>elf</code>, <code>bin</code>, <code>hex</code>, …) to <code>needs</code>.</li>
 </ul>
-<h2 id="see-also-38"><a class="header" href="#see-also-38">See also</a></h2>
+<h2 id="see-also-39"><a class="header" href="#see-also-39">See also</a></h2>
 <ul>
 <li><a href="#nros-cli-reference">CLI reference</a>: every built-in verb, so you can pick a
 name that does not collide.</li>
@@ -29009,7 +29298,7 @@ board. Each section below is one such change: what was removed, what replaces
 it, and the edit that moves your project over. A single renamed variable,
 board or command needs no page: nano-ros refuses the old name and the
 refusal names what to write instead.</p>
-<h2 id="before-you-start-39"><a class="header" href="#before-you-start-39">Before you start</a></h2>
+<h2 id="before-you-start-40"><a class="header" href="#before-you-start-40">Before you start</a></h2>
 <ul>
 <li>Install the current release (<a href="#install">Install</a>), and keep the
 old project’s build directory out of the way: a cache an older release wrote
@@ -29126,7 +29415,7 @@ GitHub. Newest first:</p>
 <li><a href="#060-nros11">0.6.0-nros11</a></li>
 <li><a href="#060-nros10">0.6.0-nros10</a></li>
 </ul>
-<h2 id="if-it-doesnt-work-64"><a class="header" href="#if-it-doesnt-work-64">If it doesn’t work</a></h2>
+<h2 id="if-it-doesnt-work-65"><a class="header" href="#if-it-doesnt-work-65">If it doesn’t work</a></h2>
 <ul>
 <li><strong>The configure stops on a <code>NANO_ROS_*</code> variable.</strong> The variable is retired,
 or an older release wrote it into the build directory’s cache. The error
@@ -29134,7 +29423,7 @@ prints the <code>cmake -U …</code> line that drops it and the name to write in
 <li><strong><code>find_package(NanoRos)</code> fails.</strong> That package no longer exists. Follow
 <a href="#move-off-the-install-local-prefix">Move off the install-local prefix</a>.</li>
 </ul>
-<h2 id="see-also-39"><a class="header" href="#see-also-39">See also</a></h2>
+<h2 id="see-also-40"><a class="header" href="#see-also-40">See also</a></h2>
 <ul>
 <li><a href="#install-options-pinning-working-offline">Install options, pinning, working offline</a>:
 pinning a project to a release.</li>
