@@ -1,6 +1,7 @@
 var log_8h =
 [
     [ "NROS_LOG_FMT_BUFFER_SIZE", "log_8h.html#aa0f05658353580b0c6ed345bd7d0dc17", null ],
+    [ "RCLC_LOG_COMPILED_OUT_", "log_8h.html#aa48b2b3204dffb2b1d76bf767f28a754", null ],
     [ "RCLC_LOG_DEBUG", "log_8h.html#a3e70f2ab0d1c3e40deb4a4ab17325d3c", null ],
     [ "RCLC_LOG_DEBUG_THROTTLE", "log_8h.html#ad85507b303469f33be34089a8d1d97be", null ],
     [ "RCLC_LOG_ERROR", "log_8h.html#a8c890cc8f25d2e8d22ca9c94e3e2ed76", null ],
@@ -9,6 +10,14 @@ var log_8h =
     [ "RCLC_LOG_FATAL_THROTTLE", "log_8h.html#a8cc95c006414e652cbe92baf604b4e75", null ],
     [ "RCLC_LOG_INFO", "log_8h.html#abebd7a7b3dbb5353696a660d98bb6831", null ],
     [ "RCLC_LOG_INFO_THROTTLE", "log_8h.html#a961a9237b308cd11361f67045f422c4d", null ],
+    [ "RCLC_LOG_MIN_SEVERITY", "log_8h.html#a3715463de93f7b5dd0dff517513d3108", null ],
+    [ "RCLC_LOG_MIN_SEVERITY_DEBUG", "log_8h.html#ad6f003f89e81323cc6323bd52991d9c3", null ],
+    [ "RCLC_LOG_MIN_SEVERITY_ERROR", "log_8h.html#ad8c7561c49024afc9b8ee3f50e95295f", null ],
+    [ "RCLC_LOG_MIN_SEVERITY_FATAL", "log_8h.html#a27e0965c20bf6ac557e08fb001f19af4", null ],
+    [ "RCLC_LOG_MIN_SEVERITY_INFO", "log_8h.html#ab31313b6178085aa39cb1a49af6be9b0", null ],
+    [ "RCLC_LOG_MIN_SEVERITY_NONE", "log_8h.html#a10d81489eaefa404b2a7b9031af1c510", null ],
+    [ "RCLC_LOG_MIN_SEVERITY_TRACE", "log_8h.html#a10af65ccd2f640af7228364b77aea405", null ],
+    [ "RCLC_LOG_MIN_SEVERITY_WARN", "log_8h.html#a304f65d91cbe7c574821549bed008ef2", null ],
     [ "RCLC_LOG_THROTTLE_AT", "log_8h.html#adef1ed1c58678bc9a8ad441c8aa22faf", null ],
     [ "RCLC_LOG_TRACE", "log_8h.html#a7ffc44f214579a9c37f8293abb01147b", null ],
     [ "RCLC_LOG_TRACE_THROTTLE", "log_8h.html#aa72eb67a1565262ef790fa24620d0bfb", null ],
