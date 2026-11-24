@@ -37,7 +37,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-55c789d0.js";
+            window.path_to_searchindex_js = "searchindex-fd0fb1d7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-2a172ab5.js"></script>
@@ -6717,7 +6717,7 @@ exactly that system, if you tell it what the nodes create.</p>
 <h2 id="next-20"><a class="header" href="#next-20">Next</a></h2>
 <ul>
 <li><a href="#tell-the-build-what-your-system-creates">Tell the build what your system creates</a>: the
-contract beside this launch file, and the static memory it saves.</li>
+contract beside this launch file, and what it sizes in the image.</li>
 <li><a href="#use-simulated-time">Use simulated time</a>: the
 <code>use_sim_time</code> parameter and a clock from ROS 2.</li>
 <li><a href="#organize-a-larger-workspace">Organize a larger workspace</a>:
@@ -6814,11 +6814,12 @@ them is set aside when the image is built, so the build must size it before
 any node has run. Until now it has not known what the nodes create, so it
 sized every pool for a generous default. In this chapter you write the
 <strong>contract</strong>: a file beside the launch file that states what the system
-creates. You measure the image’s static RAM before and after, and watch it
-fall by more than 200 KB:</p>
-<pre><code class="language-text">   text    data     bss     dec     hex filename
-1029108    7624 1240176 2276908  22be2c .../freertos_entry      (before)
-1028636    5992 1022448 2057076  1f6374 .../freertos_entry      (after)
+creates. You measure the image’s static RAM before and after, and see what
+the contract decides that the build could not guess, such as how many
+samples a subscription keeps:</p>
+<pre><code class="language-text"> text    data     bss     dec     hex filename
+646932   12648 1331684 1991264  1e6260 .../freertos_entry      (before)
+651004   10872 1334020 1995896  1e7478 .../freertos_entry      (after)
 </code></pre>
 <p>Then you break the contract on purpose and read the refusal, which shows
 what the build does when a statement and the system disagree.</p>
@@ -6869,21 +6870,21 @@ trimmed):</p>
 
 </div>
 
-<pre><code class="language-text">   text    data     bss     dec     hex filename
-1029108    7624 1240176 2276908  22be2c build/freertos-zenoh/freertos_entry/target/thumbv7m-none-eabi/release/freertos_entry
+<pre><code class="language-text"> text    data     bss     dec     hex filename
+646932   12648 1331684 1991264  1e6260 build/freertos-zenoh/freertos_entry/target/thumbv7m-none-eabi/release/freertos_entry
 </code></pre>
 <p>Those are the numbers of a Rust project; a C or C++ project’s differ.
 <code>text</code> is flash: the code and its constants. <code>data</code> and <code>bss</code> are RAM that
 exists from the moment the board boots, <code>data</code> with initial values and <code>bss</code>
-zeroed. This image claims 1,240,176 bytes of zeroed RAM before its first
-instruction. FreeRTOS’s heap is 720,896 bytes of it, which the board sizes;
-this chapter shrinks the part nano-ros sizes.
-The build is a debug build, so <code>text</code> is large; <code>bss</code> is not affected by
-optimization.</p>
+zeroed. This image claims 1,331,684 bytes of zeroed RAM before its first
+instruction. FreeRTOS’s heap is 966,656 bytes of it; the rest is what
+nano-ros sizes.</p>
 <p>Where does it go? Each node’s slots, the executor’s storage for every
 callback, the middleware’s sessions and receive buffers, and a parameter
-store, each sized for the most the system might create: up to 32 parameters,
-four samples per subscription, and so on. The build warned about some of it
+store. The parameter store is sized from the parameters the code declares.
+The rest is sized for the most the system might create: four samples per
+subscription, a copy of each topic’s last sample kept for late joiners, and
+so on. The build warned about some of it
 on every run, in lines like this one:</p>
 <pre><code class="language-text">warning: nros-rmw-zenoh@0.6.0: the parameter family's requests are not priced: the image declares no `params:`. Its inbox slot keeps 1024 B; a larger `set_parameters` is dropped with no reply. Declaring the parameters in the contract derives it ...
 </code></pre>
@@ -7018,17 +7019,17 @@ the contract is yours to keep right until a census checks it.</p>
 
 </div>
 
-<pre><code class="language-text">   text    data     bss     dec     hex filename
-1028636    5992 1022448 2057076  1f6374 build/freertos-zenoh/freertos_entry/target/thumbv7m-none-eabi/release/freertos_entry
+<pre><code class="language-text"> text    data     bss     dec     hex filename
+651004   10872 1334020 1995896  1e7478 build/freertos-zenoh/freertos_entry/target/thumbv7m-none-eabi/release/freertos_entry
 </code></pre>
-<p>Static RAM fell from 1,240,176 to 1,022,448 bytes of <code>bss</code>, and <code>data</code> from
-7,624 to 5,992: 219,360 bytes, 18 percent of the image’s RAM, from a file of
-about 50 lines. The parameter store is now sized for the one parameter the
-system declares instead of 32, and the middleware’s receive buffers for one
-sample instead of four, with no retention for late joiners. The FreeRTOS
-heap did not change.</p>
+<p>The totals barely moved: <code>data</code> fell by 1,776 bytes and <code>bss</code> grew by
+2,336. What changed is what the image keeps. <code>/sensor/reading</code>’s receive
+buffers hold one sample instead of four, and no copy is kept for late
+joiners, because the contract says so. The parameter store was already
+sized from the code, contract or not. On a C or C++ image <code>bss</code> grows by more
+today, because the build reserves executor capacity the image does not use.</p>
 <h2 id="run-it-4"><a class="header" href="#run-it-4">Run it</a></h2>
-<p>The image runs as before, with less RAM:</p>
+<p>The image runs as before:</p>
 <pre><code class="language-bash probe=840 probe-run=900 track=installed variant=qemu">source /opt/ros/humble/setup.bash
 nros run
 </code></pre>
@@ -8036,8 +8037,8 @@ listener’s in chapter 3:</p>
           durability: volatile
 </code></pre>
 <p>A contract row states what a node creates and with which QoS. The build
-sizes the image from it (<a href="#tell-the-build-what-your-system-creates">chapter 8</a> shows how much that
-saves), and, which is this lab’s subject, checks it. Both rows say <code>volatile</code>, which is what the scaffolded code
+sizes the image from it (<a href="#tell-the-build-what-your-system-creates">chapter 8</a> shows what that
+changes), and, which is this lab’s subject, checks it. Both rows say <code>volatile</code>, which is what the scaffolded code
 asks for, so the two checks have nothing to say yet. Every node has a
 <code>params:</code> line, even an empty one: the build sizes the parameter store from
 every node’s declaration or from none, and a contract that states some nodes
@@ -16926,6 +16927,32 @@ logs an error and emits nothing. The id is never moved onto another one.</p>
 </tbody>
 </table>
 </div>
+<h3 id="a-zephyr-tracing-backend-of-your-own"><a class="header" href="#a-zephyr-tracing-backend-of-your-own">A Zephyr tracing backend of your own</a></h3>
+<p>Zephyr writes the CTF stream through one backend. To keep it in a recorder of
+your own, such as an overwrite-oldest RAM ring, register the backend in your
+application and select it by name. <code>nros setup board</code> adds the two Kconfig
+symbols that select it, on Zephyr 3.7 and 4.4; stock Zephyr has no way to
+select an out-of-tree backend.</p>
+<pre><code class="language-c">#include &lt;tracing_backend.h&gt;
+
+static void ring_init(void) { /* ... */ }
+static void ring_output(const struct tracing_backend *backend,
+                        uint8_t *data, uint32_t length) { /* ... */ }
+
+static const struct tracing_backend_api ring_api = {
+        .init = ring_init,
+        .output = ring_output,
+};
+TRACING_BACKEND_DEFINE(my_trace_ring, ring_api);
+</code></pre>
+<pre><code class="language-text">CONFIG_TRACING=y
+CONFIG_TRACING_CTF=y
+CONFIG_TRACING_SYNC=y
+CONFIG_TRACING_BACKEND_CUSTOM=y
+CONFIG_TRACING_BACKEND_CUSTOM_NAME="my_trace_ring"
+</code></pre>
+<p>The name is the first argument of <code>TRACING_BACKEND_DEFINE()</code>. No in-tree
+backend is built.</p>
 <h2 id="if-it-doesnt-work-52"><a class="header" href="#if-it-doesnt-work-52">If it doesn’t work</a></h2>
 <ul>
 <li><strong>No events at all.</strong> The image was built without <code>trace-callbacks</code>, or no
@@ -16934,6 +16961,9 @@ sink is installed. <code>rclc_trace_marker</code> returns <code>RCL_RET_OK</code
 the executor registered its callbacks; install it first.</li>
 <li><strong><code>rclc_trace_marker</code> returns <code>RCL_RET_INVALID_ARGUMENT</code>.</strong> The id is
 outside 1 to 15. Ids from 16 up belong to the executor.</li>
+<li><strong>Zephyr: <code>CONFIG_TRACING_BACKEND_CUSTOM</code> is an undefined symbol.</strong> The
+workspace was provisioned before nano-ros carried the patch. Re-run
+<code>nros setup board &lt;board&gt;</code>.</li>
 </ul>
 <h2 id="see-also-22"><a class="header" href="#see-also-22">See also</a></h2>
 <ul>
