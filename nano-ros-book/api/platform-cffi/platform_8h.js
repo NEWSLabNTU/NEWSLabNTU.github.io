@@ -50,6 +50,7 @@ var platform_8h =
     [ "nros_platform_condvar_wait_until", "platform_8h.html#a38f5867d8d422e46f573f2ae24a85d1e", null ],
     [ "nros_platform_critical_section_acquire", "platform_8h.html#aa7299aa2fc6dbda1d017cee6a23223fa", null ],
     [ "nros_platform_critical_section_release", "platform_8h.html#a1c9474e1352a8d7dd9f3bc84899cc1d5", null ],
+    [ "nros_platform_current_task_id", "platform_8h.html#a02f6cbc39265ad13901f8955cc122cb0", null ],
     [ "nros_platform_dealloc", "platform_8h.html#a5cd42d7e6825b72204b9f1124fe61f3a", null ],
     [ "nros_platform_epoch_us", "platform_8h.html#a31143e6b97bcc3abe720671037dc99a6", null ],
     [ "nros_platform_free", "platform_8h.html#aa85c0d04e1b2027a06343626195195e0", null ],
