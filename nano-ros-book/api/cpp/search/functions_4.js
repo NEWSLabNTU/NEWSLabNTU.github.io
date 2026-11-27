@@ -8,6 +8,6 @@ var searchData=
   ['error_5fcode_5',['error_code',['../classrclcpp_1_1Node.html#a7ad80ac3d41fe9a38e2e8a29f6f44a6b',1,'rclcpp::Node']]],
   ['error_5fwhat_6',['error_what',['../classrclcpp_1_1Node.html#a2189b54d750596d3584b599026f56341',1,'rclcpp::Node']]],
   ['execute_7',['execute',['../classrclcpp__action_1_1Server.html#afde6a9b5c19e89a89721de5f6290e97d',1,'rclcpp_action::Server::execute(const uint8_t goal_id[16])'],['../classrclcpp__action_1_1Server.html#a90a6b3657cf6d9bda6717eb7d8eda989',1,'rclcpp_action::Server::execute(const ::rclcpp_action::GoalUUID &amp;goal_id)'],['../classrclcpp__action_1_1ServerGoalHandle.html#a93a5d10f95d8dd1f23e581547cd442bf',1,'rclcpp_action::ServerGoalHandle::execute()']]],
-  ['executor_8',['Executor',['../classrclcpp_1_1Executor.html#a658d4d2345ef02d3daf998cdd1f53c44',1,'rclcpp::Executor::Executor()'],['../classrclcpp_1_1Executor.html#a2acf21e2cd38a230f6b19d70ffcbdf1f',1,'rclcpp::Executor::Executor(Executor &amp;&amp;other)']]],
+  ['executor_8',['Executor',['../classrclcpp_1_1Executor.html#a658d4d2345ef02d3daf998cdd1f53c44',1,'rclcpp::Executor::Executor()'],['../classrclcpp_1_1Executor.html#abac6fbc39efd7d0c2900f214f3743c77',1,'rclcpp::Executor::Executor(Executor &amp;&amp;)=delete']]],
   ['executor_5fhandle_9',['executor_handle',['../classrclcpp_1_1Context.html#ac506765919428307fd60c72b43063bcb',1,'rclcpp::Context::executor_handle()'],['../classrclcpp_1_1Node.html#a64d56273a2c7db9154ecf42d832aadef',1,'rclcpp::Node::executor_handle()']]]
 ];
