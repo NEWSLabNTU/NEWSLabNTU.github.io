@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["NameRule"],"fn":["apply","install","renames_node","replaces_namespace","resolve"],"struct":["Resolved"]};
